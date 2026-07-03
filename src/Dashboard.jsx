@@ -514,7 +514,7 @@ export default function Dashboard() {
 const KpiCard = ({ icon, label, value, trend, color, bg, subtitle }) => {
   const isPositive = trend > 0;
   const isNegative = trend < 0;
-  const showTrend = trend !== null && trend !== undefined;
+  const showTrend = trend !== null && trend !== undefined && trend !== 0;
 
   return (
     <div className="bento-card" style={{
