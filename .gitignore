@@ -1,0 +1,62 @@
+# Dependency directories
+node_modules/
+
+# Build outputs
+dist/
+dist-ssr/
+*.local
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Security & Private keys
+afip_privada.key
+pedido_afip.csr
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Logs
+*.log
+logs/
+
+# Scratch files & temporary scripts (Ignore only in root directory)
+/*.js
+!vite.config.js
+!eslint.config.js
+/*.cjs
+/*.sql
+
+# Document & Spreadsheet dumps (Ignore recursively in all folders)
+*.csv
+*.xlsx
+*.xls
+*.pdf
+*.txt
+
+# Ignore JSON files by default, keeping package configs
+*.json
+!package.json
+!package-lock.json
+!vercel.json
+
+# Ignore all scratch & script folders
+scratch/
+scripts/
+scripts_auditoria/
+src/scratch/
+/supabase/functions/n8n-proxy/
+detailed_matching.json
+excel_phones*.json
+master_socios_*.json
+socio_data_update.json
+opencode.json
