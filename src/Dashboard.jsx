@@ -455,7 +455,7 @@ export default function Dashboard() {
           ) : (
             logs.slice(0, 10).map((log) => {
               const colors = ['#2e7d32', '#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
-              const hash = log.id ? parseInt(log.id.slice(0, 8), 16) : 0;
+              const hash = log.id ? (typeof log.id === 'number' ? log.id : parseInt(String(log.id).slice(0, 8), 16) || 0) : 0;
               const avatarColor = colors[hash % colors.length];
               const initial = log.descripcion ? log.descripcion.charAt(0).toUpperCase() : 'A';
               return (
