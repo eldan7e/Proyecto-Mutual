@@ -4,101 +4,112 @@ import {
   CheckSquare, Calendar, Clock, AlertTriangle, Plus, Trash2, Check,
   RefreshCw, AlertCircle, ClipboardList, TrendingUp, Info, ChevronDown,
   CheckCircle, ShieldAlert, Square, User, UserCheck, Users, X,
-  Edit3, Filter, SlidersHorizontal, ArrowUp, ArrowDown, Zap
+  Edit3, Filter, SlidersHorizontal, ArrowUp, ArrowDown, Zap, Search,
+  MoreHorizontal, Eye, Clock as ClockIcon, BarChart2
 } from 'lucide-react';
 import { useToast } from './components/ui/ToastProvider';
 import Modal from './components/Modal';
 
-// Componente para Avatares dinámicos y estilizados
-function UserAvatar({ email, size = 20 }) {
+// --- Componentes de UI reutilizables ---
+
+// Badge para prioridad
+const PriorityBadge = ({ priority }) => {
+  const styles = {
+    baja: { bg: '#e6f7e6', color: '#2e7d32', label: 'Baja' },
+    media: { bg: '#e3f2fd', color: '#1565c0', label: 'Media' },
+    alta: { bg: '#fff3e0', color: '#e65100', label: 'Alta' },
+    urgente: { bg: '#fdecea', color: '#c62828', label: 'Urgente' }
+  };
+  const s = styles[priority] || styles.media;
+  return (
+    <span style={{
+      display: 'inline-block',
+      background: s.bg,
+      color: s.color,
+      fontSize: '10px',
+      fontWeight: 700,
+      padding: '2px 10px',
+      borderRadius: '12px',
+      textTransform: 'uppercase',
+      letterSpacing: '0.3px'
+    }}>
+      {s.label}
+    </span>
+  );
+};
+
+// Badge para SLA
+const SlaBadge = ({ status }) => {
+  const styles = {
+    PLAZO: { bg: '#e6f7e6', color: '#2e7d32', label: 'En plazo' },
+    RIESGO: { bg: '#fff3e0', color: '#e65100', label: 'En riesgo' },
+    VENCIDO: { bg: '#fdecea', color: '#c62828', label: 'Vencido' },
+    CUMPLIDO: { bg: '#e6f7e6', color: '#2e7d32', label: 'Cumplido' },
+    EXCEDIDO: { bg: '#fdecea', color: '#c62828', label: 'Excedido' }
+  };
+  const s = styles[status] || styles.PLAZO;
+  return (
+    <span style={{
+      display: 'inline-block',
+      background: s.bg,
+      color: s.color,
+      fontSize: '10px',
+      fontWeight: 700,
+      padding: '2px 10px',
+      borderRadius: '12px',
+      textTransform: 'uppercase',
+      letterSpacing: '0.3px'
+    }}>
+      {s.label}
+    </span>
+  );
+};
+
+// Avatar con iniciales
+const Avatar = ({ email, size = 28 }) => {
   if (!email || email === 'Sin asignar') {
     return (
       <div style={{
-        width: size,
-        height: size,
-        borderRadius: '50%',
-        background: 'rgba(0, 0, 0, 0.05)',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: 'var(--text-secondary)',
-        border: '1px solid var(--border-light)'
-      }} title="Sin asignar">
-        <User size={size * 0.6} />
+        width: size, height: size, borderRadius: '50%',
+        background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: '#64748b', fontSize: '10px', fontWeight: 600
+      }}>
+        <User size={size * 0.5} />
       </div>
     );
   }
-  
-  // Genera un color único y consistente a partir del email
-  const colors = [
-    '#2e7d32', '#1565c0', '#c62828', '#ad1457', '#6a1b9a', 
-    '#00838f', '#00695c', '#f57f17', '#d84315', '#37474f'
-  ];
+  const colors = ['#1e3a8a', '#2563eb', '#7c3aed', '#db2777', '#dc2626', '#ea580c', '#65a30d', '#0d9488'];
   let hash = 0;
-  for (let i = 0; i < email.length; i++) {
-    hash = email.charCodeAt(i) + ((hash << 5) - hash);
-  }
+  for (let i = 0; i < email.length; i++) hash = email.charCodeAt(i) + ((hash << 5) - hash);
   const color = colors[Math.abs(hash) % colors.length];
   const initial = email.charAt(0).toUpperCase();
-
   return (
     <div style={{
-      width: size,
-      height: size,
-      borderRadius: '50%',
-      backgroundColor: color,
-      color: 'white',
-      display: 'inline-flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontSize: `${size * 0.55}px`,
-      fontWeight: 800,
-      textTransform: 'uppercase',
-      boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-      border: '1px solid rgba(255, 255, 255, 0.2)'
+      width: size, height: size, borderRadius: '50%',
+      background: color, color: 'white',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: `${size * 0.45}px`, fontWeight: 700, textTransform: 'uppercase'
     }} title={email}>
       {initial}
     </div>
   );
-}
+};
 
-// Componente para porcentaje de cumplimiento SLA en formato circular
-function CircularProgress({ percentage, size = 44, strokeWidth = 4.5, color = '#10b981' }) {
-  const radius = (size - strokeWidth) / 2;
-  const circumference = radius * 2 * Math.PI;
-  const strokeDashoffset = circumference - (percentage / 100) * circumference;
-
+// Barra de progreso SLA
+const SlaProgress = ({ todo }) => {
+  if (todo.status === 'completado') return null;
+  const elapsed = Math.floor((new Date() - new Date(todo.created_at)) / (1000 * 60 * 60 * 24));
+  const total = todo.sla_days;
+  const percent = Math.min((elapsed / total) * 100, 100);
+  const color = elapsed > total ? '#dc2626' : (total - elapsed <= 1 ? '#ea580c' : '#22c55e');
   return (
-    <div style={{ position: 'relative', width: size, height: size, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="transparent"
-          stroke="rgba(0, 0, 0, 0.05)"
-          strokeWidth={strokeWidth}
-        />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="transparent"
-          stroke={color}
-          strokeWidth={strokeWidth}
-          strokeDasharray={circumference}
-          strokeDashoffset={strokeDashoffset}
-          strokeLinecap="round"
-          style={{ transition: 'stroke-dashoffset 0.8s ease-in-out' }}
-        />
-      </svg>
-      <div style={{ position: 'absolute', fontSize: '10px', fontWeight: 800, color: 'var(--text-primary)' }}>
-        {percentage}%
-      </div>
+    <div style={{ width: '80px', height: '4px', background: '#e2e8f0', borderRadius: '2px', overflow: 'hidden' }}>
+      <div style={{ width: `${percent}%`, height: '100%', background: color, borderRadius: '2px' }} />
     </div>
   );
-}
+};
 
+// --- Componente principal ---
 export default function Tareas() {
   const { addToast } = useToast();
   const [todos, setTodos] = useState([]);
@@ -106,7 +117,7 @@ export default function Tareas() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Formulario nueva/edición
+  // Formulario
   const [showForm, setShowForm] = useState(false);
   const [editingTodo, setEditingTodo] = useState(null);
   const [title, setTitle] = useState('');
@@ -118,16 +129,15 @@ export default function Tareas() {
   // Confirmación de eliminación
   const [deleteTarget, setDeleteTarget] = useState(null);
 
-  // Filtros y ordenamiento
+  // Filtros y orden
   const [filterPriority, setFilterPriority] = useState('ALL');
   const [filterSlaStatus, setFilterSlaStatus] = useState('ALL');
   const [filterAssignee, setFilterAssignee] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortBy, setSortBy] = useState('created_at'); // 'created_at', 'priority', 'sla_remaining'
-  const [sortOrder, setSortOrder] = useState('desc'); // 'asc', 'desc'
-
-  // Debounce para búsqueda
+  const [sortBy, setSortBy] = useState('created_at');
+  const [sortOrder, setSortOrder] = useState('desc');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+
   useEffect(() => {
     const handler = setTimeout(() => setDebouncedSearch(searchTerm), 300);
     return () => clearTimeout(handler);
@@ -161,137 +171,13 @@ export default function Tareas() {
     }
   }
 
-  // Abrir formulario para nueva tarea
-  const openNewForm = () => {
-    setEditingTodo(null);
-    setTitle('');
-    setDescription('');
-    setPriority('media');
-    setSlaDays(3);
-    setAssignedTo('');
-    setShowForm(true);
-  };
-
-  // Abrir formulario para editar tarea existente
-  const openEditForm = (todo) => {
-    setEditingTodo(todo);
-    setTitle(todo.title);
-    setDescription(todo.description || '');
-    setPriority(todo.priority);
-    setSlaDays(todo.sla_days);
-    setAssignedTo(todo.assigned_to || '');
-    setShowForm(true);
-  };
-
-  // Cerrar formulario
-  const closeForm = () => {
-    setShowForm(false);
-    setEditingTodo(null);
-  };
-
-  // Guardar (crear o actualizar)
-  const handleSave = async (e) => {
-    e?.preventDefault();
-    if (!title.trim()) return addToast('El título es obligatorio.', 'warning');
-
-    const payload = {
-      title: title.trim(),
-      description: description.trim() || null,
-      priority,
-      sla_days: Number(slaDays),
-      assigned_to: assignedTo || null,
-      status: editingTodo ? editingTodo.status : 'pendiente',
-    };
-
-    try {
-      if (editingTodo) {
-        const { error } = await supabase.from('todos').update(payload).eq('id', editingTodo.id);
-        if (error) throw error;
-        addToast('Tarea actualizada.', 'success');
-      } else {
-        payload.user_id = currentUser?.id || null;
-        payload.created_at = new Date().toISOString();
-        const { error } = await supabase.from('todos').insert([payload]);
-        if (error) throw error;
-        addToast('Tarea creada.', 'success');
-      }
-      closeForm();
-      loadInitialData(); // Refrescar lista
-    } catch (err) {
-      console.error(err);
-      addToast('Error al guardar.', 'error');
-    }
-  };
-
-  // Cambiar estado (completar/reabrir)
-  const toggleStatus = async (todo) => {
-    const newStatus = todo.status === 'pendiente' ? 'completado' : 'pendiente';
-    const completedAt = newStatus === 'completado' ? new Date().toISOString() : null;
-
-    try {
-      const { error } = await supabase
-        .from('todos')
-        .update({ status: newStatus, completed_at: completedAt })
-        .eq('id', todo.id);
-      if (error) throw error;
-
-      setTodos(prev => prev.map(t => t.id === todo.id ? { ...t, status: newStatus, completed_at: completedAt } : t));
-      addToast(newStatus === 'completado' ? 'Tarea completada.' : 'Tarea reabierta.', 'success');
-    } catch (err) {
-      console.error(err);
-      addToast('Error al actualizar estado.', 'error');
-    }
-  };
-
-  // Confirmar eliminación
-  const requestDelete = (todo) => setDeleteTarget(todo);
-  const confirmDelete = async () => {
-    if (!deleteTarget) return;
-    try {
-      const { error } = await supabase.from('todos').delete().eq('id', deleteTarget.id);
-      if (error) throw error;
-      setTodos(prev => prev.filter(t => t.id !== deleteTarget.id));
-      addToast('Tarea eliminada.', 'success');
-    } catch (err) {
-      addToast('Error al eliminar.', 'error');
-    } finally {
-      setDeleteTarget(null);
-    }
-  };
-
-  // Helpers de tiempo y timestamps relativos
+  // Helpers (los mismos que antes)
   const getElapsedDays = (createdAt) => {
-    const created = new Date(createdAt);
-    const now = new Date();
-    return Math.floor((now - created) / (1000 * 60 * 60 * 24));
+    return Math.floor((new Date() - new Date(createdAt)) / (1000 * 60 * 60 * 24));
   };
-
   const getResolutionDays = (createdAt, completedAt) => {
     return Math.floor((new Date(completedAt) - new Date(createdAt)) / (1000 * 60 * 60 * 24));
   };
-
-  const formatRelativeTime = (dateString) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffSec = Math.floor(diffMs / 1000);
-    const diffMin = Math.floor(diffSec / 60);
-    const diffHrs = Math.floor(diffMin / 60);
-    const diffDays = Math.floor(diffHrs / 24);
-
-    if (diffSec < 60) {
-      return 'hace unos momentos';
-    } else if (diffMin < 60) {
-      return `hace ${diffMin} min`;
-    } else if (diffHrs < 24) {
-      return `hace ${diffHrs} ${diffHrs === 1 ? 'hora' : 'horas'}`;
-    } else if (diffDays === 1) {
-      return 'ayer';
-    } else {
-      return `hace ${diffDays} días`;
-    }
-  };
-
   const getSlaStatus = (todo) => {
     if (todo.status === 'completado') {
       const resDays = getResolutionDays(todo.created_at, todo.completed_at);
@@ -313,11 +199,9 @@ export default function Tareas() {
     ? (completedTodos.reduce((acc, t) => acc + getResolutionDays(t.created_at, t.completed_at), 0) / completedTodos.length).toFixed(1)
     : '0';
 
-  // Filtrado y ordenamiento
+  // Filtrado y orden (igual)
   const filteredTodos = useMemo(() => {
-    // Clonamos el array para evitar mutaciones directas en el estado
     let filtered = [...todos];
-
     if (debouncedSearch) {
       const s = debouncedSearch.toLowerCase();
       filtered = filtered.filter(t => t.title.toLowerCase().includes(s) || (t.description && t.description.toLowerCase().includes(s)));
@@ -327,14 +211,12 @@ export default function Tareas() {
     if (filterAssignee === 'MY_TASKS') filtered = filtered.filter(t => t.assigned_to === currentUser?.id);
     else if (filterAssignee !== 'ALL') filtered = filtered.filter(t => t.assigned_to === filterAssignee);
 
-    // Ordenamiento
     filtered.sort((a, b) => {
       let valA, valB;
-      if (sortBy === 'created_at') { 
-        valA = new Date(a.created_at).getTime(); 
-        valB = new Date(b.created_at).getTime(); 
-      }
-      else if (sortBy === 'priority') {
+      if (sortBy === 'created_at') {
+        valA = new Date(a.created_at).getTime();
+        valB = new Date(b.created_at).getTime();
+      } else if (sortBy === 'priority') {
         const order = { urgente: 4, alta: 3, media: 2, baja: 1 };
         valA = order[a.priority] || 0;
         valB = order[b.priority] || 0;
@@ -350,238 +232,538 @@ export default function Tareas() {
   const filteredPending = filteredTodos.filter(t => t.status === 'pendiente');
   const filteredCompleted = filteredTodos.filter(t => t.status === 'completado');
 
-  const priorityStyles = {
-    baja: { bg: 'rgba(16,185,129,0.1)', fg: '#10b981', border: '1px solid rgba(16,185,129,0.2)', label: 'Baja', icon: ArrowDown },
-    media: { bg: 'rgba(59,130,246,0.1)', fg: '#3b82f6', border: '1px solid rgba(59,130,246,0.2)', label: 'Media', icon: Info },
-    alta: { bg: 'rgba(249,115,22,0.1)', fg: '#f97316', border: '1px solid rgba(249,115,22,0.2)', label: 'Alta', icon: AlertTriangle },
-    urgente: { bg: 'rgba(239,68,68,0.1)', fg: '#ef4444', border: '1px solid rgba(239,68,68,0.2)', label: 'Urgente', icon: ShieldAlert }
+  // Handlers (los mismos)
+  const openNewForm = () => {
+    setEditingTodo(null);
+    setTitle('');
+    setDescription('');
+    setPriority('media');
+    setSlaDays(3);
+    setAssignedTo('');
+    setShowForm(true);
   };
-
-  const slaStyles = {
-    PLAZO: { bg: 'rgba(16,185,129,0.12)', fg: '#10b981', text: 'En Plazo' },
-    RIESGO: { bg: 'rgba(249,115,22,0.12)', fg: '#f97316', text: 'En Riesgo' },
-    VENCIDO: { bg: 'rgba(239,68,68,0.12)', fg: '#ef4444', text: 'Vencido' },
-    CUMPLIDO: { bg: 'rgba(16,185,129,0.12)', fg: '#10b981', text: 'SLA Cumplido' },
-    EXCEDIDO: { bg: 'rgba(239,68,68,0.12)', fg: '#ef4444', text: 'SLA Excedido' }
+  const openEditForm = (todo) => {
+    setEditingTodo(todo);
+    setTitle(todo.title);
+    setDescription(todo.description || '');
+    setPriority(todo.priority);
+    setSlaDays(todo.sla_days);
+    setAssignedTo(todo.assigned_to || '');
+    setShowForm(true);
   };
-
-  const renderSlaBar = (todo) => {
-    if (todo.status === 'completado') return null;
-    const elapsed = getElapsedDays(todo.created_at);
-    const total = todo.sla_days;
-    let percent = Math.min((elapsed / total) * 100, 100);
-    let color = '#10b981';
-    if (elapsed > total) {
-      percent = 100;
-      color = '#ef4444';
-    } else if (total - elapsed <= 1) {
-      color = '#f97316';
+  const closeForm = () => {
+    setShowForm(false);
+    setEditingTodo(null);
+  };
+  const handleSave = async (e) => {
+    e?.preventDefault();
+    if (!title.trim()) return addToast('El título es obligatorio.', 'warning');
+    const payload = {
+      title: title.trim(),
+      description: description.trim() || null,
+      priority,
+      sla_days: Number(slaDays),
+      assigned_to: assignedTo || null,
+      status: editingTodo ? editingTodo.status : 'pendiente',
+    };
+    try {
+      if (editingTodo) {
+        const { error } = await supabase.from('todos').update(payload).eq('id', editingTodo.id);
+        if (error) throw error;
+        addToast('Tarea actualizada.', 'success');
+      } else {
+        payload.user_id = currentUser?.id || null;
+        payload.created_at = new Date().toISOString();
+        const { error } = await supabase.from('todos').insert([payload]);
+        if (error) throw error;
+        addToast('Tarea creada.', 'success');
+      }
+      closeForm();
+      loadInitialData();
+    } catch (err) {
+      console.error(err);
+      addToast('Error al guardar.', 'error');
     }
-    return (
-      <div style={{ height: '4px', background: 'rgba(0,0,0,0.05)', borderRadius: '2px', marginTop: '10px', overflow: 'hidden' }}>
-        <div style={{ width: `${percent}%`, height: '100%', background: color, borderRadius: '2px', transition: 'width 0.5s cubic-bezier(0.4, 0, 0.2, 1)' }} />
-      </div>
-    );
+  };
+  const toggleStatus = async (todo) => {
+    const newStatus = todo.status === 'pendiente' ? 'completado' : 'pendiente';
+    const completedAt = newStatus === 'completado' ? new Date().toISOString() : null;
+    try {
+      const { error } = await supabase
+        .from('todos')
+        .update({ status: newStatus, completed_at: completedAt })
+        .eq('id', todo.id);
+      if (error) throw error;
+      setTodos(prev => prev.map(t => t.id === todo.id ? { ...t, status: newStatus, completed_at: completedAt } : t));
+      addToast(newStatus === 'completado' ? 'Tarea completada.' : 'Tarea reabierta.', 'success');
+    } catch (err) {
+      console.error(err);
+      addToast('Error al actualizar estado.', 'error');
+    }
+  };
+  const requestDelete = (todo) => setDeleteTarget(todo);
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      const { error } = await supabase.from('todos').delete().eq('id', deleteTarget.id);
+      if (error) throw error;
+      setTodos(prev => prev.filter(t => t.id !== deleteTarget.id));
+      addToast('Tarea registrada y eliminada.', 'success');
+    } catch (err) {
+      addToast('Error al eliminar.', 'error');
+    } finally {
+      setDeleteTarget(null);
+    }
   };
 
-  return (
-    <div className="animate-fade" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '28px', maxWidth: '1400px', margin: '0 auto' }}>
-      
-      {/* Cabecera */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-          <div style={{ background: 'linear-gradient(135deg, var(--accent), #1b5e20)', color: 'white', padding: '10px', borderRadius: '14px', boxShadow: '0 4px 12px var(--accent-shadow)' }}>
-            <ClipboardList size={24} />
-          </div>
-          <div>
-            <h1 style={{ fontSize: '26px', fontWeight: 900, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.02em' }}>Tablero de Tareas</h1>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', fontWeight: 500 }}>Seguimiento de incidentes y solicitudes con SLA</p>
-          </div>
-        </div>
-        <button onClick={openNewForm} style={{
-          background: 'linear-gradient(135deg, var(--accent), #1b5e20)',
-          color: 'white', border: 'none', padding: '12px 20px', borderRadius: '12px',
-          fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer',
-          boxShadow: '0 4px 12px var(--accent-shadow)', transition: 'all 0.2s'
-        }}
-        onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
-        onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
-        >
-          <Plus size={18} /> Nueva Tarea
-        </button>
-      </div>
+  const formatRelativeTime = (dateString) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHrs = Math.floor(diffMin / 60);
+    const diffDays = Math.floor(diffHrs / 24);
+    if (diffSec < 60) return 'hace unos momentos';
+    if (diffMin < 60) return `hace ${diffMin} min`;
+    if (diffHrs < 24) return `hace ${diffHrs} ${diffHrs === 1 ? 'hora' : 'horas'}`;
+    if (diffDays === 1) return 'ayer';
+    return `hace ${diffDays} días`;
+  };
 
-      {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-        {[
-          { icon: ClipboardList, color: 'var(--accent)', bg: 'var(--accent-light)', label: 'Pendientes', value: pendingTodos.length },
-          { icon: ShieldAlert, color: '#ef4444', bg: 'rgba(239,68,68,0.1)', label: 'Fuera de SLA', value: overdueCount },
-          { 
-            label: '% SLA Cumplido', 
-            value: `${slaMetPercentage}%`,
-            render: () => <CircularProgress percentage={slaMetPercentage} size={44} color="#10b981" strokeWidth={4.5} />
-          },
-          { icon: Clock, color: '#6366f1', bg: '#eef2ff', label: 'Resolución Promedio', value: `${avgResolutionTime} días` }
-        ].map((kpi, idx) => (
-          <div key={idx} className="bento-card" style={{ padding: '18px', display: 'flex', alignItems: 'center', gap: '14px', minHeight: '85px' }}>
-            {kpi.render ? kpi.render() : (
-              <div style={{ width: 44, height: 44, borderRadius: '12px', background: kpi.bg, color: kpi.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <kpi.icon size={18} />
-              </div>
-            )}
+  // --- Render ---
+  return (
+    <div style={{
+      padding: '24px',
+      background: '#f1f5f9',
+      minHeight: '100vh',
+      fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+    }}>
+      <div style={{ maxWidth: '1440px', margin: '0 auto' }}>
+
+        {/* Cabecera */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '28px',
+          flexWrap: 'wrap',
+          gap: '16px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <div style={{
+              background: '#1e3a8a',
+              color: 'white',
+              padding: '10px',
+              borderRadius: '12px',
+              boxShadow: '0 4px 6px -1px rgba(30, 58, 138, 0.2)'
+            }}>
+              <ClipboardList size={24} />
+            </div>
             <div>
-              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em' }}>{kpi.label}</div>
-              <div style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text-primary)' }}>{kpi.value}</div>
+              <h1 style={{
+                fontSize: '24px',
+                fontWeight: 700,
+                color: '#0f172a',
+                margin: 0,
+                letterSpacing: '-0.01em'
+              }}>
+                Tablero de Tareas
+              </h1>
+              <p style={{
+                color: '#475569',
+                fontSize: '13px',
+                fontWeight: 500,
+                margin: 0
+              }}>
+                Seguimiento de incidentes y solicitudes con SLA
+              </p>
             </div>
           </div>
-        ))}
-      </div>
-
-      {/* Filtros y orden */}
-      <div className="bento-card" style={{ padding: '14px 20px', display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: '180px' }}>
-          <input 
-            type="text" placeholder="Buscar tareas..." value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            className="premium-input" style={{ width: '100%', padding: '10px 14px' }}
-          />
-        </div>
-        <select value={filterAssignee} onChange={e => setFilterAssignee(e.target.value)} className="premium-input" style={{ padding: '10px 14px', cursor: 'pointer' }}>
-          <option value="ALL">👥 Todos los colaboradores</option>
-          <option value="MY_TASKS">👤 Mis tareas</option>
-          {usuarios.map(u => <option key={u.id} value={u.id}>{u.email}</option>)}
-        </select>
-        <select value={filterPriority} onChange={e => setFilterPriority(e.target.value)} className="premium-input" style={{ padding: '10px 14px', cursor: 'pointer' }}>
-          <option value="ALL">🚩 Todas prioridades</option>
-          {Object.entries(priorityStyles).map(([key, val]) => (
-            <option key={key} value={key}>{val.label}</option>
-          ))}
-        </select>
-        <select value={filterSlaStatus} onChange={e => setFilterSlaStatus(e.target.value)} className="premium-input" style={{ padding: '10px 14px', cursor: 'pointer' }}>
-          <option value="ALL">⏳ SLA (Todos)</option>
-          <option value="PLAZO">En Plazo</option>
-          <option value="RIESGO">En Riesgo</option>
-          <option value="VENCIDO">Vencido</option>
-          <option value="CUMPLIDO">Cumplido</option>
-          <option value="EXCEDIDO">Excedido</option>
-        </select>
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-          <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="premium-input" style={{ padding: '10px', cursor: 'pointer' }}>
-            <option value="created_at">Fecha creación</option>
-            <option value="priority">Prioridad</option>
-            <option value="sla_remaining">Tiempo restante SLA</option>
-          </select>
-          <button onClick={() => setSortOrder(o => o === 'asc' ? 'desc' : 'asc')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
-            {sortOrder === 'asc' ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
+          <button
+            onClick={openNewForm}
+            style={{
+              background: '#1e3a8a',
+              color: 'white',
+              border: 'none',
+              padding: '10px 20px',
+              borderRadius: '8px',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              cursor: 'pointer',
+              transition: 'background 0.2s',
+              boxShadow: '0 2px 4px rgba(30, 58, 138, 0.2)'
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = '#2563eb'}
+            onMouseLeave={e => e.currentTarget.style.background = '#1e3a8a'}
+          >
+            <Plus size={18} /> Nueva Tarea
           </button>
         </div>
-      </div>
 
-      {/* Contenido principal: pendientes + historial */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px' }}>
-        
-        {/* Pendientes */}
-        <div className="bento-card" style={{ padding: '24px' }}>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '17px', fontWeight: 800, marginBottom: '20px' }}>
-            Tareas Pendientes ({filteredPending.length})
-          </h3>
+        {/* KPIs */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: '16px',
+          marginBottom: '24px'
+        }}>
+          <div style={{
+            background: 'white',
+            padding: '16px 20px',
+            borderRadius: '12px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px'
+          }}>
+            <div style={{ background: '#e3f2fd', color: '#1e3a8a', padding: '10px', borderRadius: '10px' }}>
+              <ClipboardList size={20} />
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Pendientes
+              </div>
+              <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>
+                {pendingTodos.length}
+              </div>
+            </div>
+          </div>
+
+          <div style={{
+            background: 'white',
+            padding: '16px 20px',
+            borderRadius: '12px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px'
+          }}>
+            <div style={{ background: '#fdecea', color: '#dc2626', padding: '10px', borderRadius: '10px' }}>
+              <AlertCircle size={20} />
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Fuera de SLA
+              </div>
+              <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>
+                {overdueCount}
+              </div>
+            </div>
+          </div>
+
+          <div style={{
+            background: 'white',
+            padding: '16px 20px',
+            borderRadius: '12px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px'
+          }}>
+            <div style={{ background: '#e6f7e6', color: '#2e7d32', padding: '10px', borderRadius: '10px' }}>
+              <TrendingUp size={20} />
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                % SLA Cumplido
+              </div>
+              <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>
+                {slaMetPercentage}%
+              </div>
+            </div>
+          </div>
+
+          <div style={{
+            background: 'white',
+            padding: '16px 20px',
+            borderRadius: '12px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px'
+          }}>
+            <div style={{ background: '#f1f5f9', color: '#1e293b', padding: '10px', borderRadius: '10px' }}>
+              <ClockIcon size={20} />
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Resolución Promedio
+              </div>
+              <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>
+                {avgResolutionTime} días
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Filtros */}
+        <div style={{
+          background: 'white',
+          padding: '12px 20px',
+          borderRadius: '12px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '12px',
+          alignItems: 'center',
+          marginBottom: '24px'
+        }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: '180px' }}>
+            <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+            <input
+              type="text"
+              placeholder="Buscar tareas..."
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 12px 8px 36px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '13px',
+                outline: 'none',
+                background: '#f8fafc',
+                transition: 'border 0.2s'
+              }}
+              onFocus={e => e.currentTarget.style.borderColor = '#1e3a8a'}
+              onBlur={e => e.currentTarget.style.borderColor = '#e2e8f0'}
+            />
+          </div>
+
+          <select
+            value={filterAssignee}
+            onChange={e => setFilterAssignee(e.target.value)}
+            style={{
+              padding: '8px 12px',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              fontSize: '13px',
+              background: '#f8fafc',
+              cursor: 'pointer',
+              outline: 'none'
+            }}
+          >
+            <option value="ALL">Todos los colaboradores</option>
+            <option value="MY_TASKS">Mis tareas</option>
+            {usuarios.map(u => <option key={u.id} value={u.id}>{u.email}</option>)}
+          </select>
+
+          <select
+            value={filterPriority}
+            onChange={e => setFilterPriority(e.target.value)}
+            style={{
+              padding: '8px 12px',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              fontSize: '13px',
+              background: '#f8fafc',
+              cursor: 'pointer',
+              outline: 'none'
+            }}
+          >
+            <option value="ALL">Todas prioridades</option>
+            <option value="baja">Baja</option>
+            <option value="media">Media</option>
+            <option value="alta">Alta</option>
+            <option value="urgente">Urgente</option>
+          </select>
+
+          <select
+            value={filterSlaStatus}
+            onChange={e => setFilterSlaStatus(e.target.value)}
+            style={{
+              padding: '8px 12px',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              fontSize: '13px',
+              background: '#f8fafc',
+              cursor: 'pointer',
+              outline: 'none'
+            }}
+          >
+            <option value="ALL">SLA (Todos)</option>
+            <option value="PLAZO">En plazo</option>
+            <option value="RIESGO">En riesgo</option>
+            <option value="VENCIDO">Vencido</option>
+            <option value="CUMPLIDO">Cumplido</option>
+            <option value="EXCEDIDO">Excedido</option>
+          </select>
+
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+            <select
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value)}
+              style={{
+                padding: '8px 12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '13px',
+                background: '#f8fafc',
+                cursor: 'pointer',
+                outline: 'none'
+              }}
+            >
+              <option value="created_at">Fecha creación</option>
+              <option value="priority">Prioridad</option>
+              <option value="sla_remaining">Tiempo restante SLA</option>
+            </select>
+            <button
+              onClick={() => setSortOrder(o => o === 'asc' ? 'desc' : 'asc')}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '6px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#64748b'
+              }}
+            >
+              {sortOrder === 'asc' ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
+            </button>
+          </div>
+        </div>
+
+        {/* Lista de tareas pendientes */}
+        <div style={{
+          background: 'white',
+          borderRadius: '12px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+          padding: '20px',
+          marginBottom: '24px'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#0f172a', margin: 0 }}>
+              Tareas Pendientes ({filteredPending.length})
+            </h3>
+          </div>
+
           {loading ? (
-            <div style={{ textAlign: 'center', padding: '40px' }}><RefreshCw className="animate-spin" size={24} style={{ color: 'var(--accent)' }} /></div>
+            <div style={{ textAlign: 'center', padding: '40px' }}>
+              <RefreshCw className="animate-spin" size={24} style={{ color: '#1e3a8a' }} />
+            </div>
           ) : filteredPending.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-secondary)' }}>
+            <div style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b' }}>
               <CheckSquare size={36} style={{ opacity: 0.3, marginBottom: '12px' }} />
               <p style={{ fontWeight: 500 }}>Sin tareas pendientes.</p>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               {filteredPending.map(todo => {
                 const slaStat = getSlaStatus(todo);
-                const pStyle = priorityStyles[todo.priority] || priorityStyles.media;
-                const sStyle = slaStyles[slaStat];
                 const assigneeEmail = usuarios.find(u => u.id === todo.assigned_to)?.email || 'Sin asignar';
                 const creatorEmail = usuarios.find(u => u.id === todo.user_id)?.email || 'Sistema';
 
                 return (
-                  <div key={todo.id} style={{
-                    padding: '16px', 
-                    background: 'var(--surface)', 
-                    borderRadius: '16px',
-                    border: `1px solid ${slaStat === 'VENCIDO' ? 'rgba(239,68,68,0.25)' : 'var(--border-light)'}`,
-                    display: 'flex', 
-                    gap: '12px', 
-                    alignItems: 'flex-start', 
-                    transition: 'all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)',
-                    backdropFilter: 'blur(8px)',
-                    WebkitBackdropFilter: 'blur(8px)'
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                    e.currentTarget.style.boxShadow = 'var(--shadow-soft)';
-                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.85)';
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = 'none';
-                    e.currentTarget.style.background = 'var(--surface)';
-                  }}
+                  <div
+                    key={todo.id}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 100px 120px 100px 80px auto',
+                      gap: '12px',
+                      alignItems: 'center',
+                      padding: '12px 16px',
+                      borderRadius: '8px',
+                      background: 'white',
+                      borderBottom: '1px solid #f1f5f9',
+                      transition: 'background 0.15s'
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'white'}
                   >
-                    <button onClick={() => toggleStatus(todo)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', marginTop: '2px', transition: 'color 0.2s' }}
-                      onMouseEnter={e => e.currentTarget.style.color = 'var(--accent)'}
-                      onMouseLeave={e => e.currentTarget.style.color = 'var(--text-secondary)'}
-                      title="Completar"
-                    ><Square size={20} /></button>
-                    
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '6px' }}>
-                        <span style={{ fontWeight: 800, fontSize: '14.5px', color: 'var(--text-primary)', cursor: 'pointer' }} onClick={() => openEditForm(todo)}>
-                          {todo.title}
-                        </span>
-                        <span style={{ fontSize: '9px', fontWeight: 800, padding: '2px 8px', borderRadius: '6px', background: pStyle.bg, color: pStyle.fg, border: pStyle.border, textTransform: 'uppercase' }}>
-                          {pStyle.label}
-                        </span>
-                        <span style={{ fontSize: '9px', fontWeight: 800, padding: '2px 8px', borderRadius: '6px', background: sStyle.bg, color: sStyle.fg, textTransform: 'uppercase' }}>
-                          {sStyle.text}
-                        </span>
+                    {/* Título y descripción */}
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: '14px', color: '#0f172a', cursor: 'pointer' }} onClick={() => openEditForm(todo)}>
+                        {todo.title}
                       </div>
-                      
-                      {todo.description && <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', margin: '4px 0 8px 0', lineHeight: 1.4 }}>{todo.description}</p>}
-                      
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', fontSize: '11px', color: 'var(--text-secondary)', alignItems: 'center', marginTop: '6px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <UserAvatar email={assigneeEmail} size={18} />
-                          <span>Asignado a: <strong style={{ color: 'var(--text-primary)' }}>{assigneeEmail}</strong></span>
+                      {todo.description && (
+                        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {todo.description}
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <User size={12} />
-                          <span>Creado por: <span>{creatorEmail}</span></span>
-                        </div>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Calendar size={12} /> {formatRelativeTime(todo.created_at)}</span>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Clock size={12} /> SLA {todo.sla_days}d</span>
-                      </div>
-                      
-                      {renderSlaBar(todo)}
+                      )}
                     </div>
-                    
-                    <div style={{ display: 'flex', gap: '6px', marginTop: '2px' }}>
-                      <button onClick={() => openEditForm(todo)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '4px', borderRadius: '6px', transition: 'background-color 0.2s' }}
-                        onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.04)'}
-                        onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
-                        title="Editar tarea"
+
+                    {/* Prioridad */}
+                    <PriorityBadge priority={todo.priority} />
+
+                    {/* Asignado */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Avatar email={assigneeEmail} size={24} />
+                      <span style={{ fontSize: '12px', color: '#0f172a', fontWeight: 500 }}>{assigneeEmail}</span>
+                    </div>
+
+                    {/* SLA */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <SlaProgress todo={todo} />
+                        <span style={{ fontSize: '11px', color: '#64748b' }}>
+                          {todo.sla_days - getElapsedDays(todo.created_at)}d
+                        </span>
+                      </div>
+                      <SlaBadge status={slaStat} />
+                    </div>
+
+                    {/* Creado */}
+                    <div style={{ fontSize: '12px', color: '#64748b' }}>
+                      {formatRelativeTime(todo.created_at)}
+                    </div>
+
+                    {/* Acciones */}
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <button
+                        onClick={() => toggleStatus(todo)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: '#64748b',
+                          padding: '4px',
+                          borderRadius: '4px',
+                          transition: 'all 0.2s'
+                        }}
+                        title="Completar"
+                        onMouseEnter={e => { e.currentTarget.style.background = '#e6f7e6'; e.currentTarget.style.color = '#2e7d32'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#64748b'; }}
                       >
-                        <Edit3 size={14} />
+                        <Check size={16} />
                       </button>
-                      <button onClick={() => requestDelete(todo)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '4px', borderRadius: '6px', transition: 'background-color 0.2s' }}
-                        onMouseEnter={e => {
-                          e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.1)';
-                          e.currentTarget.style.color = '#ef4444';
+                      <button
+                        onClick={() => openEditForm(todo)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: '#64748b',
+                          padding: '4px',
+                          borderRadius: '4px',
+                          transition: 'all 0.2s'
                         }}
-                        onMouseLeave={e => {
-                          e.currentTarget.style.backgroundColor = 'transparent';
-                          e.currentTarget.style.color = 'var(--text-secondary)';
-                        }}
-                        title="Eliminar tarea"
+                        title="Editar"
+                        onMouseEnter={e => { e.currentTarget.style.background = '#e3f2fd'; e.currentTarget.style.color = '#1e3a8a'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#64748b'; }}
                       >
-                        <Trash2 size={14} />
+                        <Edit3 size={16} />
+                      </button>
+                      <button
+                        onClick={() => requestDelete(todo)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: '#64748b',
+                          padding: '4px',
+                          borderRadius: '4px',
+                          transition: 'all 0.2s'
+                        }}
+                        title="Eliminar"
+                        onMouseEnter={e => { e.currentTarget.style.background = '#fdecea'; e.currentTarget.style.color = '#dc2626'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#64748b'; }}
+                      >
+                        <Trash2 size={16} />
                       </button>
                     </div>
                   </div>
@@ -592,169 +774,290 @@ export default function Tareas() {
         </div>
 
         {/* Historial completadas */}
-        <div className="bento-card" style={{ padding: '24px', opacity: 0.95 }}>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '16px', fontWeight: 800, marginBottom: '20px', color: 'var(--text-secondary)' }}>
-            Historial Completadas ({filteredCompleted.length})
-          </h3>
+        <div style={{
+          background: 'white',
+          borderRadius: '12px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+          padding: '20px',
+          opacity: 0.9
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#475569', margin: 0 }}>
+              Historial Completadas ({filteredCompleted.length})
+            </h3>
+          </div>
+
           {filteredCompleted.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-secondary)' }}>
-              <CheckCircle size={32} style={{ opacity: 0.3, marginBottom: '10px' }} />
+            <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
+              <CheckCircle size={36} style={{ opacity: 0.3, marginBottom: '12px' }} />
               <p>Sin tareas completadas.</p>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               {filteredCompleted.map(todo => {
                 const slaStat = getSlaStatus(todo);
-                const sStyle = slaStyles[slaStat];
                 const assigneeEmail = usuarios.find(u => u.id === todo.assigned_to)?.email || 'Sin asignar';
-                const creatorEmail = usuarios.find(u => u.id === todo.user_id)?.email || 'Sistema';
                 const resDays = getResolutionDays(todo.created_at, todo.completed_at);
 
                 return (
-                  <div key={todo.id} style={{
-                    padding: '14px', 
-                    background: 'rgba(255,255,255,0.15)', 
-                    borderRadius: '16px',
-                    border: '1px dashed var(--border-light)', 
-                    display: 'flex', 
-                    gap: '12px', 
-                    alignItems: 'flex-start',
-                    transition: 'all 0.3s ease',
-                    backdropFilter: 'blur(8px)',
-                    WebkitBackdropFilter: 'blur(8px)',
-                    opacity: 0.85
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.transform = 'translateY(-1px)';
-                    e.currentTarget.style.background = 'rgba(255,255,255,0.25)';
-                    e.currentTarget.style.opacity = '1';
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.background = 'rgba(255,255,255,0.15)';
-                    e.currentTarget.style.opacity = '0.85';
-                  }}
+                  <div
+                    key={todo.id}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 100px 120px 100px 80px auto',
+                      gap: '12px',
+                      alignItems: 'center',
+                      padding: '10px 16px',
+                      borderRadius: '8px',
+                      background: '#f8fafc',
+                      opacity: 0.8,
+                      transition: 'opacity 0.2s'
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                    onMouseLeave={e => e.currentTarget.style.opacity = 0.8}
                   >
-                    <button onClick={() => toggleStatus(todo)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent)', marginTop: '2px' }}
-                      title="Reabrir"
-                    >
-                      <CheckSquare size={18} />
-                    </button>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '6px', alignItems: 'center' }}>
-                        <span style={{ fontWeight: 700, fontSize: '13.5px', textDecoration: 'line-through', color: 'var(--text-secondary)' }}>{todo.title}</span>
-                        <span style={{ fontSize: '9px', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', background: sStyle.bg, color: sStyle.fg, textTransform: 'uppercase' }}>
-                          {sStyle.text}
-                        </span>
-                      </div>
-                      
-                      {todo.description && (
-                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', textDecoration: 'line-through', opacity: 0.7 }}>
-                          {todo.description}
-                        </p>
-                      )}
-
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', alignItems: 'center', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <UserAvatar email={assigneeEmail} size={16} />
-                          <span>Asignado: <strong>{assigneeEmail}</strong></span>
-                        </div>
-                        <span>·</span>
-                        <span>Creado por: {creatorEmail}</span>
-                        <span>·</span>
-                        <span>Resuelta en {resDays} {resDays === 1 ? 'día' : 'días'}</span>
-                        <span>·</span>
-                        <span>SLA: {todo.sla_days}d</span>
-                        {slaStat === 'CUMPLIDO' ? (
-                          <span style={{ color: '#10b981', fontWeight: 700 }}>
-                            ✓ Cumplió SLA ({todo.sla_days - resDays}d antes)
-                          </span>
-                        ) : (
-                          <span style={{ color: '#ef4444', fontWeight: 700 }}>
-                            ⚠️ Excedió SLA por {resDays - todo.sla_days}d
-                          </span>
-                        )}
+                    <div>
+                      <div style={{ fontWeight: 500, fontSize: '14px', color: '#475569', textDecoration: 'line-through' }}>
+                        {todo.title}
                       </div>
                     </div>
-                    
-                    <button onClick={() => requestDelete(todo)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', marginTop: '2px', padding: '4px', borderRadius: '6px', transition: 'all 0.2s' }}
-                      onMouseEnter={e => {
-                        e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.1)';
-                        e.currentTarget.style.color = '#ef4444';
-                      }}
-                      onMouseLeave={e => {
-                        e.currentTarget.style.backgroundColor = 'transparent';
-                        e.currentTarget.style.color = 'var(--text-secondary)';
-                      }}
-                      title="Eliminar tarea completada"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    <div>
+                      <span style={{ fontSize: '11px', color: '#64748b' }}>Resuelta en {resDays}d</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Avatar email={assigneeEmail} size={24} />
+                      <span style={{ fontSize: '12px', color: '#475569' }}>{assigneeEmail}</span>
+                    </div>
+                    <SlaBadge status={slaStat} />
+                    <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+                      {formatRelativeTime(todo.created_at)}
+                    </div>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <button
+                        onClick={() => toggleStatus(todo)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: '#64748b',
+                          padding: '4px',
+                          borderRadius: '4px',
+                          transition: 'all 0.2s'
+                        }}
+                        title="Reabrir"
+                        onMouseEnter={e => { e.currentTarget.style.background = '#e3f2fd'; e.currentTarget.style.color = '#1e3a8a'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#64748b'; }}
+                      >
+                        <RefreshCw size={16} />
+                      </button>
+                      <button
+                        onClick={() => requestDelete(todo)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: '#64748b',
+                          padding: '4px',
+                          borderRadius: '4px',
+                          transition: 'all 0.2s'
+                        }}
+                        title="Eliminar"
+                        onMouseEnter={e => { e.currentTarget.style.background = '#fdecea'; e.currentTarget.style.color = '#dc2626'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#64748b'; }}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </div>
                 );
               })}
             </div>
           )}
         </div>
-      </div>
 
-      {/* Modal de formulario (Nueva/Editar) */}
-      <Modal isOpen={showForm} onClose={closeForm} title={editingTodo ? 'Editar Tarea' : 'Nueva Tarea'} maxWidth="500px">
-        <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <div>
-            <label style={{ fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Título</label>
-            <input value={title} onChange={e => setTitle(e.target.value)} className="premium-input" style={{ width: '100%', padding: '10px 12px' }} required placeholder="Nombre descriptivo de la tarea..." />
-          </div>
-          <div>
-            <label style={{ fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Descripción</label>
-            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} className="premium-input" style={{ width: '100%', padding: '10px 12px', resize: 'none' }} placeholder="Detalles de la tarea..." />
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        {/* Modales (sin cambios, solo estilos) */}
+        <Modal isOpen={showForm} onClose={closeForm} title={editingTodo ? 'Editar Tarea' : 'Nueva Tarea'} maxWidth="500px">
+          <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div>
-              <label style={{ fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Prioridad</label>
-              <select value={priority} onChange={e => setPriority(e.target.value)} className="premium-input" style={{ width: '100%', padding: '10px 12px', cursor: 'pointer' }}>
-                <option value="baja">Baja</option>
-                <option value="media">Media</option>
-                <option value="alta">Alta</option>
-                <option value="urgente">Urgente</option>
-              </select>
+              <label style={{ fontWeight: 600, fontSize: '12px', color: '#475569', display: 'block', marginBottom: '4px' }}>Título *</label>
+              <input
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'border 0.2s'
+                }}
+                onFocus={e => e.currentTarget.style.borderColor = '#1e3a8a'}
+                onBlur={e => e.currentTarget.style.borderColor = '#e2e8f0'}
+                placeholder="Nombre descriptivo de la tarea..."
+                required
+              />
             </div>
             <div>
-              <label style={{ fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>SLA (días)</label>
-              <select value={slaDays} onChange={e => setSlaDays(Number(e.target.value))} className="premium-input" style={{ width: '100%', padding: '10px 12px', cursor: 'pointer' }}>
-                {[1,2,3,5,7,15,30].map(d => <option key={d} value={d}>{d} día{d>1?'s':''}</option>)}
+              <label style={{ fontWeight: 600, fontSize: '12px', color: '#475569', display: 'block', marginBottom: '4px' }}>Descripción</label>
+              <textarea
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                rows={3}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  resize: 'vertical',
+                  transition: 'border 0.2s'
+                }}
+                onFocus={e => e.currentTarget.style.borderColor = '#1e3a8a'}
+                onBlur={e => e.currentTarget.style.borderColor = '#e2e8f0'}
+                placeholder="Detalles de la tarea..."
+              />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              <div>
+                <label style={{ fontWeight: 600, fontSize: '12px', color: '#475569', display: 'block', marginBottom: '4px' }}>Prioridad</label>
+                <select
+                  value={priority}
+                  onChange={e => setPriority(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    outline: 'none',
+                    background: 'white',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="baja">Baja</option>
+                  <option value="media">Media</option>
+                  <option value="alta">Alta</option>
+                  <option value="urgente">Urgente</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontWeight: 600, fontSize: '12px', color: '#475569', display: 'block', marginBottom: '4px' }}>SLA (días)</label>
+                <select
+                  value={slaDays}
+                  onChange={e => setSlaDays(Number(e.target.value))}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    outline: 'none',
+                    background: 'white',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {[1,2,3,5,7,15,30].map(d => <option key={d} value={d}>{d} día{d>1?'s':''}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label style={{ fontWeight: 600, fontSize: '12px', color: '#475569', display: 'block', marginBottom: '4px' }}>Asignar a</label>
+              <select
+                value={assignedTo}
+                onChange={e => setAssignedTo(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  background: 'white',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value="">Sin asignar</option>
+                {usuarios.map(u => <option key={u.id} value={u.id}>{u.email}</option>)}
               </select>
             </div>
-          </div>
-          <div>
-            <label style={{ fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Asignar a</label>
-            <select value={assignedTo} onChange={e => setAssignedTo(e.target.value)} className="premium-input" style={{ width: '100%', padding: '10px 12px', cursor: 'pointer' }}>
-              <option value="">Sin asignar</option>
-              {usuarios.map(u => <option key={u.id} value={u.id}>{u.email}</option>)}
-            </select>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '14px' }}>
-            <button type="button" onClick={closeForm} className="premium-input" style={{ padding: '10px 16px', background: 'rgba(0,0,0,0.04)', fontWeight: 600, border: '1px solid var(--border-light)', cursor: 'pointer' }}>Cancelar</button>
-            <button type="submit" style={{
-              padding: '10px 20px', background: 'linear-gradient(135deg, var(--accent), #1b5e20)', color: 'white',
-              border: 'none', borderRadius: '12px', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 12px var(--accent-shadow)'
-            }}>
-              {editingTodo ? 'Guardar Cambios' : 'Crear Tarea'}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+              <button
+                type="button"
+                onClick={closeForm}
+                style={{
+                  padding: '10px 16px',
+                  background: 'transparent',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                style={{
+                  padding: '10px 20px',
+                  background: '#1e3a8a',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'background 0.2s'
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = '#2563eb'}
+                onMouseLeave={e => e.currentTarget.style.background = '#1e3a8a'}
+              >
+                {editingTodo ? 'Guardar Cambios' : 'Crear Tarea'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+
+        <Modal isOpen={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Confirmar eliminación" maxWidth="400px">
+          <p style={{ marginBottom: '24px', fontSize: '14px', lineHeight: 1.5, color: '#0f172a' }}>
+            ¿Estás seguro de que querés eliminar permanentemente la tarea <strong>"{deleteTarget?.title}"</strong>?
+          </p>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+            <button
+              onClick={() => setDeleteTarget(null)}
+              style={{
+                padding: '10px 16px',
+                background: 'transparent',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontWeight: 600,
+                color: '#475569',
+                cursor: 'pointer'
+              }}
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={confirmDelete}
+              style={{
+                padding: '10px 16px',
+                background: '#dc2626',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'background 0.2s'
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = '#b91c1c'}
+              onMouseLeave={e => e.currentTarget.style.background = '#dc2626'}
+            >
+              Eliminar
             </button>
           </div>
-        </form>
-      </Modal>
-
-      {/* Modal de confirmación de eliminación */}
-      <Modal isOpen={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Confirmar eliminación" maxWidth="400px">
-        <p style={{ marginBottom: '24px', fontSize: '14px', lineHeight: 1.5, color: 'var(--text-primary)' }}>¿Estás seguro de que querés eliminar permanentemente la tarea <strong>"{deleteTarget?.title}"</strong>?</p>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-          <button onClick={() => setDeleteTarget(null)} className="premium-input" style={{ padding: '10px 16px', background: 'rgba(0,0,0,0.04)', fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
-          <button onClick={confirmDelete} style={{
-            padding: '10px 16px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 12px rgba(239, 68, 68, 0.2)'
-          }}>Eliminar</button>
-        </div>
-      </Modal>
+        </Modal>
+      </div>
     </div>
   );
 }
