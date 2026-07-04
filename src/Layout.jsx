@@ -121,16 +121,17 @@ export default function Layout({ session, theme, toggleTheme }) {
   ];
 
   const APP_CATEGORIES = [
-    { id: 'general', paths: ['/', '/tareas', '/log-diario'] },
+    { id: 'general', paths: ['/', '/tareas', '/log-diario', '/ingreso-diario'] },
     { id: 'mgmt', paths: ['/comunidad'] },
     { id: 'dash', paths: ['/facturacion', '/gestion-deuda', '/gestion-pagos', '/descuentos', '/carga-manual', '/campanas'] },
-    { id: 'finance', paths: ['/conciliacion-bancaria', '/ingreso-diario'] },
+    { id: 'finance', paths: ['/conciliacion-bancaria', '/movimientos-bancarios'] },
   ];
 
   const pageNames = {
     '/': 'Dashboard Principal',
     '/tareas': 'Tablero de Tareas',
     '/log-diario': 'Log Diario',
+    '/ingreso-diario': 'Ingreso Diario',
     '/comunidad': 'Gestión de Comunidad',
     '/socios': 'Fichas de Socios',
     '/facturacion': 'Centro de Cobranzas',
@@ -140,7 +141,7 @@ export default function Layout({ session, theme, toggleTheme }) {
     '/carga-manual': 'Importación Manual',
     '/planes': 'Planes y Costos',
     '/conciliacion-bancaria': 'Conciliación Bancaria',
-    '/ingreso-diario': 'Ingreso Diario',
+    '/movimientos-bancarios': 'Historial de Movimientos',
     '/grupos': 'Gestión de Grupos',
     '/campanas': 'Campañas de Correo'
   };
@@ -154,7 +155,7 @@ export default function Layout({ session, theme, toggleTheme }) {
   }) || APP_CATEGORIES[0];
 
   const categoryNames = {
-    'general': 'BIENVENIDO',
+    'general': 'INICIO',
     'mgmt': 'GESTIÓN COMUNIDAD',
     'dash': 'GESTIÓN FACTURACIÓN',
     'finance': 'GESTIÓN BANCARIA',
@@ -185,9 +186,13 @@ export default function Layout({ session, theme, toggleTheme }) {
         >
           {navItems.map((item, index) => {
             const currentFullPath = location.pathname + location.search;
-            const isActive = item.path.includes('?') 
-              ? currentFullPath === item.path 
-              : location.pathname === item.path;
+            const isActive = item.path === '/' 
+              ? (location.pathname === '/' || ['/tareas', '/log-diario', '/ingreso-diario'].includes(location.pathname))
+              : item.path === '/conciliacion-bancaria'
+                ? ['/conciliacion-bancaria', '/movimientos-bancarios'].includes(location.pathname)
+                : item.path.includes('?') 
+                  ? currentFullPath === item.path 
+                  : location.pathname === item.path;
             const Icon = item.icon;
             return (
               <Link

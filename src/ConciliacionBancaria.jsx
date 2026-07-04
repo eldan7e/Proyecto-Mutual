@@ -3119,22 +3119,6 @@ export default function ConciliacionBancaria() {
             >
               Débitos Automáticos
             </button>
-            <button 
-              onClick={() => setActiveTab('historial')}
-              className="action-button"
-              style={{ 
-                background: activeTab === 'historial' ? 'var(--accent)' : 'transparent', 
-                color: activeTab === 'historial' ? 'white' : 'var(--text-secondary)',
-                padding: '8px 16px', 
-                borderRadius: '12px',
-                fontSize: '13px',
-                height: '36px',
-                display: 'flex',
-                alignItems: 'center'
-              }}
-            >
-              Historial de Movimientos
-            </button>
           </div>
         </div>
       </div>
@@ -3193,22 +3177,6 @@ export default function ConciliacionBancaria() {
           handleTextPaste={handleTextPaste}
           periodConsumos={periodConsumos}
           handleToggleLineSelection={handleLoteRowToggleLineSelection}
-        />
-      )}
-
-      {activeTab === 'historial' && (
-        <HistorialMovimientosTab
-          historial={historial}
-          loadingHistorial={loadingHistorial}
-          fetchHistorial={fetchHistorial}
-          handleDeshacerConciliacion={handleDeshacerConciliacion}
-          handleResetearPeriodo={handleResetearPeriodo}
-          selectedPeriod={selectedPeriod}
-          openBreakdownModal={openBreakdownModal}
-          formatISODateToAR={formatISODateToAR}
-          getTipoMovimientoLabel={getTipoMovimientoLabel}
-          renderTipoMovimientoBadge={renderTipoMovimientoBadge}
-          openEditConciliacionModal={openEditConciliacionModal}
         />
       )}
 

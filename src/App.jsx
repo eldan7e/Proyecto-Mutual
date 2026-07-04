@@ -34,6 +34,7 @@ const GestionDeuda = safeLazy(() => import('./GestionDeuda'));
 const GestionPagos = safeLazy(() => import('./GestionPagos'));
 const Descuentos = safeLazy(() => import('./Descuentos'));
 const ConciliacionBancaria = safeLazy(() => import('./ConciliacionBancaria'));
+const MovimientosBancarios = safeLazy(() => import('./MovimientosBancarios'));
 const IngresoDiario = safeLazy(() => import('./IngresoDiario'));
 const Campanas = safeLazy(() => import('./Campanas'));
 const Tareas = safeLazy(() => import('./Tareas'));
@@ -126,6 +127,7 @@ function App() {
                   <Route path="gestion-pagos" element={<GestionPagos />} />
                   <Route path="descuentos" element={<Descuentos />} />
                   <Route path="conciliacion-bancaria" element={<ConciliacionBancaria />} />
+                  <Route path="movimientos-bancarios" element={<MovimientosBancarios />} />
                   <Route path="ingreso-diario" element={<IngresoDiario />} />
                   <Route path="campanas" element={<Campanas />} />
                   <Route path="tareas" element={<Tareas />} />
