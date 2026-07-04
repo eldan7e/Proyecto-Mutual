@@ -1970,7 +1970,7 @@ export default function ConciliacionBancaria() {
             .from('liquidaciones_grupos')
             .update({
               monto_abonado: newMontoAbonado,
-              estado_pago: isFullyPaid ? 'ABONADO' : 'PENDIENTE',
+              estado_pago: isFullyPaid ? 'ABONADO' : (newMontoAbonado > 0 ? 'PARCIAL' : 'PENDIENTE'),
               updated_at: new Date().toISOString()
             })
             .eq('liquidacion_id', liqId);
@@ -2175,7 +2175,7 @@ export default function ConciliacionBancaria() {
               .from('liquidaciones_grupos')
               .update({
                 monto_abonado: newMontoAbonado,
-                estado_pago: isFullyPaid ? 'ABONADO' : 'PENDIENTE',
+                estado_pago: isFullyPaid ? 'ABONADO' : (newMontoAbonado > 0 ? 'PARCIAL' : 'PENDIENTE'),
                 updated_at: new Date().toISOString()
               })
               .eq('liquidacion_id', liqId);
@@ -2237,7 +2237,7 @@ export default function ConciliacionBancaria() {
               .from('liquidaciones_grupos')
               .update({
                 monto_abonado: newMontoAbonado,
-                estado_pago: isFullyPaid ? 'ABONADO' : 'PENDIENTE',
+                estado_pago: isFullyPaid ? 'ABONADO' : (newMontoAbonado > 0 ? 'PARCIAL' : 'PENDIENTE'),
                 updated_at: new Date().toISOString()
               })
               .eq('liquidacion_id', parseInt(singleLiqId, 10));
@@ -2427,7 +2427,7 @@ export default function ConciliacionBancaria() {
         
         const bankPeriod = getBankPeriod(normalizedMov.concepto, normalizedMov.fecha_movimiento);
         pList = (liqData || []).filter(l => 
-          (l.estado_pago === 'PENDIENTE' || l.liquidacion_id === normalizedMov.liquidacion_id) &&
+          (l.estado_pago === 'PENDIENTE' || l.estado_pago === 'PARCIAL' || l.liquidacion_id === normalizedMov.liquidacion_id) &&
           (!bankPeriod || l.periodo <= bankPeriod)
         );
       } catch (err) {
@@ -2467,7 +2467,7 @@ export default function ConciliacionBancaria() {
         
         const bankPeriod = getBankPeriod(editConciliacionModal.movement?.concepto, editConciliacionModal.movement?.fecha_movimiento);
         pList = (liqData || []).filter(l => 
-          (l.estado_pago === 'PENDIENTE' || l.liquidacion_id === editConciliacionModal.movement?.liquidacion_id) &&
+          (l.estado_pago === 'PENDIENTE' || l.estado_pago === 'PARCIAL' || l.liquidacion_id === editConciliacionModal.movement?.liquidacion_id) &&
           (!bankPeriod || l.periodo <= bankPeriod)
         );
       } catch (err) {
@@ -2511,7 +2511,7 @@ export default function ConciliacionBancaria() {
           .from('liquidaciones_grupos')
           .update({
             monto_abonado: newOldAbonado,
-            estado_pago: isFullyPaidOld ? 'ABONADO' : 'PENDIENTE'
+            estado_pago: isFullyPaidOld ? 'ABONADO' : (newOldAbonado > 0 ? 'PARCIAL' : 'PENDIENTE')
           })
           .eq('liquidacion_id', oldLiqId);
         if (updateOldError) throw updateOldError;
@@ -2533,7 +2533,7 @@ export default function ConciliacionBancaria() {
           .from('liquidaciones_grupos')
           .update({
             monto_abonado: newNewAbonado,
-            estado_pago: isFullyPaidNew ? 'ABONADO' : 'PENDIENTE'
+            estado_pago: isFullyPaidNew ? 'ABONADO' : (newNewAbonado > 0 ? 'PARCIAL' : 'PENDIENTE')
           })
           .eq('liquidacion_id', newLiqId);
         if (updateNewError) throw updateNewError;
