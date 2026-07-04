@@ -224,8 +224,11 @@ export default function Tareas() {
     }
     if (filterPriority !== 'ALL') filtered = filtered.filter(t => t.priority === filterPriority);
     if (filterSlaStatus !== 'ALL') filtered = filtered.filter(t => getSlaStatus(t) === filterSlaStatus);
-    if (filterAssignee === 'MY_TASKS') filtered = filtered.filter(t => t.assigned_to === currentUser?.id);
-    else if (filterAssignee !== 'ALL') filtered = filtered.filter(t => t.assigned_to === filterAssignee);
+    if (filterAssignee === 'MY_TASKS') {
+      filtered = filtered.filter(t => t.assigned_to && t.assigned_to.split(',').includes(currentUser?.id));
+    } else if (filterAssignee !== 'ALL') {
+      filtered = filtered.filter(t => t.assigned_to && t.assigned_to.split(',').includes(filterAssignee));
+    }
 
     filtered.sort((a, b) => {
       let valA, valB;
@@ -337,7 +340,8 @@ export default function Tareas() {
   // Render de fila (compartido entre pestañas)
   const renderTaskRow = (todo) => {
     const slaStatus = getSlaStatus(todo);
-    const assigneeEmail = usuarios.find(u => u.id === todo.assigned_to)?.email || 'Sin asignar';
+    const assignedIds = todo.assigned_to ? todo.assigned_to.split(',') : [];
+    const assignedUsers = assignedIds.map(id => usuarios.find(u => u.id === id)).filter(Boolean);
     const creatorEmail = usuarios.find(u => u.id === todo.user_id)?.email || 'Sistema';
     const isCompleted = todo.status === 'completado';
 
@@ -415,9 +419,23 @@ export default function Tareas() {
 
         {/* Asignado */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <UserAvatar email={assigneeEmail} size={24} />
-          <span style={{ fontSize: 12, fontWeight: 500, color: '#334155' }}>
-            {assigneeEmail === 'Sin asignar' ? 'Sin asignar' : assigneeEmail.split('@')[0]}
+          <div style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
+            {assignedUsers.map((u, i) => (
+              <div key={u.id} style={{ marginLeft: i > 0 ? -10 : 0, zIndex: 10 - i }}>
+                <UserAvatar email={u.email} size={24} />
+              </div>
+            ))}
+            {assignedUsers.length === 0 && (
+              <UserAvatar email={null} size={24} />
+            )}
+          </div>
+          <span 
+            style={{ fontSize: 12, fontWeight: 500, color: '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 100 }}
+            title={assignedUsers.map(u => u.email).join(', ')}
+          >
+            {assignedUsers.length === 0 ? 'Sin asignar' : 
+             assignedUsers.length === 1 ? assignedUsers[0].email.split('@')[0] : 
+             `${assignedUsers.length} personas`}
           </span>
         </div>
 
@@ -677,7 +695,7 @@ export default function Tareas() {
           />
         </div>
 
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
           <button
             onClick={() => setFilterAssignee('ALL')}
             style={{
@@ -694,6 +712,18 @@ export default function Tareas() {
               fontSize: 12, fontWeight: 500, cursor: 'pointer'
             }}
           >Mis tareas</button>
+          <select
+            value={filterAssignee !== 'ALL' && filterAssignee !== 'MY_TASKS' ? filterAssignee : ''}
+            onChange={e => setFilterAssignee(e.target.value || 'ALL')}
+            style={{
+              padding: '3px 8px', borderRadius: 16, border: '1px solid #e2e8f0',
+              background: filterAssignee !== 'ALL' && filterAssignee !== 'MY_TASKS' ? '#e2e8f0' : 'transparent',
+              fontSize: 12, fontWeight: 500, cursor: 'pointer', outline: 'none'
+            }}
+          >
+            <option value="">Colaborador...</option>
+            {usuarios.map(u => <option key={u.id} value={u.id}>{u.email.split('@')[0]}</option>)}
+          </select>
         </div>
 
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -853,16 +883,42 @@ export default function Tareas() {
               </div>
             </div>
             <div>
-              <label style={{ fontWeight: 600, fontSize: 12, color: '#475569' }}>Asignar a</label>
-              <select
-                value={assignedTo}
-                onChange={e => setAssignedTo(e.target.value)}
-                className="premium-input"
-                style={{ width: '100%', padding: '8px 12px', marginTop: 4 }}
-              >
-                <option value="">Sin asignar</option>
-                {usuarios.map(u => <option key={u.id} value={u.id}>{u.email}</option>)}
-              </select>
+              <label style={{ fontWeight: 600, fontSize: 12, color: '#475569', display: 'block', marginBottom: '6px' }}>Asignar a (uno o más)</label>
+              <div style={{
+                maxHeight: '120px',
+                overflowY: 'auto',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                padding: '8px 12px',
+                background: 'white',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px'
+              }}>
+                {usuarios.map(u => {
+                  const isChecked = assignedTo ? assignedTo.split(',').includes(u.id) : false;
+                  return (
+                    <label key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', color: '#334155' }}>
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={(e) => {
+                          const currentIds = assignedTo ? assignedTo.split(',') : [];
+                          let newIds;
+                          if (e.target.checked) {
+                            newIds = [...currentIds, u.id];
+                          } else {
+                            newIds = currentIds.filter(id => id !== u.id);
+                          }
+                          setAssignedTo(newIds.join(','));
+                        }}
+                      />
+                      <span>{u.email}</span>
+                    </label>
+                  );
+                })}
+                {usuarios.length === 0 && <span style={{ fontSize: '12px', color: '#94a3b8' }}>No hay colaboradores disponibles</span>}
+              </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
               <button type="button" onClick={closeForm} style={{ padding: '8px 16px', background: '#f1f5f9', border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
@@ -922,7 +978,8 @@ export default function Tareas() {
         maxWidth="600px"
       >
         {selectedTodo && (() => {
-          const assigneeEmail = usuarios.find(u => u.id === selectedTodo.assigned_to)?.email || 'Sin asignar';
+          const assignedIds = selectedTodo.assigned_to ? selectedTodo.assigned_to.split(',') : [];
+          const assignedUsers = assignedIds.map(id => usuarios.find(u => u.id === id)).filter(Boolean);
           const creatorEmail = usuarios.find(u => u.id === selectedTodo.user_id)?.email || 'Sistema';
           const slaStatus = getSlaStatus(selectedTodo);
           const isCompleted = selectedTodo.status === 'completado';
@@ -998,10 +1055,20 @@ export default function Tareas() {
                 paddingTop: '16px'
               }}>
                 <div>
-                  <span style={{ fontSize: '12px', color: '#64748b', display: 'block', marginBottom: '4px' }}>Asignado a</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <UserAvatar email={assigneeEmail} size={28} />
-                    <span style={{ fontSize: '13px', fontWeight: 500, color: '#0f172a' }}>{assigneeEmail}</span>
+                  <span style={{ fontSize: '12px', color: '#64748b', display: 'block', marginBottom: '6px' }}>Asignado a</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {assignedUsers.map(u => (
+                      <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <UserAvatar email={u.email} size={28} />
+                        <span style={{ fontSize: '13px', fontWeight: 500, color: '#0f172a' }}>{u.email}</span>
+                      </div>
+                    ))}
+                    {assignedUsers.length === 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <UserAvatar email={null} size={28} />
+                        <span style={{ fontSize: '13px', fontWeight: 500, color: '#0f172a' }}>Sin asignar</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
