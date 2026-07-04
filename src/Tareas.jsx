@@ -5,7 +5,7 @@ import {
   RefreshCw, AlertCircle, ClipboardList, TrendingUp, Info, ChevronDown,
   CheckCircle, ShieldAlert, Square, User, UserCheck, Users, X,
   Edit3, Filter, SlidersHorizontal, ArrowUp, ArrowDown, Zap,
-  Eye, MoreHorizontal, Link, Search, UserPlus
+  Eye, MoreHorizontal, Link, Search, UserPlus, Copy
 } from 'lucide-react';
 import { useToast } from './components/ui/ToastProvider';
 import Modal from './components/Modal';
@@ -122,6 +122,9 @@ export default function Tareas() {
 
   // Confirmación de eliminación
   const [deleteTarget, setDeleteTarget] = useState(null);
+
+  // Detalle de ticket seleccionado
+  const [selectedTodo, setSelectedTodo] = useState(null);
 
   // Filtros y orden
   const [activeTab, setActiveTab] = useState('pendientes'); // 'pendientes' | 'historial'
@@ -356,9 +359,10 @@ export default function Tareas() {
           }`,
           boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
           transition: 'all 0.15s ease',
-          cursor: 'default',
+          cursor: 'pointer',
           marginBottom: 4
         }}
+        onClick={() => setSelectedTodo(todo)}
         onMouseEnter={e => {
           e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)';
           e.currentTarget.style.transform = 'translateY(-1px)';
@@ -371,7 +375,7 @@ export default function Tareas() {
         {/* Checkbox / estado */}
         <div style={{ display: 'flex', justifyContent: 'center' }}>
           <button
-            onClick={() => toggleStatus(todo)}
+            onClick={(e) => { e.stopPropagation(); toggleStatus(todo); }}
             style={{
               background: 'none', border: 'none', cursor: 'pointer',
               color: isCompleted ? '#22c55e' : '#94a3b8'
@@ -437,7 +441,7 @@ export default function Tareas() {
         {/* Acciones */}
         <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
           <button
-            onClick={() => openEditForm(todo)}
+            onClick={(e) => { e.stopPropagation(); openEditForm(todo); }}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4, borderRadius: 4 }}
             onMouseEnter={e => e.currentTarget.style.backgroundColor = '#f1f5f9'}
             onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
@@ -446,7 +450,7 @@ export default function Tareas() {
             <Edit3 size={16} />
           </button>
           <button
-            onClick={() => requestDelete(todo)}
+            onClick={(e) => { e.stopPropagation(); requestDelete(todo); }}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4, borderRadius: 4 }}
             onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#fee2e2'; e.currentTarget.style.color = '#dc2626'; }}
             onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#94a3b8'; }}
@@ -780,6 +784,236 @@ export default function Tareas() {
           <button onClick={() => setDeleteTarget(null)} style={{ padding: '8px 16px', background: '#f1f5f9', border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
           <button onClick={confirmDelete} style={{ padding: '8px 20px', background: '#dc2626', color: 'white', border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer' }}>Eliminar</button>
         </div>
+      </Modal>
+
+      {/* MODAL DETALLE DE SOLICITUD */}
+      <Modal 
+        isOpen={!!selectedTodo} 
+        onClose={() => setSelectedTodo(null)} 
+        title="Detalle de la Solicitud" 
+        maxWidth="600px"
+      >
+        {selectedTodo && (() => {
+          const assigneeEmail = usuarios.find(u => u.id === selectedTodo.assigned_to)?.email || 'Sin asignar';
+          const creatorEmail = usuarios.find(u => u.id === selectedTodo.user_id)?.email || 'Sistema';
+          const slaStatus = getSlaStatus(selectedTodo);
+          const isCompleted = selectedTodo.status === 'completado';
+          const elapsed = getElapsedDays(selectedTodo.created_at);
+          const total = selectedTodo.sla_days;
+          
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              
+              {/* Encabezado */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+                <div style={{ flex: 1 }}>
+                  <h2 style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0' }}>
+                    {selectedTodo.title}
+                  </h2>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
+                    <PriorityBadge priority={selectedTodo.priority} />
+                    <SlaBadge status={slaStatus} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Descripción con botón de copiar */}
+              {selectedTodo.description && (
+                <div style={{ 
+                  background: '#f8fafc', 
+                  border: '1px solid #e2e8f0', 
+                  borderRadius: '8px', 
+                  padding: '12px 16px',
+                  position: 'relative'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>Descripción / Datos</span>
+                    <button 
+                      onClick={() => {
+                        navigator.clipboard.writeText(selectedTodo.description);
+                        addToast('Copiado al portapapeles', 'success');
+                      }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#2563eb',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      <Copy size={12} /> Copiar texto
+                    </button>
+                  </div>
+                  <p style={{ 
+                    fontSize: '13px', 
+                    color: '#334155', 
+                    margin: 0, 
+                    lineHeight: 1.5,
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word'
+                  }}>
+                    {selectedTodo.description}
+                  </p>
+                </div>
+              )}
+
+              {/* Grid de Metadatos */}
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: '1fr 1fr', 
+                gap: '16px',
+                borderTop: '1px solid #f1f5f9',
+                paddingTop: '16px'
+              }}>
+                <div>
+                  <span style={{ fontSize: '12px', color: '#64748b', display: 'block', marginBottom: '4px' }}>Asignado a</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <UserAvatar email={assigneeEmail} size={28} />
+                    <span style={{ fontSize: '13px', fontWeight: 500, color: '#0f172a' }}>{assigneeEmail}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <span style={{ fontSize: '12px', color: '#64748b', display: 'block', marginBottom: '4px' }}>Creado por</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <UserAvatar email={creatorEmail} size={28} />
+                    <span style={{ fontSize: '13px', fontWeight: 500, color: '#0f172a' }}>{creatorEmail}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <span style={{ fontSize: '12px', color: '#64748b', display: 'block', marginBottom: '4px' }}>Fecha de creación</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#334155', fontWeight: 500 }}>
+                    <Calendar size={14} style={{ color: '#64748b' }} />
+                    <span>{new Date(selectedTodo.created_at).toLocaleString('es-AR')}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <span style={{ fontSize: '12px', color: '#64748b', display: 'block', marginBottom: '4px' }}>SLA / Plazo</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 500, color: '#334155' }}>
+                      {selectedTodo.sla_days} días de plazo
+                    </span>
+                    {!isCompleted && (
+                      <span style={{ fontSize: '11px', color: elapsed > total ? '#dc2626' : '#64748b' }}>
+                        {elapsed > total ? `Vencido por ${elapsed - total}d` : `${total - elapsed} días restantes`}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                
+                {isCompleted && selectedTodo.completed_at && (
+                  <div style={{ gridColumn: 'span 2' }}>
+                    <span style={{ fontSize: '12px', color: '#64748b', display: 'block', marginBottom: '4px' }}>Fecha de resolución</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#22c55e', fontWeight: 600 }}>
+                      <CheckCircle size={14} />
+                      <span>{new Date(selectedTodo.completed_at).toLocaleString('es-AR')} (Resuelto en {getResolutionDays(selectedTodo.created_at, selectedTodo.completed_at)} días)</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Botones de acción inferiores */}
+              <div style={{ 
+                display: 'flex', 
+                justifyContent: 'flex-end', 
+                gap: '8px', 
+                borderTop: '1px solid #f1f5f9',
+                paddingTop: '16px',
+                marginTop: '8px'
+              }}>
+                <button
+                  onClick={() => {
+                    const t = selectedTodo;
+                    setSelectedTodo(null);
+                    toggleStatus(t);
+                  }}
+                  style={{
+                    padding: '8px 16px',
+                    background: isCompleted ? '#f1f5f9' : '#e6f7e6',
+                    color: isCompleted ? '#475569' : '#2e7d32',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  {isCompleted ? <RefreshCw size={14} /> : <Check size={14} />}
+                  {isCompleted ? 'Reabrir Solicitud' : 'Marcar Completada'}
+                </button>
+
+                <button
+                  onClick={() => {
+                    const t = selectedTodo;
+                    setSelectedTodo(null);
+                    openEditForm(t);
+                  }}
+                  style={{
+                    padding: '8px 16px',
+                    background: '#e3f2fd',
+                    color: '#1e3a8a',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <Edit3 size={14} /> Editar
+                </button>
+
+                <button
+                  onClick={() => {
+                    const t = selectedTodo;
+                    setSelectedTodo(null);
+                    requestDelete(t);
+                  }}
+                  style={{
+                    padding: '8px 16px',
+                    background: '#fee2e2',
+                    color: '#dc2626',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <Trash2 size={14} /> Eliminar
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedTodo(null)}
+                  style={{
+                    padding: '8px 16px',
+                    background: '#f1f5f9',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontWeight: 600,
+                    color: '#475569',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cerrar
+                </button>
+              </div>
+
+            </div>
+          );
+        })()}
       </Modal>
     </div>
   );
