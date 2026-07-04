@@ -178,7 +178,7 @@ export default function LogDiario() {
     setLogEditando(null);
     setFormTipo('llamada');
     setFormDescripcion('');
-    setFormResponsable('');
+    setFormResponsable(currentUser?.email || '');
     setFormAssignedTo('');
     setFormNumeroLinea('');
     setFormOwnerName('');
@@ -607,9 +607,9 @@ export default function LogDiario() {
             <input
               type="text"
               value={formResponsable}
-              onChange={(e) => setFormResponsable(e.target.value)}
-              placeholder="Nombre de quien registra la actividad"
-              style={{ ...S.input, marginTop: '4px' }}
+              disabled
+              placeholder="Iniciando sesión..."
+              style={{ ...S.input, marginTop: '4px', background: '#f1f5f9', cursor: 'not-allowed', color: '#64748b' }}
             />
           </div>
 
