@@ -24,14 +24,21 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [hoveredBar, setHoveredBar] = useState(null);
 
+  const [rawLiquidaciones, setRawLiquidaciones] = useState([]);
+  const [rawConsumos, setRawConsumos] = useState([]);
+
   useEffect(() => {
     async function loadData() {
       setIsLoading(true);
       try {
         const { liquidaciones, consumos, auditLogs, globalCounts: gCounts } = await fetchDashboardData();
 
+        setRawLiquidaciones(liquidaciones || []);
+        setRawConsumos(consumos || []);
+        if (auditLogs) setLogs(auditLogs);
+        setGlobalCounts({ socios: gCounts.sociosCount || 0, lineas: gCounts.lineasActivasCount || 0 });
+
         const aggregatedSales = {};
-        const monthlyStats = {};
         if (liquidaciones) {
           liquidaciones.forEach(l => {
             const monto = Number(l.monto_total_facturado);
@@ -39,78 +46,9 @@ export default function Dashboard() {
             aggregatedSales[l.periodo] += monto;
           });
         }
-        if (consumos) {
-          consumos.forEach(c => {
-            if (!monthlyStats[c.periodo]) {
-              monthlyStats[c.periodo] = { lineas: new Set(), socios: new Set() };
-            }
-            monthlyStats[c.periodo].lineas.add(c.numero_linea);
-            if (c.lineas?.socio_id) {
-              monthlyStats[c.periodo].socios.add(c.lineas.socio_id);
-            }
-          });
-        }
-
         const sortedPeriods = Object.keys(aggregatedSales).sort();
         const lastPeriod = sortedPeriods[sortedPeriods.length - 1];
         setSelectedPeriod(lastPeriod);
-
-        const chartData = sortedPeriods.slice(-7).map(p => ({
-          periodo: p,
-          monto: aggregatedSales[p],
-          lineas: monthlyStats[p]?.lineas ? monthlyStats[p].lineas.size : 0,
-          socios: monthlyStats[p]?.socios ? monthlyStats[p].socios.size : 0
-        }));
-        setSalesData(chartData);
-
-        // Proveedores
-        const aggregatedProviders = {};
-        liquidaciones.forEach(l => {
-          const monto = Number(l.monto_total_facturado);
-          const provNombre = l.proveedores?.nombre || 'OTRO';
-          if (!aggregatedProviders[provNombre]) aggregatedProviders[provNombre] = 0;
-          aggregatedProviders[provNombre] += monto;
-        });
-        const provData = Object.keys(aggregatedProviders).map(name => ({
-          nombre: name,
-          monto: aggregatedProviders[name]
-        })).sort((a, b) => b.monto - a.monto);
-        setProviderData(provData);
-
-        if (auditLogs) setLogs(auditLogs);
-        setGlobalCounts({ socios: gCounts.sociosCount || 0, lineas: gCounts.lineasActivasCount || 0 });
-
-        // Estadísticas contextuales del período seleccionado
-        const facturacionPeriodo = liquidaciones
-          .filter(l => l.periodo === lastPeriod)
-          .reduce((acc, curr) => acc + Math.round(Number(curr.monto_total_facturado || 0) * 100), 0) / 100;
-        const pendientePeriodo = liquidaciones
-          .filter(l => l.periodo === lastPeriod && l.estado_pago === 'PENDIENTE')
-          .reduce((acc, curr) => acc + Math.round(Number(curr.monto_total_facturado || 0) * 100), 0) / 100;
-        const sociosPeriodo = monthlyStats[lastPeriod]?.socios.size || 0;
-        const lineasPeriodo = monthlyStats[lastPeriod]?.lineas.size || 0;
-
-        // Crecimiento vs mes anterior
-        const currentIndex = sortedPeriods.indexOf(lastPeriod);
-        let crecimientoSocios = 0, crecimientoLineas = 0;
-        if (currentIndex > 0) {
-          const prevPeriod = sortedPeriods[currentIndex - 1];
-          const currentS = monthlyStats[lastPeriod]?.socios || new Set();
-          const prevS = monthlyStats[prevPeriod]?.socios || new Set();
-          const currentL = monthlyStats[lastPeriod]?.lineas || new Set();
-          const prevL = monthlyStats[prevPeriod]?.lineas || new Set();
-          crecimientoSocios = [...currentS].filter(s => !prevS.has(s)).length;
-          crecimientoLineas = [...currentL].filter(l => !prevL.has(l)).length;
-        }
-
-        setStats({
-          socios: sociosPeriodo,
-          lineas: lineasPeriodo,
-          facturacion: facturacionPeriodo,
-          pendiente: pendientePeriodo,
-          crecimientoSocios,
-          crecimientoLineas
-        });
 
       } catch (error) {
         console.error("Error loading dashboard data:", error);
@@ -121,11 +59,102 @@ export default function Dashboard() {
     loadData();
   }, []);
 
+  // Recalcular estadísticas, gráfico y proveedores cada vez que cambia el período seleccionado
+  useEffect(() => {
+    if (!selectedPeriod || rawLiquidaciones.length === 0) return;
+
+    // 1. Agregado de ventas para el gráfico de barras (últimos 7 meses)
+    const aggregatedSales = {};
+    const monthlyStats = {};
+
+    rawLiquidaciones.forEach(l => {
+      const monto = Number(l.monto_total_facturado);
+      if (!aggregatedSales[l.periodo]) aggregatedSales[l.periodo] = 0;
+      aggregatedSales[l.periodo] += monto;
+    });
+
+    rawConsumos.forEach(c => {
+      if (!monthlyStats[c.periodo]) {
+        monthlyStats[c.periodo] = { lineas: new Set(), socios: new Set() };
+      }
+      monthlyStats[c.periodo].lineas.add(c.numero_linea);
+      const socioId = Array.isArray(c.lineas) ? c.lineas[0]?.socio_id : c.lineas?.socio_id;
+      if (socioId) {
+        monthlyStats[c.periodo].socios.add(socioId);
+      }
+    });
+
+    const sortedPeriods = Object.keys(aggregatedSales).sort();
+    const chartData = sortedPeriods.slice(-7).map(p => ({
+      periodo: p,
+      monto: aggregatedSales[p],
+      lineas: monthlyStats[p]?.lineas ? monthlyStats[p].lineas.size : 0,
+      socios: monthlyStats[p]?.socios ? monthlyStats[p].socios.size : 0
+    }));
+    setSalesData(chartData);
+
+    // 2. Facturación y Deuda del período seleccionado
+    const facturacionPeriodo = rawLiquidaciones
+      .filter(l => l.periodo === selectedPeriod)
+      .reduce((acc, curr) => acc + Math.round(Number(curr.monto_total_facturado || 0) * 100), 0) / 100;
+
+    const pendientePeriodo = rawLiquidaciones
+      .filter(l => l.periodo === selectedPeriod && l.estado_pago === 'PENDIENTE')
+      .reduce((acc, curr) => acc + Math.round(Number(curr.monto_total_facturado || 0) * 100), 0) / 100;
+
+    const sociosPeriodo = monthlyStats[selectedPeriod]?.socios.size || 0;
+    const lineasPeriodo = monthlyStats[selectedPeriod]?.lineas.size || 0;
+
+    // 3. Crecimiento vs mes anterior
+    const currentIndex = sortedPeriods.indexOf(selectedPeriod);
+    let crecimientoSocios = 0, crecimientoLineas = 0;
+    if (currentIndex > 0) {
+      const prevPeriod = sortedPeriods[currentIndex - 1];
+      const currentS = monthlyStats[selectedPeriod]?.socios || new Set();
+      const prevS = monthlyStats[prevPeriod]?.socios || new Set();
+      const currentL = monthlyStats[selectedPeriod]?.lineas || new Set();
+      const prevL = monthlyStats[prevPeriod]?.lineas || new Set();
+      crecimientoSocios = [...currentS].filter(s => !prevS.has(s)).length;
+      crecimientoLineas = [...currentL].filter(l => !prevL.has(l)).length;
+    }
+
+    setStats({
+      socios: sociosPeriodo,
+      lineas: lineasPeriodo,
+      facturacion: facturacionPeriodo,
+      pendiente: pendientePeriodo,
+      crecimientoSocios,
+      crecimientoLineas
+    });
+
+    // 4. Proveedores del período seleccionado (Distribución por Operadora)
+    const aggregatedProviders = {};
+    rawLiquidaciones
+      .filter(l => l.periodo === selectedPeriod)
+      .forEach(l => {
+        const monto = Number(l.monto_total_facturado);
+        const provNombre = l.proveedores?.nombre || 'OTRO';
+        if (!aggregatedProviders[provNombre]) aggregatedProviders[provNombre] = 0;
+        aggregatedProviders[provNombre] += monto;
+      });
+
+    const provData = Object.keys(aggregatedProviders).map(name => ({
+      nombre: name,
+      monto: aggregatedProviders[name]
+    })).sort((a, b) => b.monto - a.monto);
+    setProviderData(provData);
+
+  }, [selectedPeriod, rawLiquidaciones, rawConsumos]);
+
   // Formateador de moneda
   const fmt = (n) => formatCurrency(n);
 
-  // Obtener el mes más reciente para mostrar
-  const currentMonth = selectedPeriod ? new Date(selectedPeriod + '-01').toLocaleString('es-AR', { month: 'long', year: 'numeric' }) : '';
+  // Obtener el mes más reciente para mostrar (evitando desvío de zona horaria al usar el día 15)
+  const currentMonth = selectedPeriod ? (() => {
+    const [year, month] = selectedPeriod.split('-');
+    const date = new Date(Number(year), Number(month) - 1, 15);
+    return date.toLocaleString('es-AR', { month: 'long', year: 'numeric' });
+  })() : '';
 
   if (isLoading) {
     return (
