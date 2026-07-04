@@ -101,12 +101,44 @@ export async function fetchSocioConsumosData(socioId) {
  */
 export async function fetchSocioIncidentsData(socioId) {
   const { data: lineas } = await supabase.from('lineas').select('numero_linea').eq('socio_id', socioId);
-  if (lineas?.length > 0) {
-    const nums = lineas.map(l => l.numero_linea);
-    const { data } = await supabase.from('incidentes_lineas').select('*').in('numero_linea', nums).order('fecha_creacion', { ascending: false });
-    return data || [];
-  }
-  return [];
+  if (!lineas || lineas.length === 0) return [];
+  
+  const nums = lineas.map(l => l.numero_linea);
+  
+  // Fetch from incidentes_lineas
+  const { data: incidentsDb } = await supabase
+    .from('incidentes_lineas')
+    .select('*')
+    .in('numero_linea', nums);
+    
+  // Fetch from todos (linked tasks/tickets)
+  const { data: todosDb } = await supabase
+    .from('todos')
+    .select('*')
+    .in('numero_linea', nums);
+
+  const parsedIncidents = (incidentsDb || []).map(inc => ({
+    id_incidente: inc.id_incidente,
+    numero_linea: inc.numero_linea,
+    tipo_incidente: inc.tipo_incidente,
+    estado: inc.estado,
+    descripcion_problema: inc.descripcion_problema,
+    fecha_creacion: inc.fecha_creacion
+  }));
+
+  const parsedTodos = (todosDb || []).map(t => ({
+    id_incidente: t.id,
+    numero_linea: t.numero_linea,
+    tipo_incidente: 'Gestión / Tarea',
+    estado: t.status === 'completado' ? 'Resuelto' : 'Abierto',
+    descripcion_problema: `${t.title}${t.description ? ' - ' + t.description : ''}`,
+    fecha_creacion: t.created_at
+  }));
+
+  // Combine and sort by date descending
+  return [...parsedIncidents, ...parsedTodos].sort((a, b) => 
+    new Date(b.fecha_creacion).getTime() - new Date(a.fecha_creacion).getTime()
+  );
 }
 
 /* ─────────────────────────────────────────────

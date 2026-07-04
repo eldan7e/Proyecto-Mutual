@@ -13,6 +13,7 @@ export default function LogDiario() {
   // Estados de datos
   const [logs, setLogs] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
+  const [lineas, setLineas] = useState([]);
   const [loading, setLoading] = useState(false);
 
   // Filtros
@@ -35,7 +36,54 @@ export default function LogDiario() {
   const [formResponsable, setFormResponsable] = useState('');
   const [formAssignedTo, setFormAssignedTo] = useState(''); // user UUID or empty
   const [formFechaHora, setFormFechaHora] = useState('');
+  const [formNumeroLinea, setFormNumeroLinea] = useState('');
+  const [formOwnerName, setFormOwnerName] = useState('');
   const [guardando, setGuardando] = useState(false);
+
+  // Modal de Ticket (desde log)
+  const [currentUser, setCurrentUser] = useState(null);
+  const [ticketModalAbierto, setTicketModalAbierto] = useState(false);
+  const [ticketLogRef, setTicketLogRef] = useState(null);
+  const [ticketTitle, setTicketTitle] = useState('');
+  const [ticketDescription, setTicketDescription] = useState('');
+  const [ticketPriority, setTicketPriority] = useState('media');
+  const [ticketSlaDays, setTicketSlaDays] = useState(3);
+  const [ticketAssignedTo, setTicketAssignedTo] = useState('');
+
+  const abrirModalTicket = (log) => {
+    setTicketLogRef(log);
+    setTicketTitle(`Solicitud - Línea ${log.numero_linea}`);
+    setTicketDescription(`Creado desde Log Diario de Contacto:\n\n${log.descripcion}`);
+    setTicketPriority('media');
+    setTicketSlaDays(3);
+    setTicketAssignedTo(log.assigned_to || '');
+    setTicketModalAbierto(true);
+  };
+
+  const handleGuardarTicket = async () => {
+    if (!ticketTitle.trim()) return addToast('El título es obligatorio.', 'warning');
+    
+    try {
+      const { error } = await supabase
+        .from('todos')
+        .insert([{
+          title: ticketTitle.trim(),
+          description: ticketDescription.trim(),
+          priority: ticketPriority,
+          status: 'pendiente',
+          sla_days: ticketSlaDays,
+          assigned_to: ticketAssignedTo || null,
+          numero_linea: ticketLogRef.numero_linea,
+          user_id: currentUser?.id || null
+        }]);
+      if (error) throw error;
+      addToast('Ticket creado exitosamente en el Tablero de Gestión.', 'success');
+      setTicketModalAbierto(false);
+    } catch (err) {
+      console.error(err);
+      addToast('Error al crear el ticket.', 'error');
+    }
+  };
 
   // Debounce búsqueda
   useEffect(() => {
@@ -46,6 +94,7 @@ export default function LogDiario() {
   // Cargar datos iniciales
   useEffect(() => {
     fetchUsuarios();
+    fetchLineas();
   }, []);
 
   // Cargar logs cada vez que cambian filtros o página
@@ -53,8 +102,24 @@ export default function LogDiario() {
     fetchLogs();
   }, [filtroTipo, debouncedBusqueda, filtroAsignado, fechaDesde, fechaHasta, pagina]);
 
+  async function fetchLineas() {
+    try {
+      const { data, error } = await supabase
+        .from('lineas')
+        .select('numero_linea, socio_id, socios:socio_id(nombre_completo)')
+        .order('numero_linea');
+      if (error) throw error;
+      setLineas(data || []);
+    } catch (err) {
+      console.error('Error al cargar líneas:', err);
+    }
+  }
+
   async function fetchUsuarios() {
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) setCurrentUser(session.user);
+
       const { data, error } = await supabase
         .from('usuarios')
         .select('id, email')
@@ -115,6 +180,8 @@ export default function LogDiario() {
     setFormDescripcion('');
     setFormResponsable('');
     setFormAssignedTo('');
+    setFormNumeroLinea('');
+    setFormOwnerName('');
     // Fecha actual en formato ISO local
     const ahora = new Date();
     const tzoffset = ahora.getTimezoneOffset() * 60000;
@@ -130,6 +197,14 @@ export default function LogDiario() {
     setFormDescripcion(log.descripcion);
     setFormResponsable(log.responsable);
     setFormAssignedTo(log.assigned_to || '');
+    setFormNumeroLinea(log.numero_linea || '');
+    // Buscar titular de la línea
+    if (log.numero_linea) {
+      const found = lineas.find(l => l.numero_linea === log.numero_linea);
+      setFormOwnerName(found?.socios?.nombre_completo || 'Sin titular');
+    } else {
+      setFormOwnerName('');
+    }
     // Convertir la fecha UTC al formato del input local
     const fechaLocal = new Date(log.fecha_hora);
     const tzoffset = fechaLocal.getTimezoneOffset() * 60000;
@@ -152,6 +227,7 @@ export default function LogDiario() {
         responsable: formResponsable.trim(),
         assigned_to: formAssignedTo || null,
         fecha_hora: new Date(formFechaHora).toISOString(),
+        numero_linea: formNumeroLinea.trim() || null,
       };
 
       if (logEditando) {
@@ -390,48 +466,87 @@ export default function LogDiario() {
                 <tr>
                   <th style={S.th}>Tipo</th>
                   <th style={S.th}>Descripción</th>
+                  <th style={S.th}>Línea / Socio</th>
                   <th style={S.th}>Creador</th>
                   <th style={S.th}>Asignado a</th>
                   <th style={S.th}>Fecha y Hora</th>
-                  <th style={{ ...S.th, width: '100px', textAlign: 'center' }}>Acciones</th>
+                  <th style={{ ...S.th, width: '120px', textAlign: 'center' }}>Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                {logs.map((log) => (
-                  <tr key={log.id} style={{ transition: 'background 0.15s' }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--accent-light)'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <td style={S.td}>{tipoBadge(log.tipo)}</td>
-                    <td style={{ ...S.td, maxWidth: '300px' }}>
-                      <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '13px', color: 'var(--text-primary)' }}>
-                        {log.descripcion}
-                      </div>
-                    </td>
-                    <td style={{ ...S.td, fontWeight: 600, color: 'var(--text-primary)' }}>
-                      {log.responsable}
-                    </td>
-                    <td style={S.td}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: log.assigned_to ? 'var(--text-primary)' : 'var(--text-secondary)', fontWeight: log.assigned_to ? 600 : 400 }}>
-                        <UserCheck size={14} style={{ color: log.assigned_to ? 'var(--accent)' : 'var(--text-secondary)' }} />
-                        <span>{getAsignadoEmail(log.assigned_to)}</span>
-                      </div>
-                    </td>
-                    <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: '12px' }}>
-                      {formatearFecha(log.fecha_hora)}
-                    </td>
-                    <td style={{ ...S.td, textAlign: 'center' }}>
-                      <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
-                        <button onClick={() => abrirModalEditar(log)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }} title="Editar">
-                          <Edit3 size={15} />
-                        </button>
-                        <button onClick={() => handleEliminar(log.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)' }} title="Eliminar">
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {logs.map((log) => {
+                  const lineInfo = log.numero_linea ? lineas.find(l => l.numero_linea === log.numero_linea) : null;
+                  const ownerName = lineInfo?.socios?.nombre_completo || '';
+                  return (
+                    <tr key={log.id} style={{ transition: 'background 0.15s' }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'var(--accent-light)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    >
+                      <td style={S.td}>{tipoBadge(log.tipo)}</td>
+                      <td style={{ ...S.td, maxWidth: '250px' }}>
+                        <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '13px', color: 'var(--text-primary)' }}>
+                          {log.descripcion}
+                        </div>
+                      </td>
+                      <td style={S.td}>
+                        {log.numero_linea ? (
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 700, color: 'var(--text-primary)', fontSize: '13px' }}>
+                              📞 {log.numero_linea}
+                            </div>
+                            {ownerName && (
+                              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', fontWeight: 500 }}>
+                                {ownerName}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span style={{ color: 'var(--text-secondary)', opacity: 0.5 }}>—</span>
+                        )}
+                      </td>
+                      <td style={{ ...S.td, fontWeight: 600, color: 'var(--text-primary)' }}>
+                        {log.responsable}
+                      </td>
+                      <td style={S.td}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: log.assigned_to ? 'var(--text-primary)' : 'var(--text-secondary)', fontWeight: log.assigned_to ? 600 : 400 }}>
+                          <UserCheck size={14} style={{ color: log.assigned_to ? 'var(--accent)' : 'var(--text-secondary)' }} />
+                          <span>{getAsignadoEmail(log.assigned_to)}</span>
+                        </div>
+                      </td>
+                      <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: '12px' }}>
+                        {formatearFecha(log.fecha_hora)}
+                      </td>
+                      <td style={{ ...S.td, textAlign: 'center' }}>
+                        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px' }}>
+                          {log.numero_linea && (
+                            <button 
+                              onClick={() => abrirModalTicket(log)} 
+                              style={{ 
+                                background: 'none', 
+                                border: 'none', 
+                                cursor: 'pointer', 
+                                color: 'var(--accent)', 
+                                padding: 2,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                              }} 
+                              title="Crear Ticket de Gestión"
+                            >
+                              <Plus size={15} style={{ border: '1.5px solid var(--accent)', borderRadius: '4px', padding: '1px' }} />
+                            </button>
+                          )}
+                          <button onClick={() => abrirModalEditar(log)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }} title="Editar">
+                            <Edit3 size={15} />
+                          </button>
+                          <button onClick={() => handleEliminar(log.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)' }} title="Eliminar">
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -509,6 +624,32 @@ export default function LogDiario() {
             </select>
           </div>
 
+          {/* Línea Relacionada */}
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Línea Relacionada {formOwnerName && <span style={{ color: 'var(--accent)', textTransform: 'none', fontWeight: 500 }}>({formOwnerName})</span>}
+            </label>
+            <input
+              list="lineas-list-diario"
+              type="text"
+              value={formNumeroLinea}
+              onChange={(e) => {
+                setFormNumeroLinea(e.target.value);
+                const found = lineas.find(l => l.numero_linea === e.target.value);
+                setFormOwnerName(found?.socios?.nombre_completo || '');
+              }}
+              placeholder="Buscar o ingresar número de línea..."
+              style={{ ...S.input, marginTop: '4px' }}
+            />
+            <datalist id="lineas-list-diario">
+              {lineas.map(l => (
+                <option key={l.numero_linea} value={l.numero_linea}>
+                  {l.socios?.nombre_completo || 'Sin titular'}
+                </option>
+              ))}
+            </datalist>
+          </div>
+
           {/* Fecha y hora */}
           <div>
             <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Fecha y Hora</label>
@@ -530,6 +671,127 @@ export default function LogDiario() {
             </button>
           </div>
         </div>
+      </Modal>
+
+      {/* Modal de creación de ticket/solicitud desde el log */}
+      <Modal
+        isOpen={ticketModalAbierto}
+        onClose={() => setTicketModalAbierto(false)}
+        title="Crear Ticket de Gestión"
+      >
+        {ticketLogRef && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '4px' }}>Línea Asociada</span>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                📞 {ticketLogRef.numero_linea} {(() => {
+                  const owner = lineas.find(l => l.numero_linea === ticketLogRef.numero_linea)?.socios?.nombre_completo;
+                  return owner ? `(${owner})` : '';
+                })()}
+              </div>
+            </div>
+
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Título del Ticket *</label>
+              <input
+                type="text"
+                value={ticketTitle}
+                onChange={(e) => setTicketTitle(e.target.value)}
+                placeholder="Ej: Cambio de Plan / Portabilidad"
+                style={{ ...S.input, marginTop: '4px' }}
+                required
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Descripción / Problema</label>
+              <textarea
+                value={ticketDescription}
+                onChange={(e) => setTicketDescription(e.target.value)}
+                rows={4}
+                placeholder="Detalles del problema o solicitud..."
+                style={{ ...S.input, resize: 'vertical', marginTop: '4px' }}
+              />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Prioridad</label>
+                <select
+                  value={ticketPriority}
+                  onChange={(e) => setTicketPriority(e.target.value)}
+                  style={{ ...S.select, marginTop: '4px' }}
+                >
+                  <option value="baja">Baja</option>
+                  <option value="media">Media</option>
+                  <option value="alta">Alta</option>
+                  <option value="urgente">Urgente</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>SLA (Días de plazo)</label>
+                <select
+                  value={ticketSlaDays}
+                  onChange={(e) => setTicketSlaDays(Number(e.target.value))}
+                  style={{ ...S.select, marginTop: '4px' }}
+                >
+                  {[1, 2, 3, 5, 7, 15, 30].map(d => (
+                    <option key={d} value={d}>{d} día{d > 1 ? 's' : ''}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Asignación múltiple */}
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '6px' }}>Asignar a (uno o más)</label>
+              <div style={{
+                maxHeight: '120px',
+                overflowY: 'auto',
+                border: '1px solid var(--border-light)',
+                borderRadius: '8px',
+                padding: '8px 12px',
+                background: 'white',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px'
+              }}>
+                {usuarios.map(u => {
+                  const isChecked = ticketAssignedTo ? ticketAssignedTo.split(',').includes(u.id) : false;
+                  return (
+                    <label key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', color: 'var(--text-primary)' }}>
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={(e) => {
+                          const currentIds = ticketAssignedTo ? ticketAssignedTo.split(',') : [];
+                          let newIds;
+                          if (e.target.checked) {
+                            newIds = [...currentIds, u.id];
+                          } else {
+                            newIds = currentIds.filter(id => id !== u.id);
+                          }
+                          setTicketAssignedTo(newIds.join(','));
+                        }}
+                      />
+                      <span>{u.email}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '12px', paddingTop: '16px', borderTop: '1px solid var(--border-light)' }}>
+              <button onClick={() => setTicketModalAbierto(false)} style={S.btnSecondary}>
+                Cancelar
+              </button>
+              <button onClick={handleGuardarTicket} style={S.btnPrimary}>
+                Crear Ticket
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
