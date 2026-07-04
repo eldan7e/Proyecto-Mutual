@@ -4,81 +4,29 @@ import {
   CheckSquare, Calendar, Clock, AlertTriangle, Plus, Trash2, Check,
   RefreshCw, AlertCircle, ClipboardList, TrendingUp, Info, ChevronDown,
   CheckCircle, ShieldAlert, Square, User, UserCheck, Users, X,
-  Edit3, Filter, SlidersHorizontal, ArrowUp, ArrowDown, Zap, Search,
-  MoreHorizontal, Eye, Clock as ClockIcon, BarChart2
+  Edit3, Filter, SlidersHorizontal, ArrowUp, ArrowDown, Zap,
+  Eye, MoreHorizontal, Link, Search, UserPlus
 } from 'lucide-react';
 import { useToast } from './components/ui/ToastProvider';
 import Modal from './components/Modal';
 
-// --- Componentes de UI reutilizables ---
+// ---------- SUBCOMPONENTES ----------
 
-// Badge para prioridad
-const PriorityBadge = ({ priority }) => {
-  const styles = {
-    baja: { bg: '#e6f7e6', color: '#2e7d32', label: 'Baja' },
-    media: { bg: '#e3f2fd', color: '#1565c0', label: 'Media' },
-    alta: { bg: '#fff3e0', color: '#e65100', label: 'Alta' },
-    urgente: { bg: '#fdecea', color: '#c62828', label: 'Urgente' }
-  };
-  const s = styles[priority] || styles.media;
-  return (
-    <span style={{
-      display: 'inline-block',
-      background: s.bg,
-      color: s.color,
-      fontSize: '10px',
-      fontWeight: 700,
-      padding: '2px 10px',
-      borderRadius: '12px',
-      textTransform: 'uppercase',
-      letterSpacing: '0.3px'
-    }}>
-      {s.label}
-    </span>
-  );
-};
-
-// Badge para SLA
-const SlaBadge = ({ status }) => {
-  const styles = {
-    PLAZO: { bg: '#e6f7e6', color: '#2e7d32', label: 'En plazo' },
-    RIESGO: { bg: '#fff3e0', color: '#e65100', label: 'En riesgo' },
-    VENCIDO: { bg: '#fdecea', color: '#c62828', label: 'Vencido' },
-    CUMPLIDO: { bg: '#e6f7e6', color: '#2e7d32', label: 'Cumplido' },
-    EXCEDIDO: { bg: '#fdecea', color: '#c62828', label: 'Excedido' }
-  };
-  const s = styles[status] || styles.PLAZO;
-  return (
-    <span style={{
-      display: 'inline-block',
-      background: s.bg,
-      color: s.color,
-      fontSize: '10px',
-      fontWeight: 700,
-      padding: '2px 10px',
-      borderRadius: '12px',
-      textTransform: 'uppercase',
-      letterSpacing: '0.3px'
-    }}>
-      {s.label}
-    </span>
-  );
-};
-
-// Avatar con iniciales
-const Avatar = ({ email, size = 28 }) => {
+// Avatar con inicial
+function UserAvatar({ email, size = 24 }) {
   if (!email || email === 'Sin asignar') {
     return (
       <div style={{
         width: size, height: size, borderRadius: '50%',
-        background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: '#64748b', fontSize: '10px', fontWeight: 600
+        background: 'rgba(0,0,0,0.04)',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        color: '#94a3b8', border: '1px solid #e2e8f0'
       }}>
         <User size={size * 0.5} />
       </div>
     );
   }
-  const colors = ['#1e3a8a', '#2563eb', '#7c3aed', '#db2777', '#dc2626', '#ea580c', '#65a30d', '#0d9488'];
+  const colors = ['#2e7d32','#1565c0','#c62828','#ad1457','#6a1b9a','#00838f','#00695c','#f57f17','#d84315','#37474f'];
   let hash = 0;
   for (let i = 0; i < email.length; i++) hash = email.charCodeAt(i) + ((hash << 5) - hash);
   const color = colors[Math.abs(hash) % colors.length];
@@ -86,30 +34,76 @@ const Avatar = ({ email, size = 28 }) => {
   return (
     <div style={{
       width: size, height: size, borderRadius: '50%',
-      background: color, color: 'white',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: `${size * 0.45}px`, fontWeight: 700, textTransform: 'uppercase'
+      backgroundColor: color, color: 'white',
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: size * 0.5, fontWeight: 700, textTransform: 'uppercase',
+      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
     }} title={email}>
       {initial}
     </div>
   );
-};
+}
 
 // Barra de progreso SLA
-const SlaProgress = ({ todo }) => {
+function SlaProgress({ todo, size = 'small' }) {
   if (todo.status === 'completado') return null;
-  const elapsed = Math.floor((new Date() - new Date(todo.created_at)) / (1000 * 60 * 60 * 24));
+  const elapsed = Math.floor((new Date() - new Date(todo.created_at)) / (1000*60*60*24));
   const total = todo.sla_days;
-  const percent = Math.min((elapsed / total) * 100, 100);
-  const color = elapsed > total ? '#dc2626' : (total - elapsed <= 1 ? '#ea580c' : '#22c55e');
+  let percent = Math.min((elapsed / total) * 100, 100);
+  let color = '#22c55e';
+  if (elapsed > total) { percent = 100; color = '#dc2626'; }
+  else if (total - elapsed <= 1) color = '#f97316';
+  const height = size === 'small' ? 4 : 8;
   return (
-    <div style={{ width: '80px', height: '4px', background: '#e2e8f0', borderRadius: '2px', overflow: 'hidden' }}>
-      <div style={{ width: `${percent}%`, height: '100%', background: color, borderRadius: '2px' }} />
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+      <div style={{ flex: 1, height, background: '#e2e8f0', borderRadius: 2, overflow: 'hidden' }}>
+        <div style={{ width: `${percent}%`, height: '100%', background: color, transition: 'width 0.3s' }} />
+      </div>
+      <span style={{ fontSize: 11, fontWeight: 600, color: color, whiteSpace: 'nowrap' }}>
+        {elapsed > total ? 'Vencido' : `${total - elapsed}d rest.`}
+      </span>
     </div>
   );
-};
+}
 
-// --- Componente principal ---
+// Badge de prioridad
+function PriorityBadge({ priority }) {
+  const map = {
+    baja: { bg: '#dcfce7', text: '#166534', label: 'Baja' },
+    media: { bg: '#dbeafe', text: '#1e40af', label: 'Media' },
+    alta: { bg: '#ffedd5', text: '#9a3412', label: 'Alta' },
+    urgente: { bg: '#fee2e2', text: '#991b1b', label: 'Urgente' }
+  };
+  const style = map[priority] || map.media;
+  return (
+    <span style={{
+      background: style.bg, color: style.text,
+      padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 700,
+      display: 'inline-block'
+    }}>{style.label}</span>
+  );
+}
+
+// Badge de estado SLA
+function SlaBadge({ status }) {
+  const map = {
+    PLAZO: { bg: '#dcfce7', text: '#166534', label: 'En plazo' },
+    RIESGO: { bg: '#ffedd5', text: '#9a3412', label: 'En riesgo' },
+    VENCIDO: { bg: '#fee2e2', text: '#991b1b', label: 'Vencido' },
+    CUMPLIDO: { bg: '#dcfce7', text: '#166534', label: 'SLA cumplido' },
+    EXCEDIDO: { bg: '#fee2e2', text: '#991b1b', label: 'SLA excedido' }
+  };
+  const style = map[status] || map.PLAZO;
+  return (
+    <span style={{
+      background: style.bg, color: style.text,
+      padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 600,
+      display: 'inline-block'
+    }}>{style.label}</span>
+  );
+}
+
+// ---------- COMPONENTE PRINCIPAL ----------
 export default function Tareas() {
   const { addToast } = useToast();
   const [todos, setTodos] = useState([]);
@@ -117,7 +111,7 @@ export default function Tareas() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Formulario
+  // Estado del formulario
   const [showForm, setShowForm] = useState(false);
   const [editingTodo, setEditingTodo] = useState(null);
   const [title, setTitle] = useState('');
@@ -130,14 +124,16 @@ export default function Tareas() {
   const [deleteTarget, setDeleteTarget] = useState(null);
 
   // Filtros y orden
+  const [activeTab, setActiveTab] = useState('pendientes'); // 'pendientes' | 'historial'
+  const [searchTerm, setSearchTerm] = useState('');
   const [filterPriority, setFilterPriority] = useState('ALL');
   const [filterSlaStatus, setFilterSlaStatus] = useState('ALL');
-  const [filterAssignee, setFilterAssignee] = useState('ALL');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [filterAssignee, setFilterAssignee] = useState('ALL'); // 'ALL' | 'MY_TASKS' | userId
   const [sortBy, setSortBy] = useState('created_at');
   const [sortOrder, setSortOrder] = useState('desc');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
 
+  // Debounce búsqueda
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   useEffect(() => {
     const handler = setTimeout(() => setDebouncedSearch(searchTerm), 300);
     return () => clearTimeout(handler);
@@ -171,13 +167,27 @@ export default function Tareas() {
     }
   }
 
-  // Helpers (los mismos que antes)
+  // Helpers de tiempo
   const getElapsedDays = (createdAt) => {
-    return Math.floor((new Date() - new Date(createdAt)) / (1000 * 60 * 60 * 24));
+    return Math.floor((new Date() - new Date(createdAt)) / (1000*60*60*24));
   };
   const getResolutionDays = (createdAt, completedAt) => {
-    return Math.floor((new Date(completedAt) - new Date(createdAt)) / (1000 * 60 * 60 * 24));
+    return Math.floor((new Date(completedAt) - new Date(createdAt)) / (1000*60*60*24));
   };
+  const formatRelativeTime = (dateString) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffSec = Math.floor((now - date) / 1000);
+    if (diffSec < 60) return 'hace un momento';
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `hace ${diffMin} min`;
+    const diffHrs = Math.floor(diffMin / 60);
+    if (diffHrs < 24) return `hace ${diffHrs} h`;
+    const diffDays = Math.floor(diffHrs / 24);
+    if (diffDays === 1) return 'ayer';
+    return `hace ${diffDays} días`;
+  };
+
   const getSlaStatus = (todo) => {
     if (todo.status === 'completado') {
       const resDays = getResolutionDays(todo.created_at, todo.completed_at);
@@ -195,16 +205,19 @@ export default function Tareas() {
   const overdueCount = pendingTodos.filter(t => getElapsedDays(t.created_at) > t.sla_days).length;
   const slaMetCount = completedTodos.filter(t => getResolutionDays(t.created_at, t.completed_at) <= t.sla_days).length;
   const slaMetPercentage = completedTodos.length ? Math.round((slaMetCount / completedTodos.length) * 100) : 100;
-  const avgResolutionTime = completedTodos.length
+  const avgResolution = completedTodos.length
     ? (completedTodos.reduce((acc, t) => acc + getResolutionDays(t.created_at, t.completed_at), 0) / completedTodos.length).toFixed(1)
     : '0';
 
-  // Filtrado y orden (igual)
+  // Filtrado y ordenamiento (base)
   const filteredTodos = useMemo(() => {
     let filtered = [...todos];
     if (debouncedSearch) {
       const s = debouncedSearch.toLowerCase();
-      filtered = filtered.filter(t => t.title.toLowerCase().includes(s) || (t.description && t.description.toLowerCase().includes(s)));
+      filtered = filtered.filter(t =>
+        t.title.toLowerCase().includes(s) ||
+        (t.description && t.description.toLowerCase().includes(s))
+      );
     }
     if (filterPriority !== 'ALL') filtered = filtered.filter(t => t.priority === filterPriority);
     if (filterSlaStatus !== 'ALL') filtered = filtered.filter(t => getSlaStatus(t) === filterSlaStatus);
@@ -217,7 +230,7 @@ export default function Tareas() {
         valA = new Date(a.created_at).getTime();
         valB = new Date(b.created_at).getTime();
       } else if (sortBy === 'priority') {
-        const order = { urgente: 4, alta: 3, media: 2, baja: 1 };
+        const order = { urgente:4, alta:3, media:2, baja:1 };
         valA = order[a.priority] || 0;
         valB = order[b.priority] || 0;
       } else if (sortBy === 'sla_remaining') {
@@ -227,19 +240,18 @@ export default function Tareas() {
       return sortOrder === 'asc' ? valA - valB : valB - valA;
     });
     return filtered;
-  }, [todos, debouncedSearch, filterPriority, filterSlaStatus, filterAssignee, sortBy, sortOrder]);
+  }, [todos, debouncedSearch, filterPriority, filterSlaStatus, filterAssignee, sortBy, sortOrder, currentUser]);
 
-  const filteredPending = filteredTodos.filter(t => t.status === 'pendiente');
-  const filteredCompleted = filteredTodos.filter(t => t.status === 'completado');
+  // Separar por pestaña
+  const displayTodos = useMemo(() => {
+    if (activeTab === 'pendientes') return filteredTodos.filter(t => t.status === 'pendiente');
+    else return filteredTodos.filter(t => t.status === 'completado');
+  }, [filteredTodos, activeTab]);
 
-  // Handlers (los mismos)
+  // Acciones
   const openNewForm = () => {
     setEditingTodo(null);
-    setTitle('');
-    setDescription('');
-    setPriority('media');
-    setSlaDays(3);
-    setAssignedTo('');
+    setTitle(''); setDescription(''); setPriority('media'); setSlaDays(3); setAssignedTo('');
     setShowForm(true);
   };
   const openEditForm = (todo) => {
@@ -255,6 +267,7 @@ export default function Tareas() {
     setShowForm(false);
     setEditingTodo(null);
   };
+
   const handleSave = async (e) => {
     e?.preventDefault();
     if (!title.trim()) return addToast('El título es obligatorio.', 'warning');
@@ -285,6 +298,7 @@ export default function Tareas() {
       addToast('Error al guardar.', 'error');
     }
   };
+
   const toggleStatus = async (todo) => {
     const newStatus = todo.status === 'pendiente' ? 'completado' : 'pendiente';
     const completedAt = newStatus === 'completado' ? new Date().toISOString() : null;
@@ -301,6 +315,7 @@ export default function Tareas() {
       addToast('Error al actualizar estado.', 'error');
     }
   };
+
   const requestDelete = (todo) => setDeleteTarget(todo);
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -308,7 +323,7 @@ export default function Tareas() {
       const { error } = await supabase.from('todos').delete().eq('id', deleteTarget.id);
       if (error) throw error;
       setTodos(prev => prev.filter(t => t.id !== deleteTarget.id));
-      addToast('Tarea registrada y eliminada.', 'success');
+      addToast('Tarea eliminada.', 'success');
     } catch (err) {
       addToast('Error al eliminar.', 'error');
     } finally {
@@ -316,625 +331,376 @@ export default function Tareas() {
     }
   };
 
-  const formatRelativeTime = (dateString) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffSec = Math.floor(diffMs / 1000);
-    const diffMin = Math.floor(diffSec / 60);
-    const diffHrs = Math.floor(diffMin / 60);
-    const diffDays = Math.floor(diffHrs / 24);
-    if (diffSec < 60) return 'hace unos momentos';
-    if (diffMin < 60) return `hace ${diffMin} min`;
-    if (diffHrs < 24) return `hace ${diffHrs} ${diffHrs === 1 ? 'hora' : 'horas'}`;
-    if (diffDays === 1) return 'ayer';
-    return `hace ${diffDays} días`;
-  };
+  // Render de fila (compartido entre pestañas)
+  const renderTaskRow = (todo) => {
+    const slaStatus = getSlaStatus(todo);
+    const assigneeEmail = usuarios.find(u => u.id === todo.assigned_to)?.email || 'Sin asignar';
+    const creatorEmail = usuarios.find(u => u.id === todo.user_id)?.email || 'Sistema';
+    const isCompleted = todo.status === 'completado';
 
-  // --- Render ---
-  return (
-    <div style={{
-      padding: '24px',
-      background: '#f1f5f9',
-      minHeight: '100vh',
-      fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
-    }}>
-      <div style={{ maxWidth: '1440px', margin: '0 auto' }}>
-
-        {/* Cabecera */}
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
+    return (
+      <div
+        key={todo.id}
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '40px 100px 1fr 140px 140px 120px 80px',
           alignItems: 'center',
-          marginBottom: '28px',
-          flexWrap: 'wrap',
-          gap: '16px'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <div style={{
-              background: '#1e3a8a',
-              color: 'white',
-              padding: '10px',
-              borderRadius: '12px',
-              boxShadow: '0 4px 6px -1px rgba(30, 58, 138, 0.2)'
-            }}>
-              <ClipboardList size={24} />
-            </div>
-            <div>
-              <h1 style={{
-                fontSize: '24px',
-                fontWeight: 700,
-                color: '#0f172a',
-                margin: 0,
-                letterSpacing: '-0.01em'
-              }}>
-                Tablero de Tareas
-              </h1>
-              <p style={{
-                color: '#475569',
-                fontSize: '13px',
-                fontWeight: 500,
-                margin: 0
-              }}>
-                Seguimiento de incidentes y solicitudes con SLA
-              </p>
-            </div>
-          </div>
+          gap: 12,
+          padding: '10px 16px',
+          background: '#ffffff',
+          borderRadius: 8,
+          borderLeft: `4px solid ${
+            todo.priority === 'urgente' ? '#dc2626' :
+            todo.priority === 'alta' ? '#f97316' :
+            todo.priority === 'media' ? '#3b82f6' : '#22c55e'
+          }`,
+          boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+          transition: 'all 0.15s ease',
+          cursor: 'default',
+          marginBottom: 4
+        }}
+        onMouseEnter={e => {
+          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)';
+          e.currentTarget.style.transform = 'translateY(-1px)';
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.04)';
+          e.currentTarget.style.transform = 'translateY(0)';
+        }}
+      >
+        {/* Checkbox / estado */}
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
           <button
-            onClick={openNewForm}
+            onClick={() => toggleStatus(todo)}
             style={{
-              background: '#1e3a8a',
-              color: 'white',
-              border: 'none',
-              padding: '10px 20px',
-              borderRadius: '8px',
-              fontWeight: 600,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              cursor: 'pointer',
-              transition: 'background 0.2s',
-              boxShadow: '0 2px 4px rgba(30, 58, 138, 0.2)'
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: isCompleted ? '#22c55e' : '#94a3b8'
             }}
-            onMouseEnter={e => e.currentTarget.style.background = '#2563eb'}
-            onMouseLeave={e => e.currentTarget.style.background = '#1e3a8a'}
+            title={isCompleted ? 'Reabrir' : 'Completar'}
           >
-            <Plus size={18} /> Nueva Tarea
+            {isCompleted ? <CheckCircle size={20} /> : <Square size={20} />}
           </button>
         </div>
 
-        {/* KPIs */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-          gap: '16px',
-          marginBottom: '24px'
-        }}>
-          <div style={{
-            background: 'white',
-            padding: '16px 20px',
-            borderRadius: '12px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '16px'
-          }}>
-            <div style={{ background: '#e3f2fd', color: '#1e3a8a', padding: '10px', borderRadius: '10px' }}>
-              <ClipboardList size={20} />
-            </div>
-            <div>
-              <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                Pendientes
-              </div>
-              <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>
-                {pendingTodos.length}
-              </div>
-            </div>
-          </div>
+        {/* Prioridad */}
+        <PriorityBadge priority={todo.priority} />
 
-          <div style={{
-            background: 'white',
-            padding: '16px 20px',
-            borderRadius: '12px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '16px'
-          }}>
-            <div style={{ background: '#fdecea', color: '#dc2626', padding: '10px', borderRadius: '10px' }}>
-              <AlertCircle size={20} />
-            </div>
-            <div>
-              <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                Fuera de SLA
-              </div>
-              <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>
-                {overdueCount}
-              </div>
-            </div>
+        {/* Título + descripción corta */}
+        <div style={{ overflow: 'hidden' }}>
+          <div style={{ fontWeight: 600, fontSize: 14, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6 }}>
+            {isCompleted && <span style={{ textDecoration: 'line-through', opacity: 0.6 }}>{todo.title}</span>}
+            {!isCompleted && todo.title}
+            {todo.description && (
+              <span
+                style={{ color: '#94a3b8', fontSize: 12, cursor: 'help' }}
+                title={todo.description}
+              >
+                <Info size={14} />
+              </span>
+            )}
           </div>
-
-          <div style={{
-            background: 'white',
-            padding: '16px 20px',
-            borderRadius: '12px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '16px'
-          }}>
-            <div style={{ background: '#e6f7e6', color: '#2e7d32', padding: '10px', borderRadius: '10px' }}>
-              <TrendingUp size={20} />
+          {todo.description && (
+            <div style={{
+              fontSize: 12, color: '#64748b', whiteSpace: 'nowrap',
+              overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 300
+            }}>
+              {todo.description}
             </div>
-            <div>
-              <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                % SLA Cumplido
-              </div>
-              <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>
-                {slaMetPercentage}%
-              </div>
-            </div>
-          </div>
-
-          <div style={{
-            background: 'white',
-            padding: '16px 20px',
-            borderRadius: '12px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '16px'
-          }}>
-            <div style={{ background: '#f1f5f9', color: '#1e293b', padding: '10px', borderRadius: '10px' }}>
-              <ClockIcon size={20} />
-            </div>
-            <div>
-              <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                Resolución Promedio
-              </div>
-              <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>
-                {avgResolutionTime} días
-              </div>
-            </div>
-          </div>
+          )}
         </div>
 
-        {/* Filtros */}
-        <div style={{
-          background: 'white',
-          padding: '12px 20px',
-          borderRadius: '12px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '12px',
-          alignItems: 'center',
-          marginBottom: '24px'
-        }}>
-          <div style={{ position: 'relative', flex: 1, minWidth: '180px' }}>
-            <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-            <input
-              type="text"
-              placeholder="Buscar tareas..."
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '8px 12px 8px 36px',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                fontSize: '13px',
-                outline: 'none',
-                background: '#f8fafc',
-                transition: 'border 0.2s'
-              }}
-              onFocus={e => e.currentTarget.style.borderColor = '#1e3a8a'}
-              onBlur={e => e.currentTarget.style.borderColor = '#e2e8f0'}
-            />
+        {/* Asignado */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <UserAvatar email={assigneeEmail} size={24} />
+          <span style={{ fontSize: 12, fontWeight: 500, color: '#334155' }}>
+            {assigneeEmail === 'Sin asignar' ? 'Sin asignar' : assigneeEmail.split('@')[0]}
+          </span>
+        </div>
+
+        {/* SLA */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {isCompleted ? (
+            <span style={{ fontSize: 12, fontWeight: 500, color: '#475569' }}>
+              Resuelto en {getResolutionDays(todo.created_at, todo.completed_at)}d
+            </span>
+          ) : (
+            <SlaProgress todo={todo} />
+          )}
+          <SlaBadge status={slaStatus} />
+        </div>
+
+        {/* Fecha */}
+        <div style={{ fontSize: 12, color: '#64748b' }}>
+          {formatRelativeTime(todo.created_at)}
+        </div>
+
+        {/* Acciones */}
+        <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+          <button
+            onClick={() => openEditForm(todo)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4, borderRadius: 4 }}
+            onMouseEnter={e => e.currentTarget.style.backgroundColor = '#f1f5f9'}
+            onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+            title="Editar"
+          >
+            <Edit3 size={16} />
+          </button>
+          <button
+            onClick={() => requestDelete(todo)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4, borderRadius: 4 }}
+            onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#fee2e2'; e.currentTarget.style.color = '#dc2626'; }}
+            onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#94a3b8'; }}
+            title="Eliminar"
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ padding: '24px 32px', maxWidth: '1440px', margin: '0 auto', fontFamily: 'Inter, system-ui, sans-serif' }}>
+      
+      {/* CABECERA */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+        <div>
+          <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ClipboardList size={28} style={{ color: '#2563eb' }} />
+            Tablero de Gestión
+          </h1>
+          <p style={{ color: '#64748b', fontSize: 14, margin: '4px 0 0' }}>
+            {pendingTodos.length} pendientes · {completedTodos.length} completadas
+          </p>
+        </div>
+        <button
+          onClick={openNewForm}
+          style={{
+            background: '#2563eb', color: 'white', border: 'none',
+            padding: '10px 20px', borderRadius: 8, fontWeight: 600,
+            display: 'flex', alignItems: 'center', gap: 6,
+            cursor: 'pointer', boxShadow: '0 2px 8px rgba(37,99,235,0.3)',
+            transition: '0.2s'
+          }}
+          onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
+          onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+        >
+          <Plus size={18} /> Nueva Solicitud
+        </button>
+      </div>
+
+      {/* KPIs */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16,
+        marginBottom: 24, background: '#f8fafc', borderRadius: 12,
+        padding: '16px 20px', border: '1px solid #e2e8f0'
+      }}>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Pendientes
           </div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#0f172a' }}>{pendingTodos.length}</div>
+          <div style={{ fontSize: 12, color: '#22c55e' }}>▲ 0% vs semana ant.</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Fuera de SLA
+          </div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: overdueCount > 0 ? '#dc2626' : '#0f172a' }}>{overdueCount}</div>
+          <div style={{ fontSize: 12, color: '#64748b' }}>{pendingTodos.length > 0 ? `${Math.round((overdueCount/pendingTodos.length)*100)}% del total` : '0%'}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            % SLA Cumplido
+          </div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#0f172a' }}>{slaMetPercentage}%</div>
+          <div style={{ fontSize: 12, color: '#64748b' }}>{slaMetCount}/{completedTodos.length} cumplidas</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Resolución Promedio
+          </div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#0f172a' }}>{avgResolution} días</div>
+          <div style={{ fontSize: 12, color: '#64748b' }}>últimas {completedTodos.length} tareas</div>
+        </div>
+      </div>
 
-          <select
-            value={filterAssignee}
-            onChange={e => setFilterAssignee(e.target.value)}
+      {/* FILTROS */}
+      <div style={{
+        display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center',
+        marginBottom: 20, background: '#ffffff', padding: '12px 16px',
+        borderRadius: 10, border: '1px solid #e2e8f0'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '1 1 200px' }}>
+          <Search size={16} style={{ color: '#94a3b8' }} />
+          <input
+            type="text"
+            placeholder="Buscar por título, descripción..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
             style={{
-              padding: '8px 12px',
-              border: '1px solid #e2e8f0',
-              borderRadius: '8px',
-              fontSize: '13px',
-              background: '#f8fafc',
-              cursor: 'pointer',
-              outline: 'none'
+              border: 'none', outline: 'none', flex: 1, padding: '6px 0',
+              fontSize: 14, background: 'transparent'
             }}
-          >
-            <option value="ALL">Todos los colaboradores</option>
-            <option value="MY_TASKS">Mis tareas</option>
-            {usuarios.map(u => <option key={u.id} value={u.id}>{u.email}</option>)}
-          </select>
+          />
+        </div>
 
-          <select
-            value={filterPriority}
-            onChange={e => setFilterPriority(e.target.value)}
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setFilterAssignee('ALL')}
             style={{
-              padding: '8px 12px',
-              border: '1px solid #e2e8f0',
-              borderRadius: '8px',
-              fontSize: '13px',
-              background: '#f8fafc',
-              cursor: 'pointer',
-              outline: 'none'
+              padding: '4px 12px', borderRadius: 16, border: '1px solid #e2e8f0',
+              background: filterAssignee === 'ALL' ? '#e2e8f0' : 'transparent',
+              fontSize: 12, fontWeight: 500, cursor: 'pointer'
             }}
-          >
-            <option value="ALL">Todas prioridades</option>
-            <option value="baja">Baja</option>
-            <option value="media">Media</option>
-            <option value="alta">Alta</option>
-            <option value="urgente">Urgente</option>
-          </select>
-
-          <select
-            value={filterSlaStatus}
-            onChange={e => setFilterSlaStatus(e.target.value)}
+          >Todos</button>
+          <button
+            onClick={() => setFilterAssignee('MY_TASKS')}
             style={{
-              padding: '8px 12px',
-              border: '1px solid #e2e8f0',
-              borderRadius: '8px',
-              fontSize: '13px',
-              background: '#f8fafc',
-              cursor: 'pointer',
-              outline: 'none'
+              padding: '4px 12px', borderRadius: 16, border: '1px solid #e2e8f0',
+              background: filterAssignee === 'MY_TASKS' ? '#e2e8f0' : 'transparent',
+              fontSize: 12, fontWeight: 500, cursor: 'pointer'
             }}
-          >
-            <option value="ALL">SLA (Todos)</option>
-            <option value="PLAZO">En plazo</option>
-            <option value="RIESGO">En riesgo</option>
-            <option value="VENCIDO">Vencido</option>
-            <option value="CUMPLIDO">Cumplido</option>
-            <option value="EXCEDIDO">Excedido</option>
-          </select>
+          >Mis tareas</button>
+        </div>
 
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-            <select
-              value={sortBy}
-              onChange={e => setSortBy(e.target.value)}
-              style={{
-                padding: '8px 12px',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                fontSize: '13px',
-                background: '#f8fafc',
-                cursor: 'pointer',
-                outline: 'none'
-              }}
-            >
-              <option value="created_at">Fecha creación</option>
-              <option value="priority">Prioridad</option>
-              <option value="sla_remaining">Tiempo restante SLA</option>
-            </select>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          {['ALL','baja','media','alta','urgente'].map(p => (
             <button
-              onClick={() => setSortOrder(o => o === 'asc' ? 'desc' : 'asc')}
+              key={p}
+              onClick={() => setFilterPriority(p)}
               style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                padding: '6px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#64748b'
+                padding: '4px 10px', borderRadius: 16, border: '1px solid #e2e8f0',
+                background: filterPriority === p ? '#e2e8f0' : 'transparent',
+                fontSize: 12, fontWeight: 500, cursor: 'pointer'
               }}
-            >
-              {sortOrder === 'asc' ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
-            </button>
-          </div>
+            >{p === 'ALL' ? 'Prioridad' : p}</button>
+          ))}
         </div>
 
-        {/* Lista de tareas pendientes */}
-        <div style={{
-          background: 'white',
-          borderRadius: '12px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-          padding: '20px',
-          marginBottom: '24px'
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#0f172a', margin: 0 }}>
-              Tareas Pendientes ({filteredPending.length})
-            </h3>
-          </div>
-
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: '40px' }}>
-              <RefreshCw className="animate-spin" size={24} style={{ color: '#1e3a8a' }} />
-            </div>
-          ) : filteredPending.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b' }}>
-              <CheckSquare size={36} style={{ opacity: 0.3, marginBottom: '12px' }} />
-              <p style={{ fontWeight: 500 }}>Sin tareas pendientes.</p>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              {filteredPending.map(todo => {
-                const slaStat = getSlaStatus(todo);
-                const assigneeEmail = usuarios.find(u => u.id === todo.assigned_to)?.email || 'Sin asignar';
-                const creatorEmail = usuarios.find(u => u.id === todo.user_id)?.email || 'Sistema';
-
-                return (
-                  <div
-                    key={todo.id}
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: '1fr 100px 120px 100px 80px auto',
-                      gap: '12px',
-                      alignItems: 'center',
-                      padding: '12px 16px',
-                      borderRadius: '8px',
-                      background: 'white',
-                      borderBottom: '1px solid #f1f5f9',
-                      transition: 'background 0.15s'
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'white'}
-                  >
-                    {/* Título y descripción */}
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: '14px', color: '#0f172a', cursor: 'pointer' }} onClick={() => openEditForm(todo)}>
-                        {todo.title}
-                      </div>
-                      {todo.description && (
-                        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {todo.description}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Prioridad */}
-                    <PriorityBadge priority={todo.priority} />
-
-                    {/* Asignado */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Avatar email={assigneeEmail} size={24} />
-                      <span style={{ fontSize: '12px', color: '#0f172a', fontWeight: 500 }}>{assigneeEmail}</span>
-                    </div>
-
-                    {/* SLA */}
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <SlaProgress todo={todo} />
-                        <span style={{ fontSize: '11px', color: '#64748b' }}>
-                          {todo.sla_days - getElapsedDays(todo.created_at)}d
-                        </span>
-                      </div>
-                      <SlaBadge status={slaStat} />
-                    </div>
-
-                    {/* Creado */}
-                    <div style={{ fontSize: '12px', color: '#64748b' }}>
-                      {formatRelativeTime(todo.created_at)}
-                    </div>
-
-                    {/* Acciones */}
-                    <div style={{ display: 'flex', gap: '4px' }}>
-                      <button
-                        onClick={() => toggleStatus(todo)}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          color: '#64748b',
-                          padding: '4px',
-                          borderRadius: '4px',
-                          transition: 'all 0.2s'
-                        }}
-                        title="Completar"
-                        onMouseEnter={e => { e.currentTarget.style.background = '#e6f7e6'; e.currentTarget.style.color = '#2e7d32'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#64748b'; }}
-                      >
-                        <Check size={16} />
-                      </button>
-                      <button
-                        onClick={() => openEditForm(todo)}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          color: '#64748b',
-                          padding: '4px',
-                          borderRadius: '4px',
-                          transition: 'all 0.2s'
-                        }}
-                        title="Editar"
-                        onMouseEnter={e => { e.currentTarget.style.background = '#e3f2fd'; e.currentTarget.style.color = '#1e3a8a'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#64748b'; }}
-                      >
-                        <Edit3 size={16} />
-                      </button>
-                      <button
-                        onClick={() => requestDelete(todo)}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          color: '#64748b',
-                          padding: '4px',
-                          borderRadius: '4px',
-                          transition: 'all 0.2s'
-                        }}
-                        title="Eliminar"
-                        onMouseEnter={e => { e.currentTarget.style.background = '#fdecea'; e.currentTarget.style.color = '#dc2626'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#64748b'; }}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          {['ALL','PLAZO','RIESGO','VENCIDO'].map(s => (
+            <button
+              key={s}
+              onClick={() => setFilterSlaStatus(s)}
+              style={{
+                padding: '4px 10px', borderRadius: 16, border: '1px solid #e2e8f0',
+                background: filterSlaStatus === s ? '#e2e8f0' : 'transparent',
+                fontSize: 12, fontWeight: 500, cursor: 'pointer'
+              }}
+            >{s === 'ALL' ? 'SLA' : s}</button>
+          ))}
         </div>
 
-        {/* Historial completadas */}
-        <div style={{
-          background: 'white',
-          borderRadius: '12px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-          padding: '20px',
-          opacity: 0.9
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#475569', margin: 0 }}>
-              Historial Completadas ({filteredCompleted.length})
-            </h3>
-          </div>
-
-          {filteredCompleted.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
-              <CheckCircle size={36} style={{ opacity: 0.3, marginBottom: '12px' }} />
-              <p>Sin tareas completadas.</p>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              {filteredCompleted.map(todo => {
-                const slaStat = getSlaStatus(todo);
-                const assigneeEmail = usuarios.find(u => u.id === todo.assigned_to)?.email || 'Sin asignar';
-                const resDays = getResolutionDays(todo.created_at, todo.completed_at);
-
-                return (
-                  <div
-                    key={todo.id}
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: '1fr 100px 120px 100px 80px auto',
-                      gap: '12px',
-                      alignItems: 'center',
-                      padding: '10px 16px',
-                      borderRadius: '8px',
-                      background: '#f8fafc',
-                      opacity: 0.8,
-                      transition: 'opacity 0.2s'
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.opacity = 1}
-                    onMouseLeave={e => e.currentTarget.style.opacity = 0.8}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 500, fontSize: '14px', color: '#475569', textDecoration: 'line-through' }}>
-                        {todo.title}
-                      </div>
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '11px', color: '#64748b' }}>Resuelta en {resDays}d</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Avatar email={assigneeEmail} size={24} />
-                      <span style={{ fontSize: '12px', color: '#475569' }}>{assigneeEmail}</span>
-                    </div>
-                    <SlaBadge status={slaStat} />
-                    <div style={{ fontSize: '12px', color: '#94a3b8' }}>
-                      {formatRelativeTime(todo.created_at)}
-                    </div>
-                    <div style={{ display: 'flex', gap: '4px' }}>
-                      <button
-                        onClick={() => toggleStatus(todo)}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          color: '#64748b',
-                          padding: '4px',
-                          borderRadius: '4px',
-                          transition: 'all 0.2s'
-                        }}
-                        title="Reabrir"
-                        onMouseEnter={e => { e.currentTarget.style.background = '#e3f2fd'; e.currentTarget.style.color = '#1e3a8a'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#64748b'; }}
-                      >
-                        <RefreshCw size={16} />
-                      </button>
-                      <button
-                        onClick={() => requestDelete(todo)}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          color: '#64748b',
-                          padding: '4px',
-                          borderRadius: '4px',
-                          transition: 'all 0.2s'
-                        }}
-                        title="Eliminar"
-                        onMouseEnter={e => { e.currentTarget.style.background = '#fdecea'; e.currentTarget.style.color = '#dc2626'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#64748b'; }}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+        <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+          <select
+            value={sortBy}
+            onChange={e => setSortBy(e.target.value)}
+            style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12 }}
+          >
+            <option value="created_at">Fecha</option>
+            <option value="priority">Prioridad</option>
+            <option value="sla_remaining">SLA restante</option>
+          </select>
+          <button
+            onClick={() => setSortOrder(o => o === 'asc' ? 'desc' : 'asc')}
+            style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 8px', cursor: 'pointer' }}
+          >
+            {sortOrder === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
+          </button>
         </div>
+      </div>
 
-        {/* Modales (sin cambios, solo estilos) */}
-        <Modal isOpen={showForm} onClose={closeForm} title={editingTodo ? 'Editar Tarea' : 'Nueva Tarea'} maxWidth="500px">
-          <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* PESTAÑAS */}
+      <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid #e2e8f0', marginBottom: 20 }}>
+        <button
+          onClick={() => setActiveTab('pendientes')}
+          style={{
+            padding: '10px 20px', background: 'none', border: 'none',
+            fontSize: 14, fontWeight: 600, color: activeTab === 'pendientes' ? '#2563eb' : '#64748b',
+            borderBottom: activeTab === 'pendientes' ? '2px solid #2563eb' : '2px solid transparent',
+            cursor: 'pointer', transition: '0.2s'
+          }}
+        >
+          Pendientes ({pendingTodos.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('historial')}
+          style={{
+            padding: '10px 20px', background: 'none', border: 'none',
+            fontSize: 14, fontWeight: 600, color: activeTab === 'historial' ? '#2563eb' : '#64748b',
+            borderBottom: activeTab === 'historial' ? '2px solid #2563eb' : '2px solid transparent',
+            cursor: 'pointer', transition: '0.2s'
+          }}
+        >
+          Historial ({completedTodos.length})
+        </button>
+      </div>
+
+      {/* LISTA DE TAREAS */}
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 40 }}>
+          <RefreshCw className="animate-spin" size={32} style={{ color: '#2563eb' }} />
+        </div>
+      ) : displayTodos.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
+          <ClipboardList size={40} style={{ opacity: 0.3, marginBottom: 12 }} />
+          <p style={{ fontWeight: 500 }}>No hay tareas {activeTab === 'pendientes' ? 'pendientes' : 'completadas'}.</p>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {/* Encabezado de columnas (solo visual) */}
+          <div style={{
+            display: 'grid', gridTemplateColumns: '40px 100px 1fr 140px 140px 120px 80px',
+            gap: 12, padding: '0 16px 8px', fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5
+          }}>
+            <span>Estado</span>
+            <span>Prioridad</span>
+            <span>Título</span>
+            <span>Asignado</span>
+            <span>SLA</span>
+            <span>Fecha</span>
+            <span style={{ textAlign: 'right' }}>Acciones</span>
+          </div>
+          {displayTodos.map(todo => renderTaskRow(todo))}
+        </div>
+      )}
+
+      {/* MODAL FORMULARIO */}
+      <Modal isOpen={showForm} onClose={closeForm} title={editingTodo ? 'Editar Solicitud' : 'Nueva Solicitud'} maxWidth="720px">
+        <form onSubmit={handleSave} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+          {/* Columna izquierda: campos */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
-              <label style={{ fontWeight: 600, fontSize: '12px', color: '#475569', display: 'block', marginBottom: '4px' }}>Título *</label>
+              <label style={{ fontWeight: 600, fontSize: 12, color: '#475569' }}>Título *</label>
               <input
                 value={title}
                 onChange={e => setTitle(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  outline: 'none',
-                  transition: 'border 0.2s'
-                }}
-                onFocus={e => e.currentTarget.style.borderColor = '#1e3a8a'}
-                onBlur={e => e.currentTarget.style.borderColor = '#e2e8f0'}
-                placeholder="Nombre descriptivo de la tarea..."
+                className="premium-input"
+                style={{ width: '100%', padding: '8px 12px', marginTop: 4 }}
+                placeholder="Ej: Cargar grupo en Credicoop"
                 required
               />
             </div>
             <div>
-              <label style={{ fontWeight: 600, fontSize: '12px', color: '#475569', display: 'block', marginBottom: '4px' }}>Descripción</label>
+              <label style={{ fontWeight: 600, fontSize: 12, color: '#475569' }}>Descripción</label>
               <textarea
                 value={description}
                 onChange={e => setDescription(e.target.value)}
-                rows={3}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  outline: 'none',
-                  resize: 'vertical',
-                  transition: 'border 0.2s'
-                }}
-                onFocus={e => e.currentTarget.style.borderColor = '#1e3a8a'}
-                onBlur={e => e.currentTarget.style.borderColor = '#e2e8f0'}
-                placeholder="Detalles de la tarea..."
+                rows={4}
+                className="premium-input"
+                style={{ width: '100%', padding: '8px 12px', marginTop: 4, resize: 'vertical' }}
+                placeholder="Detalles adicionales..."
               />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
-                <label style={{ fontWeight: 600, fontSize: '12px', color: '#475569', display: 'block', marginBottom: '4px' }}>Prioridad</label>
+                <label style={{ fontWeight: 600, fontSize: 12, color: '#475569' }}>Prioridad</label>
                 <select
                   value={priority}
                   onChange={e => setPriority(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    outline: 'none',
-                    background: 'white',
-                    cursor: 'pointer'
-                  }}
+                  className="premium-input"
+                  style={{ width: '100%', padding: '8px 12px', marginTop: 4 }}
                 >
                   <option value="baja">Baja</option>
                   <option value="media">Media</option>
@@ -943,121 +709,78 @@ export default function Tareas() {
                 </select>
               </div>
               <div>
-                <label style={{ fontWeight: 600, fontSize: '12px', color: '#475569', display: 'block', marginBottom: '4px' }}>SLA (días)</label>
+                <label style={{ fontWeight: 600, fontSize: 12, color: '#475569' }}>SLA (días)</label>
                 <select
                   value={slaDays}
                   onChange={e => setSlaDays(Number(e.target.value))}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    outline: 'none',
-                    background: 'white',
-                    cursor: 'pointer'
-                  }}
+                  className="premium-input"
+                  style={{ width: '100%', padding: '8px 12px', marginTop: 4 }}
                 >
                   {[1,2,3,5,7,15,30].map(d => <option key={d} value={d}>{d} día{d>1?'s':''}</option>)}
                 </select>
               </div>
             </div>
             <div>
-              <label style={{ fontWeight: 600, fontSize: '12px', color: '#475569', display: 'block', marginBottom: '4px' }}>Asignar a</label>
+              <label style={{ fontWeight: 600, fontSize: 12, color: '#475569' }}>Asignar a</label>
               <select
                 value={assignedTo}
                 onChange={e => setAssignedTo(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  outline: 'none',
-                  background: 'white',
-                  cursor: 'pointer'
-                }}
+                className="premium-input"
+                style={{ width: '100%', padding: '8px 12px', marginTop: 4 }}
               >
                 <option value="">Sin asignar</option>
                 {usuarios.map(u => <option key={u.id} value={u.id}>{u.email}</option>)}
               </select>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
-              <button
-                type="button"
-                onClick={closeForm}
-                style={{
-                  padding: '10px 16px',
-                  background: 'transparent',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  cursor: 'pointer'
-                }}
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                style={{
-                  padding: '10px 20px',
-                  background: '#1e3a8a',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '8px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'background 0.2s'
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = '#2563eb'}
-                onMouseLeave={e => e.currentTarget.style.background = '#1e3a8a'}
-              >
-                {editingTodo ? 'Guardar Cambios' : 'Crear Tarea'}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+              <button type="button" onClick={closeForm} style={{ padding: '8px 16px', background: '#f1f5f9', border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
+              <button type="submit" style={{ padding: '8px 20px', background: '#2563eb', color: 'white', border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer' }}>
+                {editingTodo ? 'Guardar' : 'Crear'}
               </button>
             </div>
-          </form>
-        </Modal>
-
-        <Modal isOpen={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Confirmar eliminación" maxWidth="400px">
-          <p style={{ marginBottom: '24px', fontSize: '14px', lineHeight: 1.5, color: '#0f172a' }}>
-            ¿Estás seguro de que querés eliminar permanentemente la tarea <strong>"{deleteTarget?.title}"</strong>?
-          </p>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-            <button
-              onClick={() => setDeleteTarget(null)}
-              style={{
-                padding: '10px 16px',
-                background: 'transparent',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                fontWeight: 600,
-                color: '#475569',
-                cursor: 'pointer'
-              }}
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={confirmDelete}
-              style={{
-                padding: '10px 16px',
-                background: '#dc2626',
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'background 0.2s'
-              }}
-              onMouseEnter={e => e.currentTarget.style.background = '#b91c1c'}
-              onMouseLeave={e => e.currentTarget.style.background = '#dc2626'}
-            >
-              Eliminar
-            </button>
           </div>
-        </Modal>
-      </div>
+
+          {/* Columna derecha: Preview */}
+          <div style={{ background: '#f8fafc', borderRadius: 8, padding: 16, border: '1px solid #e2e8f0' }}>
+            <p style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginTop: 0, marginBottom: 12 }}>Vista previa</p>
+            <div style={{
+              padding: 12, borderRadius: 8, background: '#ffffff',
+              borderLeft: `4px solid ${
+                priority === 'urgente' ? '#dc2626' :
+                priority === 'alta' ? '#f97316' :
+                priority === 'media' ? '#3b82f6' : '#22c55e'
+              }`,
+              boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <PriorityBadge priority={priority} />
+                <span style={{ fontWeight: 600, fontSize: 14 }}>{title || 'Título de la tarea'}</span>
+              </div>
+              {description && (
+                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>{description}</div>
+              )}
+              <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#94a3b8' }}>
+                <span>Asignado: {assignedTo ? usuarios.find(u => u.id === assignedTo)?.email || '—' : 'Sin asignar'}</span>
+                <span>SLA: {slaDays} días</span>
+              </div>
+              <div style={{ marginTop: 8 }}>
+                <SlaProgress todo={{ status: 'pendiente', created_at: new Date().toISOString(), sla_days: slaDays }} size="small" />
+              </div>
+            </div>
+          </div>
+        </form>
+      </Modal>
+
+      {/* MODAL ELIMINAR */}
+      <Modal isOpen={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Eliminar solicitud" maxWidth="400px">
+        <p style={{ marginBottom: 24, color: '#0f172a' }}>
+          ¿Estás seguro de eliminar la tarea <strong>"{deleteTarget?.title}"</strong>? Esta acción no se puede deshacer.
+        </p>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <button onClick={() => setDeleteTarget(null)} style={{ padding: '8px 16px', background: '#f1f5f9', border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
+          <button onClick={confirmDelete} style={{ padding: '8px 20px', background: '#dc2626', color: 'white', border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer' }}>Eliminar</button>
+        </div>
+      </Modal>
     </div>
   );
 }
