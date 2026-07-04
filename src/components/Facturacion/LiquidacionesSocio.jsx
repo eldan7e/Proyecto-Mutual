@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
-  ChevronDown, ChevronUp, ArrowUpDown, Loader2
+  ChevronDown, ChevronUp, ArrowUpDown, Loader2, Search
 } from 'lucide-react';
 
 export default function LiquidacionesSocio({
@@ -28,13 +28,42 @@ export default function LiquidacionesSocio({
 
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+
+  // Estados de filtros locales
+  const [localSearch, setLocalSearch] = useState('');
+  const [localProv, setLocalProv] = useState('');
+  const [localFpago, setLocalFpago] = useState('');
+
+  // Filtrar liquidaciones de socios localmente
+  const filteredSocios = useMemo(() => {
+    return (sortedSocioData || []).filter(d => {
+      const matchSearch = !localSearch || 
+        d.lineas?.socios?.nombre_completo?.toLowerCase()?.includes(localSearch.toLowerCase()) ||
+        d.numero_linea?.includes(localSearch) ||
+        d.lineas?.planes_abonos?.nombre_plan?.toLowerCase()?.includes(localSearch.toLowerCase());
+      
+      const matchProv = !localProv || d.lineas?.proveedores?.nombre === localProv || 
+        (localProv === 'CLARO' && d.proveedor_id === 1) || 
+        (localProv === 'MOVISTAR' && d.proveedor_id === 2) || 
+        (localProv === 'PERSONAL' && d.proveedor_id === 3);
+      
+      const matchFpago = !localFpago || d.lineas?.socios?.fpago === localFpago;
+
+      return matchSearch && matchProv && matchFpago;
+    });
+  }, [sortedSocioData, localSearch, localProv, localFpago]);
   
   useEffect(() => {
     setCurrentPage(1);
-  }, [sortedSocioData]);
+  }, [filteredSocios]);
 
-  const totalPages = Math.ceil(sortedSocioData.length / pageSize) || 1;
-  const paginatedData = sortedSocioData.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const totalPages = Math.ceil(filteredSocios.length / pageSize) || 1;
+  const paginatedData = filteredSocios.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  // Recalcular total dinámico según los registros filtrados
+  const filteredTotalSocioCobrar = useMemo(() => {
+    return filteredSocios.reduce((acc, d) => acc + Math.round(Number(d.calculado?.totalCobrar || 0) * 100), 0) / 100;
+  }, [filteredSocios]);
 
   return (
     <div className="premium-table-container animate-fade">
@@ -61,7 +90,7 @@ export default function LiquidacionesSocio({
               fontSize: '12px', 
               fontWeight: 700 
             }}>
-              {sortedSocioData.length} registros
+              {filteredSocios.length} de {sortedSocioData.length} registros
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -84,16 +113,15 @@ export default function LiquidacionesSocio({
             boxShadow: '0 4px 12px rgba(0,0,0,0.05)'
           }}>
             <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--accent)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-              TOTAL SOCIOS SOLO FACTURADO
+              TOTAL SOCIOS FILTRADO
             </span>
             <span style={{ fontSize: '24px', fontWeight: 900, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
-              ${totalSocioCobrar.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+              ${filteredTotalSocioCobrar.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
             </span>
           </div>
           <button 
             className="btn-primary" 
             onClick={exportSociosToCSV} 
-
             style={{ 
               display: 'flex', 
               alignItems: 'center', 
@@ -113,6 +141,42 @@ export default function LiquidacionesSocio({
             Exportar Excel
           </button>
         </div>
+      </div>
+
+      {/* Filtros locales y Buscador */}
+      <div style={{ padding: '16px 32px', background: 'rgba(0,0,0,0.01)', borderBottom: '1px solid var(--border-light)', display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="search-bar" style={{ width: '280px', background: 'var(--surface)', margin: 0 }}>
+          <Search size={18} />
+          <input 
+            placeholder="Buscar por socio, línea o plan..." 
+            value={localSearch} 
+            onChange={e => setLocalSearch(e.target.value)} 
+          />
+        </div>
+        <select 
+          className="btn-ghost" 
+          value={localProv} 
+          onChange={e => setLocalProv(e.target.value)}
+          style={{ fontWeight: 700, background: 'var(--surface)', border: '1px solid var(--border-light)' }}
+        >
+          <option value="">Todas las Operadoras</option>
+          <option value="CLARO">Claro</option>
+          <option value="MOVISTAR">Movistar</option>
+          <option value="PERSONAL">Personal</option>
+        </select>
+        <select 
+          className="btn-ghost" 
+          value={localFpago} 
+          onChange={e => setLocalFpago(e.target.value)}
+          style={{ fontWeight: 700, background: 'var(--surface)', border: '1px solid var(--border-light)' }}
+        >
+          <option value="">Todos los Medios de Pago</option>
+          <option value="D">Débito Automático</option>
+          <option value="M">Cobro Mutual</option>
+          <option value="BC">Banco Credicoop</option>
+          <option value="R">RapiPago / Pago Fácil</option>
+          <option value="E">Efectivo</option>
+        </select>
       </div>
       
       {socioLoading ? (
@@ -204,10 +268,10 @@ export default function LiquidacionesSocio({
                   </tr>
                 );
               })}
-              {sortedSocioData.length === 0 && (
+              {filteredSocios.length === 0 && (
                 <tr>
                   <td colSpan={6} style={{ textAlign: 'center', padding: '100px', opacity: 0.5 }}>
-                    No se encontraron liquidaciones para este periodo y operadora.
+                    No se encontraron liquidaciones para este periodo y filtros seleccionados.
                   </td>
                 </tr>
               )}
@@ -217,7 +281,7 @@ export default function LiquidacionesSocio({
       )}
 
       {/* Paginación Premium */}
-      {sortedSocioData.length > 0 && (
+      {filteredSocios.length > 0 && (
         <div style={{
           display: 'flex',
           justifyContent: 'space-between',
@@ -229,7 +293,7 @@ export default function LiquidacionesSocio({
           background: 'var(--surface-light)'
         }}>
           <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-            Mostrando <span style={{ color: 'var(--text-primary)', fontWeight: 800 }}>{Math.min(sortedSocioData.length, (currentPage - 1) * pageSize + 1)}-{Math.min(sortedSocioData.length, currentPage * pageSize)}</span> de <span style={{ color: 'var(--text-primary)', fontWeight: 800 }}>{sortedSocioData.length}</span> registros
+            Mostrando <span style={{ color: 'var(--text-primary)', fontWeight: 800 }}>{Math.min(filteredSocios.length, (currentPage - 1) * pageSize + 1)}-{Math.min(filteredSocios.length, currentPage * pageSize)}</span> de <span style={{ color: 'var(--text-primary)', fontWeight: 800 }}>{filteredSocios.length}</span> registros
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
