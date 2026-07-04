@@ -495,37 +495,165 @@ export default function Tareas() {
 
       {/* KPIs */}
       <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16,
-        marginBottom: 24, background: '#f8fafc', borderRadius: 12,
-        padding: '16px 20px', border: '1px solid #e2e8f0'
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+        gap: '20px',
+        marginBottom: '24px'
       }}>
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Pendientes
+        {/* Card 1: Pendientes */}
+        <div 
+          style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border-light)',
+            borderRadius: '24px',
+            padding: '20px 24px',
+            boxShadow: 'var(--shadow-soft)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '20px',
+            transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+            cursor: 'default'
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.transform = 'translateY(-4px)';
+            e.currentTarget.style.boxShadow = 'var(--shadow-premium)';
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = 'var(--shadow-soft)';
+          }}
+        >
+          <div style={{ background: '#e3f2fd', color: '#1565c0', padding: '12px', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <ClipboardList size={24} />
           </div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: '#0f172a' }}>{pendingTodos.length}</div>
-          <div style={{ fontSize: 12, color: '#22c55e' }}>▲ 0% vs semana ant.</div>
+          <div>
+            <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>
+              Pendientes
+            </div>
+            <div style={{ fontSize: '28px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.1 }}>
+              {pendingTodos.length}
+            </div>
+            <div style={{ fontSize: '12px', color: '#22c55e', marginTop: '4px', fontWeight: 500 }}>
+              ▲ 0% vs semana ant.
+            </div>
+          </div>
         </div>
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Fuera de SLA
+
+        {/* Card 2: Fuera de SLA */}
+        <div 
+          style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border-light)',
+            borderRadius: '24px',
+            padding: '20px 24px',
+            boxShadow: 'var(--shadow-soft)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '20px',
+            transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+            cursor: 'default'
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.transform = 'translateY(-4px)';
+            e.currentTarget.style.boxShadow = 'var(--shadow-premium)';
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = 'var(--shadow-soft)';
+          }}
+        >
+          <div style={{ background: '#fee2e2', color: '#dc2626', padding: '12px', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <AlertCircle size={24} />
           </div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: overdueCount > 0 ? '#dc2626' : '#0f172a' }}>{overdueCount}</div>
-          <div style={{ fontSize: 12, color: '#64748b' }}>{pendingTodos.length > 0 ? `${Math.round((overdueCount/pendingTodos.length)*100)}% del total` : '0%'}</div>
+          <div>
+            <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>
+              Fuera de SLA
+            </div>
+            <div style={{ fontSize: '28px', fontWeight: 700, color: overdueCount > 0 ? '#dc2626' : 'var(--text-primary)', lineHeight: 1.1 }}>
+              {overdueCount}
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 500 }}>
+              {pendingTodos.length > 0 ? `${Math.round((overdueCount / pendingTodos.length) * 100)}% del total` : '0%'}
+            </div>
+          </div>
         </div>
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            % SLA Cumplido
+
+        {/* Card 3: % SLA Cumplido */}
+        <div 
+          style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border-light)',
+            borderRadius: '24px',
+            padding: '20px 24px',
+            boxShadow: 'var(--shadow-soft)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '20px',
+            transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+            cursor: 'default'
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.transform = 'translateY(-4px)';
+            e.currentTarget.style.boxShadow = 'var(--shadow-premium)';
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = 'var(--shadow-soft)';
+          }}
+        >
+          <div style={{ background: '#dcfce7', color: '#166534', padding: '12px', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <TrendingUp size={24} />
           </div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: '#0f172a' }}>{slaMetPercentage}%</div>
-          <div style={{ fontSize: 12, color: '#64748b' }}>{slaMetCount}/{completedTodos.length} cumplidas</div>
+          <div>
+            <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>
+              % SLA Cumplido
+            </div>
+            <div style={{ fontSize: '28px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.1 }}>
+              {slaMetPercentage}%
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 500 }}>
+              {slaMetCount}/{completedTodos.length} cumplidas
+            </div>
+          </div>
         </div>
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Resolución Promedio
+
+        {/* Card 4: Resolución Promedio */}
+        <div 
+          style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border-light)',
+            borderRadius: '24px',
+            padding: '20px 24px',
+            boxShadow: 'var(--shadow-soft)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '20px',
+            transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+            cursor: 'default'
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.transform = 'translateY(-4px)';
+            e.currentTarget.style.boxShadow = 'var(--shadow-premium)';
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = 'var(--shadow-soft)';
+          }}
+        >
+          <div style={{ background: '#f1f5f9', color: '#475569', padding: '12px', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Clock size={24} />
           </div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: '#0f172a' }}>{avgResolution} días</div>
-          <div style={{ fontSize: 12, color: '#64748b' }}>últimas {completedTodos.length} tareas</div>
+          <div>
+            <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>
+              Resolución Promedio
+            </div>
+            <div style={{ fontSize: '28px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.1 }}>
+              {avgResolution} días
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 500 }}>
+              últimas {completedTodos.length} tareas
+            </div>
+          </div>
         </div>
       </div>
 
