@@ -117,8 +117,6 @@ export default function Layout({ session, theme, toggleTheme }) {
     { path: '/', icon: LayoutDashboard, label: 'Inicio' },
     { path: '/comunidad', icon: Users, label: 'Comunidad' },
     { path: '/facturacion', icon: FileText, label: 'Facturación' },
-    { path: '/tareas', icon: ClipboardList, label: 'Tareas' },
-    { path: '/log-diario', icon: Activity, label: 'Diario' },
     { path: '/conciliacion-bancaria', icon: Landmark, label: 'Bancos' },
   ];
 
