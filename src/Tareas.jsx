@@ -438,7 +438,7 @@ export default function Tareas() {
       </div>
 
       {/* Filtros y orden */}
-      <div className="bento-card" style={{ padding: '14px 20px', display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
+      <div className="bento-card" style={{ padding: '14px 20px', display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
         <div style={{ position: 'relative', flex: 1, minWidth: '180px' }}>
           <input 
             type="text" placeholder="Buscar tareas..." value={searchTerm}
