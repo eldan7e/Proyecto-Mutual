@@ -1,5 +1,7 @@
 # Aunar - Sistema de Gestión de Deuda, Facturación y Conciliación Bancaria
 
+<!-- Vercel redeploy trigger: 2026-07-03T22:04:11-03:00 -->
+
 Aunar es una plataforma web completa desarrollada para la gestión administrativa y financiera de asociaciones mutuales. El sistema centraliza la administración de líneas telefónicas corporativas (Claro, Movistar, Personal), la facturación mensual por grupos de socios, el control consolidado de deuda, la conciliación automática de extractos bancarios y la emisión automatizada de comprobantes de AFIP.
 
 Este proyecto ha sido diseñado bajo exigentes estándares de arquitectura de software frontend, priorizando la separación de responsabilidades, la optimización del rendimiento en conjuntos de datos a gran escala y una experiencia de usuario premium con estética **Glassmorphism**.
