@@ -309,7 +309,8 @@ export const fetchLiquidaciones = async (periodo, proveedor) => {
       socios(nombre_completo, nro_socio, fpago),
       proveedores!proveedor_id(*)
     `)
-    .order('periodo', { ascending: false });
+    .order('periodo', { ascending: false })
+    .range(0, 4000); // Evitar truncado predeterminado de 1000 filas en Supabase
 
   if (periodo) query = query.eq('periodo', periodo);
   if (proveedor) {

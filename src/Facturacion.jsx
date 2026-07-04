@@ -64,13 +64,13 @@ export default function Facturacion() {
     });
   };
 
-  // Cargar períodos disponibles con React Query
+  // Cargar períodos disponibles con React Query desde la vista de períodos únicos (evita el límite de 1000 filas)
   const { data: periods = [] } = useQuery({
     queryKey: ['periods'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('liquidaciones_grupos').select('periodo');
+      const { data, error } = await supabase.from('unique_periods_view').select('periodo');
       if (error) throw error;
-      return [...new Set((data || []).map(d => d.periodo))].filter(Boolean).sort().reverse();
+      return (data || []).map(d => d.periodo).filter(Boolean);
     },
     staleTime: 5 * 60 * 1000,
   });
@@ -82,10 +82,10 @@ export default function Facturacion() {
     }
   }, [periods]);
 
-  // Cargar liquidaciones principales con React Query
+  // Cargar liquidaciones principales filtradas con React Query (soporta parámetros de periodo y operadora)
   const { data: liquidaciones = [], isLoading: liquidacionesLoading } = useQuery({
-    queryKey: ['liquidaciones'],
-    queryFn: () => fetchLiquidaciones(),
+    queryKey: ['liquidaciones', selectedPeriod, filterProv],
+    queryFn: () => fetchLiquidaciones(selectedPeriod, filterProv),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -102,6 +102,7 @@ export default function Facturacion() {
     mutationFn: ({ periodo, provId }) => deleteBatch(periodo, provId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['liquidaciones'] });
+      queryClient.invalidateQueries({ queryKey: ['periods'] });
       queryClient.invalidateQueries({ queryKey: ['socioLiquidaciones'] });
       addToast('Lote eliminado correctamente', 'success');
     },

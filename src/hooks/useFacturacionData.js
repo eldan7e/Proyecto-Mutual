@@ -40,6 +40,9 @@ export default function useFacturacionData(liquidaciones, socioLiquidaciones, ac
   const batches = useMemo(() => {
     const batchesMap = (liquidaciones || []).reduce((acc, l) => {
       if (!l.periodo) return acc;
+      // Filtrar por período seleccionado si está definido
+      if (selectedPeriod && l.periodo !== selectedPeriod) return acc;
+
       const prov = l.proveedores;
       const key = `${l.periodo}-${prov?.nombre || 'OTRO'}`;
       if (!acc[key]) {
@@ -66,7 +69,7 @@ export default function useFacturacionData(liquidaciones, socioLiquidaciones, ac
     return Object.values(batchesMap)
       .filter(b => !filterProv || b.proveedor?.nombre === filterProv)
       .sort((a, b) => (b.periodo || '').localeCompare(a.periodo || ''));
-  }, [liquidaciones, filterProv]);
+  }, [liquidaciones, filterProv, selectedPeriod]);
 
   const liquidacionesAgrupadas = useMemo(() => {
     if (activeTab !== 'resumen') return [];
