@@ -355,14 +355,36 @@ export default function Planes({ hideHeader = false }) {
         <button
           onClick={() => setActiveSubTab('catalog')}
           className={`nav-pill ${activeSubTab === 'catalog' ? 'active' : ''}`}
-          style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '8px 16px', fontWeight: 700, borderRadius: '8px' }}
+          style={{ 
+            border: 'none', 
+            background: activeSubTab === 'catalog' ? 'var(--accent)' : 'transparent',
+            color: activeSubTab === 'catalog' ? 'white' : 'var(--text-secondary)',
+            cursor: 'pointer', 
+            padding: '10px 20px', 
+            fontWeight: 700, 
+            borderRadius: '10px', 
+            fontSize: '14px',
+            boxShadow: activeSubTab === 'catalog' ? '0 8px 18px -4px var(--accent-shadow)' : 'none',
+            transition: 'all 0.2s ease'
+          }}
         >
           Catálogo de Planes
         </button>
         <button
           onClick={() => setActiveSubTab('history')}
           className={`nav-pill ${activeSubTab === 'history' ? 'active' : ''}`}
-          style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '8px 16px', fontWeight: 700, borderRadius: '8px' }}
+          style={{ 
+            border: 'none', 
+            background: activeSubTab === 'history' ? 'var(--accent)' : 'transparent',
+            color: activeSubTab === 'history' ? 'white' : 'var(--text-secondary)',
+            cursor: 'pointer', 
+            padding: '10px 20px', 
+            fontWeight: 700, 
+            borderRadius: '10px', 
+            fontSize: '14px',
+            boxShadow: activeSubTab === 'history' ? '0 8px 18px -4px var(--accent-shadow)' : 'none',
+            transition: 'all 0.2s ease'
+          }}
         >
           Historial de Precios y Aumentos
         </button>
