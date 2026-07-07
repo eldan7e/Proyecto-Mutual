@@ -3,7 +3,7 @@ import { Outlet, Link, useLocation } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
 import { supabase } from './supabaseClient';
 import { 
-  LayoutDashboard, FileText, LogOut, User as UserIcon, Sun, Moon, Landmark, Users, ClipboardList, UserPlus, Loader2, Activity
+  LayoutDashboard, FileText, LogOut, User as UserIcon, Sun, Moon, Landmark, Users, ClipboardList, UserPlus, Loader2, Activity, Mail
 } from 'lucide-react';
 import ErrorBoundary from './components/ui/ErrorBoundary';
 import Modal from './components/Modal';
@@ -117,13 +117,15 @@ export default function Layout({ session, theme, toggleTheme }) {
     { path: '/', icon: LayoutDashboard, label: 'Inicio' },
     { path: '/comunidad', icon: Users, label: 'Comunidad' },
     { path: '/facturacion', icon: FileText, label: 'Facturación' },
+    { path: '/campanas', icon: Mail, label: 'Comunicación' },
     { path: '/conciliacion-bancaria', icon: Landmark, label: 'Bancos' },
   ];
 
   const APP_CATEGORIES = [
     { id: 'general', paths: ['/', '/tareas', '/log-diario', '/ingreso-diario'] },
     { id: 'mgmt', paths: ['/comunidad'] },
-    { id: 'dash', paths: ['/facturacion', '/gestion-deuda', '/gestion-pagos', '/descuentos', '/carga-manual', '/campanas'] },
+    { id: 'dash', paths: ['/facturacion', '/gestion-deuda', '/gestion-pagos', '/descuentos', '/carga-manual'] },
+    { id: 'comunicacion', paths: ['/campanas'] },
     { id: 'finance', paths: ['/conciliacion-bancaria', '/movimientos-bancarios'] },
   ];
 
@@ -143,7 +145,7 @@ export default function Layout({ session, theme, toggleTheme }) {
     '/conciliacion-bancaria': 'Conciliación Bancaria',
     '/movimientos-bancarios': 'Historial de Movimientos',
     '/grupos': 'Gestión de Grupos',
-    '/campanas': 'Campañas de Correo'
+    '/campanas': 'Comunicación'
   };
 
   const activeCategory = APP_CATEGORIES.find(cat => {
@@ -158,6 +160,7 @@ export default function Layout({ session, theme, toggleTheme }) {
     'general': 'INICIO',
     'mgmt': 'GESTIÓN COMUNIDAD',
     'dash': 'GESTIÓN FACTURACIÓN',
+    'comunicacion': 'COMUNICACIÓN',
     'finance': 'GESTIÓN BANCARIA',
     'admin': 'CONFIGURACIÓN SISTEMA'
   };
