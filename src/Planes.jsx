@@ -21,6 +21,7 @@ export default function Planes({ hideHeader = false }) {
   const [selectedHistoryPlanId, setSelectedHistoryPlanId] = useState('');
   const [planHistoryData, setPlanHistoryData] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [planAverages, setPlanAverages] = useState({});
 
   function getCurrentPeriod() {
     const d = new Date();
@@ -98,18 +99,57 @@ export default function Planes({ hideHeader = false }) {
 
     const { data: lineasData } = await supabase
       .from('lineas')
-      .select('plan_id')
-      .eq('estado', 'ACTIVA');
+      .select('plan_id, numero_linea');
 
     const countsMap = {};
+    const lineToPlan = {};
     lineasData?.forEach(l => {
       if (l.plan_id) {
         countsMap[l.plan_id] = (countsMap[l.plan_id] || 0) + 1;
+        if (l.numero_linea) {
+          lineToPlan[l.numero_linea] = l.plan_id;
+        }
+      }
+    });
+
+    // Cargar promedios de consumos mensuales
+    const { data: consumosData } = await supabase
+      .from('consumos_mensuales')
+      .select('numero_linea, costo_abono_real, tarifa_aunar_aplicada, periodo');
+
+    const planPeriodData = {};
+    consumosData?.forEach(c => {
+      const planId = lineToPlan[c.numero_linea];
+      if (planId && c.periodo) {
+        if (!planPeriodData[planId]) {
+          planPeriodData[planId] = {};
+        }
+        if (!planPeriodData[planId][c.periodo]) {
+          planPeriodData[planId][c.periodo] = { totalCosto: 0, totalAunar: 0, count: 0 };
+        }
+        planPeriodData[planId][c.periodo].totalCosto += Number(c.costo_abono_real) || 0;
+        planPeriodData[planId][c.periodo].totalAunar += Number(c.tarifa_aunar_aplicada) || 0;
+        planPeriodData[planId][c.periodo].count++;
+      }
+    });
+
+    const averagesMap = {};
+    Object.entries(planPeriodData).forEach(([planId, periods]) => {
+      const sortedPeriods = Object.keys(periods).sort().reverse();
+      const latestPeriod = sortedPeriods[0];
+      if (latestPeriod) {
+        const stats = periods[latestPeriod];
+        averagesMap[planId] = {
+          periodo: latestPeriod,
+          avgCostoReal: stats.count > 0 ? (stats.totalCosto / stats.count) : 0,
+          avgTarifaAunar: stats.count > 0 ? (stats.totalAunar / stats.count) : 0,
+        };
       }
     });
 
     setPlanes(planesData || []);
     setCounts(countsMap);
+    setPlanAverages(averagesMap);
     setLoading(false);
   }
 
@@ -460,6 +500,7 @@ export default function Planes({ hideHeader = false }) {
                   <tr><td colSpan="6" style={{ padding: '100px', textAlign: 'center' }}><Loader2 className="animate-spin" size={32} style={{ margin: '0 auto', color: 'var(--accent)' }} /></td></tr>
                 ) : filteredPlanes.map(plan => {
                   const realCount = counts[plan.plan_id] || 0;
+                  const averages = planAverages[plan.plan_id];
                   return (
                     <tr key={plan.plan_id}>
                       <td style={{ padding: '16px 24px' }}>
@@ -480,8 +521,18 @@ export default function Planes({ hideHeader = false }) {
                       <td style={{ textAlign: 'right' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
                           <div style={{ fontWeight: 800, fontSize: '14px' }}>Prov: ${Number(plan.precio).toLocaleString('es-AR')}</div>
-                          <div style={{ display: 'flex', gap: '4px' }}>
+                          {averages && averages.avgCostoReal > 0 && (
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                              Prom. Real: ${averages.avgCostoReal.toLocaleString('es-AR', { maximumFractionDigits: 2 })}
+                            </div>
+                          )}
+                          <div style={{ display: 'flex', gap: '4px', marginTop: '2px' }}>
                             {plan.tarifa_aunar > 0 && <span style={{ fontSize: '9px', fontWeight: 900, background: 'var(--accent-light)', color: 'var(--accent)', padding: '2px 6px', borderRadius: '6px' }}>+${plan.tarifa_aunar} AU</span>}
+                            {averages && averages.avgTarifaAunar > 0 && (
+                              <span style={{ fontSize: '9px', fontWeight: 900, background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', padding: '2px 6px', borderRadius: '6px' }}>
+                                Prom. AU: ${averages.avgTarifaAunar.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                              </span>
+                            )}
                             {plan.descuento_operadora_pct > 0 && <span style={{ fontSize: '9px', fontWeight: 900, background: 'rgba(239,68,68,0.1)', color: '#ef4444', padding: '2px 6px', borderRadius: '6px' }}>-{plan.descuento_operadora_pct}% OP</span>}
                           </div>
                         </div>
