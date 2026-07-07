@@ -5,7 +5,7 @@ import {
   RefreshCw, AlertCircle, ClipboardList, TrendingUp, Info, ChevronDown,
   CheckCircle, ShieldAlert, Square, User, UserCheck, Users, X,
   Edit3, Filter, SlidersHorizontal, ArrowUp, ArrowDown, Zap,
-  Eye, MoreHorizontal, Link, Search, UserPlus, Copy
+  Eye, MoreHorizontal, Link, Search, UserPlus, Copy, Loader2
 } from 'lucide-react';
 import { useToast } from './components/ui/ToastProvider';
 import Modal from './components/Modal';
