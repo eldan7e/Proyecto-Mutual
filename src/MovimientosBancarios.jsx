@@ -1627,12 +1627,8 @@ export default function MovimientosBancarios() {
 
       {/* 3. Modal para Ver Desglose de Grupo */}
       <DesgloseGrupoModal
-        isOpen={breakdownModal.isOpen}
-        onClose={() => setBreakdownModal(prev => ({ ...prev, isOpen: false }))}
-        loading={breakdownModal.loading}
-        groupInfo={breakdownModal.groupInfo}
-        members={breakdownModal.members}
-        payments={breakdownModal.payments}
+        breakdownModal={breakdownModal}
+        setBreakdownModal={setBreakdownModal}
         formatISODateToAR={formatISODateToAR}
       />
     </div>
