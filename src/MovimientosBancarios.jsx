@@ -183,6 +183,22 @@ export default function MovimientosBancarios() {
       setPeriods(pList);
       
       if (pList.length > 0 && !selectedPeriod) {
+        // Query the latest period with actual bank movements to use as default
+        const { data: latestMovs, error: movsErr } = await supabase
+          .from('movimientos_bancarios')
+          .select('fecha_movimiento')
+          .order('fecha_movimiento', { ascending: false })
+          .limit(1);
+          
+        if (!movsErr && latestMovs && latestMovs.length > 0 && latestMovs[0].fecha_movimiento) {
+          const latestMovDate = latestMovs[0].fecha_movimiento; // e.g. "2026-02-27"
+          const latestMovPeriod = latestMovDate.substring(0, 7); // "2026-02"
+          
+          if (pList.includes(latestMovPeriod)) {
+            setSelectedPeriod(latestMovPeriod);
+            return;
+          }
+        }
         setSelectedPeriod(pList[0]);
       }
     } catch (err) {
@@ -235,7 +251,8 @@ export default function MovimientosBancarios() {
       if (selectedPeriod) {
         const [year, month] = selectedPeriod.split('-');
         const startDate = `${selectedPeriod}-01`;
-        const endDate = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0];
+        const daysInMonth = new Date(parseInt(year, 10), parseInt(month, 10), 0).getDate();
+        const endDate = `${selectedPeriod}-${String(daysInMonth).padStart(2, '0')}`;
         query = query.gte('fecha_movimiento', startDate).lte('fecha_movimiento', endDate);
       }
 
@@ -446,7 +463,8 @@ export default function MovimientosBancarios() {
 
       const startDate = `${selectedPeriod}-01`;
       const [year, month] = selectedPeriod.split('-');
-      const endDate = new Date(year, month, 0).toISOString().split('T')[0];
+      const daysInMonth = new Date(parseInt(year, 10), parseInt(month, 10), 0).getDate();
+      const endDate = `${selectedPeriod}-${String(daysInMonth).padStart(2, '0')}`;
       
       await supabase.from('movimientos_bancarios').delete().is('liquidacion_id', null).gte('fecha_movimiento', startDate).lte('fecha_movimiento', endDate);
 
