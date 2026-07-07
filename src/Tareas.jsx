@@ -103,6 +103,23 @@ function SlaBadge({ status }) {
   );
 }
 
+// Badge de estado de tarea
+function TaskStatusBadge({ status }) {
+  const map = {
+    pendiente: { bg: '#ffedd5', text: '#9a3412', label: 'Pendiente' },
+    en_proceso: { bg: '#e0f2fe', text: '#0369a1', label: 'En Proceso' },
+    completado: { bg: '#dcfce7', text: '#166534', label: 'Completada' }
+  };
+  const style = map[status] || map.pendiente;
+  return (
+    <span style={{
+      background: style.bg, color: style.text,
+      padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 700,
+      display: 'inline-block'
+    }}>{style.label}</span>
+  );
+}
+
 // ---------- COMPONENTE PRINCIPAL ----------
 export default function Tareas() {
   const { addToast } = useToast();
@@ -125,6 +142,84 @@ export default function Tareas() {
 
   // Detalle de ticket seleccionado
   const [selectedTodo, setSelectedTodo] = useState(null);
+
+  // Estados de comentarios y avances
+  const [comments, setComments] = useState([]);
+  const [loadingComments, setLoadingComments] = useState(false);
+  const [newComment, setNewComment] = useState('');
+  const [commentStatus, setCommentStatus] = useState('pendiente');
+
+  useEffect(() => {
+    if (selectedTodo?.id) {
+      loadComments(selectedTodo.id);
+      setCommentStatus(selectedTodo.status || 'pendiente');
+      setNewComment('');
+    }
+  }, [selectedTodo]);
+
+  async function loadComments(todoId) {
+    setLoadingComments(true);
+    try {
+      const { data, error } = await supabase
+        .from('todo_comentarios')
+        .select('*')
+        .eq('todo_id', todoId)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      setComments(data || []);
+    } catch (err) {
+      console.error("Error loading comments:", err);
+    } finally {
+      setLoadingComments(false);
+    }
+  }
+
+  async function handleAddComment(e) {
+    e.preventDefault();
+    if (!newComment.trim() && commentStatus === selectedTodo.status) return;
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userEmail = session?.user?.email || 'anonimo@admin.com';
+
+      // 1. Insert comment
+      const commentPayload = {
+        todo_id: selectedTodo.id,
+        usuario_email: userEmail,
+        comentario: newComment.trim() || `Cambió el estado a: ${commentStatus === 'pendiente' ? 'Pendiente' : commentStatus === 'en_proceso' ? 'En Proceso' : 'Completado'}`,
+        nuevo_estado: commentStatus !== selectedTodo.status ? commentStatus : null
+      };
+
+      const { error: commentErr } = await supabase
+        .from('todo_comentarios')
+        .insert(commentPayload);
+      if (commentErr) throw commentErr;
+
+      // 2. Update task status if it changed
+      if (commentStatus !== selectedTodo.status) {
+        const completedAt = commentStatus === 'completado' ? new Date().toISOString() : null;
+        const { error: todoErr } = await supabase
+          .from('todos')
+          .update({ 
+            status: commentStatus,
+            completed_at: completedAt
+          })
+          .eq('id', selectedTodo.id);
+        if (todoErr) throw todoErr;
+
+        // Update local tasks state
+        setTodos(prev => prev.map(t => t.id === selectedTodo.id ? { ...t, status: commentStatus, completed_at: completedAt } : t));
+        setSelectedTodo(prev => ({ ...prev, status: commentStatus, completed_at: completedAt }));
+      }
+
+      addToast('Avance registrado correctamente.', 'success');
+      setNewComment('');
+      loadComments(selectedTodo.id);
+    } catch (err) {
+      console.error("Error adding comment:", err);
+      addToast('Error al registrar avance.', 'error');
+    }
+  }
 
   // Filtros y orden
   const [activeTab, setActiveTab] = useState('pendientes'); // 'pendientes' | 'historial'
@@ -203,7 +298,7 @@ export default function Tareas() {
   };
 
   // Métricas
-  const pendingTodos = todos.filter(t => t.status === 'pendiente');
+  const pendingTodos = todos.filter(t => t.status !== 'completado');
   const completedTodos = todos.filter(t => t.status === 'completado');
   const overdueCount = pendingTodos.filter(t => getElapsedDays(t.created_at) > t.sla_days).length;
   const slaMetCount = completedTodos.filter(t => getResolutionDays(t.created_at, t.completed_at) <= t.sla_days).length;
@@ -240,8 +335,8 @@ export default function Tareas() {
         valA = order[a.priority] || 0;
         valB = order[b.priority] || 0;
       } else if (sortBy === 'sla_remaining') {
-        valA = a.status === 'pendiente' ? a.sla_days - getElapsedDays(a.created_at) : 999;
-        valB = b.status === 'pendiente' ? b.sla_days - getElapsedDays(b.created_at) : 999;
+        valA = a.status !== 'completado' ? a.sla_days - getElapsedDays(a.created_at) : 999;
+        valB = b.status !== 'completado' ? b.sla_days - getElapsedDays(b.created_at) : 999;
       }
       return sortOrder === 'asc' ? valA - valB : valB - valA;
     });
@@ -250,7 +345,7 @@ export default function Tareas() {
 
   // Separar por pestaña
   const displayTodos = useMemo(() => {
-    if (activeTab === 'pendientes') return filteredTodos.filter(t => t.status === 'pendiente');
+    if (activeTab === 'pendientes') return filteredTodos.filter(t => t.status !== 'completado');
     else return filteredTodos.filter(t => t.status === 'completado');
   }, [filteredTodos, activeTab]);
 
@@ -306,7 +401,7 @@ export default function Tareas() {
   };
 
   const toggleStatus = async (todo) => {
-    const newStatus = todo.status === 'pendiente' ? 'completado' : 'pendiente';
+    const newStatus = todo.status === 'completado' ? 'pendiente' : 'completado';
     const completedAt = newStatus === 'completado' ? new Date().toISOString() : null;
     try {
       const { error } = await supabase
@@ -996,6 +1091,7 @@ export default function Tareas() {
                     {selectedTodo.title}
                   </h2>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
+                    <TaskStatusBadge status={selectedTodo.status} />
                     <PriorityBadge priority={selectedTodo.priority} />
                     <SlaBadge status={slaStatus} />
                   </div>
@@ -1111,6 +1207,113 @@ export default function Tareas() {
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* Comentarios y Avances */}
+              <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '16px' }}>
+                <span style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a', display: 'block', marginBottom: '12px' }}>
+                  Avances e Historial
+                </span>
+                
+                {/* Lista de comentarios */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px', maxHeight: '180px', overflowY: 'auto', paddingRight: '4px' }}>
+                  {loadingComments ? (
+                    <div style={{ display: 'flex', justifyContent: 'center', padding: '10px' }}>
+                      <Loader2 className="animate-spin" size={18} style={{ color: 'var(--accent)' }} />
+                    </div>
+                  ) : comments.length === 0 ? (
+                    <span style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic' }}>Sin avances registrados.</span>
+                  ) : (
+                    comments.map(c => (
+                      <div key={c.id} style={{ display: 'flex', gap: '8px', background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                        <UserAvatar email={c.usuario_email} size={24} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                            <span style={{ fontSize: '11px', fontWeight: 700, color: '#334155' }}>{c.usuario_email.split('@')[0]}</span>
+                            <span style={{ fontSize: '10px', color: '#64748b' }}>{new Date(c.created_at).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                          
+                          {c.nuevo_estado && (
+                            <div style={{ marginBottom: '4px' }}>
+                              <span style={{ fontSize: '10px', fontWeight: 600, color: '#64748b' }}>Cambió estado a: </span>
+                              <TaskStatusBadge status={c.nuevo_estado} />
+                            </div>
+                          )}
+                          
+                          <p style={{ fontSize: '12.5px', color: '#334155', margin: 0, lineHeight: 1.4, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+                            {c.comentario}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Formulario para agregar avance */}
+                <form onSubmit={handleAddComment} style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <label style={{ fontSize: '12px', fontWeight: 700, color: '#334155', whiteSpace: 'nowrap' }}>Actualizar Estado:</label>
+                    <select
+                      value={commentStatus}
+                      onChange={(e) => setCommentStatus(e.target.value)}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        background: 'white',
+                        color: '#334155',
+                        outline: 'none',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="pendiente">Pendiente</option>
+                      <option value="en_proceso">En Proceso</option>
+                      <option value="completado">Completada</option>
+                    </select>
+                  </div>
+                  
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+                    <textarea
+                      value={newComment}
+                      onChange={(e) => setNewComment(e.target.value)}
+                      placeholder="Escribe un avance o comentario..."
+                      rows={2}
+                      style={{
+                        flex: 1,
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '12.5px',
+                        outline: 'none',
+                        resize: 'none',
+                        fontFamily: 'inherit'
+                      }}
+                    />
+                    <button
+                      type="submit"
+                      disabled={!newComment.trim() && commentStatus === selectedTodo.status}
+                      style={{
+                        padding: '8px 16px',
+                        background: 'var(--accent)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontWeight: 700,
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        height: '36px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        opacity: (!newComment.trim() && commentStatus === selectedTodo.status) ? 0.5 : 1
+                      }}
+                    >
+                      Registrar Avance
+                    </button>
+                  </div>
+                </form>
               </div>
 
               {/* Botones de acción inferiores */}

@@ -3,16 +3,30 @@ import { Outlet, Link, useLocation } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
 import { supabase } from './supabaseClient';
 import { 
-  LayoutDashboard, FileText, LogOut, User as UserIcon, Sun, Moon, Landmark, Users, ClipboardList, UserPlus, Loader2, Activity, Mail
+  LayoutDashboard, FileText, LogOut, User as UserIcon, Sun, Moon, Landmark, Users, ClipboardList, UserPlus, Loader2, Activity, Mail, Bell
 } from 'lucide-react';
 import ErrorBoundary from './components/ui/ErrorBoundary';
 import Modal from './components/Modal';
+import { useToast } from './components/ui/ToastProvider';
 
 export default function Layout({ session, theme, toggleTheme }) {
   const location = useLocation();
+  const { addToast } = useToast();
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const profileRef = useRef(null);
+
+  // Notification states
+  const [notifications, setNotifications] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`notifications_${session?.user?.id}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showNotificationMenu, setShowNotificationMenu] = useState(false);
+  const notificationRef = useRef(null);
 
   // User management states
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
@@ -99,10 +113,132 @@ export default function Layout({ session, theme, toggleTheme }) {
     });
   };
 
+  // Sync notifications to localStorage
+  useEffect(() => {
+    if (session?.user?.id) {
+      localStorage.setItem(`notifications_${session.user.id}`, JSON.stringify(notifications));
+    }
+  }, [notifications, session]);
+
+  // Request browser notification permissions
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+    }
+  }, []);
+
+  // Subtle notification chime sound
+  const playNotificationSound = () => {
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+      gainNode.gain.setValueAtTime(0.08, audioCtx.currentTime);
+      oscillator.start();
+      oscillator.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.12); // E5
+      oscillator.stop(audioCtx.currentTime + 0.35);
+    } catch (e) {
+      console.warn("Sound playback blocked or unsupported:", e);
+    }
+  };
+
+  // Supabase Realtime channel subscription for task assignments
+  useEffect(() => {
+    if (!session?.user?.id) return;
+
+    const channel = supabase
+      .channel('realtime_todos_notifications')
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to INSERT and UPDATE
+          schema: 'public',
+          table: 'todos'
+        },
+        (payload) => {
+          const newTodo = payload.new;
+          const oldTodo = payload.old;
+          
+          if (!newTodo) return;
+
+          // Check if the current user is assigned to this task
+          const assignedIds = newTodo.assigned_to ? newTodo.assigned_to.split(',') : [];
+          const isAssignedToMe = assignedIds.includes(session.user.id);
+
+          if (!isAssignedToMe) return;
+
+          const eventType = payload.eventType;
+
+          // Check if it's a new task or newly assigned
+          const wasPreviouslyAssigned = oldTodo?.assigned_to 
+            ? oldTodo.assigned_to.split(',').includes(session.user.id)
+            : false;
+
+          const isNewAssignment = eventType === 'INSERT' || (eventType === 'UPDATE' && !wasPreviouslyAssigned);
+
+          if (isNewAssignment) {
+            // Play chime sound
+            playNotificationSound();
+
+            // Native Browser Notification
+            if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+              new Notification(`Nueva Tarea Asignada`, {
+                body: `${newTodo.title}\nPrioridad: ${newTodo.priority.toUpperCase()}`,
+                icon: '/logo.png'
+              });
+            }
+
+            // In-app Toast
+            addToast(`Nueva tarea asignada: "${newTodo.title}"`, 'info');
+
+            // Add to notification dropdown state
+            setNotifications(prev => [
+              {
+                id: newTodo.id,
+                title: newTodo.title,
+                description: newTodo.description || '',
+                priority: newTodo.priority || 'media',
+                timestamp: new Date().toISOString(),
+                read: false
+              },
+              ...prev
+            ]);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [session]);
+
+  const formatNotificationTime = (timestamp) => {
+    const date = new Date(timestamp);
+    const diffSec = Math.floor((new Date() - date) / 1000);
+    if (diffSec < 60) return 'ahora';
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m`;
+    const diffHrs = Math.floor(diffMin / 60);
+    if (diffHrs < 24) return `${diffHrs}h`;
+    return date.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+  };
+
   useEffect(() => {
     function handleClickOutside(event) {
       if (profileRef.current && !profileRef.current.contains(event.target)) {
         setShowProfileMenu(false);
+      }
+      if (notificationRef.current && !notificationRef.current.contains(event.target)) {
+        setShowNotificationMenu(false);
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
@@ -265,6 +401,115 @@ export default function Layout({ session, theme, toggleTheme }) {
             >
               {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
             </button>
+
+            {/* Notification Bell */}
+            <div ref={notificationRef} style={{ position: 'relative' }}>
+              <button 
+                onClick={() => setShowNotificationMenu(!showNotificationMenu)}
+                style={{ 
+                  background: 'var(--surface)', cursor: 'pointer', 
+                  width: '44px', height: '44px', borderRadius: '14px', 
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: showNotificationMenu ? 'var(--accent)' : 'var(--text-secondary)', 
+                  transition: 'all 0.2s',
+                  border: '1px solid var(--border-light)',
+                  boxShadow: 'var(--shadow-soft)',
+                  position: 'relative'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent)'}
+                onMouseLeave={(e) => { if (!showNotificationMenu) e.currentTarget.style.color = 'var(--text-secondary)' }}
+              >
+                <Bell size={20} />
+                {notifications.filter(n => !n.read).length > 0 && (
+                  <span style={{
+                    position: 'absolute',
+                    top: '8px',
+                    right: '8px',
+                    width: '10px',
+                    height: '10px',
+                    borderRadius: '50%',
+                    background: '#dc2626',
+                    border: '2px solid var(--surface)'
+                  }} />
+                )}
+              </button>
+
+              {showNotificationMenu && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  right: 0,
+                  marginTop: '8px',
+                  background: 'var(--modal-bg)',
+                  borderRadius: '12px',
+                  boxShadow: 'var(--shadow-premium)',
+                  padding: '8px',
+                  zIndex: 100,
+                  minWidth: '280px',
+                  maxWidth: '320px',
+                  border: '1px solid var(--border-light)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px'
+                }}>
+                  <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)' }}>Notificaciones</span>
+                    {notifications.length > 0 && (
+                      <button 
+                        onClick={() => setNotifications(prev => prev.map(n => ({ ...n, read: true })))}
+                        style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                      >
+                        Marcar todo leído
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ maxHeight: '240px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    {notifications.length === 0 ? (
+                      <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '12px' }}>
+                        <span>No hay notificaciones nuevas</span>
+                      </div>
+                    ) : (
+                      notifications.map(n => (
+                        <Link 
+                          key={n.id}
+                          to="/tareas"
+                          onClick={() => {
+                            setNotifications(prev => prev.map(item => item.id === n.id ? { ...item, read: true } : item));
+                            setShowNotificationMenu(false);
+                          }}
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: '8px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '4px',
+                            background: n.read ? 'transparent' : 'var(--accent-light)',
+                            textDecoration: 'none',
+                            transition: 'all 0.2s',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                            <span style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>{n.title}</span>
+                            <span style={{ 
+                              fontSize: '9px', 
+                              fontWeight: 800, 
+                              textTransform: 'uppercase', 
+                              padding: '2px 6px', 
+                              borderRadius: '4px',
+                              background: n.priority === 'urgente' ? '#fee2e2' : n.priority === 'alta' ? '#ffedd5' : '#dbeafe',
+                              color: n.priority === 'urgente' ? '#991b1b' : n.priority === 'alta' ? '#9a3412' : '#1e40af'
+                            }}>{n.priority}</span>
+                          </div>
+                          <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: 0, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{n.description || 'Sin descripción'}</p>
+                          <span style={{ fontSize: '9px', color: 'var(--text-secondary)', alignSelf: 'flex-end' }}>{formatNotificationTime(n.timestamp)}</span>
+                        </Link>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
 
             <div ref={profileRef} style={{ position: 'relative' }}>
               <button 
