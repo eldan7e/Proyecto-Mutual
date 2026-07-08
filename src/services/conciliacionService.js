@@ -164,17 +164,13 @@ export const fetchHistorial = async (selectedPeriod) => {
       socio_id,
       liquidacion_id,
       tipo_movimiento,
+      comprobante,
+      observaciones,
+      periodo,
       socios(nombre_completo, nro_socio),
       liquidaciones_grupos(periodo, numero_grupo, monto_total_facturado)
     `)
     .order('fecha_movimiento', { ascending: false });
-
-  if (selectedPeriod) {
-    const [year, month] = selectedPeriod.split('-');
-    const startDate = `${selectedPeriod}-01`;
-    const endDate = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0];
-    query = query.gte('fecha_movimiento', startDate).lte('fecha_movimiento', endDate);
-  }
 
   const { data, error } = await query;
   if (error) throw error;

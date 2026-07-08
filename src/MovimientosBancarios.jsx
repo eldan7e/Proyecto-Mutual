@@ -243,18 +243,11 @@ export default function MovimientosBancarios() {
           tipo_movimiento,
           comprobante,
           observaciones,
+          periodo,
           socios(nombre_completo, nro_socio),
           liquidaciones_grupos(periodo, numero_grupo, monto_total_facturado)
         `)
         .order('fecha_movimiento', { ascending: false });
-
-      if (selectedPeriod) {
-        const [year, month] = selectedPeriod.split('-');
-        const startDate = `${selectedPeriod}-01`;
-        const daysInMonth = new Date(parseInt(year, 10), parseInt(month, 10), 0).getDate();
-        const endDate = `${selectedPeriod}-${String(daysInMonth).padStart(2, '0')}`;
-        query = query.gte('fecha_movimiento', startDate).lte('fecha_movimiento', endDate);
-      }
 
       const { data, error } = await query;
       if (error) throw error;
@@ -288,6 +281,15 @@ export default function MovimientosBancarios() {
   const filteredHistorial = useMemo(() => {
     // Exclude master markers if they exist
     let result = historial.filter(h => h.tipo_movimiento !== 'CONCILIACION_GRUPO_MASTER');
+    
+    // Filter by selected period
+    if (selectedPeriod) {
+      result = result.filter(h => {
+        const movPeriod = h.liquidaciones_grupos?.periodo || h.periodo || (h.fecha_movimiento ? h.fecha_movimiento.substring(0, 7) : '');
+        return movPeriod === selectedPeriod;
+      });
+    }
+
     if (searchHistorial) {
       const term = searchHistorial.toLowerCase();
       result = result.filter(h => {
@@ -313,7 +315,7 @@ export default function MovimientosBancarios() {
       result = result.filter(h => h.socio_id && h.liquidacion_id);
     }
     return result;
-  }, [historial, searchHistorial, filtroTipoHistorial, filtroBancoHistorial, filtroVinculacion]);
+  }, [historial, selectedPeriod, searchHistorial, filtroTipoHistorial, filtroBancoHistorial, filtroVinculacion]);
 
   const paginatedHistorial = useMemo(() => {
     return filteredHistorial.slice(
