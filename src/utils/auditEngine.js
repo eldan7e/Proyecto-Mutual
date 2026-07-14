@@ -566,7 +566,7 @@ export function auditLineItem(item, dbInfo, context) {
  * @param {Array<Object>} resultados - Processed row results
  * @returns {Array<Object>} - Cleaned and merged row results
  */
-export function consolidateFixedServices(resultados) {
+export function consolidateFixedServices(resultados, selectedProvider) {
   const fijosA100E = resultados.filter(r => r.plan?.includes('A100E'));
   const fijosCTF14 = resultados.filter(r => r.plan?.includes('CTF14') || r.plan?.toUpperCase().includes('FIJO'));
 
@@ -574,13 +574,51 @@ export function consolidateFixedServices(resultados) {
     fijosCTF14.forEach((ctf, idx) => {
       const a100e = fijosA100E[idx];
       if (a100e) {
-        // Consolidamos los montos reales facturados por la operadora
-        ctf.montoFactura += a100e.montoFactura;
-        ctf.excedentes += a100e.excedentes;
-        ctf.abono += a100e.abono;
-        ctf.monto += a100e.monto;
+        // Consolidamos los montos reales facturados por la operadora e importes calculados
+        ctf.montoFactura = Math.round((ctf.montoFactura + a100e.montoFactura) * 100) / 100;
+        ctf.excedentes = Math.round((ctf.excedentes + a100e.excedentes) * 100) / 100;
+        ctf.abono = Math.round((ctf.abono + a100e.abono) * 100) / 100;
+        ctf.monto = Math.round((ctf.monto + a100e.monto) * 100) / 100;
+
+        // Consolidamos precios oficiales, precios lista originales, descuentos originales y abonos anteriores
+        ctf.precioOficial = Math.round(((ctf.precioOficial || 0) + (a100e.precioOficial || 0)) * 100) / 100;
+        ctf.precioListaOriginal = Math.round(((Number(ctf.precioListaOriginal || 0)) + (Number(a100e.precioListaOriginal || 0))) * 100) / 100;
+        ctf.descuentoOriginal = Math.round(((Number(ctf.descuentoOriginal || 0)) + (Number(a100e.descuentoOriginal || 0))) * 100) / 100;
+        ctf.prevAbonoBase = Math.round(((ctf.prevAbonoBase || 0) + (a100e.prevAbonoBase || 0)) * 100) / 100;
 
         ctf.plan = `Internet + Tel Fijo (CONSOLIDADO)`;
+        
+        // Recalcular alertas tras consolidación
+        if (selectedProvider === 'claro' && ctf.precioOficial > 0) {
+          const descuentoReal = ((ctf.precioOficial - ctf.abono) / ctf.precioOficial) * 100;
+          const descuentoEsperado = 75; // Internet + Tel Fijo consolidado espera 75%
+          const diffPct = descuentoReal - descuentoEsperado;
+          
+          ctf.alertas = [];
+          if (Math.abs(diffPct) > 2.0) {
+            ctf.auditStatus = 'WARN';
+            if (diffPct < -2.0) {
+              ctf.alertas.push({
+                tipo: 'CRITICAL',
+                msg: `DESVÍO BONIF: ${descuentoReal.toFixed(1)}% (Esperado ${descuentoEsperado}%)`,
+                diff: ctf.abono - (ctf.precioOficial * (1 - descuentoEsperado/100))
+              });
+            } else {
+              ctf.alertas.push({
+                tipo: 'CRITICAL',
+                msg: `BONIF EXTRA: ${descuentoReal.toFixed(1)}% (Esperado ${descuentoEsperado}%)`,
+                diff: (ctf.precioOficial * (1 - descuentoEsperado/100)) - ctf.abono
+              });
+            }
+          } else {
+            ctf.auditStatus = 'OK';
+            ctf.alertas.push({
+              tipo: 'STABLE',
+              msg: `Bonif. OK (${descuentoReal.toFixed(1)}%)`
+            });
+          }
+        }
+
         // Marcamos el A100E para ignorarlo en el filtro final
         a100e.isMerged = true;
       }

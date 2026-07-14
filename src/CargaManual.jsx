@@ -274,7 +274,7 @@ export default function CargaManual() {
         });
 
         // --- CONSOLIDATE FIXED SERVICES ---
-        const resultadosLimpios = consolidateFixedServices(resultados);
+        const resultadosLimpios = consolidateFixedServices(resultados, selectedProvider);
 
         setFileData(resultadosLimpios);
         setStep(2);
