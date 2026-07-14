@@ -253,6 +253,10 @@ export function PaginatedEditableGrid({
       .filter(row => {
         const matchesSearch = row.linea.includes(search) || row.socioNombre?.toLowerCase().includes(search.toLowerCase());
         if (!matchesSearch) return false;
+        if (filterExcedentes) {
+          return (row.excedentes || 0) > 0;
+        }
+        
         return true;
       })
       .sort((a, b) => {
