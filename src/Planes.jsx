@@ -115,7 +115,8 @@ export default function Planes({ hideHeader = false }) {
     // Cargar promedios de consumos mensuales
     const { data: consumosData } = await supabase
       .from('consumos_mensuales')
-      .select('numero_linea, costo_abono_real, tarifa_aunar_aplicada, periodo');
+      .select('numero_linea, costo_abono_real, tarifa_aunar_aplicada, periodo')
+      .range(0, 4999);
 
     const planPeriodData = {};
     consumosData?.forEach(c => {
