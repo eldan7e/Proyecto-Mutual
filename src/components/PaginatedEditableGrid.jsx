@@ -289,8 +289,8 @@ export function PaginatedEditableGrid({
           }
         }
         if (filterBajasBonif) {
-          const discA = a.precioOficial > 0 ? ((a.precioOficial - a.abono) / a.precioOficial) * 100 : 0;
-          const discB = b.precioOficial > 0 ? ((b.precioOficial - b.abono) / b.precioOficial) * 100 : 0;
+          const discA = a.precioOficial > 0 ? Math.abs(((a.precioOficial - a.abono) / a.precioOficial) * 100) : 0;
+          const discB = b.precioOficial > 0 ? Math.abs(((b.precioOficial - b.abono) / b.precioOficial) * 100) : 0;
           return discA - discB;
         }
         return 0;
