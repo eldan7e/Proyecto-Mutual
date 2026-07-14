@@ -261,23 +261,6 @@ export function PaginatedEditableGrid({
           return diffPct > 0;
         }
 
-        if (filterBajasBonif) {
-          const precioLista = row.precioOficial || 0;
-          const abono = row.abono || 0;
-          if (precioLista <= 0) return false;
-          
-          const discPct = ((precioLista - abono) / precioLista) * 100;
-          if (selectedProvider === 'claro') {
-            const esFija = isFixedOrInternet(row.planOficial) || isFixedOrInternet(row.plan);
-            const esperado = esFija ? 74 : 89;
-            return discPct < esperado;
-          }
-          if (selectedProvider === 'movistar') {
-            return discPct < 79;
-          }
-          return discPct < 80;
-        }
-        
         return true;
       })
       .sort((a, b) => {
