@@ -370,7 +370,15 @@ export function PaginatedEditableGrid({
           </button>
 
           <button 
-            onClick={() => { setFilterAumentos(false); setFilterBajasBonif(!filterBajasBonif); }}
+            onClick={() => {
+              setFilterAumentos(false);
+              const nextVal = !filterBajasBonif;
+              setFilterBajasBonif(nextVal);
+              if (nextVal) {
+                setSortByAnomalies(false);
+                setSortByLine(false);
+              }
+            }}
             className="air-btn" 
             style={{ 
               background: filterBajasBonif ? 'rgba(168, 85, 247, 0.1)' : 'var(--surface)', 
