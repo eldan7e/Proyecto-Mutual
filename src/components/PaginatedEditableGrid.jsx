@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Search, AlertTriangle, TrendingUp, Hash, Info
+  Search, AlertTriangle, TrendingUp, Hash, Info, Percent
 } from 'lucide-react';
 
 const isFixedOrInternet = (p) => {
@@ -246,6 +246,7 @@ export function PaginatedEditableGrid({
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
   const [filterAumentos, setFilterAumentos] = useState(false);
+  const [filterBajasBonif, setFilterBajasBonif] = useState(false);
   const [sortByLine, setSortByLine] = useState(false);
 
   const filteredData = React.useMemo(() => {
@@ -259,6 +260,23 @@ export function PaginatedEditableGrid({
           const currentPrice = row.abono || 0;
           const diffPct = prevPrice > 0 ? ((currentPrice - prevPrice) / prevPrice) * 100 : 0;
           return diffPct > 0;
+        }
+
+        if (filterBajasBonif) {
+          const precioLista = row.precioOficial || 0;
+          const abono = row.abono || 0;
+          if (precioLista <= 0) return false;
+          
+          const discPct = ((precioLista - abono) / precioLista) * 100;
+          if (selectedProvider === 'claro') {
+            const esFija = isFixedOrInternet(row.planOficial) || isFixedOrInternet(row.plan);
+            const esperado = esFija ? 74 : 89;
+            return discPct < esperado;
+          }
+          if (selectedProvider === 'movistar') {
+            return discPct < 79;
+          }
+          return discPct < 80;
         }
         
         return true;
@@ -276,9 +294,14 @@ export function PaginatedEditableGrid({
           const bAlerts = b.alertas && b.alertas.length > 0 ? 1 : 0;
           return bAlerts - aAlerts;
         }
+        if (filterBajasBonif) {
+          const discA = a.precioOficial > 0 ? ((a.precioOficial - a.abono) / a.precioOficial) * 100 : 0;
+          const discB = b.precioOficial > 0 ? ((b.precioOficial - b.abono) / b.precioOficial) * 100 : 0;
+          return discA - discB;
+        }
         return 0;
       });
-  }, [fileData, search, sortByAnomalies, filterAumentos, sortByLine]);
+  }, [fileData, search, sortByAnomalies, filterAumentos, filterBajasBonif, sortByLine, selectedProvider]);
 
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);
   const paginatedData = filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -300,7 +323,7 @@ export function PaginatedEditableGrid({
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, sortByAnomalies, filterAumentos, sortByLine]);
+  }, [search, sortByAnomalies, filterAumentos, filterBajasBonif, sortByLine]);
 
   return (
     <div className="air-card" style={{ overflow: 'hidden' }}>
@@ -334,7 +357,7 @@ export function PaginatedEditableGrid({
           </button>
 
           <button 
-            onClick={() => setFilterAumentos(!filterAumentos)}
+            onClick={() => { setFilterBajasBonif(false); setFilterAumentos(!filterAumentos); }}
             className="air-btn" 
             style={{ 
               background: filterAumentos ? 'rgba(16, 185, 129, 0.1)' : 'var(--surface)', 
@@ -344,6 +367,19 @@ export function PaginatedEditableGrid({
             }}
           >
             <TrendingUp size={16} /> Solo Aumentos
+          </button>
+
+          <button 
+            onClick={() => { setFilterAumentos(false); setFilterBajasBonif(!filterBajasBonif); }}
+            className="air-btn" 
+            style={{ 
+              background: filterBajasBonif ? 'rgba(168, 85, 247, 0.1)' : 'var(--surface)', 
+              color: filterBajasBonif ? '#a855f7' : 'var(--text-secondary)',
+              border: `1px solid ${filterBajasBonif ? '#a855f7' : 'var(--border-light)'}`,
+              display: 'flex', alignItems: 'center', gap: '8px'
+            }}
+          >
+            <Percent size={16} /> Solo Bonif. Bajas
           </button>
           <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', width: '300px' }}>
             <Search size={16} color="var(--text-secondary)" />
