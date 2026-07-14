@@ -245,9 +245,8 @@ export function PaginatedEditableGrid({
 }) {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
-  const [filterAumentos, setFilterAumentos] = useState(false);
+  const [aumentosSortMode, setAumentosSortMode] = useState(null); // null, 'desc', 'asc'
   const [filterBajasBonif, setFilterBajasBonif] = useState(false);
-  const [sortByLine, setSortByLine] = useState(false);
 
   const filteredData = React.useMemo(() => {
     return fileData
@@ -255,7 +254,7 @@ export function PaginatedEditableGrid({
         const matchesSearch = row.linea.includes(search) || row.socioNombre?.toLowerCase().includes(search.toLowerCase());
         if (!matchesSearch) return false;
         
-        if (filterAumentos) {
+        if (aumentosSortMode !== null) {
           const prevPrice = row.prevAbonoBase || 0;
           const currentPrice = row.abono || 0;
           const diffPct = prevPrice > 0 ? ((currentPrice - prevPrice) / prevPrice) * 100 : 0;
@@ -282,9 +281,6 @@ export function PaginatedEditableGrid({
         return true;
       })
       .sort((a, b) => {
-        if (sortByLine) {
-          return a.linea.localeCompare(b.linea);
-        }
         if (sortByAnomalies) {
           const aCritical = (!a.isValid || a.linea.startsWith('SUELTA_') || a.planOficial === 'No registrado') ? 1 : 0;
           const bCritical = (!b.isValid || b.linea.startsWith('SUELTA_') || b.planOficial === 'No registrado') ? 1 : 0;
@@ -294,6 +290,21 @@ export function PaginatedEditableGrid({
           const bAlerts = b.alertas && b.alertas.length > 0 ? 1 : 0;
           return bAlerts - aAlerts;
         }
+        if (aumentosSortMode !== null) {
+          const prevA = a.prevAbonoBase || 0;
+          const currA = a.abono || 0;
+          const diffA = prevA > 0 ? ((currA - prevA) / prevA) * 100 : 0;
+
+          const prevB = b.prevAbonoBase || 0;
+          const currB = b.abono || 0;
+          const diffB = prevB > 0 ? ((currB - prevB) / prevB) * 100 : 0;
+
+          if (aumentosSortMode === 'desc') {
+            return diffB - diffA; // Mayor a Menor aumento
+          } else {
+            return diffA - diffB; // Menor a Mayor aumento
+          }
+        }
         if (filterBajasBonif) {
           const discA = a.precioOficial > 0 ? ((a.precioOficial - a.abono) / a.precioOficial) * 100 : 0;
           const discB = b.precioOficial > 0 ? ((b.precioOficial - b.abono) / b.precioOficial) * 100 : 0;
@@ -301,7 +312,7 @@ export function PaginatedEditableGrid({
         }
         return 0;
       });
-  }, [fileData, search, sortByAnomalies, filterAumentos, filterBajasBonif, sortByLine, selectedProvider]);
+  }, [fileData, search, sortByAnomalies, aumentosSortMode, filterBajasBonif, selectedProvider]);
 
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);
   const paginatedData = filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -323,15 +334,21 @@ export function PaginatedEditableGrid({
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, sortByAnomalies, filterAumentos, filterBajasBonif, sortByLine]);
+  }, [search, sortByAnomalies, aumentosSortMode, filterBajasBonif]);
 
   return (
     <div className="air-card" style={{ overflow: 'hidden' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <h3 style={{ fontSize: '18px', fontWeight: '800', margin: 0 }}>Previsualización Detallada</h3>
         <div style={{ display: 'flex', gap: '12px' }}>
+          
+          {/* Button 1: Priorizar Cambios */}
           <button 
-            onClick={() => { setSortByLine(false); setSortByAnomalies(!sortByAnomalies); }}
+            onClick={() => {
+              setAumentosSortMode(null);
+              setFilterBajasBonif(false);
+              setSortByAnomalies(!sortByAnomalies);
+            }}
             className="air-btn" 
             style={{ 
               background: sortByAnomalies ? 'rgba(239, 68, 68, 0.1)' : 'var(--surface)', 
@@ -340,44 +357,38 @@ export function PaginatedEditableGrid({
               display: 'flex', alignItems: 'center', gap: '8px'
             }}
           >
-            <AlertTriangle size={16} /> Priorizar Variaciones
+            <AlertTriangle size={16} /> Priorizar Cambios
           </button>
           
-          <button 
-            onClick={() => { setSortByAnomalies(false); setSortByLine(!sortByLine); }}
-            className="air-btn" 
-            style={{ 
-              background: sortByLine ? 'rgba(59, 130, 246, 0.1)' : 'var(--surface)', 
-              color: sortByLine ? '#3b82f6' : 'var(--text-secondary)',
-              border: `1px solid ${sortByLine ? '#3b82f6' : 'var(--border-light)'}`,
-              display: 'flex', alignItems: 'center', gap: '8px'
-            }}
-          >
-            <Hash size={16} /> Ordenar por Línea
-          </button>
-
-          <button 
-            onClick={() => { setFilterBajasBonif(false); setFilterAumentos(!filterAumentos); }}
-            className="air-btn" 
-            style={{ 
-              background: filterAumentos ? 'rgba(16, 185, 129, 0.1)' : 'var(--surface)', 
-              color: filterAumentos ? '#10b981' : 'var(--text-secondary)',
-              border: `1px solid ${filterAumentos ? '#10b981' : 'var(--border-light)'}`,
-              display: 'flex', alignItems: 'center', gap: '8px'
-            }}
-          >
-            <TrendingUp size={16} /> Solo Aumentos
-          </button>
-
+          {/* Button 2: Priorizar Aumentos */}
           <button 
             onClick={() => {
-              setFilterAumentos(false);
-              const nextVal = !filterBajasBonif;
-              setFilterBajasBonif(nextVal);
-              if (nextVal) {
-                setSortByAnomalies(false);
-                setSortByLine(false);
-              }
+              setSortByAnomalies(false);
+              setFilterBajasBonif(false);
+              if (aumentosSortMode === null) setAumentosSortMode('desc');
+              else if (aumentosSortMode === 'desc') setAumentosSortMode('asc');
+              else setAumentosSortMode(null);
+            }}
+            className="air-btn" 
+            style={{ 
+              background: aumentosSortMode !== null ? 'rgba(16, 185, 129, 0.1)' : 'var(--surface)', 
+              color: aumentosSortMode !== null ? '#10b981' : 'var(--text-secondary)',
+              border: `1px solid ${aumentosSortMode !== null ? '#10b981' : 'var(--border-light)'}`,
+              display: 'flex', alignItems: 'center', gap: '8px'
+            }}
+          >
+            <TrendingUp size={16} /> 
+            {aumentosSortMode === 'desc' && 'Priorizar Aumentos (Mayor a Menor)'}
+            {aumentosSortMode === 'asc' && 'Priorizar Aumentos (Menor a Mayor)'}
+            {aumentosSortMode === null && 'Priorizar Aumentos'}
+          </button>
+
+          {/* Button 3: Priorizar Bonificación */}
+          <button 
+            onClick={() => {
+              setAumentosSortMode(null);
+              setSortByAnomalies(false);
+              setFilterBajasBonif(!filterBajasBonif);
             }}
             className="air-btn" 
             style={{ 
@@ -387,7 +398,7 @@ export function PaginatedEditableGrid({
               display: 'flex', alignItems: 'center', gap: '8px'
             }}
           >
-            <Percent size={16} /> Solo Bonif. Bajas
+            <Percent size={16} /> Priorizar Bonificación
           </button>
           <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', width: '300px' }}>
             <Search size={16} color="var(--text-secondary)" />
