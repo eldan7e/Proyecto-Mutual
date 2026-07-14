@@ -527,8 +527,8 @@ export default function Planes({ hideHeader = false }) {
                             </div>
                           )}
                           <div style={{ display: 'flex', gap: '4px', marginTop: '2px' }}>
-                            {plan.tarifa_aunar > 0 && <span style={{ fontSize: '9px', fontWeight: 900, background: 'var(--accent-light)', color: 'var(--accent)', padding: '2px 6px', borderRadius: '6px' }}>+${plan.tarifa_aunar} AU</span>}
-                            {averages && averages.avgTarifaAunar > 0 && (
+                            {plan.tarifa_aunar > 0 && <span style={{ fontSize: '9px', fontWeight: 900, background: 'var(--accent-light)', color: 'var(--accent)', padding: '2px 6px', borderRadius: '6px' }}>+${Number(plan.tarifa_aunar).toLocaleString('es-AR')} AU</span>}
+                            {averages && averages.avgTarifaAunar > 0 && Math.round(averages.avgTarifaAunar) !== Math.round(plan.tarifa_aunar) && (
                               <span style={{ fontSize: '9px', fontWeight: 900, background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', padding: '2px 6px', borderRadius: '6px' }}>
                                 Prom. AU: ${averages.avgTarifaAunar.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                               </span>
