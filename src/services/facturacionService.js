@@ -126,6 +126,8 @@ export async function saveFacturacion({
   proveedorName,
   fileData,
   onProgress,
+  sugTarifa,
+  planIncreases,
 }) {
   const progress = onProgress || (() => {});
 
@@ -225,7 +227,9 @@ export async function saveFacturacion({
 
     // Find tarifa_aunar & margin from plans
     const dbPlan = (dbPlanes || []).find((p) => p.plan_id === planId);
-    const tarifaAunar = dbPlan?.tarifa_aunar ?? 0;
+    const tarifaAunar = (sugTarifa !== undefined && sugTarifa !== null && sugTarifa > 0)
+      ? sugTarifa
+      : (dbPlan?.tarifa_aunar ?? 0);
     const planMargin = dbPlan?.mutual_margen_pct ?? 0;
 
     return {
@@ -257,6 +261,45 @@ export async function saveFacturacion({
         })
     )
   );
+
+  // Step 3.5 — Sincronizar tarifa aunar y precios promedio en el catálogo e histórico
+  if (sugTarifa > 0) {
+    progress(fileData.length, fileData.length, 'Sincronizando tarifas de operadora...');
+    const { error: errTarifa } = await supabase
+      .from('planes_abonos')
+      .update({ tarifa_aunar: sugTarifa })
+      .eq('proveedor_id', proveedorId);
+    if (errTarifa) console.error("Error al actualizar tarifa aunar en catálogo:", errTarifa);
+  }
+
+  if (planIncreases && planIncreases.length > 0) {
+    progress(fileData.length, fileData.length, 'Sincronizando precios de planes...');
+    for (const p of planIncreases) {
+      if (p.plan && p.plan !== 'No registrado' && p.avgCurrAbono > 0) {
+        const dbPlan = (dbPlanes || []).find(dp => dp.nombre_plan?.toLowerCase() === p.plan?.toLowerCase());
+        if (dbPlan) {
+          const avgPrice = Math.round(p.avgCurrAbono * 100) / 100;
+          // 1. Actualizar catálogo de planes
+          const { error: errPlan } = await supabase
+            .from('planes_abonos')
+            .update({ precio: avgPrice })
+            .eq('plan_id', dbPlan.plan_id);
+          if (errPlan) console.error(`Error al actualizar plan ${p.plan} en catálogo:`, errPlan);
+
+          // 2. Persistir en tabla precios_auditoria_periodo
+          const { error: errAuditoria } = await supabase
+            .from('precios_auditoria_periodo')
+            .upsert({
+              periodo,
+              plan_id: dbPlan.plan_id,
+              precio_lista: avgPrice,
+              tarifa_aunar: sugTarifa || dbPlan.tarifa_aunar || 0
+            }, { onConflict: 'periodo,plan_id' });
+          if (errAuditoria) console.error(`Error al actualizar histórico de ${p.plan}:`, errAuditoria);
+        }
+      }
+    }
+  }
 
   // Step 4 — Audit log entry
   await supabase.from('audit_log').insert({

@@ -568,7 +568,9 @@ export default function CargaManual() {
         periodo,
         proveedorId: currentProviderId,
         proveedorName: selectedProvider,
-        fileData
+        fileData,
+        sugTarifa: confirmStats?.sugTarifa,
+        planIncreases: confirmStats?.planIncreases
       });
 
       setStep(3);
