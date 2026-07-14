@@ -68,13 +68,24 @@ export default function GestionPagos() {
     }
   }), []);
 
+  const [filterAumentos, setFilterAumentos] = useState(false);
+
+  const processedDataForFilters = useMemo(() => {
+    if (!filterAumentos) return lineasData;
+    return lineasData.filter(d => {
+      const hasPortabilityWarning = !!d.calculado?.portabilityWarning;
+      const isMovistarUnmet = d.calculado?.movistarAudit && !d.calculado.movistarAudit.meetsAgreement;
+      return hasPortabilityWarning || isMovistarUnmet;
+    });
+  }, [lineasData, filterAumentos]);
+
   const {
     search,
     setSearch,
     sortConfig,
     handleSort,
     filteredAndSortedData: sortedData
-  } = useTableFilters(lineasData, filterOptions);
+  } = useTableFilters(processedDataForFilters, filterOptions);
 
   useEffect(() => {
     setSearch(debouncedSearch);
@@ -207,6 +218,7 @@ export default function GestionPagos() {
     
     setGlobalDiscount(0);
     setGlobalDiscountType('$');
+    setFilterAumentos(false);
     
     const periodo = selectedPeriodo;
     const providerId = parseInt(selectedProveedor);
@@ -625,7 +637,23 @@ export default function GestionPagos() {
                 onChange={e => setSearchTerm(e.target.value)} 
               />
             </div>
-            <button className="icon-button-edit" style={{ height: '40px', width: '40px', background: 'var(--surface)' }}>
+            <button 
+              onClick={() => setFilterAumentos(!filterAumentos)}
+              className="icon-button-edit" 
+              style={{ 
+                height: '40px', 
+                width: '40px', 
+                background: filterAumentos ? 'rgba(239, 68, 68, 0.1)' : 'var(--surface)', 
+                color: filterAumentos ? '#ef4444' : 'var(--text-secondary)',
+                border: `1px solid ${filterAumentos ? '#ef4444' : 'var(--border-light)'}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+              title={filterAumentos ? "Mostrar todos" : "Filtrar aumentos y desvíos"}
+            >
               <Filter size={18} />
             </button>
           </div>
