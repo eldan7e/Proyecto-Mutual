@@ -75,10 +75,13 @@ export default function Facturacion() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Establecer período predeterminado al cargar períodos
+  // Establecer período predeterminado o corregir período inválido
   useEffect(() => {
-    if (periods.length > 0 && !searchParams.get('periodo')) {
-      updateParams({ periodo: periods[0] });
+    if (periods.length > 0) {
+      const currentPeriod = searchParams.get('periodo');
+      if (!currentPeriod || !periods.includes(currentPeriod)) {
+        updateParams({ periodo: periods[0] });
+      }
     }
   }, [periods]);
 
@@ -235,6 +238,25 @@ export default function Facturacion() {
           </select>
         </div>
       </div>
+
+      {/* Banner: sin datos para el período seleccionado */}
+      {!liquidacionesLoading && selectedPeriod && liquidaciones.length === 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '12px',
+          padding: '16px 24px', marginBottom: '24px',
+          background: 'rgba(234, 179, 8, 0.08)', border: '1px solid rgba(234, 179, 8, 0.3)',
+          borderRadius: '16px', color: '#92400e', fontSize: '14px', fontWeight: 600
+        }}>
+          <AlertTriangle size={20} style={{ color: '#eab308', flexShrink: 0 }} />
+          <div>
+            <strong>Sin datos para el período {selectedPeriod}{filterProv ? ` (${filterProv})` : ''}.</strong>
+            {' '}Verificá que la factura haya sido cargada en <em>Carga Manual</em> y liquidada desde <em>Gestión de Pagos</em>.
+            {periods.length > 0 && (
+              <span> Último período disponible: <strong>{periods[0]}</strong>.</span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* KPI Dashboard — 3 tarjetas principales */}
       <div className="bento-grid" style={{ marginBottom: '48px', gridTemplateColumns: 'repeat(3, 1fr)' }}>
