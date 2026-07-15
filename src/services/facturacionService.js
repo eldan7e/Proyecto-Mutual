@@ -244,7 +244,9 @@ export async function saveFacturacion({
       precio_lista_audit: planPrice,
       tarifa_aunar_aplicada: tarifaAunar,
       mutual_margen_aplicado: planMargin,
-      precio_lista_factura: row.precioListaOriginal ? Number(row.precioListaOriginal) : null,
+      precio_lista_factura: (proveedorId === 1 && row.precioOficial) 
+        ? row.precioOficial 
+        : (row.precioListaOriginal ? Number(row.precioListaOriginal) : null),
     };
   });
 
@@ -273,7 +275,7 @@ export async function saveFacturacion({
     if (errTarifa) console.error("Error al actualizar tarifa aunar en catálogo:", errTarifa);
   }
 
-  if (planIncreases && planIncreases.length > 0) {
+  if (planIncreases && planIncreases.length > 0 && proveedorId !== 1) {
     progress(fileData.length, fileData.length, 'Sincronizando precios de planes...');
     for (const p of planIncreases) {
       if (p.plan && p.plan !== 'No registrado' && p.avgCurrAbono > 0) {
