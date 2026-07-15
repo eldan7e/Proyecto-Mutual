@@ -477,8 +477,12 @@ export function auditLineItem(item, dbInfo, context) {
   const esA100E = item.plan?.includes('A100E') || dbInfo?.plan_db === 'A100E';
   const esPlanFija = esA100E || item.plan?.includes('CTF14') || item.plan?.toUpperCase().includes('FIJO');
   
-  // Precios base para auditoría
-  const precioLista = periodPrices.get(dbInfo?.plan_id) || dbInfo?.precio_oficial || 0;
+  // Precios base para auditoría: preferir precio de lista de la factura si viene > 0, sino base de datos
+  const dbPrecioLista = periodPrices.get(dbInfo?.plan_id) || dbInfo?.precio_oficial || 0;
+  const parsedPrecioLista = item.precioListaStr ? Number(item.precioListaStr) : 0;
+  const precioLista = (selectedProvider === 'claro' && parsedPrecioLista > 0)
+    ? parsedPrecioLista
+    : (dbPrecioLista || 0);
 
   // --- CARGA DE COSTOS REALES (OPERADORA) ---
   const realAbono = montoFacturado - excMonto;

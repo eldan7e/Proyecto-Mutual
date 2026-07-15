@@ -304,6 +304,31 @@ export async function saveFacturacion({
     }
   }
 
+  if (proveedorId === 1) {
+    progress(fileData.length, fileData.length, 'Actualizando histórico de precios de Claro...');
+    const planPricesMap = {};
+    fileData.forEach(row => {
+      const num = row.linea?.toString().replace(/\D/g, '');
+      const lineaObj = lineasPayload.find((l) => l.numero_linea === num);
+      const planId = lineaObj?.plan_id;
+      if (planId && row.precioOficial > 0) {
+        planPricesMap[planId] = row.precioOficial;
+      }
+    });
+
+    for (const [planId, price] of Object.entries(planPricesMap)) {
+      const { error: errAuditoria } = await supabase
+        .from('precios_auditoria_periodo')
+        .upsert({
+          periodo,
+          plan_id: parseInt(planId, 10),
+          precio_lista: price,
+          tarifa_aunar: sugTarifa || 0
+        }, { onConflict: 'periodo,plan_id' });
+      if (errAuditoria) console.error(`Error al actualizar histórico Claro plan ${planId}:`, errAuditoria);
+    }
+  }
+
   // Step 4 — Audit log entry
   await supabase.from('audit_log').insert({
     tipo_evento: 'CARGA_FACTURA',
