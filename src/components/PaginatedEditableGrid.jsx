@@ -261,8 +261,8 @@ export function PaginatedEditableGrid({
       })
       .sort((a, b) => {
         if (sortByAnomalies) {
-          const aCritical = (!a.isValid || a.linea.startsWith('SUELTA_') || a.planOficial === 'No registrado') ? 1 : 0;
-          const bCritical = (!b.isValid || b.linea.startsWith('SUELTA_') || b.planOficial === 'No registrado') ? 1 : 0;
+          const aCritical = (!a.isValid || a.linea.startsWith('SUELTA_') || a.planOficial === 'No registrado' || a.auditStatus === 'WARN') ? 1 : 0;
+          const bCritical = (!b.isValid || b.linea.startsWith('SUELTA_') || b.planOficial === 'No registrado' || b.auditStatus === 'WARN') ? 1 : 0;
           if (bCritical !== aCritical) return bCritical - aCritical;
 
           const aAlerts = a.alertas && a.alertas.length > 0 ? 1 : 0;
@@ -509,7 +509,11 @@ export function PaginatedEditableGrid({
                   {row.montoFactura === 0 && <div style={{ fontSize: '9px', color: '#10b981', fontWeight: 800 }}>(Fac: $0,00)</div>}
                 </td>
                 <td style={{ textAlign: 'center' }}>
-                  {prevPrice > 0 ? (
+                  {row.auditStatus === 'WARN' ? (
+                    <div style={{ fontSize: '11px', fontWeight: 800, color: '#ef4444' }}>
+                      ❌ NOT OK
+                    </div>
+                  ) : prevPrice > 0 ? (
                     <div style={{ 
                       fontSize: '11px', 
                       fontWeight: 800, 
