@@ -75,7 +75,9 @@ export default function GestionPagos() {
     return lineasData.filter(d => {
       const hasPortabilityWarning = !!d.calculado?.portabilityWarning;
       const isMovistarUnmet = d.calculado?.movistarAudit && !d.calculado.movistarAudit.meetsAgreement;
-      return hasPortabilityWarning || isMovistarUnmet;
+      const hasDiscountAlert = d.calculado?.hasDiscountAlert || d.calculado?.auditStatus === 'WARN';
+      const hasExcedentes = (d.calculado?.excedentes || 0) > 0;
+      return hasPortabilityWarning || isMovistarUnmet || hasDiscountAlert || hasExcedentes;
     });
   }, [lineasData, filterAumentos]);
 
@@ -652,7 +654,7 @@ export default function GestionPagos() {
                 cursor: 'pointer',
                 transition: 'all 0.15s ease'
               }}
-              title={filterAumentos ? "Mostrar todos" : "Filtrar aumentos y desvíos"}
+              title={filterAumentos ? "Mostrar todos" : "Filtrar aumentos, desvíos y excedentes"}
             >
               <Filter size={18} />
             </button>
