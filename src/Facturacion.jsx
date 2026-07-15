@@ -266,8 +266,13 @@ export default function Facturacion() {
             <TrendingUp size={20} />
           </div>
           <div style={{ fontSize: '28px', fontWeight: 900, marginBottom: '4px' }}>
-            ${stats.totalCobrar.toLocaleString('es-AR')}
+            ${stats.totalCobrar.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
+          {totalSocioCobrar > 0 && Math.abs(stats.totalCobrar - totalSocioCobrar) > 0.01 && (
+            <div style={{ fontSize: '11px', opacity: 0.95, fontWeight: 700, marginTop: '2px', lineHeight: '1.2' }}>
+              ${totalSocioCobrar.toLocaleString('es-AR', { minimumFractionDigits: 2 })} socios + ${(stats.totalCobrar - totalSocioCobrar).toLocaleString('es-AR', { minimumFractionDigits: 2 })} tasas débito
+            </div>
+          )}
           <div style={{ fontSize: '12px', opacity: 0.7, fontWeight: 600 }}>
             {selectedPeriod ? `Período ${selectedPeriod}` : `Histórico (${stats.targetPeriodUsed || 'Actual'})`}
           </div>
@@ -360,6 +365,7 @@ export default function Facturacion() {
                 totalSocioCobrar={totalSocioCobrar}
                 totalFacturaSinCalcular={totalFacturaSinCalcular}
                 exportSociosToCSV={exportSociosToCSV}
+                totalLote={stats.totalCobrar}
               />
             )}
           </>

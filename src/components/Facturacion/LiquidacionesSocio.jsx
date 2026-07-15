@@ -16,7 +16,8 @@ export default function LiquidacionesSocio({
   setFilterProv,
   totalSocioCobrar,
   totalFacturaSinCalcular,
-  exportSociosToCSV
+  exportSociosToCSV,
+  totalLote
 }) {
   const handleSort = (key) => {
     let direction = 'desc';
@@ -118,6 +119,11 @@ export default function LiquidacionesSocio({
             <span style={{ fontSize: '24px', fontWeight: 900, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
               ${filteredTotalSocioCobrar.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
             </span>
+            {totalLote > totalSocioCobrar && (
+              <span style={{ fontSize: '10px', opacity: 0.8, color: 'var(--text-secondary)', fontWeight: 800, marginTop: '2px' }}>
+                Total Lote (c/débito): ${totalLote.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+              </span>
+            )}
           </div>
           <button 
             className="btn-primary" 
