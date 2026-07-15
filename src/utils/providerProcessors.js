@@ -30,10 +30,20 @@ export const procesarClaro = (lines) => {
         plan = parts[2];
         const valPlanParsed = parseClaroNumber(parts[3]);
         const valTotalParsed = parseClaroNumber(parts[8] || parts[7]);
-        precioLista = valPlanParsed;
-        total = valTotalParsed;
-        bonif = parseClaroNumber(parts[5] || "0");
-        exced = total - (precioLista + bonif);
+        
+        const esFijoOInternet = plan?.includes('A100E') || plan?.includes('CTF14') || plan?.toUpperCase().includes('FIJO');
+        
+        if (esFijoOInternet) {
+          precioLista = 0;
+          total = valTotalParsed;
+          bonif = 0;
+          exced = 0;
+        } else {
+          precioLista = valPlanParsed;
+          total = valTotalParsed;
+          bonif = parseClaroNumber(parts[5] || "0");
+          exced = total - (precioLista + bonif);
+        }
       }
 
       if (tel && total !== 0) {
