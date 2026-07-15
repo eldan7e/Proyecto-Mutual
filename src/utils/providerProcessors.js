@@ -28,8 +28,12 @@ export const procesarClaro = (lines) => {
       } else if (parts.length >= 8) {
         tel = parts[0];
         plan = parts[2];
-        total = parseClaroNumber(parts[8]);
-        precioLista = total;
+        const valPlanParsed = parseClaroNumber(parts[3]);
+        const valTotalParsed = parseClaroNumber(parts[8] || parts[7]);
+        precioLista = valPlanParsed;
+        total = valTotalParsed;
+        bonif = parseClaroNumber(parts[5] || "0");
+        exced = total - (precioLista + bonif);
       }
 
       if (tel && total !== 0) {
