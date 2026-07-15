@@ -227,9 +227,7 @@ export async function saveFacturacion({
 
     // Find tarifa_aunar & margin from plans
     const dbPlan = (dbPlanes || []).find((p) => p.plan_id === planId);
-    const tarifaAunar = (sugTarifa !== undefined && sugTarifa !== null && sugTarifa > 0)
-      ? sugTarifa
-      : (dbPlan?.tarifa_aunar ?? 0);
+    const tarifaAunar = dbPlan?.tarifa_aunar ?? 0;
     const planMargin = dbPlan?.mutual_margen_pct ?? 0;
 
     return {
@@ -265,15 +263,7 @@ export async function saveFacturacion({
     )
   );
 
-  // Step 3.5 — Sincronizar tarifa aunar y precios promedio en el catálogo e histórico
-  if (sugTarifa > 0) {
-    progress(fileData.length, fileData.length, 'Sincronizando tarifas de operadora...');
-    const { error: errTarifa } = await supabase
-      .from('planes_abonos')
-      .update({ tarifa_aunar: sugTarifa })
-      .eq('proveedor_id', proveedorId);
-    if (errTarifa) console.error("Error al actualizar tarifa aunar en catálogo:", errTarifa);
-  }
+
 
   if (planIncreases && planIncreases.length > 0 && proveedorId !== 1) {
     progress(fileData.length, fileData.length, 'Sincronizando precios de planes...');
@@ -296,7 +286,7 @@ export async function saveFacturacion({
               periodo,
               plan_id: dbPlan.plan_id,
               precio_lista: avgPrice,
-              tarifa_aunar: sugTarifa || dbPlan.tarifa_aunar || 0
+              tarifa_aunar: dbPlan.tarifa_aunar || 0
             }, { onConflict: 'periodo,plan_id' });
           if (errAuditoria) console.error(`Error al actualizar histórico de ${p.plan}:`, errAuditoria);
         }
@@ -323,7 +313,7 @@ export async function saveFacturacion({
           periodo,
           plan_id: parseInt(planId, 10),
           precio_lista: price,
-          tarifa_aunar: sugTarifa || 0
+          tarifa_aunar: (dbPlanes || []).find(p => p.plan_id === parseInt(planId, 10))?.tarifa_aunar || 0
         }, { onConflict: 'periodo,plan_id' });
       if (errAuditoria) console.error(`Error al actualizar histórico Claro plan ${planId}:`, errAuditoria);
     }
