@@ -244,6 +244,7 @@ export async function saveFacturacion({
       precio_lista_audit: planPrice,
       tarifa_aunar_aplicada: tarifaAunar,
       mutual_margen_aplicado: planMargin,
+      precio_lista_factura: row.precioListaOriginal ? Number(row.precioListaOriginal) : null,
     };
   });
 

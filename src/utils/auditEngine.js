@@ -71,37 +71,37 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
     let totalBrutoSinAdicionales;
 
     if (isClaro) {
-      let abonoBaseClaro = costoAbonoReal;
+      // ============================================================
+      // FÓRMULA REAL DEL EXCEL DE CLARO (hojas BONI + AUNAR)
+      // ============================================================
+      // BONI!E = precio_oficial_claro × 0.10 (90% descuento fijo Aunar)
+      // Para líneas regulares: BONI!E ≈ costo_abono_real (Claro cobra 10% al corporativo)
+      // Para A100E (Internet): BONI!E ≠ costo_abono_real (Claro cobra 29% al corporativo)
+      //
+      // AUNAR!D = (W + Y + Z + X + CTA_CEL + AA) × (1 + DESC/100)
+      //   L = BONI!E (abono ajustado)
+      //   U = L + excedentes
+      //   V = U × 4.17%
+      //   W = U + V
+      //   X = W × 1%
+      //   Y = Tarifa Aunar (7100)
+      //   Z = factor bonificación (ej 1.07)
+      //   AA = L × Z (monto bonificación)
+      // ============================================================
       
-      // Overrides for lines where Claro billed wrong abono but Excel used correct/expected abono
-      const phone = consumo.numero_linea.replace(/\D/g, '').slice(-10);
-      let periodKey = '';
-      if (typeof period === 'string') {
-        const match = period.match(/^(\d{4}-\d{2})/);
-        if (match) periodKey = match[1];
-      }
-      if (periodKey === '2026-04' || periodKey === '2026-05') {
-        if (phone === '2215471512' || phone === '2215940741') {
-          abonoBaseClaro = 4180.55;
-        }
-      }
-
-      let extraChargesClaro = excedentes;
+      // Calcular abono base según fórmula BONI: precio_oficial × 0.10
+      // Si tenemos precio_lista_factura (precio oficial de Claro), usamos BONI!E = precio × 0.10
+      // Si no, usamos costo_abono_real (que para líneas regulares ya es ≈ precio × 0.10)
+      const precioOficialClaro = Number(consumo.precio_lista_factura || 0);
+      let abonoBaseClaro = precioOficialClaro > 0 ? precioOficialClaro * 0.10 : costoAbonoReal;
       
-      if (isInternet) {
-        // En Claro, el abono base de internet a partir de Abril es $5075.955
-        abonoBaseClaro = 5075.955;
-        extraChargesClaro = 0.0;
-      } else {
-        // Replicate Excel's abono base rounding for CC11R and CC14R plans
-        if (Math.abs(abonoBaseClaro - 4180.54) < 0.02) abonoBaseClaro = 4180.55;
-        else if (Math.abs(abonoBaseClaro - 10719.38) < 0.02) abonoBaseClaro = 10719.39;
-      }
+      // Para internet (A100E), los excedentes no se suman al abono base
+      let extraChargesClaro = isInternet ? 0 : excedentes;
       
       const U = abonoBaseClaro + extraChargesClaro;
       const V = U * 0.0417; // Impuesto 4.17%
       const W = U + V;
-      const X = W * 0.01; // Impuesto 1%
+      const X = W * 0.01; // Impuesto 1% (Ley 26573)
       
       let marginPct = 100;
       if (consumo.mutual_margen_aplicado !== undefined && consumo.mutual_margen_aplicado !== null) {
@@ -110,19 +110,18 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       } else if (dbInfo && dbInfo.mutual_margen_pct !== undefined && dbInfo.mutual_margen_pct !== null) {
         marginPct = Number(dbInfo.mutual_margen_pct);
       }
-      const Z_val = marginPct / 100.0;
-      const AA = abonoBaseClaro * Z_val; // Bonificación (Aporte Mutual)
+      const Z_val = marginPct / 100.0;            // Factor bonificación (ej: 1.07)
+      const AA = abonoBaseClaro * Z_val;           // Monto bonificación = abono × factor
       
-      // Y = Tarifa Aunar
-      const Y = tarifaAunarFija;
+      const Y = tarifaAunarFija;                   // Tarifa Aunar
       
       // Mostrar V + X + AA en la columna de ADMIN + IVA
       gastosAdmin = V + X + AA;
-      ivaFinal = 0; // Ya incluido o no aplica
+      ivaFinal = 0;
       abonoBase = abonoBaseClaro;
       
-      // El total bruto sin adicionales suma las partes base
-      // Sumamos Z_val (margen) para replicar la fórmula + $Z2 del Excel de Aunar
+      // Fórmula Excel: totalBrutoSinAdicionales = W + Y + X + AA + Z_val
+      // (Z_val se suma como valor absoluto, replicando $Z2 del Excel)
       totalBrutoSinAdicionales = W + Y + X + AA + Z_val;
     } else if (isMovistar) {
       // ============================================================
@@ -204,8 +203,8 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
     // 5. DESCUENTO / ADICIONAL DEL SOCIO (Clavado al Excel con soporte para recargos y overrides)
     let discountPct = Number(socioInfo?.desc_adicionales || 0);
 
-    // Si la línea tiene un descuento_esperado no nulo y no cero, tiene prioridad sobre el del socio
-    if (lineInfo?.descuento_esperado !== undefined && lineInfo?.descuento_esperado !== null && Number(lineInfo.descuento_esperado) !== 0) {
+    // Si la línea tiene un descuento_esperado no nulo, tiene prioridad sobre el del socio (incluso si es 0)
+    if (lineInfo?.descuento_esperado !== undefined && lineInfo?.descuento_esperado !== null) {
       // Los planes A100E (fijos/internet) no deben heredar o usar el 90% (evita arrastre de móviles)
       const isA100E = dbInfo?.nombre_plan?.includes('A100E') || lineInfo?.plan_db === 'A100E';
       if (!(isA100E && Number(lineInfo.descuento_esperado) === 90)) {
@@ -227,8 +226,8 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
     
     // Soporte para Overrides históricos específicos de Claro
     if (isClaro) {
-      // Ignorar descuentos del 80% o 80.5% en Claro (son remanentes de Movistar por portabilidad)
-      if (discountPct === 80 || discountPct === 80.5) {
+      // Ignorar descuentos del 80%, 80.5% y 90% en Claro (son remanentes de Movistar por portabilidad)
+      if (discountPct === 80 || discountPct === 80.5 || discountPct === 90) {
         discountPct = 0;
       }
     } else if (isPersonal) {
@@ -250,40 +249,8 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       }
     }
     
-    if (isClaro) {
-      let periodKey = '';
-      if (typeof period === 'string') {
-        const match = period.match(/^(\d{4}-\d{2})/);
-        if (match) {
-          periodKey = match[1];
-        }
-      }
-      
-      const CLARO_DISCOUNT_OVERRIDES = {
-        '2026-01': {
-          '2215719793': 55.79,  // Mario Puyo: 55.79% descuento
-          '9992982898': -11.0,  // Amico: 11% recargo (multiplica por 1.11)
-          '9992982899': -15.0,  // Amico: 15% recargo (multiplica por 1.15)
-          '2216353334': 0.0,    // Capital Diario: 0% descuento
-        },
-        '2026-02': {
-          '2216637753': -11.0,  // Amico: 11% recargo (multiplica por 1.11)
-          '2216353334': 0.0,    // Capital Diario: 0% descuento
-        },
-        '2026-04': {
-          '2215310868': 0.0,    // Amico (other line): 0% discount/recargo
-          '2216353334': 0.0,    // Capital Diario: 0% discount
-        },
-        '2026-05': {
-          '2215310868': 0.0,    // Amico (other line): 0% discount/recargo
-          '2216353334': 0.0,    // Capital Diario: 0% discount
-        }
-      };
-      
-      if (periodKey && CLARO_DISCOUNT_OVERRIDES[periodKey] && CLARO_DISCOUNT_OVERRIDES[periodKey][consumo.numero_linea] !== undefined) {
-        discountPct = CLARO_DISCOUNT_OVERRIDES[periodKey][consumo.numero_linea];
-      }
-    }
+    // Los descuentos de Claro ahora se toman directamente de socios.desc_adicionales y lineas.descuento_esperado
+    // Sin overrides hardcodeados por período/línea
 
     const pctBonifSocio = (discountPct + descExtraPct) / 100;
     const bonifManual = Number(consumo.bonificaciones || 0);
@@ -292,12 +259,14 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
     let totalCobrar = 0;
 
     if (isClaro) {
-      // En Claro, desc_adicionales es POSITIVO para descuentos (ej 80 = 80% off, paga 20%)
+      // En Claro, desc_adicionales es POSITIVO para descuentos (ej 15 = 15% off, paga 85%)
       // y NEGATIVO para recargos (ej -11 = 11% recargo, paga 111%)
-      // El descuento se aplica solo sobre el abono/tarifa (totalBrutoSinAdicionales)
-      const baseCobrar = totalBrutoSinAdicionales * (1 - pctBonifSocio);
-      bonifSocio = totalBrutoSinAdicionales - baseCobrar;
-      totalCobrar = baseCobrar + cargosExtra + otrosCargosOp - bonifManual;
+      // Excel: (W + Y + Z + X + CTA_CEL + AA) × (1 + DESC/100)
+      // CTA_CEL (cargosExtra) va DENTRO del paréntesis, antes del factor de descuento
+      const subtotalConCargos = totalBrutoSinAdicionales + cargosExtra;
+      const baseCobrar = subtotalConCargos * (1 - pctBonifSocio);
+      bonifSocio = subtotalConCargos - baseCobrar;
+      totalCobrar = baseCobrar + otrosCargosOp - bonifManual;
     } else if (isMovistar) {
       // En Movistar, desc_adicionales se guarda positivo en DB (ej 10 = 10% off, paga 90%)
       // El descuento se aplica solo sobre el abono/tarifa (totalBrutoSinAdicionales)
