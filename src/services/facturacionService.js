@@ -217,16 +217,19 @@ export async function saveFacturacion({
   progress(0, fileData.length, 'Guardando consumos...');
 
   // Re-fetch period prices for audit columns
-  const periodPrices = await fetchPeriodPrices(periodo);
-
   const consumosPayload = fileData.map((row) => {
     const num = row.linea?.toString().replace(/\D/g, '');
     const lineaObj = lineasPayload.find((l) => l.numero_linea === num);
     const planId = lineaObj?.plan_id;
-    const planPrice = periodPrices.get(planId) ?? 0;
-
-    // Find tarifa_aunar & margin from plans
     const dbPlan = (dbPlanes || []).find((p) => p.plan_id === planId);
+    
+    let planPrice = 0;
+    if (proveedorId === 1) {
+      planPrice = row.precioOficial > 0 ? row.precioOficial : (dbPlan?.precio ?? 0);
+    } else {
+      planPrice = dbPlan?.precio ?? 0;
+    }
+
     const tarifaAunar = dbPlan?.tarifa_aunar ?? 0;
     const planMargin = dbPlan?.mutual_margen_pct ?? 0;
 
