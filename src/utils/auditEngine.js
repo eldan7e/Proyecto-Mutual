@@ -478,9 +478,10 @@ export function auditLineItem(item, dbInfo, context) {
   const esPlanFija = esA100E || item.plan?.includes('CTF14') || item.plan?.toUpperCase().includes('FIJO');
   
   // Precios base para auditoría: preferir precio de lista de la factura si viene > 0, sino base de datos
+  // Excepción: planes fijos/internet (A100E, CTF14) — su precio de lista real está en el catálogo, no en la factura
   const dbPrecioLista = periodPrices.get(dbInfo?.plan_id) || dbInfo?.precio_oficial || 0;
   const parsedPrecioLista = item.precioListaStr ? Number(item.precioListaStr) : 0;
-  const precioLista = (selectedProvider === 'claro' && parsedPrecioLista > 0)
+  const precioLista = (selectedProvider === 'claro' && parsedPrecioLista > 0 && !esPlanFija)
     ? parsedPrecioLista
     : (dbPrecioLista || 0);
 

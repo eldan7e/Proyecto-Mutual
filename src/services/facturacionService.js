@@ -301,6 +301,9 @@ export async function saveFacturacion({
       const num = row.linea?.toString().replace(/\D/g, '');
       const lineaObj = lineasPayload.find((l) => l.numero_linea === num);
       const planId = lineaObj?.plan_id;
+      // Skip internet/fixed plans (A100E, CTF14) — their invoice list price is $0 or consolidated total
+      const dbPlan = (dbPlanes || []).find(p => p.plan_id === planId);
+      if (dbPlan?.es_plan_internet) return;
       if (planId && row.precioOficial > 0) {
         planPricesMap[planId] = row.precioOficial;
       }
