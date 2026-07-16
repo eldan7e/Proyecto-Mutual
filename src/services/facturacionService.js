@@ -272,20 +272,26 @@ export async function saveFacturacion({
         const dbPlan = (dbPlanes || []).find(dp => dp.nombre_plan?.toLowerCase() === p.plan?.toLowerCase());
         if (dbPlan) {
           const avgPrice = Math.round(p.avgCurrAbono * 100) / 100;
-          // 1. Actualizar catálogo de planes
-          const { error: errPlan } = await supabase
-            .from('planes_abonos')
-            .update({ precio: avgPrice })
-            .eq('plan_id', dbPlan.plan_id);
-          if (errPlan) console.error(`Error al actualizar plan ${p.plan} en catálogo:`, errPlan);
+          
+          if (proveedorId !== 2) {
+            // 1. Actualizar catálogo de planes (solo si no es Movistar ni Claro)
+            const { error: errPlan } = await supabase
+              .from('planes_abonos')
+              .update({ precio: avgPrice })
+              .eq('plan_id', dbPlan.plan_id);
+            if (errPlan) console.error(`Error al actualizar plan ${p.plan} en catálogo:`, errPlan);
+          }
 
           // 2. Persistir en tabla precios_auditoria_periodo
+          // Para Movistar (proveedorId === 2), usamos el precio de lista oficial de su catálogo
+          const precioListaAGuardar = proveedorId === 2 ? (dbPlan.precio || 0) : avgPrice;
+
           const { error: errAuditoria } = await supabase
             .from('precios_auditoria_periodo')
             .upsert({
               periodo,
               plan_id: dbPlan.plan_id,
-              precio_lista: avgPrice,
+              precio_lista: precioListaAGuardar,
               tarifa_aunar: dbPlan.tarifa_aunar || 0
             }, { onConflict: 'periodo,plan_id' });
           if (errAuditoria) console.error(`Error al actualizar histórico de ${p.plan}:`, errAuditoria);
