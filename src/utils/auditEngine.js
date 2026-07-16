@@ -279,19 +279,24 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       totalCobrar = (totalBrutoSinAdicionales - bonifSocio) + cargosExtra + otrosCargosOp - bonifManual;
     }
 
-    // Auditoría específica de Movistar (80% Descuento)
+    // Auditoría específica de Movistar — Descuento escalonado por GB
     const precioLista = Number(consumo.precio_lista_audit || config.historicalPrice?.precio_lista || dbInfo?.precio || 0);
     let movistarAudit = null;
     if (parseInt(providerId) === 2 && precioLista > 0) {
+      const gbIncluidos = Number(dbInfo?.gb_incluidos || 0);
+      const expectedPct = gbIncluidos >= 10 ? 85 : 80;
+      const tolerancePct = expectedPct - 2.1; // margen de tolerancia ~2%
       const actualDiscountPct = Math.round((1 - (costoAbonoReal / precioLista)) * 1000) / 10;
-      // Consideramos que cumple si el descuento real redondeado es >= 77.9% (mínimo 78% aceptable según acuerdo sin alertar)
-      const meetsAgreement = actualDiscountPct >= 77.9;
+      const meetsAgreement = actualDiscountPct >= tolerancePct;
+      const expectedCosto = precioLista * (1 - expectedPct / 100);
       movistarAudit = {
         precioLista,
         costoAbonoReal,
         actualDiscountPct,
         meetsAgreement,
-        diferencia: Math.round((costoAbonoReal - (precioLista * 0.20)) * 100) / 100
+        expectedPct,
+        gbIncluidos,
+        diferencia: Math.round((costoAbonoReal - expectedCosto) * 100) / 100
       };
     }
 
