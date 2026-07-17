@@ -267,35 +267,86 @@ export default function Socios({ hideHeader = false }) {
     const formData = new FormData(e.target);
     const socioData = Object.fromEntries(formData);
 
+    const { numero_linea, proveedor_id, ...socioFields } = socioData;
+
     // Clean up empty fields to null and parse correct types
-    if (socioData.nro_socio === '') socioData.nro_socio = null;
-    else socioData.nro_socio = parseInt(socioData.nro_socio, 10);
+    if (socioFields.nro_socio === '') socioFields.nro_socio = null;
+    else socioFields.nro_socio = parseInt(socioFields.nro_socio, 10);
 
-    if (socioData.desc_adicionales === '') socioData.desc_adicionales = null;
-    else socioData.desc_adicionales = parseFloat(socioData.desc_adicionales);
+    if (socioFields.desc_adicionales === '') socioFields.desc_adicionales = null;
+    else socioFields.desc_adicionales = parseFloat(socioFields.desc_adicionales);
 
-    if (socioData.cta_numero === '') socioData.cta_numero = null;
-    else socioData.cta_numero = parseInt(socioData.cta_numero, 10);
+    if (socioFields.cta_numero === '') socioFields.cta_numero = null;
+    else socioFields.cta_numero = parseInt(socioFields.cta_numero, 10);
 
-    if (socioData.total_cuotas === '') socioData.total_cuotas = null;
-    else socioData.total_cuotas = parseInt(socioData.total_cuotas, 10);
+    if (socioFields.total_cuotas === '') socioFields.total_cuotas = null;
+    else socioFields.total_cuotas = parseInt(socioFields.total_cuotas, 10);
 
-    if (socioData.dni === '') socioData.dni = null;
-    if (socioData.cuit === '') socioData.cuit = null;
-    if (socioData.email === '') socioData.email = null;
+    if (socioFields.dni === '') socioFields.dni = null;
+    if (socioFields.cuit === '') socioFields.cuit = null;
+    if (socioFields.email === '') socioFields.email = null;
 
     let hasError = false;
+    let socioIdToUse = currentSocio?.socio_id || null;
+
     if (currentSocio) {
-      const { error } = await supabase.from('socios').update(socioData).eq('socio_id', currentSocio.socio_id);
+      const { error } = await supabase.from('socios').update(socioFields).eq('socio_id', currentSocio.socio_id);
       if (error) {
         alert(error.message);
         hasError = true;
       }
     } else {
-      const { error } = await supabase.from('socios').insert([socioData]);
+      const { data: inserted, error } = await supabase
+        .from('socios')
+        .insert([socioFields])
+        .select('socio_id')
+        .single();
+
       if (error) {
         alert(error.message);
         hasError = true;
+      } else if (inserted) {
+        socioIdToUse = inserted.socio_id;
+      }
+    }
+
+    // Si no hubo error y se especificó un número de línea, asociarlo
+    if (!hasError && numero_linea && socioIdToUse) {
+      try {
+        const { data: existingLine } = await supabase
+          .from('lineas')
+          .select('numero_linea')
+          .eq('numero_linea', numero_linea.trim())
+          .maybeSingle();
+
+        const linePayload = {
+          numero_linea: numero_linea.trim(),
+          socio_id: socioIdToUse,
+          proveedor_id: proveedor_id ? parseInt(proveedor_id, 10) : null,
+          estado: 'Activa'
+        };
+
+        if (existingLine) {
+          // Re-asociar línea existente
+          const { error: lineErr } = await supabase
+            .from('lineas')
+            .update({ 
+              socio_id: socioIdToUse, 
+              proveedor_id: linePayload.proveedor_id 
+            })
+            .eq('numero_linea', numero_linea.trim());
+
+          if (lineErr) throw lineErr;
+        } else {
+          // Crear nueva línea
+          const { error: lineErr } = await supabase
+            .from('lineas')
+            .insert([linePayload]);
+
+          if (lineErr) throw lineErr;
+        }
+      } catch (lineErr) {
+        alert("Socio guardado, pero error al procesar la línea: " + lineErr.message);
       }
     }
 
@@ -883,6 +934,31 @@ export default function Socios({ hideHeader = false }) {
               maxLength={22} 
               style={{ width: '100%', marginBottom: 0 }}
             />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div>
+              <label className="form-label">Número de Línea</label>
+              <input 
+                className="form-input" 
+                name="numero_linea" 
+                placeholder="Ej: 2212345678"
+                style={{ width: '100%', marginBottom: 0 }}
+              />
+            </div>
+            <div>
+              <label className="form-label">Proveedor</label>
+              <select 
+                className="form-input" 
+                name="proveedor_id" 
+                style={{ width: '100%', marginBottom: 0 }}
+              >
+                <option value="">Seleccione Proveedor</option>
+                {proveedores.map(p => (
+                  <option key={p.proveedor_id} value={p.proveedor_id}>{p.nombre}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '10px' }}>
