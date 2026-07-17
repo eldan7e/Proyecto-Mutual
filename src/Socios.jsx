@@ -9,6 +9,7 @@ import {
 import { fetchSocioConsumosData, fetchSocioIncidentsData } from './services/socioService';
 import { useNavigate } from 'react-router-dom';
 import SocioFicha from './components/Socios/SocioFicha';
+import Modal from './components/Modal';
 
 export default function Socios({ hideHeader = false }) {
   const navigate = useNavigate();
@@ -777,6 +778,134 @@ export default function Socios({ hideHeader = false }) {
           </div>
         </>
       </div>
+
+      {/* Modal para Crear/Editar Socio */}
+      <Modal 
+        isOpen={isModalOpen} 
+        onClose={() => { setIsModalOpen(false); setCurrentSocio(null); }} 
+        title={currentSocio ? "Editar Socio" : "Nuevo Socio"}
+        maxWidth="600px"
+      >
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div>
+            <label className="form-label">Nombre Completo</label>
+            <input 
+              className="form-input" 
+              name="nombre_completo" 
+              defaultValue={currentSocio?.nombre_completo || ''} 
+              required 
+              placeholder="Ej: Juan Pérez"
+              style={{ width: '100%', marginBottom: 0 }}
+            />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div>
+              <label className="form-label">DNI</label>
+              <input 
+                className="form-input" 
+                name="dni" 
+                defaultValue={currentSocio?.dni || ''} 
+                placeholder="Sin puntos"
+                style={{ width: '100%', marginBottom: 0 }}
+              />
+            </div>
+            <div>
+              <label className="form-label">CUIT</label>
+              <input 
+                className="form-input" 
+                name="cuit" 
+                defaultValue={currentSocio?.cuit || ''} 
+                placeholder="Ej: 20-XXXXXXXX-X"
+                style={{ width: '100%', marginBottom: 0 }}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div>
+              <label className="form-label">Código Lex</label>
+              <input 
+                className="form-input" 
+                name="codigo_lex" 
+                defaultValue={currentSocio?.codigo_lex || ''} 
+                placeholder="Código Lex"
+                style={{ width: '100%', marginBottom: 0 }}
+              />
+            </div>
+            <div>
+              <label className="form-label">Email Principal</label>
+              <input 
+                className="form-input" 
+                type="email" 
+                name="email" 
+                defaultValue={currentSocio?.email || ''} 
+                placeholder="correo@ejemplo.com"
+                style={{ width: '100%', marginBottom: 0 }}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div>
+              <label className="form-label">Forma de Pago</label>
+              <select 
+                className="form-input" 
+                name="fpago" 
+                defaultValue={currentSocio?.fpago || 'M'}
+                style={{ width: '100%', marginBottom: 0 }}
+              >
+                <option value="M">Mutual (M)</option>
+                <option value="BC">Banco (BC)</option>
+                <option value="R">Recibo (R)</option>
+              </select>
+            </div>
+            <div>
+              <label className="form-label">Nro Socio</label>
+              <input 
+                className="form-input" 
+                type="number" 
+                name="nro_socio" 
+                defaultValue={currentSocio?.nro_socio || ''} 
+                placeholder="Nº Socio"
+                style={{ width: '100%', marginBottom: 0 }}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="form-label">CBU / CVU</label>
+            <input 
+              className="form-input" 
+              name="cbu" 
+              defaultValue={currentSocio?.cbu || ''} 
+              placeholder="Ingrese el CBU o CVU del socio (22 dígitos)" 
+              maxLength={22} 
+              style={{ width: '100%', marginBottom: 0 }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '10px' }}>
+            <button 
+              type="button" 
+              className="pagination-btn-nav" 
+              onClick={() => { setIsModalOpen(false); setCurrentSocio(null); }}
+              style={{ padding: '10px 20px' }}
+            >
+              Cancelar
+            </button>
+            <button 
+              type="submit" 
+              className="action-button" 
+              style={{ padding: '10px 20px', display: 'flex', alignItems: 'center', gap: '8px' }}
+              disabled={loading}
+            >
+              {loading ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+              Guardar
+            </button>
+          </div>
+        </form>
+      </Modal>
       </div>
     </div>
   );
