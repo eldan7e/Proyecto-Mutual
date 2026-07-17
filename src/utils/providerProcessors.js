@@ -122,6 +122,7 @@ export const procesarPersonal = (textLines) => {
   const results = [];
   let current = null;
   let lastLooseLineNumber = null;
+  let hasSkippedPlanPrice = false;
 
   const closeCurrent = () => {
     if (current) { results.push({ ...current }); current = null; }
@@ -161,7 +162,17 @@ export const procesarPersonal = (textLines) => {
         descuentoPct: '',
         plan: planName
       };
+      hasSkippedPlanPrice = false;
       continue;
+    }
+
+    // --- CORRECCIÓN: BRUTO EN LÍNEA SIGUIENTE ---
+    if (current && current.bruto === 0) {
+      const priceOnlyMatch = rawLine.trim().match(/^\$\s*([\d\.,]+)$/);
+      if (priceOnlyMatch) {
+        current.bruto = parsePersonalNumber(priceOnlyMatch[1]);
+        continue;
+      }
     }
 
     // INTERNET (sin número de teléfono)
@@ -184,6 +195,7 @@ export const procesarPersonal = (textLines) => {
           };
         }
       }
+      hasSkippedPlanPrice = false;
       continue;
     }
 
@@ -216,6 +228,7 @@ export const procesarPersonal = (textLines) => {
         plan: 'Plan Personal'
       };
       lastLooseLineNumber = null;
+      hasSkippedPlanPrice = false;
       continue;
     }
 
@@ -291,6 +304,11 @@ export const procesarPersonal = (textLines) => {
           const val = parsePersonalNumber(valStr.replace('-', ''));
           // Acumular solo valores positivos razonables (excedentes reales)
           if (!isNegative && val > 0 && val < 200000) {
+            // --- CORRECCIÓN: SALTAR EL PRIMER VALOR POSITIVO (PLAN LIST PRICE) ---
+            if (!hasSkippedPlanPrice) {
+              hasSkippedPlanPrice = true;
+              continue;
+            }
             current.excedentes += val;
           }
         }
