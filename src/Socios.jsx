@@ -267,7 +267,7 @@ export default function Socios({ hideHeader = false }) {
     const formData = new FormData(e.target);
     const socioData = Object.fromEntries(formData);
 
-    const { numero_linea, proveedor_id, ...socioFields } = socioData;
+    const { numero_linea, proveedor_id, numero_grupo, ...socioFields } = socioData;
 
     // Clean up empty fields to null and parse correct types
     if (socioFields.nro_socio === '') socioFields.nro_socio = null;
@@ -310,6 +310,37 @@ export default function Socios({ hideHeader = false }) {
       }
     }
 
+    // Si no hubo error y se especificó un grupo, asociarlo
+    if (!hasError && numero_grupo && socioIdToUse) {
+      try {
+        const grupoNum = parseInt(numero_grupo, 10);
+        
+        // Asegurar que el grupo exista
+        await supabase
+          .from('grupos')
+          .upsert({ numero_grupo: grupoNum }, { onConflict: 'numero_grupo' });
+
+        // Eliminar asociaciones previas (por las dudas)
+        await supabase
+          .from('grupo_socio')
+          .delete()
+          .eq('socio_id', socioIdToUse);
+
+        // Asociar al grupo
+        const { error: assocErr } = await supabase
+          .from('grupo_socio')
+          .insert({ 
+            numero_grupo: grupoNum, 
+            socio_id: socioIdToUse, 
+            es_titular: false 
+          });
+
+        if (assocErr) throw assocErr;
+      } catch (assocErr) {
+        alert("Socio guardado, pero error al asociar grupo: " + assocErr.message);
+      }
+    }
+
     // Si no hubo error y se especificó un número de línea, asociarlo
     if (!hasError && numero_linea && socioIdToUse) {
       try {
@@ -323,7 +354,8 @@ export default function Socios({ hideHeader = false }) {
           numero_linea: numero_linea.trim(),
           socio_id: socioIdToUse,
           proveedor_id: proveedor_id ? parseInt(proveedor_id, 10) : null,
-          estado: 'Activa'
+          estado: 'Activa',
+          numero_grupo: numero_grupo ? parseInt(numero_grupo, 10) : null
         };
 
         if (existingLine) {
@@ -332,7 +364,8 @@ export default function Socios({ hideHeader = false }) {
             .from('lineas')
             .update({ 
               socio_id: socioIdToUse, 
-              proveedor_id: linePayload.proveedor_id 
+              proveedor_id: linePayload.proveedor_id,
+              numero_grupo: linePayload.numero_grupo
             })
             .eq('numero_linea', numero_linea.trim());
 
@@ -924,16 +957,28 @@ export default function Socios({ hideHeader = false }) {
             </div>
           </div>
 
-          <div>
-            <label className="form-label">CBU / CVU</label>
-            <input 
-              className="form-input" 
-              name="cbu" 
-              defaultValue={currentSocio?.cbu || ''} 
-              placeholder="Ingrese el CBU o CVU del socio (22 dígitos)" 
-              maxLength={22} 
-              style={{ width: '100%', marginBottom: 0 }}
-            />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div>
+              <label className="form-label">CBU / CVU</label>
+              <input 
+                className="form-input" 
+                name="cbu" 
+                defaultValue={currentSocio?.cbu || ''} 
+                placeholder="22 dígitos" 
+                maxLength={22} 
+                style={{ width: '100%', marginBottom: 0 }}
+              />
+            </div>
+            <div>
+              <label className="form-label">Grupo de Facturación</label>
+              <input 
+                className="form-input" 
+                type="number"
+                name="numero_grupo" 
+                placeholder="Nº Grupo" 
+                style={{ width: '100%', marginBottom: 0 }}
+              />
+            </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
