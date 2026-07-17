@@ -128,7 +128,8 @@ export const procesarPersonal = (textLines) => {
     if (current) { results.push({ ...current }); current = null; }
   };
 
-  for (const rawLine of lines) {
+  for (let idx = 0; idx < lines.length; idx++) {
+    const rawLine = lines[idx];
     const u = norm(rawLine);
 
     // LÍNEA MÓVIL o FIJA (soporta formatos viejos y nuevos de 10 dígitos)
@@ -176,11 +177,21 @@ export const procesarPersonal = (textLines) => {
     }
 
     // INTERNET (sin número de teléfono)
-    // Ej: ABONOSINTERNET $13.061,66 o SERVICIOSDEINTERNET $16.652,89
-    if ((u.startsWith('ABONOSINTERNET') || u.startsWith('SERVICIOSDEINTERNET')) && rawLine.includes('$')) {
-      const m = rawLine.match(/\$\s*([\d\.,]+)/);
-      if (m) {
-        const val = parsePersonalNumber(m[1]);
+    // Ej: ABONOS INTERNET $13.061,66 o SERVICIOS de INTERNET on one line and $ 17.235,54 on the next line
+    if (u.startsWith('ABONOSINTERNET') || u.startsWith('SERVICIOSDEINTERNET')) {
+      let val = 0;
+      if (rawLine.includes('$')) {
+        const m = rawLine.match(/\$\s*([\d\.,]+)/);
+        if (m) val = parsePersonalNumber(m[1]);
+      } else if (idx + 1 < lines.length && lines[idx + 1].includes('$')) {
+        const m = lines[idx + 1].match(/\$\s*([\d\.,]+)/);
+        if (m) {
+          val = parsePersonalNumber(m[1]);
+          idx++; // Skip next line (amount)
+        }
+      }
+
+      if (val > 0) {
         if (current) {
           current.bruto += val;
           current.plan = 'Plan Internet + Fijo';
@@ -318,31 +329,35 @@ export const procesarPersonal = (textLines) => {
 
   closeCurrent();
 
-  // --- PASO 3.5: Fusionar INTERNET con LÍNEA FIJA ---
-  while (true) {
-    const internetIndex = results.findIndex(r => r.telefono === 'INTERNET');
-    let fijaIndex = results.findIndex(r => r.plan === 'Plan Fijo');
-    
-    // Fallback: Si no dice explícitamente "FIJA", buscar por el número conocido
-    if (fijaIndex === -1) {
-      fijaIndex = results.findIndex(r => r.telefono && r.telefono.includes('2341812'));
-    }
+  // --- PASO 3.5: Fusionar INTERNET con LÍNEA FIJA (número siguiente del mismo bloque) ---
+  for (let i = 0; i < results.length; i++) {
+    if (results[i].telefono === 'INTERNET') {
+      let targetIndex = -1;
+      for (let j = i + 1; j < results.length; j++) {
+        const nextRec = results[j];
+        if (nextRec.plan === 'Plan Fijo' || (nextRec.telefono && nextRec.telefono.includes('2341812')) || nextRec.plan.includes('Fijo')) {
+          targetIndex = j;
+          break;
+        }
+      }
 
-    if (internetIndex === -1 || fijaIndex === -1) break;
-
-    const internet = results[internetIndex];
-    const fija = results[fijaIndex];
-    
-    fija.bruto += internet.bruto;
-    fija.excedentes += internet.excedentes;
-    fija.descuentoMonto += internet.descuentoMonto;
-    
-    if (!fija.descuentoPct && internet.descuentoPct) {
-      fija.descuentoPct = internet.descuentoPct;
+      if (targetIndex !== -1) {
+        const internet = results[i];
+        const fija = results[targetIndex];
+        
+        fija.bruto += internet.bruto;
+        fija.excedentes += internet.excedentes;
+        fija.descuentoMonto += internet.descuentoMonto;
+        
+        if (!fija.descuentoPct && internet.descuentoPct) {
+          fija.descuentoPct = internet.descuentoPct;
+        }
+        fija.plan = 'Plan Internet + Fijo';
+        
+        results.splice(i, 1);
+        i--; // ajustar índice
+      }
     }
-    fija.plan = 'Plan Internet + Fijo';
-    
-    results.splice(internetIndex, 1);
   }
 
   // --- PASO 4: Convertir a neto y deduplicar ---
