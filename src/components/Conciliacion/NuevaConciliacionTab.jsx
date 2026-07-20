@@ -29,7 +29,9 @@ export default function NuevaConciliacionTab({
   periodConsumos = [],
   handleToggleLineSelection,
   openEditConciliacionModal,
-  checkIsAmountMatch
+  checkIsAmountMatch,
+  fetchMasterData,
+  fetchPeriodSummary
 }) {
   // Local states to isolate typing and filter re-renders from parent
   const [banco, setBanco] = useState('NACION'); // 'NACION', 'CREDICOOP'
