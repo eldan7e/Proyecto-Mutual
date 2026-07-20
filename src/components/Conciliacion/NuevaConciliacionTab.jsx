@@ -199,71 +199,65 @@ export default function NuevaConciliacionTab({
       return;
     }
 
-    const lines = rawData.split(/\r?\n/)
-      .map(l => l.trim())
-      .filter(Boolean);
-
-    if (lines.length === 0) {
-      alert("No se encontraron líneas válidas en el extracto.");
-      return;
-    }
-
     setLoadingIA(true);
     setResultadoIA([]);
-    setProgresoIA({ current: 0, total: lines.length });
+    setProgresoIA({ current: 0, total: 100 });
 
-    const results = [];
-    let completed = 0;
+    try {
+      const response = await fetch(n8nUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          raw_text: rawData,
+          periodo: selectedPeriod
+        })
+      });
 
-    for (const line of lines) {
-      try {
-        const response = await fetch(n8nUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            raw_text: line,
-            periodo: selectedPeriod
-          })
-        });
-
-        if (!response.ok) {
-          throw new Error(`Error ${response.status}: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        results.push({
-          line,
-          status: data.status || 'unknown',
-          html: data.html || `<div style="background:#dc3545;color:white;padding:15px;border-radius:8px;">❌ Error procesando línea: ${line}</div>`
-        });
-      } catch (err) {
-        console.error("Error en línea:", line, err);
-        results.push({
-          line,
-          status: 'error',
-          html: `<div style="background:#dc3545;color:white;padding:15px;border-radius:8px;font-family:sans-serif;">
-                   <h4>❌ Error de Conexión</h4>
-                   <p style="margin:4px 0 0 0;font-size:13px;">No se pudo conectar al webhook de n8n para procesar esta transferencia.</p>
-                   <p style="margin:2px 0 0 0;font-size:11px;opacity:0.8;">Detalle: ${err.message}</p>
-                 </div>`
-        });
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
       }
 
-      completed++;
-      setProgresoIA({ current: completed, total: lines.length });
-      setResultadoIA([...results]);
-    }
+      const data = await response.json();
+      
+      if (data.details && Array.isArray(data.details)) {
+        setResultadoIA(data.details);
+      } else if (data.html) {
+        setResultadoIA([{
+          status: data.status || 'ok',
+          html: data.html
+        }]);
+      } else {
+        setResultadoIA([{
+          status: 'ok',
+          html: `<div style="background:#28a745;color:white;padding:15px;border-radius:8px;">✅ Lote de conciliación procesado con éxito por n8n.</div>`
+        }]);
+      }
+      
+      const total = data.total_processed || 1;
+      setProgresoIA({ current: total, total: total });
 
-    setLoadingIA(false);
-
-    // Refresh database stats
-    if (typeof fetchMasterData === 'function') {
-      fetchMasterData();
-    }
-    if (typeof fetchPeriodSummary === 'function') {
-      fetchPeriodSummary(selectedPeriod);
+      // Refresh database stats
+      if (typeof fetchMasterData === 'function') {
+        fetchMasterData();
+      }
+      if (typeof fetchPeriodSummary === 'function') {
+        fetchPeriodSummary(selectedPeriod);
+      }
+    } catch (err) {
+      console.error("Error al procesar lote por IA:", err);
+      setResultadoIA([{
+        status: 'error',
+        html: `<div style="background:#dc3545;color:white;padding:15px;border-radius:8px;font-family:sans-serif;">
+                 <h4>❌ Error de Conexión en Lote</h4>
+                 <p style="margin:4px 0 0 0;font-size:13px;">No se pudo completar el procesamiento del extracto bancario en lote.</p>
+                 <p style="margin:2px 0 0 0;font-size:11px;opacity:0.8;">Detalle: ${err.message}</p>
+               </div>`
+      }]);
+      setProgresoIA({ current: 0, total: 100 });
+    } finally {
+      setLoadingIA(false);
     }
   };
 
