@@ -228,6 +228,42 @@ export default function NuevaConciliacionTab({
         // Actualizar el estado local de los movimientos en la tabla
         if (typeof setParsedMovements === 'function') {
           setParsedMovements(prevMovements => {
+            if (prevMovements.length === 0) {
+              // Si la tabla estaba vacía, la poblamos directamente con lo extraído y procesado por n8n
+              return data.details.map((d, idx) => {
+                const targetSocio = socios.find(s => s.socio_id === d.socio_id);
+                const dbLabel = targetSocio ? `${targetSocio.nombre_completo} (Socio ${targetSocio.nro_socio || ''})` : '';
+                return {
+                  id: idx,
+                  fecha: d.fechaPago ? d.fechaPago.split('-').reverse().join('/') : '',
+                  concepto: d.descripcion || '',
+                  comprobante: d.comprobante || '',
+                  ingresoBruto: 0,
+                  impuestos: 0,
+                  netoReal: d.monto || 0,
+                  tipo_movimiento: d.decision === 'AUTO_APLICAR' ? 'TRANSFERENCIA_RECIBIDA' : (d.decision === 'SUGERIR_REVISION' ? 'TRANSFERENCIA_REVISION' : 'TRANSFERENCIA_HUERFANA'),
+                  detallesImpuestos: [],
+                  banco: d.banco || banco,
+                  suggestedSocio: targetSocio ? { socio: targetSocio } : null,
+                  selectedSocioId: d.socio_id,
+                  selectedSocioLabel: dbLabel,
+                  pendingList: [],
+                  selectedLiquidationId: d.liquidacion_id ? String(d.liquidacion_id) : '',
+                  matchedLiquidationIds: d.liquidacion_id ? [d.liquidacion_id] : [],
+                  selectedLines: [],
+                  estado: d.decision === 'AUTO_APLICAR' ? 'CONCILIADO' : 'PENDIENTE',
+                  isDbDuplicate: d.decision === 'AUTO_APLICAR',
+                  isAlreadyPaidMatch: d.decision === 'AUTO_APLICAR',
+                  movimiento_id: null,
+                  dbLiquidationInfo: null,
+                  warningMsg: d.decision === 'SUGERIR_REVISION' ? d.observaciones : '',
+                  isDuplicateCpbte: false,
+                  errorMsg: '',
+                  reconciledInSession: d.decision === 'AUTO_APLICAR'
+                };
+              });
+            }
+            
             return prevMovements.map(m => {
               // Buscar si este movimiento fue procesado por n8n por número de comprobante o monto
               const processed = data.details.find(d => {
