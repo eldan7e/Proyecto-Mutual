@@ -223,6 +223,44 @@ export default function NuevaConciliacionTab({
       
       if (data.details && Array.isArray(data.details)) {
         setResultadoIA(data.details);
+        
+        // Actualizar el estado local de los movimientos en la tabla
+        if (typeof setParsedMovements === 'function') {
+          setParsedMovements(prevMovements => {
+            return prevMovements.map(m => {
+              // Buscar si este movimiento fue procesado por n8n por número de comprobante o monto
+              const processed = data.details.find(d => {
+                const cleanC = String(d.comprobante || '').replace(/\D/g, '');
+                const cleanRowC = String(m.comprobante || '').replace(/\D/g, '');
+                const isMatchComprobante = cleanC && cleanRowC && cleanC === cleanRowC;
+                const isMatchMonto = Math.abs(Number(d.monto || 0) - Math.abs(m.netoReal)) < 2.0;
+                return isMatchComprobante || (isMatchMonto && cleanC && String(m.concepto || '').toLowerCase().includes(cleanC.toLowerCase()));
+              });
+              
+              if (processed) {
+                if (processed.decision === 'AUTO_APLICAR') {
+                  return {
+                    ...m,
+                    estado: 'CONCILIADO',
+                    reconciledInSession: true,
+                    selectedSocioId: processed.socio_id,
+                    selectedSocioLabel: processed.socio_nombre ? `${processed.socio_nombre} (Socio ${processed.socio_id})` : '',
+                    selectedLiquidationId: processed.liquidacion_id ? String(processed.liquidacion_id) : ''
+                  };
+                } else if (processed.decision === 'SUGERIR_REVISION') {
+                  // Si es sugerencia, le asignamos el socio y deuda para que el usuario solo tenga que dar click
+                  return {
+                    ...m,
+                    selectedSocioId: processed.socio_id,
+                    selectedSocioLabel: processed.socio_nombre ? `${processed.socio_nombre} (Socio ${processed.socio_id})` : '',
+                    selectedLiquidationId: processed.liquidacion_id ? String(processed.liquidacion_id) : ''
+                  };
+                }
+              }
+              return m;
+            });
+          });
+        }
       } else if (data.html) {
         setResultadoIA([{
           status: data.status || 'ok',
