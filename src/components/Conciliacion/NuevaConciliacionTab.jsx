@@ -211,7 +211,8 @@ export default function NuevaConciliacionTab({
         },
         body: JSON.stringify({
           raw_text: rawData,
-          periodo: selectedPeriod
+          periodo: selectedPeriod,
+          banco: banco
         })
       });
 
