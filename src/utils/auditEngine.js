@@ -274,9 +274,11 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       bonifSocio = totalBrutoSinAdicionales - baseCobrar;
       totalCobrar = baseCobrar + cargosExtra + otrosCargosOp - bonifManual;
     } else {
-      // Para Personal u otras (descuento simple sobre abono/tarifa)
-      bonifSocio = totalBrutoSinAdicionales * pctBonifSocio;
-      totalCobrar = (totalBrutoSinAdicionales - bonifSocio) + cargosExtra + otrosCargosOp - bonifManual;
+      // Para Personal u otras: Excel pone CTA_CEL DENTRO del factor de descuento
+      // Fórmula Excel: (V + W + CUOTA + CTA_CEL) × (1 + N/100)
+      const subtotalConCargos = totalBrutoSinAdicionales + cargosExtra;
+      bonifSocio = subtotalConCargos * pctBonifSocio;
+      totalCobrar = (subtotalConCargos - bonifSocio) + otrosCargosOp - bonifManual;
     }
 
     // Auditoría específica de Movistar — Descuento escalonado por GB

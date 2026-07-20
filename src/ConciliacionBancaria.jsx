@@ -3153,10 +3153,10 @@ export default function ConciliacionBancaria() {
           rawData={rawData}
           setRawData={setRawData}
           periodConsumos={periodConsumos}
-          handleToggleLineSelection={handleToggleLineSelection}
-          openEditConciliacionModal={openEditConciliacionModal}
           deshacerMatchLocal={deshacerMatchLocal}
           checkIsAmountMatch={checkIsAmountMatch}
+          fetchMasterData={fetchMasterData}
+          fetchPeriodSummary={fetchPeriodSummary}
         />
       )}
 

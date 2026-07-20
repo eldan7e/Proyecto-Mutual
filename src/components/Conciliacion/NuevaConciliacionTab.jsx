@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Landmark, Loader2, ArrowRightLeft, Search, HelpCircle, Save, CheckCircle2, AlertCircle, Check } from 'lucide-react';
+import { Landmark, Loader2, ArrowRightLeft, Search, HelpCircle, Save, CheckCircle2, AlertCircle, Check, Settings, Sparkles } from 'lucide-react';
 
 export default function NuevaConciliacionTab({
   selectedPeriod,
@@ -43,10 +43,22 @@ export default function NuevaConciliacionTab({
   const [newGroupValue, setNewGroupValue] = useState('');
   const itemsPerPage = 100;
 
+  // AI Reconciliation States
+  const [n8nUrl, setN8nUrl] = useState(() => localStorage.getItem('cb_n8n_url') || 'http://localhost:5678/webhook/conciliar-pago-inteligente');
+  const [showConfigIA, setShowConfigIA] = useState(false);
+  const [loadingIA, setLoadingIA] = useState(false);
+  const [resultadoIA, setResultadoIA] = useState([]);
+  const [progresoIA, setProgresoIA] = useState({ current: 0, total: 0 });
+
   // Reset page when filters change
   useEffect(() => {
     setCurrentPageNueva(1);
   }, [filtroTipoNueva, filtroBancoNueva, filtroEstadoNueva, searchNueva]);
+
+  // Persist n8n URL changes
+  useEffect(() => {
+    localStorage.setItem('cb_n8n_url', n8nUrl);
+  }, [n8nUrl]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -179,6 +191,80 @@ export default function NuevaConciliacionTab({
 
   const totalPagesNueva = Math.ceil(processedData.rows.length / itemsPerPage);
 
+  const handleConciliarIA = async () => {
+    if (!rawData || !rawData.trim()) {
+      alert("Por favor pegá el extracto bancario antes de conciliar.");
+      return;
+    }
+
+    const lines = rawData.split(/\r?\n/)
+      .map(l => l.trim())
+      .filter(Boolean);
+
+    if (lines.length === 0) {
+      alert("No se encontraron líneas válidas en el extracto.");
+      return;
+    }
+
+    setLoadingIA(true);
+    setResultadoIA([]);
+    setProgresoIA({ current: 0, total: lines.length });
+
+    const results = [];
+    let completed = 0;
+
+    for (const line of lines) {
+      try {
+        const response = await fetch(n8nUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            raw_text: line,
+            periodo: selectedPeriod
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`Error ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        results.push({
+          line,
+          status: data.status || 'unknown',
+          html: data.html || `<div style="background:#dc3545;color:white;padding:15px;border-radius:8px;">❌ Error procesando línea: ${line}</div>`
+        });
+      } catch (err) {
+        console.error("Error en línea:", line, err);
+        results.push({
+          line,
+          status: 'error',
+          html: `<div style="background:#dc3545;color:white;padding:15px;border-radius:8px;font-family:sans-serif;">
+                   <h4>❌ Error de Conexión</h4>
+                   <p style="margin:4px 0 0 0;font-size:13px;">No se pudo conectar al webhook de n8n para procesar esta transferencia.</p>
+                   <p style="margin:2px 0 0 0;font-size:11px;opacity:0.8;">Detalle: ${err.message}</p>
+                 </div>`
+        });
+      }
+
+      completed++;
+      setProgresoIA({ current: completed, total: lines.length });
+      setResultadoIA([...results]);
+    }
+
+    setLoadingIA(false);
+
+    // Refresh database stats
+    if (typeof fetchMasterData === 'function') {
+      fetchMasterData();
+    }
+    if (typeof fetchPeriodSummary === 'function') {
+      fetchPeriodSummary(selectedPeriod);
+    }
+  };
+
   const onSubmitProcesar = () => {
     handleProcesar(rawData, banco);
   };
@@ -192,6 +278,7 @@ export default function NuevaConciliacionTab({
     setFiltroBancoNueva('TODOS');
     setFiltroEstadoNueva('TODOS');
     setSearchNueva('');
+    setResultadoIA([]);
   };
 
   // Cantidad de sugeridos listos para conciliar
@@ -287,24 +374,160 @@ export default function NuevaConciliacionTab({
             onChange={e => setRawData(e.target.value)}
           />
 
-          <button 
-            onClick={onSubmitProcesar} 
-            className="action-button" 
-            style={{ width: '100%', height: '48px', fontSize: '15px' }}
-            disabled={loading || loadingMaster}
-          >
-            {loading || loadingMaster ? (
-              <>
-                <Loader2 className="animate-spin" size={20} style={{ marginRight: '8px' }} />
-                {loadingMaster ? 'Cargando base de datos...' : 'Verificando duplicados y procesando...'}
-              </>
-            ) : (
-              <>
-                <ArrowRightLeft size={20} style={{ marginRight: '8px' }} />
-                Procesar y Buscar Coincidencias
-              </>
+          {/* Configuración del Webhook de IA */}
+          <div style={{ marginBottom: '20px' }}>
+            <button
+              onClick={() => setShowConfigIA(!showConfigIA)}
+              className="action-button"
+              style={{
+                background: 'transparent',
+                color: 'var(--text-secondary)',
+                border: 'none',
+                padding: '4px 8px',
+                fontSize: '12px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: 'pointer'
+              }}
+            >
+              <Settings size={14} />
+              {showConfigIA ? 'Ocultar Configuración Webhook' : 'Configurar Webhook de Conciliación'}
+            </button>
+
+            {showConfigIA && (
+              <div 
+                className="glass-panel" 
+                style={{ 
+                  marginTop: '8px', 
+                  padding: '16px', 
+                  borderRadius: '12px', 
+                  border: '1px solid var(--border-light)',
+                  background: 'rgba(0,0,0,0.02)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}
+              >
+                <label className="form-label" style={{ fontSize: '11px', fontWeight: 700 }}>
+                  URL del Webhook de Conciliación en n8n:
+                </label>
+                <input
+                  type="text"
+                  className="premium-input"
+                  style={{ fontSize: '12px', padding: '8px 12px', height: '36px', width: '100%' }}
+                  value={n8nUrl}
+                  onChange={e => setN8nUrl(e.target.value)}
+                  placeholder="http://localhost:5678/webhook/conciliar-pago-inteligente"
+                />
+                <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-secondary)' }}>
+                  Asegúrate de que el webhook de n8n esté activo y apunte a tu puerto local o servidor.
+                </p>
+              </div>
             )}
-          </button>
+          </div>
+
+          {/* Barra de progreso de la IA */}
+          {(loadingIA || (progresoIA.total > 0 && resultadoIA.length > 0)) && (
+            <div className="glass-panel animate-pulse" style={{ padding: '20px', borderRadius: '16px', border: '1px solid var(--border-light)', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                  <Sparkles size={16} color="var(--accent)" />
+                  {loadingIA ? '🤖 La IA está conciliando tus cuentas...' : '✅ Conciliación de IA Finalizada'}
+                </span>
+                <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)' }}>
+                  {progresoIA.current} de {progresoIA.total} pagos
+                </span>
+              </div>
+              <div style={{ height: '8px', background: 'rgba(0,0,0,0.06)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%',
+                  width: `${(progresoIA.current / progresoIA.total) * 100}%`,
+                  background: 'var(--accent)',
+                  borderRadius: '4px',
+                  transition: 'width 0.3s ease'
+                }} />
+              </div>
+
+              {/* Lista de Resultados de IA */}
+              {resultadoIA.length > 0 && (
+                <div 
+                  style={{ 
+                    marginTop: '16px', 
+                    maxHeight: '260px', 
+                    overflowY: 'auto', 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    gap: '10px',
+                    paddingRight: '6px'
+                  }}
+                  className="premium-scrollbar"
+                >
+                  {resultadoIA.map((res, i) => (
+                    <div key={`ia-res-${i}`} dangerouslySetInnerHTML={{ __html: res.html }} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Botones de Acción */}
+          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+            <button 
+              onClick={onSubmitProcesar} 
+              className="action-button" 
+              style={{ 
+                flex: 1, 
+                minWidth: '220px', 
+                height: '48px', 
+                fontSize: '14.5px', 
+                background: 'var(--surface)', 
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-light)'
+              }}
+              disabled={loading || loadingMaster || loadingIA}
+            >
+              {loading || loadingMaster ? (
+                <>
+                  <Loader2 className="animate-spin" size={18} style={{ marginRight: '8px' }} />
+                  Procesando...
+                </>
+              ) : (
+                <>
+                  <ArrowRightLeft size={18} style={{ marginRight: '8px' }} />
+                  Procesar Manual (Sugerencias)
+                </>
+              )}
+            </button>
+
+            <button 
+              onClick={handleConciliarIA} 
+              className="action-button" 
+              style={{ 
+                flex: 1, 
+                minWidth: '220px', 
+                height: '48px', 
+                fontSize: '14.5px',
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                borderColor: '#10b981',
+                boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)',
+                color: 'white'
+              }}
+              disabled={loading || loadingMaster || loadingIA}
+            >
+              {loadingIA ? (
+                <>
+                  <Loader2 className="animate-spin" size={18} style={{ marginRight: '8px' }} />
+                  AI Conciliando...
+                </>
+              ) : (
+                <>
+                  <Sparkles size={18} style={{ marginRight: '8px' }} />
+                  Conciliar con IA (n8n)
+                </>
+              )}
+            </button>
+          </div>
         </div>
       ) : (
         <>
