@@ -428,7 +428,7 @@ export const parsearMovimientos = (rawText) => {
     
   } else {
     // Case: Raw copy-paste text (fallback)
-    const rawRes = parsearRawText(rawLines, cleanVal, parseDateStr, formatDateAR, saldoAnterior);
+    const rawRes = parsearRawText(rawLines, cleanVal, parseDateStr, formatDateAR, saldoAnterior, saldoFinalExtraido);
     if (rawRes.saldoAnterior && (!saldoAnterior || saldoAnterior === 0)) {
       saldoAnterior = rawRes.saldoAnterior;
     }
@@ -504,7 +504,7 @@ function parsearGenericCSV(dataLines, splitCSVLine, cleanVal, parseDateStr, form
 
 // Raw text fallback (copy-paste from PDF bank statements)
 // Raw text fallback (copy-paste from PDF bank statements)
-function parsearRawText(rawLines, cleanVal, parseDateStr, formatDateAR, saldoAnterior = 0) {
+function parsearRawText(rawLines, cleanVal, parseDateStr, formatDateAR, saldoAnterior = 0, saldoFinalExtraido = null) {
   const checkShouldIgnore = (line) => {
     const upper = line.toUpperCase().replace(/−/g, '-').trim();
     if (!upper) return true;
