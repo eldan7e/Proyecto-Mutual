@@ -121,7 +121,7 @@ export default function GestionDeuda() {
       }
     } catch (err) {
       console.error(err);
-      addToast('Error al cargar datos del servidor', 'error');
+      addToast('Error al cargar datos del servidor: ' + err.message, 'error');
     } finally {
       setLoading(false);
     }

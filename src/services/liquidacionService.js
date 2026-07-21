@@ -236,7 +236,7 @@ export const fetchLiquidacionesPaginated = async ({
 
   if (estado && estado !== 'Todos') {
     if (estado === 'DEUDOR') {
-      query = query.gt('monto_total_facturado', 'monto_abonado');
+      query = query.eq('es_deudor', true);
     } else if (estado === 'AL_DIA') {
       query = query.eq('estado_pago', 'ABONADO');
     } else if (estado === 'MOROSO') {
@@ -273,7 +273,7 @@ export const fetchLiquidacionesStats = async ({ periodo = null, estado = null })
 
   if (estado && estado !== 'Todos') {
     if (estado === 'DEUDOR') {
-      query = query.gt('monto_total_facturado', 'monto_abonado');
+      query = query.eq('es_deudor', true);
     } else if (estado === 'AL_DIA') {
       query = query.eq('estado_pago', 'ABONADO');
     } else if (estado === 'MOROSO') {
