@@ -206,57 +206,65 @@ export const fetchUniquePeriods = async () => {
  * Obtiene liquidaciones paginadas con filtros
  */
 export const fetchLiquidacionesPaginated = async ({
-  page = 1,
-  pageSize = 40,
   periodo = null,
   estado = null,
   search = '',
 }) => {
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
+  let allData = [];
+  const limit = 1000;
+  let offset = 0;
 
-  let query = supabase
-    .from('liquidaciones_grupos')
-    .select(`
-      liquidacion_id,
-      numero_grupo,
-      periodo,
-      monto_total_facturado,
-      monto_abonado,
-      estado_pago,
-      socio_id,
-      proveedor_id,
-      proveedores!proveedor_id(nombre),
-      socios!socio_id(nombre_completo)
-    `, { count: 'exact' });
+  while (true) {
+    let query = supabase
+      .from('liquidaciones_grupos')
+      .select(`
+        liquidacion_id,
+        numero_grupo,
+        periodo,
+        monto_total_facturado,
+        monto_abonado,
+        estado_pago,
+        socio_id,
+        proveedor_id,
+        proveedores!proveedor_id(nombre),
+        socios!socio_id(nombre_completo)
+      `, { count: 'exact' });
 
-  if (periodo && periodo !== 'Todos') {
-    query = query.eq('periodo', periodo);
-  }
-
-  if (estado && estado !== 'Todos') {
-    if (estado === 'DEUDOR') {
-      query = query.eq('es_deudor', true);
-    } else if (estado === 'AL_DIA') {
-      query = query.eq('estado_pago', 'ABONADO');
-    } else if (estado === 'MOROSO') {
-      query = query.eq('estado_pago', 'PENDIENTE');
+    if (periodo && periodo !== 'Todos') {
+      query = query.eq('periodo', periodo);
     }
+
+    if (estado && estado !== 'Todos') {
+      if (estado === 'DEUDOR') {
+        query = query.eq('es_deudor', true);
+      } else if (estado === 'AL_DIA') {
+        query = query.eq('estado_pago', 'ABONADO');
+      } else if (estado === 'MOROSO') {
+        query = query.eq('estado_pago', 'PENDIENTE');
+      }
+    }
+
+    if (search) {
+      const s = search.toLowerCase();
+      // Buscar por número de grupo o nombre de titular
+      query = query.or(
+        `numero_grupo::text.ilike.%${s}%,socios.nombre_completo.ilike.%${s}%`
+      );
+    }
+
+    query = query.order('periodo', { ascending: false }).range(offset, offset + limit - 1);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    allData.push(...(data || []));
+    if (!data || data.length < limit) {
+      break;
+    }
+    offset += limit;
   }
 
-  if (search) {
-    const s = search.toLowerCase();
-    // Buscar por número de grupo o nombre de titular
-    query = query.or(
-      `numero_grupo::text.ilike.%${s}%,socios.nombre_completo.ilike.%${s}%`
-    );
-  }
-
-  query = query.order('periodo', { ascending: false }).range(from, to);
-
-  const { data, count, error } = await query;
-  if (error) throw error;
-  return { data, count };
+  return { data: allData, count: allData.length };
 };
 
 /**

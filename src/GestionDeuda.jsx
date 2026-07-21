@@ -44,10 +44,10 @@ export default function GestionDeuda() {
     loadPeriods();
   }, []);
 
-  // Cargar datos principales cuando cambian filtros o página
+  // Cargar datos principales cuando cambian filtros
   useEffect(() => {
     loadData();
-  }, [page, pageSize, search, selectedStatus, selectedPeriod]);
+  }, [search, selectedStatus, selectedPeriod]);
 
   // Cargar estadísticas globales sin paginación
   useEffect(() => {
@@ -96,20 +96,20 @@ export default function GestionDeuda() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [page, pageSize, search, selectedStatus, selectedPeriod]);
+  }, [search, selectedStatus, selectedPeriod]);
 
   async function loadData() {
     setLoading(true);
     try {
-      const { data, count } = await fetchLiquidacionesPaginated({
-        page,
-        pageSize,
+      const { data } = await fetchLiquidacionesPaginated({
         periodo: selectedPeriod,
         estado: selectedStatus,
         search,
       });
       setLiquidaciones(data || []);
-      setTotal(count || 0);
+      
+      const uniqueGroupsCount = new Set((data || []).map(l => l.numero_grupo)).size;
+      setTotal(uniqueGroupsCount);
 
       // Cargar líneas si no han sido cargadas aún
       if (lineas.length === 0) {
@@ -200,6 +200,12 @@ export default function GestionDeuda() {
   }, [groupedData]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  const paginatedGroups = useMemo(() => {
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize;
+    return sortedGroups.slice(from, to);
+  }, [sortedGroups, page, pageSize]);
 
   function toggleGrupo(grupoNum) {
     setExpandedGrupo(prev => prev === grupoNum ? null : grupoNum);
@@ -426,7 +432,7 @@ export default function GestionDeuda() {
                   </td>
                 </tr>
               ) : (
-                sortedGroups.map(group => {
+                paginatedGroups.map(group => {
                   const isExpanded = expandedGrupo === group.numero_grupo;
                   return (
                     <GroupRow 
