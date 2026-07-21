@@ -222,6 +222,13 @@ export default function NuevaConciliacionTab({
 
       const data = await response.json();
       
+      if (data.saldoAnterior !== undefined && typeof setSaldoAnterior === 'function') {
+        setSaldoAnterior(data.saldoAnterior);
+      }
+      if (data.saldoFinalExtraido !== undefined && typeof setSaldoFinalExtraido === 'function') {
+        setSaldoFinalExtraido(data.saldoFinalExtraido);
+      }
+      
       if (data.details && Array.isArray(data.details)) {
         setResultadoIA(data.details);
         

@@ -307,6 +307,7 @@ export const parsearMovimientos = (rawText) => {
       colMap.comprobante = headerUpper.findIndex(h => h.includes('CPBTE') || h.includes('COMPROBANTE'));
       colMap.debito = headerUpper.findIndex(h => h.includes('BITO'));  // Débito
       colMap.credito = headerUpper.findIndex(h => h.includes('DITO') && !h.includes('BITO')); // Crédito
+      colMap.saldo = headerUpper.findIndex(h => h.includes('SALDO'));
       if (colMap.credito === -1 && colMap.debito !== -1) {
         // Fallback: find by position relative to debito
         colMap.credito = colMap.debito + 1;
@@ -380,6 +381,8 @@ export const parsearMovimientos = (rawText) => {
         monto = credito - debito; // credit is income, debit is expense
       }
       
+      let saldoVal = colMap.saldo !== -1 && cols[colMap.saldo] ? cleanVal(cols[colMap.saldo]) : null;
+      
       const tx = {
         fecha,
         concepto: concepto,
@@ -388,13 +391,37 @@ export const parsearMovimientos = (rawText) => {
         impuestos: 0,
         netoReal: monto,
         detallesImpuestos: [],
-        tipo_movimiento: detectarTipoMovimiento(concepto, monto)
+        tipo_movimiento: detectarTipoMovimiento(concepto, monto),
+        saldo: saldoVal
       };
       resultados.push(tx);
     });
     
     // Do not reverse, return ascending order (oldest first) as requested by user
     const finalRes = deduplicarMovimientos(resultados);
+    
+    // Auto-trace starting balance if no explicit SALDO ANTERIOR was set or if it is 0
+    if (finalRes.length > 0 && (!saldoAnterior || saldoAnterior === 0)) {
+      const firstWithSaldo = finalRes.find(r => r.saldo !== null && r.saldo !== undefined);
+      if (firstWithSaldo) {
+        const firstIdx = finalRes.indexOf(firstWithSaldo);
+        let startCalc = firstWithSaldo.saldo;
+        for (let i = firstIdx; i >= 0; i--) {
+          const item = finalRes[i];
+          startCalc -= item.netoReal;
+        }
+        saldoAnterior = Math.round(startCalc * 100) / 100;
+      }
+    }
+    
+    // Auto-trace final balance if not found
+    if (finalRes.length > 0 && !saldoFinalExtraido) {
+      const lastWithSaldo = [...finalRes].reverse().find(r => r.saldo !== null && r.saldo !== undefined);
+      if (lastWithSaldo) {
+        saldoFinalExtraido = lastWithSaldo.saldo;
+      }
+    }
+
     finalRes.saldoAnterior = saldoAnterior;
     finalRes.saldoFinalExtraido = saldoFinalExtraido;
     return finalRes;
@@ -402,6 +429,12 @@ export const parsearMovimientos = (rawText) => {
   } else {
     // Case: Raw copy-paste text (fallback)
     const rawRes = parsearRawText(rawLines, cleanVal, parseDateStr, formatDateAR, saldoAnterior);
+    if (rawRes.saldoAnterior && (!saldoAnterior || saldoAnterior === 0)) {
+      saldoAnterior = rawRes.saldoAnterior;
+    }
+    if (rawRes.saldoFinalExtraido && (!saldoFinalExtraido || saldoFinalExtraido === null)) {
+      saldoFinalExtraido = rawRes.saldoFinalExtraido;
+    }
     rawRes.saldoAnterior = saldoAnterior;
     rawRes.saldoFinalExtraido = saldoFinalExtraido;
     return rawRes;
@@ -949,11 +982,38 @@ function parsearRawText(rawLines, cleanVal, parseDateStr, formatDateAR, saldoAnt
       ingresoBruto: netoReal,
       impuestos: 0,
       netoReal: netoReal,
-      tipo_movimiento: detectarTipoMovimiento(conceptFull, netoReal)
+      tipo_movimiento: detectarTipoMovimiento(conceptFull, netoReal),
+      saldo: tx.saldoVal
     });
   });
 
-  return deduplicarMovimientos(finalResults);
+  // Trace back starting balance if no explicit SALDO ANTERIOR was set or if it is 0
+  if (validBlocks.length > 0 && (!saldoAnterior || saldoAnterior === 0)) {
+    const firstWithSaldo = validBlocks.find(b => b.saldoVal !== null);
+    if (firstWithSaldo) {
+      const firstIdx = validBlocks.indexOf(firstWithSaldo);
+      let startCalc = firstWithSaldo.saldoVal;
+      for (let i = firstIdx; i >= 0; i--) {
+        const item = validBlocks[i];
+        const sign = item.isDebit ? -1 : 1;
+        startCalc -= sign * item.montoVal;
+      }
+      saldoAnterior = Math.round(startCalc * 100) / 100;
+    }
+  }
+
+  // Trace final balance if not found
+  if (validBlocks.length > 0 && !saldoFinalExtraido) {
+    const lastWithSaldo = [...validBlocks].reverse().find(b => b.saldoVal !== null);
+    if (lastWithSaldo) {
+      saldoFinalExtraido = lastWithSaldo.saldoVal;
+    }
+  }
+
+  const res = deduplicarMovimientos(finalResults);
+  res.saldoAnterior = saldoAnterior;
+  res.saldoFinalExtraido = saldoFinalExtraido;
+  return res;
 }
 
 // Parse Excel file buffer (ArrayBuffer from FileReader)
