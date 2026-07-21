@@ -271,33 +271,47 @@ export const fetchLiquidacionesPaginated = async ({
  * Obtiene estadísticas globales (KPIs) sin paginación
  */
 export const fetchLiquidacionesStats = async ({ periodo = null, estado = null }) => {
-  let query = supabase
-    .from('liquidaciones_grupos')
-    .select('monto_total_facturado, monto_abonado, estado_pago, numero_grupo', { count: 'exact' });
+  let allData = [];
+  const limit = 1000;
+  let offset = 0;
 
-  if (periodo && periodo !== 'Todos') {
-    query = query.eq('periodo', periodo);
-  }
+  while (true) {
+    let query = supabase
+      .from('liquidaciones_grupos')
+      .select('monto_total_facturado, monto_abonado, estado_pago, numero_grupo', { count: 'exact' });
 
-  if (estado && estado !== 'Todos') {
-    if (estado === 'DEUDOR') {
-      query = query.eq('es_deudor', true);
-    } else if (estado === 'AL_DIA') {
-      query = query.eq('estado_pago', 'ABONADO');
-    } else if (estado === 'MOROSO') {
-      query = query.eq('estado_pago', 'PENDIENTE');
+    if (periodo && periodo !== 'Todos') {
+      query = query.eq('periodo', periodo);
     }
+
+    if (estado && estado !== 'Todos') {
+      if (estado === 'DEUDOR') {
+        query = query.eq('es_deudor', true);
+      } else if (estado === 'AL_DIA') {
+        query = query.eq('estado_pago', 'ABONADO');
+      } else if (estado === 'MOROSO') {
+        query = query.eq('estado_pago', 'PENDIENTE');
+      }
+    }
+
+    query = query.range(offset, offset + limit - 1);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    allData.push(...(data || []));
+    if (!data || data.length < limit) {
+      break;
+    }
+    offset += limit;
   }
 
-  const { data, count, error } = await query;
-  if (error) throw error;
-
-  const totalFacturado = (data || []).reduce((acc, l) => acc + (parseFloat(l.monto_total_facturado) || 0), 0);
-  const totalAbonado = (data || []).reduce((acc, l) => acc + (parseFloat(l.monto_abonado) || 0), 0);
+  const totalFacturado = allData.reduce((acc, l) => acc + (parseFloat(l.monto_total_facturado) || 0), 0);
+  const totalAbonado = allData.reduce((acc, l) => acc + (parseFloat(l.monto_abonado) || 0), 0);
   const totalPendiente = totalFacturado - totalAbonado;
-  const gruposDeudores = (data || []).filter(l => (parseFloat(l.monto_total_facturado) - parseFloat(l.monto_abonado)) > 5).length;
+  const gruposDeudores = allData.filter(l => (parseFloat(l.monto_total_facturado) - parseFloat(l.monto_abonado)) > 5).length;
   // Grupos únicos
-  const uniqueGroups = new Set((data || []).map(l => l.numero_grupo));
+  const uniqueGroups = new Set(allData.map(l => l.numero_grupo));
   const totalGrupos = uniqueGroups.size;
 
   return {
@@ -306,6 +320,5 @@ export const fetchLiquidacionesStats = async ({ periodo = null, estado = null })
     totalPendiente,
     gruposDeudores,
     totalGrupos,
-    totalRegistros: count,
   };
 };
