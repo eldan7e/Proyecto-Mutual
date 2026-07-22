@@ -592,10 +592,19 @@ export function consolidateFixedServices(resultados, selectedProvider) {
 
         fija.plan = `Internet + Tel Fijo (CONSOLIDADO)`;
 
-        // Recalcular métricas de auditoría para la línea fija manteniendo su abono neto real
+        // Sumar los importes reales facturados (Cuenta Internet + Línea Fija)
+        const newCostoAbono = Math.round(((fija.costo_abono_real || 0) + (matchInternet.costo_abono_real || 0)) * 100) / 100;
+        fija.costo_abono_real = newCostoAbono;
+
+        // Recalcular métricas de auditoría para la línea fija con el nuevo abono neto consolidado
         if (fija.calculado) {
+          const consumoUpdated = {
+            ...fija,
+            costo_abono_real: newCostoAbono,
+            total_linea: newCostoAbono
+          };
           const recalculated = calculateAuditLine(
-            fija,
+            consumoUpdated,
             fija.lineas || fija,
             { providerId: 1, period: fija.periodo, tarifaAunar: fija.calculado?.tarifaAunar }
           );
