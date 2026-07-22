@@ -582,17 +582,6 @@ export function consolidateFixedServices(resultados, selectedProvider) {
       )) || cuentasInternet.find(c => !c.isMerged) || cuentasInternet[idx];
 
       if (matchInternet && !matchInternet.isMerged && matchInternet !== fija) {
-        // Consolidamos importes exactamente
-        fija.montoFactura = Math.round((fija.montoFactura + matchInternet.montoFactura) * 100) / 100;
-        fija.excedentes = Math.round((fija.excedentes + matchInternet.excedentes) * 100) / 100;
-        fija.abono = Math.round((fija.abono + matchInternet.abono) * 100) / 100;
-        fija.monto = Math.round((fija.monto + matchInternet.monto) * 100) / 100;
-
-        fija.precioOficial = Math.round(((fija.precioOficial || 0) + (matchInternet.precioOficial || 0)) * 100) / 100;
-        fija.precioListaOriginal = Math.round(((Number(fija.precioListaOriginal || 0)) + (Number(matchInternet.precioListaOriginal || 0))) * 100) / 100;
-        fija.descuentoOriginal = Math.round(((Number(fija.descuentoOriginal || 0)) + (Number(matchInternet.descuentoOriginal || 0))) * 100) / 100;
-        fija.prevAbonoBase = Math.round(((fija.prevAbonoBase || 0) + (matchInternet.prevAbonoBase || 0)) * 100) / 100;
-
         // Herencia de socio si la cuenta de internet lo tenía asignado
         if ((!fija.socioId || fija.socioNombre === 'Socio no identificado') && matchInternet.socioId) {
           fija.socioId = matchInternet.socioId;
@@ -603,19 +592,10 @@ export function consolidateFixedServices(resultados, selectedProvider) {
 
         fija.plan = `Internet + Tel Fijo (CONSOLIDADO)`;
 
-        // Recalcular métricas de auditoría completas (baseAb, cAdmin, totalCobrar) con el nuevo costo de abonados combinados
-        const newCostoAbono = Math.round(((fija.costo_abono_real || fija.abono || 0) + (matchInternet.costo_abono_real || matchInternet.abono || 0)) * 100) / 100;
-        fija.costo_abono_real = newCostoAbono;
-        fija.abono = newCostoAbono;
-
+        // Recalcular métricas de auditoría para la línea fija manteniendo su abono neto real
         if (fija.calculado) {
-          const consumoUpdated = {
-            ...fija,
-            costo_abono_real: newCostoAbono,
-            total_linea: null // Forzar cálculo dinámico del total consolidado
-          };
           const recalculated = calculateAuditLine(
-            consumoUpdated,
+            fija,
             fija.lineas || fija,
             { providerId: 1, period: fija.periodo, tarifaAunar: fija.calculado?.tarifaAunar }
           );
