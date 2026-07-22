@@ -51,7 +51,7 @@ async function enrichConsumosWithAudit(consumos, periodo) {
     const chunkLineas = await fetchAllPaginated(() =>
       supabase
         .from('lineas')
-        .select('*, planes_abonos(*), socios:socios!lineas_socio_id_fkey(*), responsable:socios!lineas_socio_responsable_id_fkey(*), proveedores(*)')
+        .select('*, planes_abonos(*), socios:socios!lineas_socio_id_fkey(*), responsable:socios!lineas_socio_responsable_id_fkey(*), proveedores!lineas_proveedor_id_fkey(*)')
         .in('numero_linea', chunk)
     );
     allLineas = [...allLineas, ...chunkLineas];
@@ -154,7 +154,7 @@ export async function fetchLineas(periodo, proveedorId) {
     const masterLineas = await fetchAllPaginated(() =>
       supabase
         .from('lineas')
-        .select('*, planes_abonos(*), socios:socios!lineas_socio_id_fkey(*), responsable:socios!lineas_socio_responsable_id_fkey(*), proveedores(*)')
+        .select('*, planes_abonos(*), socios:socios!lineas_socio_id_fkey(*), responsable:socios!lineas_socio_responsable_id_fkey(*), proveedores!lineas_proveedor_id_fkey(*)')
         .eq('proveedor_id', proveedorId)
         .eq('estado', 'ACTIVA')
     );
