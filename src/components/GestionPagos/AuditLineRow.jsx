@@ -120,11 +120,6 @@ export default function AuditLineRow({ d, isPeriodoLiquidado, adicionalesData, o
               <div style={{ fontWeight: 800, color: '#1d4ed8', fontSize: '14px' }}>
                 +${d.calculado.extraAmount.toLocaleString('es-AR')}
               </div>
-              {d.lineas?.socios?.total_cuotas > 0 && (
-                <div style={{ fontSize: '9px', color: '#1d4ed8', fontWeight: 900, textTransform: 'uppercase' }}>
-                  CUOTA {d.lineas.socios.cta_numero}/{d.lineas.socios.total_cuotas} EQUIPO
-                </div>
-              )}
             </div>
           )}
 

@@ -100,9 +100,9 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       if (esPlanFijoOInternet) {
         abonoBaseClaro = costoAbonoReal;
         abonoBase = abonoBaseClaro;
-        gastosAdmin = abonoBaseClaro * 0.05;
-        ivaFinal = (abonoBaseClaro + gastosAdmin) * 0.21;
-        totalBrutoSinAdicionales = abonoBaseClaro + gastosAdmin + ivaFinal + tarifaAunarFija;
+        gastosAdmin = 0;
+        ivaFinal = 0;
+        totalBrutoSinAdicionales = abonoBaseClaro + tarifaAunarFija;
       } else {
         const precioOficialClaro = Number(consumo.precio_lista_factura || 0);
         abonoBaseClaro = precioOficialClaro > 0 ? precioOficialClaro * 0.10 : costoAbonoReal;
@@ -193,7 +193,7 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
     }
     
     // 4.1 PROCESAR ADICIONALES (Cargos fijos, Cuotas de equipo y Descuentos extra)
-    let cargosExtra = Number(socioInfo?.monto_cuota_cel || 0);
+    let cargosExtra = 0;
     let descExtraPct = 0;
     
     if (config.adicionales && Array.isArray(config.adicionales)) {
