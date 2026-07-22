@@ -498,8 +498,10 @@ export function auditLineItem(item, dbInfo, context) {
 
   // --- AUDITORÍA DE BONIFICACIÓN (CLARO) ---
   if (selectedProvider === 'claro' && precioLista > 0) {
-    const descuentoReal = ((precioLista - realAbono) / precioLista) * 100;
-    const descuentoEsperado = esPlanFija ? 75 : 90;
+    const esCTF14 = item.plan?.includes('CTF14') || dbInfo?.plan_db?.includes('CTF14');
+    const descuentoEsperado = (dbInfo && dbInfo.descuento_operadora_pct > 0) 
+      ? Number(dbInfo.descuento_operadora_pct) 
+      : (esCTF14 ? 75 : 90);
     const diffPct = descuentoReal - descuentoEsperado;
 
     if (Math.abs(diffPct) > 2.0) { 
@@ -596,7 +598,12 @@ export function consolidateFixedServices(resultados, selectedProvider) {
         // Recalcular alertas tras consolidación
         if (selectedProvider === 'claro' && ctf.precioOficial > 0) {
           const descuentoReal = ((ctf.precioOficial - ctf.abono) / ctf.precioOficial) * 100;
-          const descuentoEsperado = 75; // Internet + Tel Fijo consolidado espera 75%
+          const esCTF14 = ctf.plan?.includes('CTF14') || comboMatch.plan?.includes('CTF14');
+          const descuentoEsperado = (ctf.descuento_operadora_pct > 0)
+            ? Number(ctf.descuento_operadora_pct)
+            : (comboMatch.descuento_operadora_pct > 0)
+            ? Number(comboMatch.descuento_operadora_pct)
+            : (esCTF14 ? 75 : 90);
           const diffPct = descuentoReal - descuentoEsperado;
           
           ctf.alertas = [];
