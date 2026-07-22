@@ -72,7 +72,7 @@ export default function Facturacion() {
       if (error) throw error;
       return (data || []).map(d => d.periodo).filter(Boolean);
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: 10 * 1000,
   });
 
   // Establecer período predeterminado o corregir período inválido
@@ -89,7 +89,7 @@ export default function Facturacion() {
   const { data: liquidaciones = [], isLoading: liquidacionesLoading } = useQuery({
     queryKey: ['liquidaciones', selectedPeriod, filterProv],
     queryFn: () => fetchLiquidaciones(selectedPeriod, filterProv),
-    staleTime: 5 * 60 * 1000,
+    staleTime: 10 * 1000,
   });
 
   // Cargar liquidaciones detalladas de socios con React Query
@@ -97,7 +97,7 @@ export default function Facturacion() {
     queryKey: ['socioLiquidaciones', selectedPeriod, filterProv],
     queryFn: () => fetchSocioLiquidacionesService(selectedPeriod, filterProv),
     enabled: !!selectedPeriod && (activeTab === 'socios' || activeTab === 'resumen'),
-    staleTime: 5 * 60 * 1000,
+    staleTime: 10 * 1000,
   });
 
   // Mutación para eliminar un lote completo
