@@ -90,10 +90,14 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       // ============================================================
       
       // Calcular abono base según fórmula BONI: precio_oficial × 0.10
-      // Si tenemos precio_lista_factura (precio oficial de Claro), usamos BONI!E = precio × 0.10
-      // Si no, usamos costo_abono_real (que para líneas regulares ya es ≈ precio × 0.10)
+      // Para líneas regulares: BONI!E ≈ costo_abono_real (Claro cobra 10% al corporativo)
+      // EXCEPCIÓN CRÍTICA: Para planes fijos, internet o consolidados (A100E, 3MC26, CTF14, TFT26, Internet + Tel Fijo),
+      // Claro NO cobra el 10% del precio de lista. El abono base es el costo real facturado por la operadora (costoAbonoReal).
+      const pName = ((lineInfo?.plan || '') + ' ' + (dbInfo?.nombre_plan || '') + ' ' + (consumo.plan || '')).toUpperCase();
+      const esPlanFijoOInternet = isInternet || pName.includes('A100E') || pName.includes('3MC26') || pName.includes('CTF14') || pName.includes('TFT26') || pName.includes('CONSOLIDADO') || pName.includes('FIJO');
+
       const precioOficialClaro = Number(consumo.precio_lista_factura || 0);
-      let abonoBaseClaro = precioOficialClaro > 0 ? precioOficialClaro * 0.10 : costoAbonoReal;
+      let abonoBaseClaro = (!esPlanFijoOInternet && precioOficialClaro > 0) ? precioOficialClaro * 0.10 : costoAbonoReal;
       
       // Para internet (A100E), los excedentes no se suman al abono base
       let extraChargesClaro = isInternet ? 0 : excedentes;
