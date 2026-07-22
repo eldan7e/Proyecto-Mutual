@@ -96,8 +96,7 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       const pName = ((lineInfo?.plan || '') + ' ' + (dbInfo?.nombre_plan || '') + ' ' + (consumo.plan || '')).toUpperCase();
       const esPlanFijoOInternet = isInternet || pName.includes('A100E') || pName.includes('3MC26') || pName.includes('CTF14') || pName.includes('TFT26') || pName.includes('CONSOLIDADO') || pName.includes('FIJO');
 
-      const precioOficialClaro = Number(consumo.precio_lista_factura || 0);
-      let abonoBaseClaro = (!esPlanFijoOInternet && precioOficialClaro > 0) ? precioOficialClaro * 0.10 : costoAbonoReal;
+      let abonoBaseClaro = costoAbonoReal;
       
       let extraChargesClaro = isInternet ? 0 : excedentes;
       
