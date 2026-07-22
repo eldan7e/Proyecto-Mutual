@@ -471,11 +471,12 @@ export default function GestionPagos() {
                 setSelectedPeriodo(e.target.value);
                 updateUrlParams('periodo', e.target.value);
               }}
-              className="premium-input"
+              className="premium-input notranslate"
+              translate="no"
               style={{ padding: '8px 12px', minWidth: '120px', height: '40px' }}
             >
-              <option value="">Seleccione...</option>
-              {periodos.map(p => <option key={p} value={p}>{p}</option>)}
+              <option value="" className="notranslate" translate="no">Seleccione...</option>
+              {periodos.map(p => <option key={p} value={p} className="notranslate" translate="no">{p}</option>)}
             </select>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
