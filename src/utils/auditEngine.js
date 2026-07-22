@@ -96,41 +96,32 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       const pName = ((lineInfo?.plan || '') + ' ' + (dbInfo?.nombre_plan || '') + ' ' + (consumo.plan || '')).toUpperCase();
       const esPlanFijoOInternet = isInternet || pName.includes('A100E') || pName.includes('3MC26') || pName.includes('CTF14') || pName.includes('TFT26') || pName.includes('CONSOLIDADO') || pName.includes('FIJO');
 
-      let abonoBaseClaro = 0;
-      if (esPlanFijoOInternet) {
-        abonoBaseClaro = costoAbonoReal;
-        abonoBase = abonoBaseClaro;
-        gastosAdmin = 0;
-        ivaFinal = 0;
-        totalBrutoSinAdicionales = abonoBaseClaro + tarifaAunarFija;
-      } else {
-        const precioOficialClaro = Number(consumo.precio_lista_factura || 0);
-        abonoBaseClaro = precioOficialClaro > 0 ? precioOficialClaro * 0.10 : costoAbonoReal;
-        
-        let extraChargesClaro = excedentes;
-        
-        const U = abonoBaseClaro + extraChargesClaro;
-        const V = U * 0.0417; // Impuesto 4.17%
-        const W = U + V;
-        const X = W * 0.01; // Impuesto 1% (Ley 26573)
-        
-        let marginPct = 7;
-        if (consumo.mutual_margen_aplicado !== undefined && consumo.mutual_margen_aplicado !== null) {
-          const val = Number(consumo.mutual_margen_aplicado);
-          marginPct = val <= 2.0 ? val * 100.0 : val;
-        } else if (dbInfo && dbInfo.mutual_margen_pct !== undefined && dbInfo.mutual_margen_pct !== null) {
-          const val = Number(dbInfo.mutual_margen_pct);
-          marginPct = val > 50 ? 7 : val;
-        }
-        const Z_val = marginPct / 100.0;
-        const AA = abonoBaseClaro * Z_val;
-        
-        gastosAdmin = V + X + AA;
-        ivaFinal = 0;
-        abonoBase = abonoBaseClaro;
-        
-        totalBrutoSinAdicionales = W + tarifaAunarFija + X + AA + Z_val;
+      const precioOficialClaro = Number(consumo.precio_lista_factura || 0);
+      let abonoBaseClaro = (!esPlanFijoOInternet && precioOficialClaro > 0) ? precioOficialClaro * 0.10 : costoAbonoReal;
+      
+      let extraChargesClaro = isInternet ? 0 : excedentes;
+      
+      const U = abonoBaseClaro + extraChargesClaro;
+      const V = U * 0.0417; // Impuesto 4.17%
+      const W = U + V;
+      const X = W * 0.01; // Impuesto 1% (Ley 26573)
+      
+      let marginPct = 7;
+      if (consumo.mutual_margen_aplicado !== undefined && consumo.mutual_margen_aplicado !== null) {
+        const val = Number(consumo.mutual_margen_aplicado);
+        marginPct = val <= 2.0 ? val * 100.0 : val;
+      } else if (dbInfo && dbInfo.mutual_margen_pct !== undefined && dbInfo.mutual_margen_pct !== null) {
+        const val = Number(dbInfo.mutual_margen_pct);
+        marginPct = val > 50 ? 7 : val;
       }
+      const Z_val = marginPct / 100.0;
+      const AA = abonoBaseClaro * Z_val;
+      
+      gastosAdmin = V + X + AA;
+      ivaFinal = 0;
+      abonoBase = abonoBaseClaro;
+      
+      totalBrutoSinAdicionales = W + tarifaAunarFija + X + AA;
     } else if (isMovistar) {
       // ============================================================
       // FÓRMULA REAL DEL EXCEL DE MOVISTAR (verificada con archivo)
