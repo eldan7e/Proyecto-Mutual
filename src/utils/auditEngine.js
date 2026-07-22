@@ -553,24 +553,28 @@ export function consolidateFixedServices(resultados, selectedProvider) {
   const fijosCombo = resultados.filter(r => 
     r.plan?.includes('A100E') || 
     r.plan?.includes('3MC26') || 
+    r.planOficial?.includes('A100E') ||
+    r.planOficial?.includes('3MC26') ||
     r.plan?.toUpperCase().includes('INTERNET')
   );
 
   const fijosTftCtf = resultados.filter(r => 
     r.plan?.includes('CTF14') || 
     r.plan?.includes('TFT26') || 
+    r.planOficial?.includes('CTF14') ||
+    r.planOficial?.includes('TFT26') ||
     r.plan?.toUpperCase().includes('TFT') || 
     r.plan?.toUpperCase().includes('FIJO')
   );
 
   if (fijosCombo.length > 0 && fijosTftCtf.length > 0) {
     fijosTftCtf.forEach((ctf, idx) => {
-      // Prioridad 1: Coincidencia por socio o grupo
-      // Prioridad 2: Coincidencia por orden de índice
+      // Prioridad 1: Coincidencia por socioId, numeroGrupo o socioNombre
+      // Prioridad 2: Coincidencia por orden / disponibilidad
       const comboMatch = fijosCombo.find(c => !c.isMerged && (
-        (c.socio_id && ctf.socio_id && c.socio_id === ctf.socio_id) ||
-        (c.numero_grupo && ctf.numero_grupo && c.numero_grupo === ctf.numero_grupo) ||
-        (c.nombre && ctf.nombre && ctf.nombre !== 'Socio no identificado' && c.nombre.trim().toLowerCase() === ctf.nombre.trim().toLowerCase())
+        (c.socioId && ctf.socioId && c.socioId === ctf.socioId) ||
+        (c.numeroGrupo && ctf.numeroGrupo && c.numeroGrupo === ctf.numeroGrupo) ||
+        (c.socioNombre && ctf.socioNombre && ctf.socioNombre !== 'Socio no identificado' && c.socioNombre.trim().toLowerCase() === ctf.socioNombre.trim().toLowerCase())
       )) || fijosCombo.find(c => !c.isMerged) || fijosCombo[idx];
 
       if (comboMatch && !comboMatch.isMerged) {
@@ -587,13 +591,17 @@ export function consolidateFixedServices(resultados, selectedProvider) {
         ctf.prevAbonoBase = Math.round(((ctf.prevAbonoBase || 0) + (comboMatch.prevAbonoBase || 0)) * 100) / 100;
 
         // Heredar socio y grupo si la línea fija o el combo tenía los datos
-        if ((!ctf.socio_id || ctf.nombre === 'Socio no identificado') && comboMatch.socio_id) {
-          ctf.socio_id = comboMatch.socio_id;
-          ctf.nombre = comboMatch.nombre;
-          ctf.numero_grupo = comboMatch.numero_grupo;
+        if ((!ctf.socioId || ctf.socioNombre === 'Socio no identificado') && comboMatch.socioId) {
+          ctf.socioId = comboMatch.socioId;
+          ctf.socioNombre = comboMatch.socioNombre;
+          ctf.numeroGrupo = comboMatch.numeroGrupo;
+          ctf.isValid = true;
         }
 
         ctf.plan = `Internet + Tel Fijo (CONSOLIDADO)`;
+        if (comboMatch.planOficial && comboMatch.planOficial !== 'No registrado') {
+          ctf.planOficial = comboMatch.planOficial;
+        }
         
         // Recalcular alertas tras consolidación
         if (selectedProvider === 'claro' && ctf.precioOficial > 0) {
@@ -637,9 +645,5 @@ export function consolidateFixedServices(resultados, selectedProvider) {
     });
   }
 
-  return resultados.filter(row => {
-    // Ignoramos solo las líneas técnicas de A100E / 3MC26 que ya fueron fusionadas
-    const esComboTecnico = (row.plan?.includes('A100E') || row.plan?.includes('3MC26')) && (row.linea?.length < 10 || row.isMerged);
-    return !esComboTecnico;
-  });
+  return resultados.filter(row => !row.isMerged);
 }
