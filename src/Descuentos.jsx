@@ -60,7 +60,7 @@ export default function Descuentos() {
           lineas(
             numero_linea, 
             numero_grupo,
-            socios(socio_id, nombre_completo, nro_socio),
+            socios:socios!lineas_socio_id_fkey(socio_id, nombre_completo, nro_socio),
             planes_abonos(nombre_plan),
             proveedores:proveedor_id(nombre)
           )
