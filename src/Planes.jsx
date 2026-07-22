@@ -3,7 +3,7 @@ import { supabase } from './supabaseClient';
 import { 
   Search, Edit2, Plus, Database, Smartphone, 
   Globe, Save, X, Filter, TrendingDown, TrendingUp, 
-  ShieldCheck, Loader2, RefreshCw, Hash 
+  ShieldCheck, Loader2, RefreshCw, Hash, Phone, Link2, Unlink, PlusCircle
 } from 'lucide-react';
 import Modal from './components/Modal';
 
@@ -22,6 +22,16 @@ export default function Planes({ hideHeader = false }) {
   const [planHistoryData, setPlanHistoryData] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [planAverages, setPlanAverages] = useState({});
+
+  // Subplan Linking state
+  const [subplanModalOpen, setSubplanModalOpen] = useState(false);
+  const [subplanTargetPlan, setSubplanTargetPlan] = useState(null);
+  const [subplanMode, setSubplanMode] = useState('create'); // 'create' | 'existing'
+  const [existingSubplanId, setExistingSubplanId] = useState('');
+  const [newSubplanName, setNewSubplanName] = useState('');
+  const [newSubplanPrecio, setNewSubplanPrecio] = useState('');
+  const [newSubplanTarifaAunar, setNewSubplanTarifaAunar] = useState('');
+  const [subplanSaving, setSubplanSaving] = useState(false);
 
   function getCurrentPeriod() {
     const d = new Date();
@@ -90,7 +100,8 @@ export default function Planes({ hideHeader = false }) {
       .from('planes_abonos')
       .select(`
         *,
-        proveedores(nombre)
+        proveedores(nombre),
+        subplan_linea_fija:subplan_linea_fija_id(plan_id, nombre_plan, precio, tarifa_aunar)
       `)
       .order('proveedor_id', { ascending: true })
       .order('precio', { ascending: true });
@@ -152,6 +163,145 @@ export default function Planes({ hideHeader = false }) {
     setCounts(countsMap);
     setPlanAverages(averagesMap);
     setLoading(false);
+  }
+
+  function openSubplanModal(plan) {
+    setSubplanTargetPlan(plan);
+    if (plan.subplan_linea_fija_id) {
+      setSubplanMode('existing');
+      setExistingSubplanId(String(plan.subplan_linea_fija_id));
+    } else {
+      setSubplanMode('create');
+      setExistingSubplanId('');
+      setNewSubplanName(`${plan.nombre_plan.trim()} - Línea Fija`);
+      setNewSubplanPrecio('0');
+      setNewSubplanTarifaAunar('0');
+    }
+    setSubplanModalOpen(true);
+  }
+
+  async function handleSaveSubplan(e) {
+    e.preventDefault();
+    if (!subplanTargetPlan) return;
+    setSubplanSaving(true);
+    try {
+      if (subplanMode === 'create') {
+        const { data: newSubplan, error: insertErr } = await supabase
+          .from('planes_abonos')
+          .insert([{
+            nombre_plan: newSubplanName,
+            precio: parseFloat(newSubplanPrecio) || 0,
+            tarifa_aunar: parseFloat(newSubplanTarifaAunar) || 0,
+            gb_incluidos: 0,
+            proveedor_id: subplanTargetPlan.proveedor_id,
+            es_linea_fija: true,
+            plan_padre_id: subplanTargetPlan.plan_id
+          }])
+          .select('plan_id')
+          .single();
+
+        if (insertErr) throw insertErr;
+
+        const { error: updateErr } = await supabase
+          .from('planes_abonos')
+          .update({ subplan_linea_fija_id: newSubplan.plan_id })
+          .eq('plan_id', subplanTargetPlan.plan_id);
+
+        if (updateErr) throw updateErr;
+
+      } else if (subplanMode === 'existing') {
+        if (!existingSubplanId) {
+          alert('Por favor selecciona un subplan de la lista');
+          setSubplanSaving(false);
+          return;
+        }
+        const { error: updateErr } = await supabase
+          .from('planes_abonos')
+          .update({ subplan_linea_fija_id: parseInt(existingSubplanId, 10) })
+          .eq('plan_id', subplanTargetPlan.plan_id);
+
+        if (updateErr) throw updateErr;
+      }
+
+      setSubplanModalOpen(false);
+      fetchPlanes();
+    } catch (err) {
+      alert('Error al guardar subplan: ' + err.message);
+    } finally {
+      setSubplanSaving(false);
+    }
+  }
+
+  async function handleUnlinkSubplan() {
+    if (!subplanTargetPlan) return;
+    if (!confirm(`¿Desvincular el subplan de línea fija para ${subplanTargetPlan.nombre_plan}?`)) return;
+    setSubplanSaving(true);
+    try {
+      const { error } = await supabase
+        .from('planes_abonos')
+        .update({ subplan_linea_fija_id: null })
+        .eq('plan_id', subplanTargetPlan.plan_id);
+
+      if (error) throw error;
+      setSubplanModalOpen(false);
+      fetchPlanes();
+    } catch (err) {
+      alert('Error al desvincular subplan: ' + err.message);
+    } finally {
+      setSubplanSaving(false);
+    }
+  }
+
+  async function handleQuickLinkClaroComboSubplans() {
+    setLoading(true);
+    try {
+      const planA100E = planes.find(p => p.nombre_plan.trim().toUpperCase() === 'A100E');
+      const plan3MC26 = planes.find(p => p.nombre_plan.trim().toUpperCase() === '3MC26');
+
+      const targets = [
+        { plan: planA100E, defaultName: 'A100E - Línea Fija' },
+        { plan: plan3MC26, defaultName: '3MC26 - Línea Fija' }
+      ].filter(t => t.plan);
+
+      if (targets.length === 0) {
+        alert('No se encontraron los planes A100E o 3MC26 en el catálogo.');
+        return;
+      }
+
+      for (const t of targets) {
+        if (!t.plan.subplan_linea_fija_id) {
+          const { data: newSub, error: subErr } = await supabase
+            .from('planes_abonos')
+            .insert([{
+              nombre_plan: t.defaultName,
+              precio: 0,
+              tarifa_aunar: 0,
+              gb_incluidos: 0,
+              proveedor_id: t.plan.proveedor_id,
+              es_linea_fija: true,
+              plan_padre_id: t.plan.plan_id
+            }])
+            .select('plan_id')
+            .single();
+
+          if (subErr) throw subErr;
+
+          const { error: linkErr } = await supabase
+            .from('planes_abonos')
+            .update({ subplan_linea_fija_id: newSub.plan_id })
+            .eq('plan_id', t.plan.plan_id);
+
+          if (linkErr) throw linkErr;
+        }
+      }
+
+      fetchPlanes();
+      alert('Subplanes de Línea Fija vinculados exitosamente para A100E y 3MC26.');
+    } catch (err) {
+      alert('Error en vinculación rápida: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
   }
 
   function SortIcon({ col }) {
@@ -229,7 +379,6 @@ export default function Planes({ hideHeader = false }) {
       if (editingPlan) {
         const { error: err1 } = await supabase.from('planes_abonos').update(updatedData).eq('plan_id', editingPlan.plan_id);
         if (err1) throw err1;
-        // La tarifa_aunar se sincroniza a nivel de proveedor (regla de negocio intencional)
         const { error: err2 } = await supabase.from('planes_abonos').update({ tarifa_aunar: updatedData.tarifa_aunar }).eq('proveedor_id', updatedData.proveedor_id);
         if (err2) throw err2;
       } else {
@@ -300,11 +449,9 @@ export default function Planes({ hideHeader = false }) {
       await Promise.all((allPlanes || []).map(async (plan) => {
         const newPrice = parseFloat(plan.precio) * (1 + (pct / 100));
         
-        // 1. Actualizar catálogo de planes
         const { error: err1 } = await supabase.from('planes_abonos').update({ precio: newPrice }).eq('plan_id', plan.plan_id);
         if (err1) throw err1;
 
-        // 2. Persistir en histórico para el período en curso
         const { error: err2 } = await supabase
           .from('precios_auditoria_periodo')
           .upsert({
@@ -338,7 +485,27 @@ export default function Planes({ hideHeader = false }) {
             </div>
           <p style={{ color: 'var(--text-secondary)', fontSize: '15px', fontWeight: 500 }}>Administración de costos, datos y rentabilidad por abono</p>
         </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+          <button 
+            onClick={handleQuickLinkClaroComboSubplans} 
+            disabled={loading}
+            className="action-button" 
+            style={{ 
+              background: 'rgba(139, 92, 246, 0.12)', 
+              color: '#8b5cf6', 
+              border: '1px solid #8b5cf6', 
+              borderRadius: '16px',
+              padding: '12px 20px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontWeight: 700,
+              cursor: loading ? 'not-allowed' : 'pointer'
+            }}
+          >
+            <Phone size={18} />
+            <span>Vincular Línea Fija (A100E / 3MC26)</span>
+          </button>
           <button 
             onClick={() => handleMassIncrease(4.5)} 
             disabled={loading}
@@ -439,7 +606,7 @@ export default function Planes({ hideHeader = false }) {
               <Search size={18} />
               <input
                 type="text"
-                placeholder="Buscar por nombre de plan o operadora..."
+                placeholder="Buscar por nombre de plan u operadora..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 style={{ background: 'none', border: 'none', outline: 'none', width: '100%' }}
@@ -450,6 +617,25 @@ export default function Planes({ hideHeader = false }) {
             </button>
             {hideHeader && (
               <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                <button 
+                  onClick={handleQuickLinkClaroComboSubplans}
+                  disabled={loading}
+                  className="action-button"
+                  style={{
+                    background: 'rgba(139, 92, 246, 0.12)',
+                    color: '#8b5cf6',
+                    border: '1px solid #8b5cf6',
+                    borderRadius: '12px',
+                    padding: '8px 16px',
+                    fontSize: '13px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <Phone size={14} />
+                  <span>Vincular Línea Fija</span>
+                </button>
                 <button 
                   onClick={() => handleMassIncrease(4.5)} 
                   disabled={loading}
@@ -493,7 +679,7 @@ export default function Planes({ hideHeader = false }) {
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>Líneas <SortIcon col="lineas" /></div>
                   </th>
                   <th style={{ textAlign: 'right' }}>Estructura de Costos</th>
-                  <th style={{ textAlign: 'right', paddingRight: '24px' }}>Costo Neto OP</th>
+                  <th style={{ textAlign: 'right', paddingRight: '24px' }}>Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -502,6 +688,8 @@ export default function Planes({ hideHeader = false }) {
                 ) : filteredPlanes.map(plan => {
                   const realCount = counts[plan.plan_id] || 0;
                   const averages = planAverages[plan.plan_id];
+                  const isComboCandidate = plan.nombre_plan.includes('A100E') || plan.nombre_plan.includes('3MC26') || plan.es_plan_internet;
+                  
                   return (
                     <tr key={plan.plan_id}>
                       <td style={{ padding: '16px 24px' }}>
@@ -514,7 +702,49 @@ export default function Planes({ hideHeader = false }) {
                           {plan.proveedores?.nombre?.toUpperCase()}
                         </span>
                       </td>
-                      <td><div style={{ fontWeight: 800, fontSize: '15px' }}>{plan.nombre_plan}</div></td>
+                      <td>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <div style={{ fontWeight: 800, fontSize: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {plan.nombre_plan}
+                            {plan.es_linea_fija && (
+                              <span style={{ fontSize: '9px', fontWeight: 900, background: 'rgba(139, 92, 246, 0.15)', color: '#8b5cf6', padding: '2px 8px', borderRadius: '6px' }}>
+                                SUBPLAN LÍNEA FIJA
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Subplan badge */}
+                          {plan.subplan_linea_fija ? (
+                            <div 
+                              onClick={() => openSubplanModal(plan)}
+                              style={{ 
+                                display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '4px', 
+                                background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', 
+                                padding: '3px 8px', borderRadius: '8px', fontSize: '11px', fontWeight: 700, 
+                                color: '#10b981', cursor: 'pointer', width: 'fit-content'
+                              }}
+                              title="Haz clic para modificar o desvincular el subplan de línea fija"
+                            >
+                              <Phone size={12} />
+                              <span>Subplan LF: <strong>{plan.subplan_linea_fija.nombre_plan}</strong> (${Number(plan.subplan_linea_fija.precio).toLocaleString('es-AR')})</span>
+                            </div>
+                          ) : isComboCandidate && (
+                            <div 
+                              onClick={() => openSubplanModal(plan)}
+                              style={{ 
+                                display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '4px', 
+                                background: 'rgba(59, 130, 246, 0.08)', border: '1px dashed rgba(59, 130, 246, 0.3)', 
+                                padding: '2px 8px', borderRadius: '8px', fontSize: '11px', fontWeight: 700, 
+                                color: '#3b82f6', cursor: 'pointer', width: 'fit-content'
+                              }}
+                              title="Haz clic para vincular o crear subplan de línea fija"
+                            >
+                              <PlusCircle size={12} />
+                              <span>+ Vincular Línea Fija</span>
+                            </div>
+                          )}
+                        </div>
+                      </td>
                       <td style={{ textAlign: 'center', fontWeight: 700, color: 'var(--text-secondary)' }}>{plan.gb_incluidos} GB</td>
                       <td style={{ textAlign: 'center' }}>
                         <span style={{ fontWeight: 900, color: 'var(--accent)', fontSize: '16px' }}>{realCount}</span>
@@ -539,11 +769,26 @@ export default function Planes({ hideHeader = false }) {
                         </div>
                       </td>
                       <td style={{ textAlign: 'right', paddingRight: '24px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px' }}>
                           <div>
                             <div style={{ fontWeight: 900, fontSize: '16px' }}>${(Number(plan.precio) * (1 - (plan.descuento_operadora_pct / 100))).toLocaleString('es-AR')}</div>
                             <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 600 }}>Costo Liquidación</div>
                           </div>
+                          
+                          {/* Botón Vincular Subplan Línea Fija */}
+                          <button 
+                            className="icon-button-edit" 
+                            title={plan.subplan_linea_fija ? `Gestionar Subplan LF (${plan.subplan_linea_fija.nombre_plan})` : "Vincular Subplan Línea Fija"} 
+                            onClick={() => openSubplanModal(plan)}
+                            style={{
+                              background: plan.subplan_linea_fija ? 'rgba(16, 185, 129, 0.12)' : 'rgba(139, 92, 246, 0.12)',
+                              color: plan.subplan_linea_fija ? '#10b981' : '#8b5cf6',
+                              border: '1px solid ' + (plan.subplan_linea_fija ? 'rgba(16, 185, 129, 0.3)' : 'rgba(139, 92, 246, 0.3)')
+                            }}
+                          >
+                            <Phone size={15} />
+                          </button>
+
                           <button className="icon-button-edit" onClick={() => { setEditingPlan(plan); setIsModalOpen(true); }}><Edit2 size={16} /></button>
                         </div>
                       </td>
@@ -665,6 +910,7 @@ export default function Planes({ hideHeader = false }) {
         </div>
       )}
 
+      {/* Modal Editar / Crear Plan Base */}
       <Modal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setEditingPlan(null); }} title={editingPlan ? 'Configuración de Plan' : 'Nuevo Plan'}>
         <form key={editingPlan?.plan_id || 'new'} onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div className="glass-panel-sub" style={{ padding: '20px', borderRadius: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -717,6 +963,139 @@ export default function Planes({ hideHeader = false }) {
           </button>
         </form>
       </Modal>
+
+      {/* Modal Vincular Subplan de Línea Fija */}
+      <Modal 
+        isOpen={subplanModalOpen} 
+        onClose={() => { setSubplanModalOpen(false); setSubplanTargetPlan(null); }} 
+        title={`Vincular Subplan de Línea Fija (${subplanTargetPlan?.nombre_plan?.trim()})`}
+      >
+        {subplanTargetPlan && (
+          <form onSubmit={handleSaveSubplan} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div className="glass-panel-sub" style={{ padding: '20px', borderRadius: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              
+              {/* Selector de Modo */}
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  type="button"
+                  onClick={() => setSubplanMode('create')}
+                  style={{
+                    flex: 1, padding: '10px', borderRadius: '12px', border: '1px solid var(--border-light)',
+                    fontWeight: 700, fontSize: '13px', cursor: 'pointer',
+                    background: subplanMode === 'create' ? 'var(--accent)' : 'var(--surface)',
+                    color: subplanMode === 'create' ? 'white' : 'var(--text-secondary)',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  + Crear Nuevo Subplan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSubplanMode('existing')}
+                  style={{
+                    flex: 1, padding: '10px', borderRadius: '12px', border: '1px solid var(--border-light)',
+                    fontWeight: 700, fontSize: '13px', cursor: 'pointer',
+                    background: subplanMode === 'existing' ? 'var(--accent)' : 'var(--surface)',
+                    color: subplanMode === 'existing' ? 'white' : 'var(--text-secondary)',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  Seleccionar Existente
+                </button>
+              </div>
+
+              {subplanMode === 'create' ? (
+                <>
+                  <div>
+                    <label className="form-label">Nombre del Subplan de Línea Fija</label>
+                    <input 
+                      className="premium-input" 
+                      style={{ width: '100%', padding: '12px' }} 
+                      value={newSubplanName}
+                      onChange={(e) => setNewSubplanName(e.target.value)}
+                      placeholder="Ej: A100E - Línea Fija"
+                      required 
+                    />
+                  </div>
+                  
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                    <div>
+                      <label className="form-label">Costo Prov. ($)</label>
+                      <input 
+                        className="premium-input" 
+                        style={{ width: '100%', padding: '12px' }} 
+                        type="number" 
+                        step="0.01"
+                        value={newSubplanPrecio}
+                        onChange={(e) => setNewSubplanPrecio(e.target.value)}
+                        required 
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label">T. Aunar ($)</label>
+                      <input 
+                        className="premium-input" 
+                        style={{ width: '100%', padding: '12px' }} 
+                        type="number" 
+                        step="0.01"
+                        value={newSubplanTarifaAunar}
+                        onChange={(e) => setNewSubplanTarifaAunar(e.target.value)}
+                        required 
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <label className="form-label">Seleccionar Plan de Línea Fija Existente</label>
+                  <select
+                    className="premium-input"
+                    style={{ width: '100%', padding: '12px' }}
+                    value={existingSubplanId}
+                    onChange={(e) => setExistingSubplanId(e.target.value)}
+                    required
+                  >
+                    <option value="">-- Seleccionar Plan --</option>
+                    {planes
+                      .filter(p => p.plan_id !== subplanTargetPlan.plan_id)
+                      .map(p => (
+                        <option key={p.plan_id} value={p.plan_id}>
+                          {p.nombre_plan} ({p.proveedores?.nombre}) - ${Number(p.precio).toLocaleString('es-AR')}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px' }}>
+              {subplanTargetPlan.subplan_linea_fija_id && (
+                <button 
+                  type="button" 
+                  onClick={handleUnlinkSubplan}
+                  disabled={subplanSaving}
+                  style={{ 
+                    padding: '14px 20px', borderRadius: '16px', border: '1px solid #ef4444', 
+                    background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', fontWeight: 800, cursor: 'pointer' 
+                  }}
+                >
+                  Desvincular
+                </button>
+              )}
+              <button 
+                type="submit" 
+                disabled={subplanSaving}
+                className="action-button" 
+                style={{ flex: 1, padding: '14px', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+              >
+                {subplanSaving ? <Loader2 className="animate-spin" size={18} /> : <ShieldCheck size={18} />}
+                <span>Guardar Vinculación</span>
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
     </div>
   );
 }

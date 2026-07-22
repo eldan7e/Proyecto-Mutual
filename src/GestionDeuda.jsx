@@ -107,9 +107,6 @@ export default function GestionDeuda() {
         search,
       });
       setLiquidaciones(data || []);
-      
-      const uniqueGroupsCount = new Set((data || []).map(l => l.numero_grupo)).size;
-      setTotal(uniqueGroupsCount);
 
       // Cargar líneas si no han sido cargadas aún
       if (lineas.length === 0) {
@@ -192,12 +189,24 @@ export default function GestionDeuda() {
     });
   }, [liquidaciones, lineas]);
 
-  // Sort groups
+  // Sort and filter groups by search query
   const sortedGroups = useMemo(() => {
-    const result = [...groupedData];
+    let result = [...groupedData];
+    if (search.trim()) {
+      const s = search.toLowerCase().trim();
+      result = result.filter(group => 
+        String(group.numero_grupo).includes(s) ||
+        (group.titular && group.titular.toLowerCase().includes(s))
+      );
+    }
     result.sort((a, b) => b.totalPendiente - a.totalPendiente);
     return result;
-  }, [groupedData]);
+  }, [groupedData, search]);
+
+  // Synchronize pagination total with filtered count
+  useEffect(() => {
+    setTotal(sortedGroups.length);
+  }, [sortedGroups, setTotal]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 

@@ -236,20 +236,12 @@ export const fetchLiquidacionesPaginated = async ({
 
     if (estado && estado !== 'Todos') {
       if (estado === 'DEUDOR') {
-        query = query.eq('es_deudor', true);
+        query = query.neq('estado_pago', 'ABONADO');
       } else if (estado === 'AL_DIA') {
         query = query.eq('estado_pago', 'ABONADO');
       } else if (estado === 'MOROSO') {
         query = query.eq('estado_pago', 'PENDIENTE');
       }
-    }
-
-    if (search) {
-      const s = search.toLowerCase();
-      // Buscar por número de grupo o nombre de titular
-      query = query.or(
-        `numero_grupo::text.ilike.%${s}%,socios.nombre_completo.ilike.%${s}%`
-      );
     }
 
     query = query.order('periodo', { ascending: false }).range(offset, offset + limit - 1);
@@ -286,7 +278,7 @@ export const fetchLiquidacionesStats = async ({ periodo = null, estado = null })
 
     if (estado && estado !== 'Todos') {
       if (estado === 'DEUDOR') {
-        query = query.eq('es_deudor', true);
+        query = query.neq('estado_pago', 'ABONADO');
       } else if (estado === 'AL_DIA') {
         query = query.eq('estado_pago', 'ABONADO');
       } else if (estado === 'MOROSO') {
