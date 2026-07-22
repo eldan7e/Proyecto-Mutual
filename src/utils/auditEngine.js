@@ -96,7 +96,18 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       const pName = ((lineInfo?.plan || '') + ' ' + (dbInfo?.nombre_plan || '') + ' ' + (consumo.plan || '')).toUpperCase();
       const esPlanFijoOInternet = isInternet || pName.includes('A100E') || pName.includes('3MC26') || pName.includes('CTF14') || pName.includes('TFT26') || pName.includes('CONSOLIDADO') || pName.includes('FIJO');
 
+      const precioOficialClaro = Number(consumo.precio_lista_factura || consumo.precio_lista_audit || lineInfo?.planes_abonos?.precio || dbInfo?.precio || 0);
       let abonoBaseClaro = costoAbonoReal;
+
+      if (!esPlanFijoOInternet) {
+        if (costoAbonoReal > 30000 && precioOficialClaro > 0 && Math.abs(costoAbonoReal - precioOficialClaro) < 1.0) {
+          abonoBaseClaro = precioOficialClaro * 0.10;
+        } else if (costoAbonoReal > 0) {
+          abonoBaseClaro = costoAbonoReal;
+        } else if (precioOficialClaro > 0) {
+          abonoBaseClaro = precioOficialClaro * 0.10;
+        }
+      }
       
       let extraChargesClaro = isInternet ? 0 : excedentes;
       
