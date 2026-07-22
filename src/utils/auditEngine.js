@@ -551,51 +551,51 @@ export function auditLineItem(item, dbInfo, context) {
  * @returns {Array<Object>} - Cleaned and merged row results
  */
 export function consolidateFixedServices(resultados, selectedProvider) {
-  // 1. Identificar cuentas técnicas de internet de Claro (< 10 dígitos o planes de internet)
-  const fijosCombo = resultados.filter(r => 
-    (r.linea && r.linea.length < 10) ||
-    r.plan?.includes('A100E') || 
-    r.plan?.includes('3MC26') || 
-    r.planOficial?.includes('A100E') ||
-    r.planOficial?.includes('3MC26') ||
-    r.plan?.toUpperCase().includes('INTERNET')
-  );
+  if (selectedProvider !== 'claro') return resultados;
 
-  // 2. Identificar líneas telefónicas de los socios (10 dígitos o subplanes de línea fija)
-  const fijosTftCtf = resultados.filter(r => 
-    (r.linea && r.linea.length >= 10) ||
-    r.plan?.includes('CTF14') || 
-    r.plan?.includes('TFT26') || 
-    r.planOficial?.includes('CTF14') ||
-    r.planOficial?.includes('TFT26') ||
-    r.plan?.toUpperCase().includes('TFT') || 
-    r.plan?.toUpperCase().includes('FIJO')
-  );
+  // 1. Identificar cuentas técnicas / planes de internet combo (A100E o 3MC26)
+  const fijosCombo = resultados.filter(r => {
+    const p = ((r.plan || '') + ' ' + (r.planOficial || '')).toUpperCase();
+    return p.includes('A100E') || p.includes('3MC26') || r.linea?.includes('2982898') || r.linea?.includes('3409596');
+  });
+
+  // 2. Identificar ÚNICAMENTE líneas de Teléfono Fijo asociadas (CTF14 o TFT26)
+  const fijosTftCtf = resultados.filter(r => {
+    const p = ((r.plan || '') + ' ' + (r.planOficial || '')).toUpperCase();
+    return p.includes('CTF14') || p.includes('TFT26');
+  });
 
   if (fijosCombo.length > 0 && fijosTftCtf.length > 0) {
-    fijosTftCtf.forEach((ctf, idx) => {
-      // Prioridad 1: Coincidencia por socioId, numeroGrupo o socioNombre
-      // Prioridad 2: Coincidencia por orden de aparición
+    fijosTftCtf.forEach((ctf) => {
+      const pCtf = ((ctf.plan || '') + ' ' + (ctf.planOficial || '')).toUpperCase();
+      const esCTF14 = pCtf.includes('CTF14');
+      const esTFT26 = pCtf.includes('TFT26');
+
+      // Buscar coincidencia estricta en fijosCombo:
+      // Si es CTF14 -> emparejar con A100E (o número 2982898)
+      // Si es TFT26 -> emparejar con 3MC26 (o número 3409596)
+      // O por socio / grupo
       const comboMatch = fijosCombo.find(c => !c.isMerged && c !== ctf && (
         (c.socioId && ctf.socioId && c.socioId === ctf.socioId) ||
         (c.numeroGrupo && ctf.numeroGrupo && c.numeroGrupo === ctf.numeroGrupo) ||
-        (c.socioNombre && ctf.socioNombre && ctf.socioNombre !== 'Socio no identificado' && c.socioNombre.trim().toLowerCase() === ctf.socioNombre.trim().toLowerCase())
-      )) || fijosCombo.find(c => !c.isMerged && c !== ctf) || fijosCombo[idx];
+        (c.socioNombre && ctf.socioNombre && ctf.socioNombre !== 'Socio no identificado' && c.socioNombre.trim().toLowerCase() === ctf.socioNombre.trim().toLowerCase()) ||
+        (esCTF14 && (((c.plan || '') + (c.planOficial || '')).toUpperCase().includes('A100E') || c.linea?.includes('2982898'))) ||
+        (esTFT26 && (((c.plan || '') + (c.planOficial || '')).toUpperCase().includes('3MC26') || c.linea?.includes('3409596')))
+      )) || fijosCombo.find(c => !c.isMerged && c !== ctf);
 
       if (comboMatch && !comboMatch.isMerged && comboMatch !== ctf) {
-        // Consolidamos los montos reales facturados por la operadora e importes calculados
+        // Consolidamos importes
         ctf.montoFactura = Math.round((ctf.montoFactura + comboMatch.montoFactura) * 100) / 100;
         ctf.excedentes = Math.round((ctf.excedentes + comboMatch.excedentes) * 100) / 100;
         ctf.abono = Math.round((ctf.abono + comboMatch.abono) * 100) / 100;
         ctf.monto = Math.round((ctf.monto + comboMatch.monto) * 100) / 100;
 
-        // Consolidamos precios oficiales, precios lista originales, descuentos originales y abonos anteriores
         ctf.precioOficial = Math.round(((ctf.precioOficial || 0) + (comboMatch.precioOficial || 0)) * 100) / 100;
         ctf.precioListaOriginal = Math.round(((Number(ctf.precioListaOriginal || 0)) + (Number(comboMatch.precioListaOriginal || 0))) * 100) / 100;
         ctf.descuentoOriginal = Math.round(((Number(ctf.descuentoOriginal || 0)) + (Number(comboMatch.descuentoOriginal || 0))) * 100) / 100;
         ctf.prevAbonoBase = Math.round(((ctf.prevAbonoBase || 0) + (comboMatch.prevAbonoBase || 0)) * 100) / 100;
 
-        // Heredar socio y grupo bidireccionalmente si alguno de los dos lo tenía asignado
+        // Herencia de socio
         if ((!ctf.socioId || ctf.socioNombre === 'Socio no identificado') && comboMatch.socioId) {
           ctf.socioId = comboMatch.socioId;
           ctf.socioNombre = comboMatch.socioNombre;
@@ -611,11 +611,10 @@ export function consolidateFixedServices(resultados, selectedProvider) {
         if (comboMatch.planOficial && comboMatch.planOficial !== 'No registrado') {
           ctf.planOficial = comboMatch.planOficial;
         }
-        
+
         // Recalcular alertas tras consolidación
         if (selectedProvider === 'claro' && ctf.precioOficial > 0) {
           const descuentoReal = ((ctf.precioOficial - ctf.abono) / ctf.precioOficial) * 100;
-          const esCTF14 = ctf.plan?.includes('CTF14') || comboMatch.plan?.includes('CTF14');
           const descuentoEsperado = (ctf.descuento_operadora_pct > 0)
             ? Number(ctf.descuento_operadora_pct)
             : (comboMatch.descuento_operadora_pct > 0)
@@ -654,9 +653,10 @@ export function consolidateFixedServices(resultados, selectedProvider) {
     });
   }
 
-  // Filtrar líneas fusionadas y cuentas técnicas de internet (< 10 dígitos)
+  // Filtrar ÚNICAMENTE las cuentas de internet fusionadas o de < 10 dígitos asociadas a A100E/3MC26
   return resultados.filter(row => {
-    const esLineaTecnica = row.linea && row.linea.length < 10;
-    return !row.isMerged && !esLineaTecnica;
+    const p = ((row.plan || '') + ' ' + (row.planOficial || '')).toUpperCase();
+    const esCuentaInternetTecnica = (p.includes('A100E') || p.includes('3MC26') || row.linea?.includes('2982898') || row.linea?.includes('3409596')) && (row.linea?.length < 10 || row.isMerged);
+    return !row.isMerged && !esCuentaInternetTecnica;
   });
 }
