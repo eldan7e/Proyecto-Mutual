@@ -107,18 +107,27 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       const X = W * 0.01; // Impuesto 1% (Ley 26573)
       
       let marginPct = 7;
-      const parseMargin = (val) => {
-        if (val === undefined || val === null) return 7;
-        const v = Number(val);
-        if (v > 50) return v >= 80 ? v - 100 : v;
-        if (v <= 2.0) return v * 100.0;
-        return v;
-      };
-
-      if (consumo.mutual_margen_aplicado !== undefined && consumo.mutual_margen_aplicado !== null) {
-        marginPct = parseMargin(consumo.mutual_margen_aplicado);
-      } else if (dbInfo && dbInfo.mutual_margen_pct !== undefined && dbInfo.mutual_margen_pct !== null) {
-        marginPct = parseMargin(dbInfo.mutual_margen_pct);
+      if (esPlanFijoOInternet) {
+        const parseMarginFijo = (val) => {
+          if (val === undefined || val === null) return 7;
+          const v = Number(val);
+          if (v > 50) return v >= 80 ? v - 100 : v;
+          if (v <= 2.0) return v * 100.0;
+          return v;
+        };
+        if (consumo.mutual_margen_aplicado !== undefined && consumo.mutual_margen_aplicado !== null) {
+          marginPct = parseMarginFijo(consumo.mutual_margen_aplicado);
+        } else if (dbInfo && dbInfo.mutual_margen_pct !== undefined && dbInfo.mutual_margen_pct !== null) {
+          marginPct = parseMarginFijo(dbInfo.mutual_margen_pct);
+        }
+      } else {
+        if (consumo.mutual_margen_aplicado !== undefined && consumo.mutual_margen_aplicado !== null) {
+          const val = Number(consumo.mutual_margen_aplicado);
+          marginPct = val <= 2.0 ? val * 100.0 : val;
+        } else if (dbInfo && dbInfo.mutual_margen_pct !== undefined && dbInfo.mutual_margen_pct !== null) {
+          const val = Number(dbInfo.mutual_margen_pct);
+          marginPct = val > 50 ? 7 : val;
+        }
       }
       const Z_val = marginPct / 100.0;
       const AA = abonoBaseClaro * Z_val;
