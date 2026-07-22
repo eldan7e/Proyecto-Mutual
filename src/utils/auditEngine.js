@@ -595,12 +595,16 @@ export function consolidateFixedServices(resultados, selectedProvider) {
         ctf.descuentoOriginal = Math.round(((Number(ctf.descuentoOriginal || 0)) + (Number(comboMatch.descuentoOriginal || 0))) * 100) / 100;
         ctf.prevAbonoBase = Math.round(((ctf.prevAbonoBase || 0) + (comboMatch.prevAbonoBase || 0)) * 100) / 100;
 
-        // Heredar socio y grupo si la línea de internet tenía los datos
+        // Heredar socio y grupo bidireccionalmente si alguno de los dos lo tenía asignado
         if ((!ctf.socioId || ctf.socioNombre === 'Socio no identificado') && comboMatch.socioId) {
           ctf.socioId = comboMatch.socioId;
           ctf.socioNombre = comboMatch.socioNombre;
           ctf.numeroGrupo = comboMatch.numeroGrupo;
           ctf.isValid = true;
+        } else if ((!comboMatch.socioId || comboMatch.socioNombre === 'Socio no identificado') && ctf.socioId) {
+          comboMatch.socioId = ctf.socioId;
+          comboMatch.socioNombre = ctf.socioNombre;
+          comboMatch.numeroGrupo = ctf.numeroGrupo;
         }
 
         ctf.plan = `Internet + Tel Fijo (CONSOLIDADO)`;
