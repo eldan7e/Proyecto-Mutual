@@ -254,8 +254,7 @@ export async function fetchSocioLiquidaciones(periodo, filterProv) {
     let query = supabase
       .from('consumos_mensuales')
       .select('*')
-      .eq('periodo', periodo)
-      .eq('estado_pago', 'LIQUIDADO');
+      .eq('periodo', periodo);
 
     if (filterProv) {
       const provId = PROV_IDS[filterProv];
