@@ -552,48 +552,62 @@ export function auditLineItem(item, dbInfo, context) {
 export function consolidateFixedServices(resultados, selectedProvider) {
   if (selectedProvider !== 'claro') return resultados;
 
+  const getLine = (r) => (r?.numero_linea || r?.linea || '').toString();
+  const getPlan = (r) => ((r?.plan || '') + ' ' + (r?.planOficial || '') + ' ' + (r?.lineas?.planes_abonos?.nombre_plan || '') + ' ' + (r?.lineas?.plan || '')).toUpperCase();
+  const getSocioId = (r) => r?.socioId || r?.lineas?.socio_id || r?.lineas?.socios?.socio_id;
+  const getGrupoNum = (r) => r?.numeroGrupo || r?.lineas?.numero_grupo;
+  const getSocioNombre = (r) => r?.socioNombre || r?.lineas?.socios?.nombre_completo || '';
+
   // 1. Identificar cuentas técnicas de internet de Claro (< 10 dígitos o números 000...)
-  const cuentasInternet = resultados.filter(r => r.linea && (r.linea.length < 10 || r.linea.startsWith('000')));
+  const cuentasInternet = resultados.filter(r => {
+    const l = getLine(r);
+    return l && (l.length < 10 || l.startsWith('000'));
+  });
 
   // 2. Identificar ÚNICAMENTE líneas de Teléfono Fijo asociadas (CTF14, TFT26, o con subplan fijo)
   const lineasFijas = resultados.filter(r => {
-    if (!r.linea || r.linea.length < 10 || r.linea.startsWith('000')) return false;
-    const p = ((r.plan || '') + ' ' + (r.planOficial || '')).toUpperCase();
-    return p.includes('CTF14') || p.includes('TFT26') || p.includes('CTF') || p.includes('TFT') || p.includes('FIJO');
+    const l = getLine(r);
+    if (!l || (l.length < 10 && !l.startsWith('221')) || l.startsWith('000')) return false;
+    const p = getPlan(r);
+    return p.includes('CTF14') || p.includes('TFT26') || p.includes('A100E') || p.includes('3MC26') || p.includes('CTF') || p.includes('TFT') || p.includes('FIJO');
   });
 
   if (cuentasInternet.length > 0 && lineasFijas.length > 0) {
     lineasFijas.forEach((fija, idx) => {
-      const pFija = ((fija.plan || '') + ' ' + (fija.planOficial || '')).toUpperCase();
-      const esCTF14 = pFija.includes('CTF14');
-      const esTFT26 = pFija.includes('TFT26');
+      const pFija = getPlan(fija);
+      const fijaLine = getLine(fija);
+      const esCTF14 = pFija.includes('CTF14') || pFija.includes('A100E');
+      const esTFT26 = pFija.includes('TFT26') || pFija.includes('3MC26');
 
-      // Buscar coincidencia exacta en cuentasInternet:
-      // 1) Por socioId / socioNombre / numeroGrupo
-      // 2) Si es CTF14 -> emparejar con A100E o número 2982898
-      // 3) Si es TFT26 -> emparejar con 3MC26 o número 3409596
-      // 4) Por orden de aparición entre las disponibles
+      const sIdFija = getSocioId(fija);
+      const gNumFija = getGrupoNum(fija);
+      const sNombreFija = getSocioNombre(fija);
+
+      // Buscar coincidencia exacta en cuentasInternet
       const matchInternet = cuentasInternet.find(c => !c.isMerged && (
-        (c.socioId && fija.socioId && c.socioId === fija.socioId) ||
-        (c.numeroGrupo && fija.numeroGrupo && c.numeroGrupo === fija.numeroGrupo) ||
-        (c.socioNombre && fija.socioNombre && fija.socioNombre !== 'Socio no identificado' && c.socioNombre.trim().toLowerCase() === fija.socioNombre.trim().toLowerCase()) ||
-        (esCTF14 && (((c.plan || '') + (c.planOficial || '')).toUpperCase().includes('A100E') || c.linea?.includes('2982898'))) ||
-        (esTFT26 && (((c.plan || '') + (c.planOficial || '')).toUpperCase().includes('3MC26') || c.linea?.includes('3409596')))
+        (sIdFija && getSocioId(c) && sIdFija === getSocioId(c)) ||
+        (gNumFija && getGrupoNum(c) && gNumFija === getGrupoNum(c)) ||
+        (sNombreFija && getSocioNombre(c) && sNombreFija !== 'Socio no identificado' && sNombreFija.trim().toLowerCase() === getSocioNombre(c).trim().toLowerCase()) ||
+        (esCTF14 && (getPlan(c).includes('A100E') || getLine(c).includes('2982898'))) ||
+        (esTFT26 && (getPlan(c).includes('3MC26') || getLine(c).includes('3409596')))
       )) || cuentasInternet.find(c => !c.isMerged) || cuentasInternet[idx];
 
       if (matchInternet && !matchInternet.isMerged && matchInternet !== fija) {
         // Herencia de socio si la cuenta de internet lo tenía asignado
-        if ((!fija.socioId || fija.socioNombre === 'Socio no identificado') && matchInternet.socioId) {
-          fija.socioId = matchInternet.socioId;
-          fija.socioNombre = matchInternet.socioNombre;
-          fija.numeroGrupo = matchInternet.numeroGrupo;
+        if (!sIdFija && getSocioId(matchInternet)) {
+          if (fija.lineas) {
+            fija.lineas.socio_id = getSocioId(matchInternet);
+          }
+          fija.socioId = getSocioId(matchInternet);
+          fija.socioNombre = getSocioNombre(matchInternet);
+          fija.numeroGrupo = getGrupoNum(matchInternet);
           fija.isValid = true;
         }
 
         fija.plan = `Internet + Tel Fijo (CONSOLIDADO)`;
 
         // Sumar los importes reales facturados (Cuenta Internet + Línea Fija)
-        const newCostoAbono = Math.round(((fija.costo_abono_real || 0) + (matchInternet.costo_abono_real || 0)) * 100) / 100;
+        const newCostoAbono = Math.round(((Number(fija.costo_abono_real || 0)) + (Number(matchInternet.costo_abono_real || 0))) * 100) / 100;
         fija.costo_abono_real = newCostoAbono;
 
         // Recalcular métricas de auditoría para la línea fija con el nuevo abono neto consolidado
@@ -615,41 +629,6 @@ export function consolidateFixedServices(resultados, selectedProvider) {
           fija.totalCobrar = recalculated.calculado.totalCobrar;
         }
 
-        // Recalcular alertas tras consolidación
-        if (selectedProvider === 'claro' && fija.precioOficial > 0) {
-          const descuentoReal = ((fija.precioOficial - fija.abono) / fija.precioOficial) * 100;
-          const descuentoEsperado = (fija.descuento_operadora_pct > 0)
-            ? Number(fija.descuento_operadora_pct)
-            : (matchInternet.descuento_operadora_pct > 0)
-            ? Number(matchInternet.descuento_operadora_pct)
-            : (esCTF14 ? 75 : 90);
-          const diffPct = descuentoReal - descuentoEsperado;
-          
-          fija.alertas = [];
-          if (Math.abs(diffPct) > 2.0) {
-            fija.auditStatus = 'WARN';
-            if (diffPct < -2.0) {
-              fija.alertas.push({
-                tipo: 'CRITICAL',
-                msg: `DESVÍO BONIF: ${descuentoReal.toFixed(1)}% (Esperado ${descuentoEsperado}%)`,
-                diff: fija.abono - (fija.precioOficial * (1 - descuentoEsperado/100))
-              });
-            } else {
-              fija.alertas.push({
-                tipo: 'CRITICAL',
-                msg: `BONIF EXTRA: ${descuentoReal.toFixed(1)}% (Esperado ${descuentoEsperado}%)`,
-                diff: (fija.precioOficial * (1 - descuentoEsperado/100)) - fija.abono
-              });
-            }
-          } else {
-            fija.auditStatus = 'OK';
-            fija.alertas.push({
-              tipo: 'STABLE',
-              msg: `Bonif. OK (${descuentoReal.toFixed(1)}%)`
-            });
-          }
-        }
-
         matchInternet.isMerged = true;
       }
     });
@@ -657,7 +636,8 @@ export function consolidateFixedServices(resultados, selectedProvider) {
 
   // Filtrar ÚNICAMENTE las cuentas técnicas de internet fusionadas o de < 10 dígitos
   return resultados.filter(row => {
-    const esCuentaInternetTecnica = row.linea && (row.linea.length < 10 || row.linea.startsWith('000'));
+    const l = getLine(row);
+    const esCuentaInternetTecnica = l && (l.length < 10 || l.startsWith('000'));
     return !row.isMerged && !esCuentaInternetTecnica;
   });
 }
