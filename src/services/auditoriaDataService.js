@@ -1,5 +1,5 @@
 import { supabase } from '../supabaseClient';
-import { calculateAuditLine } from '../utils/auditEngine';
+import { calculateAuditLine, consolidateFixedServices } from '../utils/auditEngine';
 
 async function fetchAllPaginated(buildQueryFn) {
   let allData = [];
@@ -101,7 +101,12 @@ async function enrichConsumosWithAudit(consumos, periodo) {
     });
   });
 
-  return { processed, adicionalesMap, histMap, lineMap };
+  // Consolidar cuentas técnicas de internet y teléfonos fijos
+  const sampleProvId = consumos[0]?.proveedor_id || 1;
+  const sampleProvName = sampleProvId === 1 ? 'claro' : sampleProvId === 2 ? 'movistar' : 'personal';
+  const consolidatedProcessed = consolidateFixedServices(processed, sampleProvName);
+
+  return { processed: consolidatedProcessed, adicionalesMap, histMap, lineMap };
 }
 
 /* ─────────────────────────────────────────────

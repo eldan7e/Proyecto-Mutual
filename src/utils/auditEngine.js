@@ -604,6 +604,29 @@ export function consolidateFixedServices(resultados, selectedProvider) {
 
         fija.plan = `Internet + Tel Fijo (CONSOLIDADO)`;
 
+        // Recalcular métricas de auditoría completas (baseAb, cAdmin, totalCobrar) con el nuevo costo de abonados combinados
+        const newCostoAbono = Math.round(((fija.costo_abono_real || fija.abono || 0) + (matchInternet.costo_abono_real || matchInternet.abono || 0)) * 100) / 100;
+        fija.costo_abono_real = newCostoAbono;
+        fija.abono = newCostoAbono;
+
+        if (fija.calculado) {
+          const consumoUpdated = {
+            ...fija,
+            costo_abono_real: newCostoAbono,
+            total_linea: null // Forzar cálculo dinámico del total consolidado
+          };
+          const recalculated = calculateAuditLine(
+            consumoUpdated,
+            fija.lineas || fija,
+            { providerId: 1, period: fija.periodo, tarifaAunar: fija.calculado?.tarifaAunar }
+          );
+          fija.calculado = recalculated.calculado;
+          fija.baseAb = recalculated.calculado.baseAb;
+          fija.cAdmin = recalculated.calculado.cAdmin;
+          fija.cIVA = recalculated.calculado.cIVA;
+          fija.totalCobrar = recalculated.calculado.totalCobrar;
+        }
+
         // Recalcular alertas tras consolidación
         if (selectedProvider === 'claro' && fija.precioOficial > 0) {
           const descuentoReal = ((fija.precioOficial - fija.abono) / fija.precioOficial) * 100;
