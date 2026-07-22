@@ -481,8 +481,8 @@ export function auditLineItem(item, dbInfo, context) {
   if ((planDisplay === 'Movistar Móvil' || planDisplay === 'Plan Personal' || planDisplay === 'Claro') && dbInfo?.plan_db) {
     planDisplay = dbInfo.plan_db;
   }
-  const esA100E = item.plan?.includes('A100E') || dbInfo?.plan_db === 'A100E';
-  const esPlanFija = esA100E || item.plan?.includes('CTF14') || item.plan?.toUpperCase().includes('FIJO');
+  const esA100E = item.plan?.includes('A100E') || item.plan?.includes('3MC26') || dbInfo?.plan_db === 'A100E' || dbInfo?.plan_db === '3MC26';
+  const esPlanFija = esA100E || item.plan?.includes('CTF14') || item.plan?.includes('TFT26') || item.plan?.toUpperCase().includes('TFT') || item.plan?.toUpperCase().includes('FIJO');
   
   // Precios base para auditoría: preferir precio de lista de la factura si viene > 0, sino base de datos
   // Excepción: planes fijos/internet (A100E, CTF14) — su precio de lista real está en el catálogo, no en la factura
@@ -548,24 +548,48 @@ export function auditLineItem(item, dbInfo, context) {
  * @returns {Array<Object>} - Cleaned and merged row results
  */
 export function consolidateFixedServices(resultados, selectedProvider) {
-  const fijosA100E = resultados.filter(r => r.plan?.includes('A100E'));
-  const fijosCTF14 = resultados.filter(r => r.plan?.includes('CTF14') || r.plan?.toUpperCase().includes('FIJO'));
+  const fijosCombo = resultados.filter(r => 
+    r.plan?.includes('A100E') || 
+    r.plan?.includes('3MC26') || 
+    r.plan?.toUpperCase().includes('INTERNET')
+  );
 
-  if (fijosA100E.length > 0 && fijosCTF14.length > 0) {
-    fijosCTF14.forEach((ctf, idx) => {
-      const a100e = fijosA100E[idx];
-      if (a100e) {
+  const fijosTftCtf = resultados.filter(r => 
+    r.plan?.includes('CTF14') || 
+    r.plan?.includes('TFT26') || 
+    r.plan?.toUpperCase().includes('TFT') || 
+    r.plan?.toUpperCase().includes('FIJO')
+  );
+
+  if (fijosCombo.length > 0 && fijosTftCtf.length > 0) {
+    fijosTftCtf.forEach((ctf, idx) => {
+      // Prioridad 1: Coincidencia por socio o grupo
+      // Prioridad 2: Coincidencia por orden de índice
+      const comboMatch = fijosCombo.find(c => !c.isMerged && (
+        (c.socio_id && ctf.socio_id && c.socio_id === ctf.socio_id) ||
+        (c.numero_grupo && ctf.numero_grupo && c.numero_grupo === ctf.numero_grupo) ||
+        (c.nombre && ctf.nombre && ctf.nombre !== 'Socio no identificado' && c.nombre.trim().toLowerCase() === ctf.nombre.trim().toLowerCase())
+      )) || fijosCombo.find(c => !c.isMerged) || fijosCombo[idx];
+
+      if (comboMatch && !comboMatch.isMerged) {
         // Consolidamos los montos reales facturados por la operadora e importes calculados
-        ctf.montoFactura = Math.round((ctf.montoFactura + a100e.montoFactura) * 100) / 100;
-        ctf.excedentes = Math.round((ctf.excedentes + a100e.excedentes) * 100) / 100;
-        ctf.abono = Math.round((ctf.abono + a100e.abono) * 100) / 100;
-        ctf.monto = Math.round((ctf.monto + a100e.monto) * 100) / 100;
+        ctf.montoFactura = Math.round((ctf.montoFactura + comboMatch.montoFactura) * 100) / 100;
+        ctf.excedentes = Math.round((ctf.excedentes + comboMatch.excedentes) * 100) / 100;
+        ctf.abono = Math.round((ctf.abono + comboMatch.abono) * 100) / 100;
+        ctf.monto = Math.round((ctf.monto + comboMatch.monto) * 100) / 100;
 
         // Consolidamos precios oficiales, precios lista originales, descuentos originales y abonos anteriores
-        ctf.precioOficial = Math.round(((ctf.precioOficial || 0) + (a100e.precioOficial || 0)) * 100) / 100;
-        ctf.precioListaOriginal = Math.round(((Number(ctf.precioListaOriginal || 0)) + (Number(a100e.precioListaOriginal || 0))) * 100) / 100;
-        ctf.descuentoOriginal = Math.round(((Number(ctf.descuentoOriginal || 0)) + (Number(a100e.descuentoOriginal || 0))) * 100) / 100;
-        ctf.prevAbonoBase = Math.round(((ctf.prevAbonoBase || 0) + (a100e.prevAbonoBase || 0)) * 100) / 100;
+        ctf.precioOficial = Math.round(((ctf.precioOficial || 0) + (comboMatch.precioOficial || 0)) * 100) / 100;
+        ctf.precioListaOriginal = Math.round(((Number(ctf.precioListaOriginal || 0)) + (Number(comboMatch.precioListaOriginal || 0))) * 100) / 100;
+        ctf.descuentoOriginal = Math.round(((Number(ctf.descuentoOriginal || 0)) + (Number(comboMatch.descuentoOriginal || 0))) * 100) / 100;
+        ctf.prevAbonoBase = Math.round(((ctf.prevAbonoBase || 0) + (comboMatch.prevAbonoBase || 0)) * 100) / 100;
+
+        // Heredar socio y grupo si la línea fija o el combo tenía los datos
+        if ((!ctf.socio_id || ctf.nombre === 'Socio no identificado') && comboMatch.socio_id) {
+          ctf.socio_id = comboMatch.socio_id;
+          ctf.nombre = comboMatch.nombre;
+          ctf.numero_grupo = comboMatch.numero_grupo;
+        }
 
         ctf.plan = `Internet + Tel Fijo (CONSOLIDADO)`;
         
@@ -600,15 +624,15 @@ export function consolidateFixedServices(resultados, selectedProvider) {
           }
         }
 
-        // Marcamos el A100E para ignorarlo en el filtro final
-        a100e.isMerged = true;
+        // Marcamos el comboMatch para ignorarlo en el filtro final
+        comboMatch.isMerged = true;
       }
     });
   }
 
   return resultados.filter(row => {
-    // Ignoramos solo las líneas técnicas de A100E que ya fueron fusionadas
-    const esA100E_Tecnico = row.plan?.includes('A100E') && (row.linea.length < 10 || row.isMerged);
-    return !esA100E_Tecnico;
+    // Ignoramos solo las líneas técnicas de A100E / 3MC26 que ya fueron fusionadas
+    const esComboTecnico = (row.plan?.includes('A100E') || row.plan?.includes('3MC26')) && (row.linea?.length < 10 || row.isMerged);
+    return !esComboTecnico;
   });
 }

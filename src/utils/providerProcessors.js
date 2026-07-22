@@ -31,7 +31,7 @@ export const procesarClaro = (lines) => {
         const valPlanParsed = parseClaroNumber(parts[3]);
         const valTotalParsed = parseClaroNumber(parts[8] || parts[7]);
         
-        const esFijoOInternet = plan?.includes('A100E') || plan?.includes('CTF14') || plan?.toUpperCase().includes('FIJO');
+        const esFijoOInternet = plan?.includes('A100E') || plan?.includes('3MC26') || plan?.includes('CTF14') || plan?.includes('TFT26') || plan?.toUpperCase().includes('TFT') || plan?.toUpperCase().includes('FIJO');
         
         if (esFijoOInternet) {
           precioLista = 0;
