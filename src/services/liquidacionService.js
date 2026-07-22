@@ -5,7 +5,15 @@ import { supabase } from '../supabaseClient';
  * Retorna { count } con la cantidad de liquidaciones generadas.
  */
 export async function generarLiquidaciones({ lineasData, selectedPeriodo, selectedProveedor, globalDiscount, globalDiscountType }) {
+  if (!lineasData || lineasData.length === 0) {
+    throw new Error('No hay líneas auditeadas disponibles para liquidar en este período.');
+  }
+
   const rawTotal = lineasData.reduce((acc, row) => acc + (row.calculado?.totalCobrar || 0), 0);
+  if (rawTotal <= 0) {
+    throw new Error('Imposible generar liquidación: el total calculado de la auditoría es $0.00. Verifique los datos antes de continuar.');
+  }
+
   const discountVal = Number(globalDiscount) || 0;
   const discountAmount = globalDiscountType === '%' 
     ? rawTotal * (discountVal / 100) 

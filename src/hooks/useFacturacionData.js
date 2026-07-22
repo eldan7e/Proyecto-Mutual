@@ -58,7 +58,8 @@ export default function useFacturacionData(liquidaciones, socioLiquidaciones, ac
         };
       }
       acc[key].gruposSet.add(l.numero_grupo);
-      acc[key].totalLineas += Number(l.total_lineas_lote || 0);
+      const rawCount = Number(l.total_lineas_lote || 0);
+      acc[key].totalLineas += rawCount > 0 ? rawCount : 1;
       acc[key].costoNeta = Math.round(acc[key].costoNeta * 100 + Math.round(Number(l.costo_operadora_neto || 0) * 100)) / 100;
       acc[key].totalCobrar = Math.round(acc[key].totalCobrar * 100 + Math.round(Number(l.monto_total_facturado || 0) * 100)) / 100;
       acc[key].montoAbonado = Math.round(acc[key].montoAbonado * 100 + Math.round(Number(l.monto_abonado || 0) * 100)) / 100;
