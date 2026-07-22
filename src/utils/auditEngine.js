@@ -498,6 +498,7 @@ export function auditLineItem(item, dbInfo, context) {
 
   // --- AUDITORÍA DE BONIFICACIÓN (CLARO) ---
   if (selectedProvider === 'claro' && precioLista > 0) {
+    const descuentoReal = ((precioLista - realAbono) / precioLista) * 100;
     const esCTF14 = item.plan?.includes('CTF14') || dbInfo?.plan_db?.includes('CTF14');
     const descuentoEsperado = (dbInfo && dbInfo.descuento_operadora_pct > 0) 
       ? Number(dbInfo.descuento_operadora_pct) 
