@@ -172,8 +172,8 @@ export default function AuditLineRow({ d, isPeriodoLiquidado, adicionalesData, o
                 }}>
                   {Math.abs(d.calculado.appliedDiscountPct)}% {(d.calculado?.appliedDiscountPct || 0) > 0 ? 'Desc.' : 'Recargo'} Socio
                 </div>
-                {adicionalesData[d.numero_linea]?.filter(ad => ad.tipo === 'DESCUENTO' && ad.total_cuotas > 1).map(ad => (
-                  <div key={ad.id} style={{ fontSize: '9px', color: '#16a34a', fontWeight: 700 }}>
+                {adicionalesData[d.numero_linea]?.filter(ad => (ad.tipo === 'DESCUENTO' || ad.tipo === 'CARGO_PCT') && ad.total_cuotas > 1).map(ad => (
+                  <div key={ad.id} style={{ fontSize: '9px', color: ad.tipo === 'DESCUENTO' ? '#16a34a' : '#ef4444', fontWeight: 700 }}>
                     MES {ad.cta_numero} DE {ad.total_cuotas}
                   </div>
                 ))}

@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import Modal from './components/Modal';
 
-const TIPOS = { DESCUENTO: 'DESCUENTO', CARGO: 'CARGO' };
+const TIPOS = { DESCUENTO: 'DESCUENTO', CARGO: 'CARGO', CARGO_PCT: 'CARGO_PCT' };
 
 const EMPTY_FORM = {
   tipo: 'DESCUENTO',
@@ -154,7 +154,7 @@ export default function Descuentos() {
 
   function handleSort(col) {
     if (col === 'tipo') {
-      const nextFilter = filterTipo === '' ? 'DESCUENTO' : filterTipo === 'DESCUENTO' ? 'CARGO' : '';
+      const nextFilter = filterTipo === '' ? 'DESCUENTO' : filterTipo === 'DESCUENTO' ? 'CARGO' : filterTipo === 'CARGO' ? 'CARGO_PCT' : '';
       setFilterTipo(nextFilter);
       return;
     }
@@ -176,8 +176,8 @@ export default function Descuentos() {
           border: '1px solid var(--border-light)',
           whiteSpace: 'nowrap'
         }}>
-          {filterTipo === 'DESCUENTO' ? <TrendingDown size={12} /> : filterTipo === 'CARGO' ? <Smartphone size={12} /> : <Filter size={12} />}
-          <span>{filterTipo === 'DESCUENTO' ? '%' : filterTipo === 'CARGO' ? '$' : ''}</span>
+          {filterTipo === 'DESCUENTO' ? <TrendingDown size={12} /> : (filterTipo === 'CARGO' || filterTipo === 'CARGO_PCT') ? <Smartphone size={12} /> : <Filter size={12} />}
+          <span>{filterTipo === 'DESCUENTO' ? '%' : filterTipo === 'CARGO' ? '$' : filterTipo === 'CARGO_PCT' ? '%' : ''}</span>
         </span>
       );
     }
@@ -291,7 +291,7 @@ export default function Descuentos() {
 
   const stats = {
     descuentos: adicionales.filter(a => a.tipo === 'DESCUENTO').length,
-    cargos: adicionales.filter(a => a.tipo === 'CARGO').length,
+    cargos: adicionales.filter(a => a.tipo === 'CARGO' || a.tipo === 'CARGO_PCT').length,
     porVencer: adicionales.filter(a => cuotasRestantes(a) <= 2).length,
     total: adicionales.length
   };
@@ -480,7 +480,7 @@ export default function Descuentos() {
                     <td><div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>{a.descripcion || 'Sin descripción'}</div></td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ fontWeight: 900, fontSize: '17px', color: isD ? '#10b981' : '#f97316' }}>
-                        {isD ? `-${a.valor}%` : `$${Number(a.valor).toLocaleString('es-AR')}`}
+                        {a.tipo === 'DESCUENTO' ? `-${a.valor}%` : a.tipo === 'CARGO_PCT' ? `+${a.valor}%` : `$${Number(a.valor).toLocaleString('es-AR')}`}
                       </div>
                     </td>
                     <td style={{ textAlign: 'center', minWidth: '130px' }}>
@@ -515,9 +515,10 @@ export default function Descuentos() {
           <div className="glass-panel-sub" style={{ padding: '20px', borderRadius: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div>
               <label className="form-label">Tipo de Movimiento</label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
                 <button type="button" onClick={() => setForm({...form, tipo: 'DESCUENTO'})} style={{ padding: '12px', borderRadius: '12px', border: '1px solid var(--border-light)', background: form.tipo === 'DESCUENTO' ? 'var(--accent-light)' : 'var(--surface)', color: form.tipo === 'DESCUENTO' ? 'var(--accent)' : 'var(--text-secondary)', fontWeight: 800 }}>Descuento %</button>
                 <button type="button" onClick={() => setForm({...form, tipo: 'CARGO'})} style={{ padding: '12px', borderRadius: '12px', border: '1px solid var(--border-light)', background: form.tipo === 'CARGO' ? 'rgba(249,115,22,0.1)' : 'var(--surface)', color: form.tipo === 'CARGO' ? '#f97316' : 'var(--text-secondary)', fontWeight: 800 }}>Cargo $</button>
+                <button type="button" onClick={() => setForm({...form, tipo: 'CARGO_PCT'})} style={{ padding: '12px', borderRadius: '12px', border: '1px solid var(--border-light)', background: form.tipo === 'CARGO_PCT' ? 'rgba(249,115,22,0.1)' : 'var(--surface)', color: form.tipo === 'CARGO_PCT' ? '#f97316' : 'var(--text-secondary)', fontWeight: 800 }}>Cargo %</button>
               </div>
             </div>
 
