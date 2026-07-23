@@ -335,19 +335,29 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       };
     }
 
+    const _finalBaseAb = Math.round(abonoBase * 100) / 100;
+    const _finalTotalCobrar = (consumo.estado_pago === 'LIQUIDADO' && consumo.total_linea !== undefined && consumo.total_linea !== null) 
+          ? Number(consumo.total_linea) 
+          : Math.round(totalCobrar * 100) / 100;
+    
+    // DEBUG: verify final values for first 3 lines
+    if (!calculateAuditLine._resultCount) calculateAuditLine._resultCount = 0;
+    if (calculateAuditLine._resultCount < 3) {
+      calculateAuditLine._resultCount++;
+      console.log('AUDIT_RESULT línea:', consumo?.numero_linea, 'baseAb:', _finalBaseAb, 'tarifaAunar:', tarifaAunarFija, 'totalCobrar:', _finalTotalCobrar);
+    }
+
     return {
       ...consumo,
       lineas: lineInfo,
       calculado: {
-        baseAb: Math.round(abonoBase * 100) / 100,
+        baseAb: _finalBaseAb,
         cAdmin: Math.round(gastosAdmin * 100) / 100,
         cIVA: Math.round(ivaFinal * 100) / 100,
         tarifaAunar: tarifaAunarFija,
         excedentes: Math.round(excedentes * 100) / 100,
         totalBruto: Math.round(totalBruto * 100) / 100,
-        totalCobrar: (consumo.estado_pago === 'LIQUIDADO' && consumo.total_linea !== undefined && consumo.total_linea !== null) 
-          ? Number(consumo.total_linea) 
-          : Math.round(totalCobrar * 100) / 100,
+        totalCobrar: _finalTotalCobrar,
         bonifManual: Math.round((bonifManual + bonifSocio) * 100) / 100,
         appliedDiscountPct: Math.round(pctBonifSocio * 100),
         hasExtras: cargosExtra > 0,
