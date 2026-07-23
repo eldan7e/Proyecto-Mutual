@@ -30,6 +30,7 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
 
     let tarifaAunarFija = defaultTarifa;
     const hasHistoricalTarifa = historicalPrice?.tarifa_aunar !== undefined && historicalPrice?.tarifa_aunar !== null && Number(historicalPrice.tarifa_aunar) > 0;
+    const dbTarifa = dbInfo?.tarifa_aunar !== undefined && dbInfo?.tarifa_aunar !== null ? Number(dbInfo.tarifa_aunar) : 0;
     
     if (consumo.tarifa_aunar_aplicada !== undefined && consumo.tarifa_aunar_aplicada !== null && Number(consumo.tarifa_aunar_aplicada) > 0) {
       tarifaAunarFija = Number(consumo.tarifa_aunar_aplicada);
@@ -37,8 +38,10 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       tarifaAunarFija = Number(historicalPrice.tarifa_aunar);
     } else if (config && config.tarifaAunar !== undefined && config.tarifaAunar !== null && Number(config.tarifaAunar) > 0) {
       tarifaAunarFija = Number(config.tarifaAunar);
+    } else if (dbTarifa > 0) {
+      tarifaAunarFija = dbTarifa;
     } else {
-      tarifaAunarFija = isInternet ? Number(dbInfo?.tarifa_aunar || 7585) : (dbInfo?.tarifa_aunar ? Number(dbInfo.tarifa_aunar) : 7585);
+      tarifaAunarFija = isClaro ? 7585 : 6500;
     }
 
 
@@ -575,7 +578,8 @@ export function auditLineItem(item, dbInfo, context) {
  * @returns {Array<Object>} - Cleaned and merged row results
  */
 export function consolidateFixedServices(resultados, selectedProvider) {
-  if (selectedProvider !== 'claro') return resultados;
+  const provStr = selectedProvider?.toString().toLowerCase();
+  if (provStr !== 'claro' && provStr !== '1') return resultados;
 
   const getLine = (r) => (r?.numero_linea || r?.linea || '').toString();
   const getPlan = (r) => ((r?.plan || '') + ' ' + (r?.planOficial || '') + ' ' + (r?.lineas?.planes_abonos?.nombre_plan || '') + ' ' + (r?.lineas?.plan || '')).toUpperCase();
