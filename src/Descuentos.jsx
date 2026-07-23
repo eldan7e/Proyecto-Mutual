@@ -302,7 +302,7 @@ export default function Descuentos() {
       {/* Header Simplificado para integración */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px', animation: 'slideUpFade 0.5s ease-out' }}>
         <div>
-          <h2 style={{ fontSize: '32px', fontWeight: 900, margin: 0, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>Gestión de Adicionales</h2>
+          <h2 style={{ fontSize: '32px', fontWeight: 900, margin: 0, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>Gestión de Descuentos y Cargos</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '16px', marginTop: '4px', fontWeight: 500 }}>Control de bonificaciones y cargos variables por socio/línea</p>
         </div>
         <div style={{ display: 'flex', gap: '16px' }}>
@@ -510,7 +510,7 @@ export default function Descuentos() {
         </div>
       </div>
 
-      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editId ? 'Editar Adicional' : 'Nuevo Adicional'}>
+      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editId ? 'Editar Descuento/Cargo' : 'Nuevo Descuento/Cargo'}>
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div className="glass-panel-sub" style={{ padding: '20px', borderRadius: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div>
@@ -562,7 +562,7 @@ export default function Descuentos() {
 
           <button type="submit" className="air-btn air-btn-primary" style={{ width: '100%', padding: '16px', borderRadius: '16px', justifyContent: 'center' }} disabled={saving}>
              {saving ? <Loader2 className="animate-spin" /> : <ShieldCheck size={18} style={{ marginRight: '8px' }} />}
-             {editId ? 'Guardar Cambios' : 'Crear Adicional'}
+             {editId ? 'Guardar Cambios' : 'Crear Descuento/Cargo'}
           </button>
         </form>
       </Modal>
