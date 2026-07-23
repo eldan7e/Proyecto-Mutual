@@ -5,6 +5,12 @@ import { getParserByProvider } from './invoiceParsers.js';
  */
 
 export function calculateAuditLine(consumo, lineInfo, config = {}) {
+  // DEBUG: Log first 3 calls to verify the function receives correct data
+  if (!calculateAuditLine._debugCount) calculateAuditLine._debugCount = 0;
+  if (calculateAuditLine._debugCount < 3) {
+    calculateAuditLine._debugCount++;
+    console.log('AUDIT_DEBUG línea:', consumo?.numero_linea, 'costo_abono_real:', consumo?.costo_abono_real, 'providerId:', config?.providerId, 'plan:', lineInfo?.planes_abonos?.nombre_plan);
+  }
   try {
     const { providerId, period, historicalPrice } = config;
     
@@ -351,8 +357,8 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       }
     };
   } catch (err) {
-    console.error("Error calculando línea:", consumo?.numero_linea, err);
-    return { ...consumo, lineas: lineInfo, calculado: { totalCobrar: 0, error: true } };
+    console.error("ERROR AUDIT ENGINE línea:", consumo?.numero_linea, "Error:", err?.message, "Stack:", err?.stack);
+    return { ...consumo, lineas: lineInfo, calculado: { baseAb: 0, cAdmin: 0, cIVA: 0, tarifaAunar: 0, excedentes: 0, totalBruto: 0, totalCobrar: 0, bonifManual: 0, appliedDiscountPct: 0, hasExtras: false, extraAmount: 0, isPorted: false, movistarAudit: null, error: true } };
   }
 }
 
