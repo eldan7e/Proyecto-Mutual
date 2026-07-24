@@ -201,13 +201,10 @@ export async function eliminarCargaMasiva({ selectedPeriodo, selectedProveedor }
 export const fetchUniquePeriods = async () => {
   const { data, error } = await supabase
     .from('liquidaciones_grupos')
-    .select('periodo');
+    .select('periodo')
+    .order('periodo', { ascending: false });
   if (error) throw error;
-  
-  return [...new Set(data?.map(d => d.periodo))]
-    .filter(Boolean)
-    .sort()
-    .reverse();
+  return [...new Set(data?.map(d => d.periodo))].filter(Boolean);
 };
 
 /**
@@ -264,6 +261,14 @@ export const fetchLiquidacionesPaginated = async ({
     offset += limit;
   }
 
+  if (search && search.trim()) {
+    const s = search.toLowerCase().trim();
+    allData = allData.filter(l =>
+      String(l.numero_grupo).includes(s) ||
+      (l.socios?.nombre_completo || '').toLowerCase().includes(s)
+    );
+  }
+
   return { data: allData, count: allData.length };
 };
 
@@ -309,7 +314,14 @@ export const fetchLiquidacionesStats = async ({ periodo = null, estado = null })
   const totalFacturado = allData.reduce((acc, l) => acc + (parseFloat(l.monto_total_facturado) || 0), 0);
   const totalAbonado = allData.reduce((acc, l) => acc + (parseFloat(l.monto_abonado) || 0), 0);
   const totalPendiente = totalFacturado - totalAbonado;
-  const gruposDeudores = allData.filter(l => (parseFloat(l.monto_total_facturado) - parseFloat(l.monto_abonado)) > 5).length;
+  const gruposPendientesMap = {};
+  allData.forEach(l => {
+    const g = l.numero_grupo;
+    if (!gruposPendientesMap[g]) gruposPendientesMap[g] = { facturado: 0, abonado: 0 };
+    gruposPendientesMap[g].facturado += parseFloat(l.monto_total_facturado) || 0;
+    gruposPendientesMap[g].abonado += parseFloat(l.monto_abonado) || 0;
+  });
+  const gruposDeudores = Object.values(gruposPendientesMap).filter(g => (g.facturado - g.abonado) > 5).length;
   // Grupos únicos
   const uniqueGroups = new Set(allData.map(l => l.numero_grupo));
   const totalGrupos = uniqueGroups.size;

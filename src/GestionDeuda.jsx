@@ -25,6 +25,8 @@ export default function GestionDeuda() {
   const [selectedPeriod, setSelectedPeriod] = useState('Todos');
   const [periodosList, setPeriodosList] = useState([]);
   const [expandedGrupo, setExpandedGrupo] = useState(null);
+  const loadDataRef = useRef(null);
+  const loadStatsRef = useRef(null);
   
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -74,8 +76,8 @@ export default function GestionDeuda() {
         },
         (payload) => {
           if (payload.eventType === 'INSERT') {
-            loadData();
-            loadStats();
+            loadDataRef.current?.();
+            loadStatsRef.current?.();
           } else if (payload.eventType === 'UPDATE') {
             setLiquidaciones(prev => prev.map(item => {
               if (item.liquidacion_id === payload.new.liquidacion_id) {
@@ -86,10 +88,10 @@ export default function GestionDeuda() {
               }
               return item;
             }));
-            loadStats();
+            loadStatsRef.current?.();
           } else if (payload.eventType === 'DELETE') {
             setLiquidaciones(prev => prev.filter(item => item.liquidacion_id !== payload.old.liquidacion_id));
-            loadStats();
+            loadStatsRef.current?.();
           }
         }
       )
@@ -98,9 +100,10 @@ export default function GestionDeuda() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [debouncedSearch, selectedStatus, selectedPeriod]);
+  }, []);
 
   async function loadData() {
+    loadDataRef.current = loadData;
     setLoading(true);
     try {
       const { data } = await fetchLiquidacionesPaginated({
@@ -127,6 +130,7 @@ export default function GestionDeuda() {
   }
 
   async function loadStats() {
+    loadStatsRef.current = loadStats;
     setLoadingStats(true);
     try {
       const stats = await fetchLiquidacionesStats({
