@@ -136,12 +136,7 @@ export default function Facturacion() {
     totalFacturaSinCalcular
   } = useFacturacionData(liquidaciones, socioLiquidaciones, activeTab, selectedPeriod, filterProv, debouncedSearch);
 
-  const {
-    sortConfig,
-    setSortConfig,
-    setSearch: setTableSearch,
-    filteredAndSortedData: sortedSocioData
-  } = useTableFilters(socioLiquidaciones, {
+  const socioFilterOptions = useMemo(() => ({
     initialSortKey: 'totalCobrar',
     initialSortDirection: 'desc',
     searchFields: [
@@ -161,7 +156,14 @@ export default function Facturacion() {
         default: return item[key] || 0;
       }
     }
-  });
+  }), []);
+
+  const {
+    sortConfig,
+    setSortConfig,
+    setSearch: setTableSearch,
+    filteredAndSortedData: sortedSocioData
+  } = useTableFilters(socioLiquidaciones, socioFilterOptions);
 
   // Pass global debouncedSearch to table filters
   useEffect(() => {
@@ -214,13 +216,15 @@ export default function Facturacion() {
             />
           </div>
           <select 
-            className="btn-ghost"
+            key={periods.length}
+            className="btn-ghost notranslate"
+            translate="no"
             value={selectedPeriod} 
             onChange={e => updateParams({ periodo: e.target.value })}
             style={{ fontWeight: 700 }}
           >
-            <option value="">Todos los Períodos</option>
-            {(periods || []).map(p => <option key={p} value={p}>{p}</option>)}
+            <option value="" className="notranslate" translate="no">Todos los Períodos</option>
+            {(periods || []).map(p => <option key={p} value={p} className="notranslate" translate="no">{p}</option>)}
           </select>
           <select 
             className="btn-ghost" 

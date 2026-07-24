@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, memo } from 'react';
+import { useEffect, useState, useMemo, memo, useRef } from 'react';
 import { supabase } from './supabaseClient';
 import { 
   Search, FileText, Database, TrendingUp, AlertTriangle, 
@@ -8,6 +8,7 @@ import Modal from './components/Modal';
 import { useToast } from './components/ui/ToastProvider';
 import { usePagination } from './hooks/usePagination';
 import { fetchLiquidacionesPaginated, fetchLiquidacionesStats, fetchUniquePeriods } from './services/liquidacionService';
+import useDebounce from './hooks/useDebounce';
 
 export default function GestionDeuda() {
   const { addToast } = useToast();
@@ -19,6 +20,7 @@ export default function GestionDeuda() {
   const [loadingStats, setLoadingStats] = useState(false);
   const [kpis, setKpis] = useState({ totalFacturado: 0, totalAbonado: 0, totalPendiente: 0, gruposDeudores: 0, totalGrupos: 0, cobroRate: 0 });
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 300);
   const [selectedStatus, setSelectedStatus] = useState('Todos');
   const [selectedPeriod, setSelectedPeriod] = useState('Todos');
   const [periodosList, setPeriodosList] = useState([]);
@@ -47,17 +49,17 @@ export default function GestionDeuda() {
   // Cargar datos principales cuando cambian filtros
   useEffect(() => {
     loadData();
-  }, [search, selectedStatus, selectedPeriod]);
+  }, [debouncedSearch, selectedStatus, selectedPeriod]);
 
   // Cargar estadísticas globales sin paginación
   useEffect(() => {
     loadStats();
-  }, [search, selectedStatus, selectedPeriod]);
+  }, [debouncedSearch, selectedStatus, selectedPeriod]);
 
   // Resetear a página 1 si cambian los filtros principales
   useEffect(() => {
     reset();
-  }, [search, selectedStatus, selectedPeriod]);
+  }, [debouncedSearch, selectedStatus, selectedPeriod]);
 
   useEffect(() => {
     // Subscribe to realtime updates for liquidaciones_grupos to keep state synchronized in background
@@ -96,7 +98,7 @@ export default function GestionDeuda() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [search, selectedStatus, selectedPeriod]);
+  }, [debouncedSearch, selectedStatus, selectedPeriod]);
 
   async function loadData() {
     setLoading(true);
@@ -104,7 +106,7 @@ export default function GestionDeuda() {
       const { data } = await fetchLiquidacionesPaginated({
         periodo: selectedPeriod,
         estado: selectedStatus,
-        search,
+        search: debouncedSearch,
       });
       setLiquidaciones(data || []);
 
@@ -387,11 +389,16 @@ export default function GestionDeuda() {
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>Período:</span>
-              <select value={selectedPeriod} onChange={(e) => setSelectedPeriod(e.target.value)}
+              <select 
+                key={periodosList.length}
+                value={selectedPeriod} 
+                onChange={(e) => setSelectedPeriod(e.target.value)}
+                className="notranslate"
+                translate="no"
                 style={{ background: 'var(--surface)', color: 'var(--text-primary)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '8px 16px', fontSize: '14px', fontWeight: 600, outline: 'none' }}>
-                <option value="Todos">Todos</option>
+                <option value="Todos" className="notranslate" translate="no">Todos</option>
                 {periodosList.map(p => (
-                  <option key={p} value={p}>{p}</option>
+                  <option key={p} value={p} className="notranslate" translate="no">{p}</option>
                 ))}
               </select>
             </div>

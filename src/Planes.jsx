@@ -379,8 +379,11 @@ export default function Planes({ hideHeader = false }) {
       if (editingPlan) {
         const { error: err1 } = await supabase.from('planes_abonos').update(updatedData).eq('plan_id', editingPlan.plan_id);
         if (err1) throw err1;
-        const { error: err2 } = await supabase.from('planes_abonos').update({ tarifa_aunar: updatedData.tarifa_aunar }).eq('proveedor_id', updatedData.proveedor_id);
-        if (err2) throw err2;
+        
+        if (updatedData.tarifa_aunar !== editingPlan.tarifa_aunar) {
+          const { error: err2 } = await supabase.from('planes_abonos').update({ tarifa_aunar: updatedData.tarifa_aunar }).eq('proveedor_id', updatedData.proveedor_id);
+          if (err2) throw err2;
+        }
       } else {
         const { data: insertData, error: insertErr } = await supabase.from('planes_abonos').insert([updatedData]).select('plan_id').single();
         if (insertErr) throw insertErr;

@@ -466,6 +466,7 @@ export default function GestionPagos() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <label style={{ fontSize: '10px', fontWeight: 800, color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>PERIODO</label>
             <select 
+              key={periodos.length}
               value={selectedPeriodo} 
               onChange={e => {
                 setSelectedPeriodo(e.target.value);
