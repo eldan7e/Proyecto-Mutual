@@ -382,7 +382,7 @@ export function PaginatedEditableGrid({
             <tr>
               <th>Línea / Plan</th>
               <th>Socio</th>
-              {selectedProvider === 'claro' && (
+              {(selectedProvider === 'claro' || selectedProvider === 'movistar') && (
                 <>
                   <th style={{ textAlign: 'center' }}>Precio Lista</th>
                   <th style={{ textAlign: 'center' }}>Bonif.</th>
@@ -481,15 +481,27 @@ export function PaginatedEditableGrid({
                     />
                   )}
                 </td>
-                {selectedProvider === 'claro' && (
+                {(selectedProvider === 'claro' || selectedProvider === 'movistar') && (
                   <>
                     <td style={{ textAlign: 'center', color: '#64748b', fontSize: '11px' }}>
                       <div style={{fontSize: '9px', color: '#94a3b8'}}>LISTA</div>
-                      ${Number(row.precioListaOriginal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      {selectedProvider === 'claro' ? (
+                        `$${Number(row.precioListaOriginal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
+                      ) : (
+                        `$${Number(row.precioOficial || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
+                      )}
                     </td>
                     <td style={{ textAlign: 'center', color: '#10b981', fontWeight: 600, fontSize: '11px' }}>
                       <div style={{fontSize: '9px', color: '#94a3b8'}}>BONIF.</div>
-                      {Number(row.descuentoOriginal || 0) !== 0 ? `-$${Math.abs(Number(row.descuentoOriginal)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : '-'}
+                      {selectedProvider === 'claro' ? (
+                        Number(row.descuentoOriginal || 0) !== 0 ? `-$${Math.abs(Number(row.descuentoOriginal)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : '-'
+                      ) : (
+                        (() => {
+                          const realAbonoNeto = row.abono / 1.21;
+                          const descPct = row.precioOficial > 0 ? ((row.precioOficial - realAbonoNeto) / row.precioOficial) * 100 : 0;
+                          return descPct > 0 ? `${descPct.toFixed(1)}%` : '-';
+                        })()
+                      )}
                     </td>
                   </>
                 )}
