@@ -32,23 +32,63 @@ export async function updateTasaAnual(tasaAnual) {
 }
 
 /**
- * Obtiene todos los números de grupo únicos en movimientos_cuenta
+ * Obtiene la lista completa de TODOS los números de grupo de la mutual
+ * (combina grupo_socio, lineas y movimientos_cuenta)
  */
 export async function fetchGruposUnicos() {
-  const { data, error } = await supabase
-    .from('movimientos_cuenta')
-    .select('numero_grupo, nombre')
-    .not('numero_grupo', 'is', null);
-
-  if (error) throw error;
+  const [
+    { data: gsData },
+    { data: lineasData },
+    { data: mcData }
+  ] = await Promise.all([
+    supabase
+      .from('grupo_socio')
+      .select('numero_grupo, socio_id, es_titular, socios:socio_id(nombre_completo)')
+      .not('numero_grupo', 'is', null),
+    supabase
+      .from('lineas')
+      .select('numero_grupo, socio_id, socios:socio_id(nombre_completo)')
+      .not('numero_grupo', 'is', null),
+    supabase
+      .from('movimientos_cuenta')
+      .select('numero_grupo, nombre')
+      .not('numero_grupo', 'is', null)
+  ]);
 
   const mapa = {};
-  (data || []).forEach(row => {
-    if (row.numero_grupo !== null && row.numero_grupo !== undefined) {
-      if (!mapa[row.numero_grupo] || (!mapa[row.numero_grupo].nombre && row.nombre)) {
-        mapa[row.numero_grupo] = {
-          numero_grupo: row.numero_grupo,
-          nombre: row.nombre || `Grupo ${row.numero_grupo}`
+
+  // 1. Cargar desde grupo_socio (prioridad a titulares)
+  (gsData || []).forEach(row => {
+    const g = row.numero_grupo;
+    if (g !== null && g !== undefined) {
+      if (!mapa[g] || (row.es_titular && row.socios?.nombre_completo)) {
+        mapa[g] = {
+          numero_grupo: g,
+          nombre: row.socios?.nombre_completo || `Grupo ${g}`
+        };
+      }
+    }
+  });
+
+  // 2. Cargar desde lineas
+  (lineasData || []).forEach(row => {
+    const g = row.numero_grupo;
+    if (g !== null && g !== undefined && !mapa[g]) {
+      mapa[g] = {
+        numero_grupo: g,
+        nombre: row.socios?.nombre_completo || `Grupo ${g}`
+      };
+    }
+  });
+
+  // 3. Cargar desde movimientos_cuenta
+  (mcData || []).forEach(row => {
+    const g = row.numero_grupo;
+    if (g !== null && g !== undefined) {
+      if (!mapa[g]) {
+        mapa[g] = {
+          numero_grupo: g,
+          nombre: row.nombre || `Grupo ${g}`
         };
       }
     }
@@ -97,8 +137,23 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
     offset += limit;
   }
 
-  // Agrupar por grupo y tomar el último estado de saldo
+  // Pre-cargar todos los grupos del sistema
+  const todosLosGrupos = await fetchGruposUnicos().catch(() => []);
   const gruposMap = {};
+
+  todosLosGrupos.forEach(g => {
+    gruposMap[g.numero_grupo] = {
+      numero_grupo: g.numero_grupo,
+      nombre: g.nombre || `Grupo ${g.numero_grupo}`,
+      empresas: new Set(),
+      totalFacturas: 0,
+      totalPagos: 0,
+      ultimoMovimientoFecha: 'Sin movimientos',
+      saldoCapitalUltimo: 0,
+      saldoFinalUltimo: 0,
+      movimientosCount: 0
+    };
+  });
 
   allData.forEach(mov => {
     const g = mov.numero_grupo;

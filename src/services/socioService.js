@@ -92,14 +92,7 @@ export async function fetchSocioConsumosData(socioId) {
       l.proveedor_id === c.proveedor_id
     );
 
-    const latestMcSaldo = mcGroupsMap[groupNum];
-    let realEstadoPago = groupLiq ? groupLiq.estado_pago : 'PENDIENTE';
-
-    // Para períodos pasados (< 2026-07), si la cuenta del grupo quedó saldada (saldo <= 5), se marca como ABONADO
-    // Para el período actual (2026-07), las facturas vencen en Agosto por lo que se respeta estrictamente el estado_pago de la liquidación
-    if (c.periodo < '2026-07' && latestMcSaldo !== undefined && latestMcSaldo <= 5) {
-      realEstadoPago = 'ABONADO';
-    }
+    const realEstadoPago = (groupLiq && groupLiq.estado_pago === 'ABONADO') ? 'ABONADO' : 'PENDIENTE';
 
     const liqSocioId = groupLiq ? groupLiq.socio_id : null;
     const liqSocioNombre = groupLiq?.socios?.nombre_completo || null;
