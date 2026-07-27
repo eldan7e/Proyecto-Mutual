@@ -47,15 +47,33 @@ export async function fetchSocioConsumosData(socioId) {
 
   const socioGroups = [...new Set(lines.map(l => l.numero_grupo).filter(Boolean))];
   let liqGroups = [];
+  let mcGroupsMap = {};
+
   if (socioGroups.length > 0) {
     try {
-      const { data: liqData } = await supabase
-        .from('liquidaciones_grupos')
-        .select('numero_grupo, periodo, estado_pago, proveedor_id, socio_id, socios:socio_id(nombre_completo)')
-        .in('numero_grupo', socioGroups);
+      const [{ data: liqData }, { data: mcData }] = await Promise.all([
+        supabase
+          .from('liquidaciones_grupos')
+          .select('numero_grupo, periodo, estado_pago, proveedor_id, socio_id, socios:socio_id(nombre_completo)')
+          .in('numero_grupo', socioGroups),
+        supabase
+          .from('movimientos_cuenta')
+          .select('numero_grupo, saldo_final, fecha')
+          .in('numero_grupo', socioGroups)
+          .order('fecha', { ascending: false })
+          .order('id', { ascending: false })
+      ]);
+
       liqGroups = liqData || [];
+
+      // Save latest saldo_final per group
+      (mcData || []).forEach(mc => {
+        if (mc.numero_grupo !== null && mcGroupsMap[mc.numero_grupo] === undefined) {
+          mcGroupsMap[mc.numero_grupo] = Number(mc.saldo_final || 0);
+        }
+      });
     } catch (err) {
-      console.error("Error al obtener liquidaciones para el historial del socio:", err);
+      console.error("Error al obtener liquidaciones/movimientos para el historial del socio:", err);
     }
   }
 
@@ -66,13 +84,22 @@ export async function fetchSocioConsumosData(socioId) {
     const lineInfo = lineMap[c.numero_linea];
     const planId = lineInfo?.plan_id || lineInfo?.planes_abonos?.plan_id;
     const hPrice = histPricesMap[c.periodo]?.[planId];
+    const groupNum = lineInfo?.numero_grupo;
     
     const groupLiq = liqGroups.find(l => 
-      l.numero_grupo === lineInfo?.numero_grupo && 
+      l.numero_grupo === groupNum && 
       l.periodo === c.periodo && 
       l.proveedor_id === c.proveedor_id
     );
-    const realEstadoPago = groupLiq ? groupLiq.estado_pago : 'PENDIENTE';
+
+    const latestMcSaldo = mcGroupsMap[groupNum];
+    let realEstadoPago = groupLiq ? groupLiq.estado_pago : 'PENDIENTE';
+
+    // If group balance in movimientos_cuenta is <= 5, it is paid
+    if (latestMcSaldo !== undefined && latestMcSaldo <= 5) {
+      realEstadoPago = 'ABONADO';
+    }
+
     const liqSocioId = groupLiq ? groupLiq.socio_id : null;
     const liqSocioNombre = groupLiq?.socios?.nombre_completo || null;
     
