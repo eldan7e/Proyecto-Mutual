@@ -1,0 +1,227 @@
+import { supabase } from '../supabaseClient';
+
+/**
+ * Obtiene la configuración de parámetros de la cuenta corriente (TNA, día tope, etc)
+ */
+export async function getParametrosCuenta() {
+  const { data, error } = await supabase
+    .from('parametros_cuenta')
+    .select('*')
+    .limit(1)
+    .single();
+
+  if (error && error.code !== 'PGRST116') {
+    console.error('Error al obtener parametros_cuenta:', error);
+  }
+  return data || { tasa_anual: 1.20, tasa_diaria: 0.0032876712328767123, dia_tope_pago: 15 };
+}
+
+/**
+ * Actualiza la Tasa Nominal Anual (TNA) en la base de datos
+ */
+export async function updateTasaAnual(tasaAnual) {
+  const tna = parseFloat(tasaAnual);
+  const tasaDiaria = (tna / 100) / 365;
+
+  const { data, error } = await supabase
+    .from('parametros_cuenta')
+    .upsert({ id: 1, tasa_anual: tna / 100, tasa_diaria: tasaDiaria, updated_at: new Date().toISOString() });
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Obtiene todos los números de grupo únicos en movimientos_cuenta
+ */
+export async function fetchGruposUnicos() {
+  const { data, error } = await supabase
+    .from('movimientos_cuenta')
+    .select('numero_grupo, nombre')
+    .not('numero_grupo', 'is', null);
+
+  if (error) throw error;
+
+  const mapa = {};
+  (data || []).forEach(row => {
+    if (row.numero_grupo !== null && row.numero_grupo !== undefined) {
+      if (!mapa[row.numero_grupo] || (!mapa[row.numero_grupo].nombre && row.nombre)) {
+        mapa[row.numero_grupo] = {
+          numero_grupo: row.numero_grupo,
+          nombre: row.nombre || `Grupo ${row.numero_grupo}`
+        };
+      }
+    }
+  });
+
+  return Object.values(mapa).sort((a, b) => a.numero_grupo - b.numero_grupo);
+}
+
+/**
+ * Obtiene los movimientos de cuenta corriente para un grupo específico
+ */
+export async function fetchMovimientosGrupo(numeroGrupo) {
+  const { data, error } = await supabase
+    .from('movimientos_cuenta')
+    .select('*')
+    .eq('numero_grupo', numeroGrupo)
+    .order('fecha', { ascending: true })
+    .order('id', { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Obtiene la lista resumida de todos los grupos con sus saldos actuales
+ */
+export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = false } = {}) {
+  let allData = [];
+  const limit = 1000;
+  let offset = 0;
+
+  while (true) {
+    let query = supabase
+      .from('movimientos_cuenta')
+      .select('id, numero_grupo, nombre, empresa, fecha, importe, tipo, saldo_capital, saldo_final')
+      .not('numero_grupo', 'is', null)
+      .order('numero_grupo', { ascending: true })
+      .order('fecha', { ascending: true })
+      .range(offset, offset + limit - 1);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    allData.push(...(data || []));
+    if (!data || data.length < limit) break;
+    offset += limit;
+  }
+
+  // Agrupar por grupo y tomar el último estado de saldo
+  const gruposMap = {};
+
+  allData.forEach(mov => {
+    const g = mov.numero_grupo;
+    if (!gruposMap[g]) {
+      gruposMap[g] = {
+        numero_grupo: g,
+        nombre: mov.nombre || `Grupo ${g}`,
+        empresas: new Set(),
+        totalFacturas: 0,
+        totalPagos: 0,
+        ultimoMovimientoFecha: mov.fecha,
+        saldoCapitalUltimo: Number(mov.saldo_capital || 0),
+        saldoFinalUltimo: Number(mov.saldo_final || 0),
+        movimientosCount: 0
+      };
+    }
+
+    const item = gruposMap[g];
+    item.movimientosCount++;
+    item.ultimoMovimientoFecha = mov.fecha;
+    item.saldoCapitalUltimo = Number(mov.saldo_capital || 0);
+    item.saldoFinalUltimo = Number(mov.saldo_final || 0);
+    if (mov.nombre && (!item.nombre || item.nombre.startsWith('Grupo'))) item.nombre = mov.nombre;
+    if (mov.empresa) item.empresas.add(mov.empresa);
+
+    const imp = Math.abs(Number(mov.importe) || 0);
+    if (mov.tipo === 'FACTURA') item.totalFacturas += imp;
+    if (mov.tipo === 'PAGO') item.totalPagos += imp;
+  });
+
+  let resultado = Object.values(gruposMap).map(g => ({
+    ...g,
+    empresas: Array.from(g.empresas).join(', ') || 'N/D'
+  }));
+
+  // Aplicar filtros
+  if (search && search.trim()) {
+    const s = search.toLowerCase().trim();
+    resultado = resultado.filter(g =>
+      String(g.numero_grupo).includes(s) ||
+      (g.nombre || '').toLowerCase().includes(s) ||
+      (g.empresas || '').toLowerCase().includes(s)
+    );
+  }
+
+  if (soloDeudores) {
+    resultado = resultado.filter(g => g.saldoFinalUltimo > 5);
+  }
+
+  resultado.sort((a, b) => b.saldoFinalUltimo - a.saldoFinalUltimo);
+  return resultado;
+}
+
+/**
+ * Registra un cobro PAGO en movimientos_cuenta y recalcula el saldo acumulado
+ */
+export async function registrarCobroCuenta({
+  numero_grupo,
+  nombre,
+  importe,
+  medio_pago,
+  observaciones,
+  fecha = new Date().toISOString().slice(0, 10),
+  imputaciones = []
+}) {
+  const monto = parseFloat(importe);
+  if (isNaN(monto) || monto <= 0) throw new Error('El importe ingresado es inválido.');
+
+  // 1. Obtener el último movimiento del grupo para calcular saldo capital anterior
+  const { data: ultimos, error: ultErr } = await supabase
+    .from('movimientos_cuenta')
+    .select('saldo_capital, interes_pend_final')
+    .eq('numero_grupo', numero_grupo)
+    .order('fecha', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(1);
+
+  if (ultErr) throw ultErr;
+
+  const saldoCapitalAnterior = ultimos && ultimos.length > 0 ? Number(ultimos[0].saldo_capital || 0) : 0;
+  const nuevoSaldoCapital = saldoCapitalAnterior - monto;
+
+  // Sumar desgloses de interés vs capital de la imputación FIFO
+  let pagoAplicadoInteres = 0;
+  let pagoAplicadoCapital = 0;
+  imputaciones.forEach(imp => {
+    pagoAplicadoInteres += Number(imp.pagoAplicadoInteres || 0);
+    pagoAplicadoCapital += Number(imp.pagoAplicadoCapital || 0);
+  });
+
+  if (pagoAplicadoCapital === 0) pagoAplicadoCapital = monto;
+
+  const nuevoMovimiento = {
+    fecha,
+    numero_grupo,
+    nombre: nombre || `Grupo ${numero_grupo}`,
+    importe: -monto, // Pagos siempre negativos
+    tipo: 'PAGO',
+    medio_pago,
+    observaciones: observaciones || `Pago registrado vía web - Ref: ${medio_pago}`,
+    origen: 'REGISTRO_WEB_CUENTA_CORRIENTE',
+    pago_aplicado_interes: Math.round(pagoAplicadoInteres * 100) / 100,
+    pago_aplicado_capital: Math.round(pagoAplicadoCapital * 100) / 100,
+    saldo_capital_anterior: Math.round(saldoCapitalAnterior * 100) / 100,
+    saldo_capital: Math.round(nuevoSaldoCapital * 100) / 100,
+    saldo_final: Math.round(nuevoSaldoCapital * 100) / 100
+  };
+
+  const { data, error } = await supabase
+    .from('movimientos_cuenta')
+    .insert([nuevoMovimiento])
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  // Registrar audit log
+  await supabase.from('audit_log').insert({
+    tipo_evento: 'REGISTRO_PAGO_CUENTA_CORRIENTE',
+    descripcion: `Cobro PAGO registrado: Grupo ${numero_grupo} por $${monto} (${medio_pago})`,
+    monto: monto,
+    usuario: 'admin@aunar.com'
+  }).catch(e => console.warn('Audit log warn:', e));
+
+  return data;
+}

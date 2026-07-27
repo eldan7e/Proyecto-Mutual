@@ -252,6 +252,7 @@ export default function Layout({ session, theme, toggleTheme }) {
   const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Inicio' },
     { path: '/comunidad', icon: Users, label: 'Comunidad' },
+    { path: '/cuenta-corriente', icon: Landmark, label: 'Cuenta Corriente' },
     { path: '/facturacion', icon: FileText, label: 'Facturación' },
     { path: '/campanas', icon: Mail, label: 'Comunicación' },
     { path: '/conciliacion-bancaria', icon: Landmark, label: 'Bancos' },
@@ -260,7 +261,7 @@ export default function Layout({ session, theme, toggleTheme }) {
   const APP_CATEGORIES = [
     { id: 'general', paths: ['/', '/tareas', '/log-diario', '/ingreso-diario'] },
     { id: 'mgmt', paths: ['/comunidad'] },
-    { id: 'dash', paths: ['/facturacion', '/gestion-deuda', '/gestion-pagos', '/descuentos', '/carga-manual'] },
+    { id: 'dash', paths: ['/cuenta-corriente', '/informe-saldos', '/facturacion', '/gestion-deuda', '/gestion-pagos', '/descuentos', '/carga-manual'] },
     { id: 'comunicacion', paths: ['/campanas'] },
     { id: 'finance', paths: ['/conciliacion-bancaria', '/movimientos-bancarios'] },
   ];
@@ -272,6 +273,8 @@ export default function Layout({ session, theme, toggleTheme }) {
     '/ingreso-diario': 'Ingreso Diario',
     '/comunidad': 'Gestión de Comunidad',
     '/socios': 'Fichas de Socios',
+    '/cuenta-corriente': 'Cuenta Corriente por Grupo',
+    '/informe-saldos': 'Informe de Saldos',
     '/facturacion': 'Centro de Cobranzas',
     '/gestion-deuda': 'Gestión de Deuda',
     '/gestion-pagos': 'Auditoría',
