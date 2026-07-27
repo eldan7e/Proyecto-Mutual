@@ -68,7 +68,7 @@ export function calcularInteresMora(capital, diasMora, tnaPct = DEFAULT_TNA) {
  * @param {number} [tnaPct=120] - TNA aplicable
  * @returns {Object} { desgloses: Array, remanenteSaldoAFavor: number, totalCapitalCancelado: number, totalInteresCancelado: number }
  */
-export function imputarCobroFIFO(movimientosPendientes, montoPago, tnaPct = DEFAULT_TNA) {
+export function imputarCobroFIFO(movimientosPendientes, montoPago, tnaPct = DEFAULT_TNA, fechaCalculo = new Date()) {
   let remanente = Math.max(0, montoPago);
   let totalCapitalCancelado = 0;
   let totalInteresCancelado = 0;
@@ -81,7 +81,7 @@ export function imputarCobroFIFO(movimientosPendientes, montoPago, tnaPct = DEFA
     if (remanente <= 0) break;
 
     const capitalPend = Math.max(0, Number(mov.importe) - Number(mov.pago_aplicado_capital || 0));
-    const diasMora = calcularDiasMora(mov.fecha);
+    const diasMora = calcularDiasMora(mov.fecha, fechaCalculo);
     const interesCalculado = calcularInteresMora(capitalPend, diasMora, tnaPct);
     const interesPend = Math.max(0, interesCalculado - Number(mov.pago_aplicado_interes || 0));
     const totalMovimiento = capitalPend + interesPend;

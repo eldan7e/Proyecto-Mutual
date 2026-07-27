@@ -3,9 +3,10 @@ import { supabase } from './supabaseClient';
 import { 
   Search, FileText, DollarSign, TrendingUp, AlertTriangle, 
   Loader2, RefreshCw, Plus, CheckCircle2, ChevronRight, ShieldCheck, 
-  Download, Send, ArrowUpRight, ArrowDownLeft, Calculator, Settings, Building, HelpCircle
+  Download, Send, ArrowUpRight, ArrowDownLeft, Calculator, Settings, Building, Calendar, Printer
 } from 'lucide-react';
 import Modal from './components/Modal';
+import ComprobanteCobroModal from './components/ComprobanteCobroModal';
 import { useToast } from './components/ui/ToastProvider';
 import { 
   fetchGruposUnicos, fetchMovimientosGrupo, registrarCobroCuenta, 
@@ -18,6 +19,8 @@ import {
 export default function CuentaCorriente() {
   const { addToast } = useToast();
 
+  const getTodayISO = () => new Date().toISOString().slice(0, 10);
+
   // Estados principales
   const [gruposList, setGruposList] = useState([]);
   const [selectedGrupo, setSelectedGrupo] = useState(null);
@@ -25,10 +28,14 @@ export default function CuentaCorriente() {
   const [loading, setLoading] = useState(false);
   const [loadingGrupos, setLoadingGrupos] = useState(false);
   
-  // Parámetros
+  // Parámetros de Tasa
   const [tna, setTna] = useState(120.0);
   const [editingTna, setEditingTna] = useState('120');
   const [savingTna, setSavingTna] = useState(false);
+
+  // Filtros de Fecha para Cálculo de Deuda
+  const [fechaInicio, setFechaInicio] = useState('2026-01-01');
+  const [fechaFinCalculo, setFechaFinCalculo] = useState(getTodayISO());
 
   // Filtro de búsqueda de grupo
   const [searchGrupo, setSearchGrupo] = useState('');
@@ -40,6 +47,10 @@ export default function CuentaCorriente() {
   const [observacionesCobro, setObservacionesCobro] = useState('');
   const [procesandoCobro, setProcesandoCobro] = useState(false);
   const [resultadoFifo, setResultadoFifo] = useState(null);
+
+  // Modal de Comprobante de Cobro
+  const [comprobanteModalOpen, setComprobanteModalOpen] = useState(false);
+  const [comprobanteData, setComprobanteData] = useState(null);
 
   // Cargar grupos y parámetros al iniciar
   useEffect(() => {
@@ -87,14 +98,13 @@ export default function CuentaCorriente() {
       ]);
 
       if (params && params.tasa_anual) {
-        const valTna = Number(params.tasa_anual) > 1 ? Number(params.tasa_anual) : Number(params.tasa_anual) * 100;
+        const valTna = Number(params.tasa_anual);
         setTna(valTna);
         setEditingTna(String(valTna));
       }
 
       setGruposList(grupos || []);
       if (grupos && grupos.length > 0) {
-        // Seleccionar Grupo 2 o el primero por defecto
         const grupo2 = grupos.find(g => g.numero_grupo === 2) || grupos[0];
         setSelectedGrupo(grupo2.numero_grupo);
       }
@@ -129,13 +139,23 @@ export default function CuentaCorriente() {
     try {
       await updateTasaAnual(num);
       setTna(num);
-      addToast(`Tasa TNA actualizada a ${num}%`, 'success');
+      addToast(`Tasa TNA fijada en ${num}% e intereses recalculados`, 'success');
     } catch (err) {
       addToast('Error al guardar la tasa: ' + err.message, 'error');
     } finally {
       setSavingTna(false);
     }
   }
+
+  // Movimientos filtrados por rango de fecha
+  const movimientosFiltrados = useMemo(() => {
+    return movimientos.filter(m => {
+      if (!m.fecha) return true;
+      if (fechaInicio && m.fecha < fechaInicio) return false;
+      if (fechaFinCalculo && m.fecha > fechaFinCalculo) return false;
+      return true;
+    });
+  }, [movimientos, fechaInicio, fechaFinCalculo]);
 
   // Filtrado de grupos en el selector
   const gruposFiltrados = useMemo(() => {
@@ -147,18 +167,18 @@ export default function CuentaCorriente() {
     );
   }, [gruposList, searchGrupo]);
 
-  // Cálculos consolidados del grupo actual
+  // Cálculos consolidados del grupo actual (calculados estrictamente hasta fechaFinCalculo)
   const kpis = useMemo(() => {
     let saldoCapitalActual = 0;
     let interesMoraAcumulado = 0;
     let facturasPendientes = [];
 
-    movimientos.forEach(m => {
+    movimientosFiltrados.forEach(m => {
       const imp = Math.abs(Number(m.importe) || 0);
       if (m.tipo === 'FACTURA') {
         const capitalPend = Math.max(0, imp - Number(m.pago_aplicado_capital || 0));
         if (capitalPend > 0.05) {
-          const dias = calcularDiasMora(m.fecha);
+          const dias = calcularDiasMora(m.fecha, fechaFinCalculo);
           const intCalc = calcularInteresMora(capitalPend, dias, tna);
           interesMoraAcumulado += Math.max(0, intCalc - Number(m.pago_aplicado_interes || 0));
           facturasPendientes.push({ ...m, capitalPendiente: capitalPend });
@@ -166,8 +186,8 @@ export default function CuentaCorriente() {
       }
     });
 
-    if (movimientos.length > 0) {
-      const ultimo = movimientos[movimientos.length - 1];
+    if (movimientosFiltrados.length > 0) {
+      const ultimo = movimientosFiltrados[movimientosFiltrados.length - 1];
       saldoCapitalActual = Number(ultimo.saldo_capital || 0);
     }
 
@@ -179,13 +199,14 @@ export default function CuentaCorriente() {
       totalConsolidado,
       facturasPendientes
     };
-  }, [movimientos, tna]);
+  }, [movimientosFiltrados, tna, fechaFinCalculo]);
 
   // Preparar modal de cobro FIFO
   function openCobroModal() {
     setMontoCobro(kpis.totalConsolidado > 0 ? kpis.totalConsolidado.toFixed(2) : '0.00');
     setObservacionesCobro('');
-    setResultadoFifo(null);
+    const res = imputarCobroFIFO(kpis.facturasPendientes, kpis.totalConsolidado, tna, fechaFinCalculo);
+    setResultadoFifo(res);
     setCobroModalOpen(true);
   }
 
@@ -195,7 +216,7 @@ export default function CuentaCorriente() {
       setResultadoFifo(null);
       return;
     }
-    const res = imputarCobroFIFO(kpis.facturasPendientes, num, tna);
+    const res = imputarCobroFIFO(kpis.facturasPendientes, num, tna, fechaFinCalculo);
     setResultadoFifo(res);
   }
 
@@ -206,12 +227,12 @@ export default function CuentaCorriente() {
       return;
     }
 
-    const res = imputarCobroFIFO(kpis.facturasPendientes, num, tna);
+    const res = imputarCobroFIFO(kpis.facturasPendientes, num, tna, fechaFinCalculo);
     setProcesandoCobro(true);
 
     try {
       const currentGrupoObj = gruposList.find(g => g.numero_grupo === selectedGrupo);
-      await registrarCobroCuenta({
+      const nuevoMov = await registrarCobroCuenta({
         numero_grupo: selectedGrupo,
         nombre: currentGrupoObj?.nombre || `Grupo ${selectedGrupo}`,
         importe: num,
@@ -222,6 +243,21 @@ export default function CuentaCorriente() {
 
       addToast(`Cobro de ${formatMoney(num)} registrado e imputado con éxito`, 'success');
       setCobroModalOpen(false);
+
+      // Mostrar Comprobante de Cobro
+      setComprobanteData({
+        reciboNumero: `REC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+        fecha: new Date().toISOString().slice(0, 10),
+        numero_grupo: selectedGrupo,
+        nombre_titular: currentGrupoObj?.nombre || `Grupo ${selectedGrupo}`,
+        monto_cobrado: num,
+        medio_pago: medioPago,
+        observaciones: observacionesCobro,
+        desgloses: res.desgloses,
+        saldo_restante: res.remanenteSaldoAFavor > 0 ? -res.remanenteSaldoAFavor : Math.max(0, kpis.saldoCapitalActual - res.totalCapitalCancelado)
+      });
+      setComprobanteModalOpen(true);
+
       loadMovimientos(selectedGrupo);
     } catch (err) {
       console.error(err);
@@ -231,12 +267,34 @@ export default function CuentaCorriente() {
     }
   }
 
+  function verComprobanteMovimiento(mov) {
+    const currentGrupoObj = gruposList.find(g => g.numero_grupo === selectedGrupo);
+    setComprobanteData({
+      reciboNumero: `REC-${mov.fecha.slice(0,4)}-${mov.id || '001'}`,
+      fecha: mov.fecha,
+      numero_grupo: selectedGrupo,
+      nombre_titular: currentGrupoObj?.nombre || `Grupo ${selectedGrupo}`,
+      monto_cobrado: Math.abs(Number(mov.importe)),
+      medio_pago: mov.medio_pago || 'TRANSFERENCIA',
+      observaciones: mov.observaciones || 'Pago registrado',
+      desgloses: [
+        {
+          observaciones: mov.observaciones || 'Aplicado a cuenta corriente',
+          pagoAplicadoCapital: Number(mov.pago_aplicado_capital || Math.abs(Number(mov.importe))),
+          pagoAplicadoInteres: Number(mov.pago_aplicado_interes || 0)
+        }
+      ],
+      saldo_restante: Number(mov.saldo_final || 0)
+    });
+    setComprobanteModalOpen(true);
+  }
+
   // Exportar extracto a CSV
   function exportarExtractoCSV() {
-    if (movimientos.length === 0) return;
+    if (movimientosFiltrados.length === 0) return;
     let csv = 'Fecha,Grupo,Tipo,Medio Pago,Importe,Saldo Capital,Interes Mora,Saldo Final,Observaciones\n';
-    movimientos.forEach(m => {
-      const dias = m.tipo === 'FACTURA' ? calcularDiasMora(m.fecha) : 0;
+    movimientosFiltrados.forEach(m => {
+      const dias = m.tipo === 'FACTURA' ? calcularDiasMora(m.fecha, fechaFinCalculo) : 0;
       const intMora = m.tipo === 'FACTURA' ? calcularInteresMora(Number(m.importe), dias, tna) : 0;
       csv += `"${m.fecha}","${m.numero_grupo}","${m.tipo}","${m.medio_pago || ''}",${m.importe},${m.saldo_capital},${intMora},${m.saldo_final},"${m.observaciones || ''}"\n`;
     });
@@ -244,7 +302,7 @@ export default function CuentaCorriente() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `extracto_grupo_${selectedGrupo}.csv`;
+    a.download = `extracto_grupo_${selectedGrupo}_hasta_${fechaFinCalculo}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     addToast(`Extracto del Grupo ${selectedGrupo} exportado`, 'success');
@@ -256,7 +314,7 @@ export default function CuentaCorriente() {
     <div style={{ padding: '0 20px 40px 20px', display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box' }}>
       
       {/* Header & Title */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '6px' }}>
             <div style={{ background: 'var(--accent)', color: 'white', padding: '8px', borderRadius: '12px' }}>
@@ -271,13 +329,13 @@ export default function CuentaCorriente() {
           </div>
         </div>
 
-        {/* Panel de Configuración TNA */}
-        <div className="glass-panel" style={{ padding: '12px 18px', borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '14px' }}>
+        {/* Panel de Configuración TNA y Fechas */}
+        <div className="glass-panel" style={{ padding: '12px 18px', borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+          
+          {/* TNA Input */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Settings size={18} color="var(--accent)" />
             <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-secondary)' }}>Tasa TNA:</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <input 
               type="number" 
               value={editingTna}
@@ -289,15 +347,48 @@ export default function CuentaCorriente() {
               }}
             />
             <span style={{ fontSize: '14px', fontWeight: 800 }}>%</span>
+            <button 
+              onClick={handleSaveTna}
+              disabled={savingTna}
+              className="action-button"
+              style={{ padding: '6px 14px', fontSize: '12px', height: '34px' }}
+            >
+              {savingTna ? <Loader2 size={14} className="animate-spin" /> : 'Actualizar'}
+            </button>
           </div>
-          <button 
-            onClick={handleSaveTna}
-            disabled={savingTna}
-            className="action-button"
-            style={{ padding: '6px 14px', fontSize: '12px', height: '34px' }}
-          >
-            {savingTna ? <Loader2 size={14} className="animate-spin" /> : 'Actualizar'}
-          </button>
+
+          <div style={{ height: '24px', width: '1px', background: 'var(--border-light)' }} />
+
+          {/* Rango de Fechas / Límite de Cálculo */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <Calendar size={18} color="var(--accent)" />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>Desde:</span>
+              <input 
+                type="date" 
+                value={fechaInicio}
+                onChange={(e) => setFechaInicio(e.target.value)}
+                style={{ background: 'var(--surface)', border: '1px solid var(--border-light)', borderRadius: '8px', padding: '4px 8px', fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}
+              />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>Hasta / Cálculo:</span>
+              <input 
+                type="date" 
+                value={fechaFinCalculo}
+                onChange={(e) => setFechaFinCalculo(e.target.value)}
+                style={{ background: 'var(--surface)', border: '1px solid var(--border-light)', borderRadius: '8px', padding: '4px 8px', fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}
+              />
+            </div>
+            <button 
+              onClick={() => setFechaFinCalculo(getTodayISO())}
+              className="icon-button-edit"
+              style={{ padding: '4px 10px', fontSize: '11px', fontWeight: 800, borderRadius: '8px' }}
+            >
+              Usar Hoy
+            </button>
+          </div>
+
         </div>
       </div>
 
@@ -340,7 +431,7 @@ export default function CuentaCorriente() {
                       background: isSelected ? 'var(--accent)' : 'transparent',
                       color: isSelected ? 'white' : 'var(--text-primary)',
                       display: 'flex',
-                      justify: 'space-between',
+                      justifyContent: 'space-between',
                       alignItems: 'center',
                       transition: 'all 0.15s ease'
                     }}
@@ -408,7 +499,7 @@ export default function CuentaCorriente() {
                 {formatMoney(kpis.interesMoraAcumulado)}
               </div>
               <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                Calculados al día de hoy
+                Calculados al {fechaFinCalculo}
               </div>
             </div>
 
@@ -438,7 +529,7 @@ export default function CuentaCorriente() {
           <div>
             <h3 style={{ fontSize: '16px', fontWeight: 800 }}>Extracto de Cuenta Corriente — Grupo {selectedGrupo}</h3>
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-              Historial cronológico de facturas, pagos y movimientos
+              Mostrando movimientos desde {fechaInicio} hasta {fechaFinCalculo}
             </p>
           </div>
           <button onClick={() => loadMovimientos(selectedGrupo)} className="icon-button-edit" style={{ width: '38px', height: '38px' }}>
@@ -458,27 +549,28 @@ export default function CuentaCorriente() {
                 <th style={{ textAlign: 'right' }}>Interés Mora ($)</th>
                 <th style={{ textAlign: 'right' }}>Saldo Capital ($)</th>
                 <th style={{ textAlign: 'right' }}>Saldo Final ($)</th>
+                <th style={{ textAlign: 'center' }}>Comprobante</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="8" style={{ padding: '80px', textAlign: 'center' }}>
+                  <td colSpan="9" style={{ padding: '80px', textAlign: 'center' }}>
                     <Loader2 size={32} className="animate-spin" style={{ margin: '0 auto', color: 'var(--accent)' }} />
                   </td>
                 </tr>
-              ) : movimientos.length === 0 ? (
+              ) : movimientosFiltrados.length === 0 ? (
                 <tr>
-                  <td colSpan="8" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                    No se encontraron movimientos registrados para este grupo.
+                  <td colSpan="9" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                    No se encontraron movimientos registrados en el rango de fechas seleccionado.
                   </td>
                 </tr>
               ) : (
-                movimientos.map((m, idx) => {
+                movimientosFiltrados.map((m, idx) => {
                   const imp = Number(m.importe) || 0;
                   const isFactura = m.tipo === 'FACTURA';
                   const isPago = m.tipo === 'PAGO';
-                  const diasMora = isFactura ? calcularDiasMora(m.fecha) : 0;
+                  const diasMora = isFactura ? calcularDiasMora(m.fecha, fechaFinCalculo) : 0;
                   const intMora = isFactura ? calcularInteresMora(imp - Number(m.pago_aplicado_capital||0), diasMora, tna) : 0;
 
                   return (
@@ -517,6 +609,17 @@ export default function CuentaCorriente() {
                       <td style={{ textAlign: 'right', fontWeight: 900, fontSize: '14px', color: Number(m.saldo_final) > 5 ? 'var(--danger)' : '#10b981' }}>
                         {formatMoney(m.saldo_final)}
                       </td>
+                      <td style={{ textAlign: 'center' }}>
+                        {isPago ? (
+                          <button 
+                            onClick={() => verComprobanteMovimiento(m)}
+                            className="icon-button-edit"
+                            style={{ padding: '4px 8px', borderRadius: '8px', fontSize: '11px', fontWeight: 800, gap: '4px', display: 'inline-flex', alignItems: 'center' }}
+                          >
+                            <Printer size={12} /> Recibo
+                          </button>
+                        ) : '-'}
+                      </td>
                     </tr>
                   );
                 })
@@ -539,7 +642,7 @@ export default function CuentaCorriente() {
                 <span style={{ fontSize: '13px', fontWeight: 700, marginLeft: '4px' }}>{formatMoney(kpis.saldoCapitalActual)}</span>
               </div>
               <div>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Intereses Mora:</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Intereses Mora ({tna}%):</span>
                 <span style={{ fontSize: '13px', fontWeight: 700, color: '#ef4444', marginLeft: '4px' }}>{formatMoney(kpis.interesMoraAcumulado)}</span>
               </div>
             </div>
@@ -611,12 +714,19 @@ export default function CuentaCorriente() {
               Cancelar
             </button>
             <button onClick={handleConfirmarCobro} className="action-button" style={{ width: '50%', background: 'linear-gradient(135deg, var(--accent) 0%, #1b5e20 100%)' }} disabled={procesandoCobro}>
-              {procesandoCobro ? <Loader2 className="animate-spin" size={16} /> : 'Confirmar Cobro'}
+              {procesandoCobro ? <Loader2 className="animate-spin" size={16} /> : 'Confirmar Cobro y Generar Recibo'}
             </button>
           </div>
 
         </div>
       </Modal>
+
+      {/* MODAL COMPROBANTE DE PAGO OFICIAL */}
+      <ComprobanteCobroModal 
+        isOpen={comprobanteModalOpen}
+        onClose={() => setComprobanteModalOpen(false)}
+        cobroData={comprobanteData}
+      />
 
     </div>
   );

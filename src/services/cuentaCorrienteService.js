@@ -13,7 +13,19 @@ export async function getParametrosCuenta() {
   if (error && error.code !== 'PGRST116') {
     console.error('Error al obtener parametros_cuenta:', error);
   }
-  return data || { tasa_anual: 1.20, tasa_diaria: 0.0032876712328767123, dia_tope_pago: 15 };
+
+  let tnaVal = 120;
+  if (data && data.tasa_anual !== undefined && data.tasa_anual !== null) {
+    const raw = Number(data.tasa_anual);
+    tnaVal = raw <= 2 ? raw * 100 : raw;
+  }
+
+  return {
+    ...data,
+    tasa_anual: tnaVal,
+    tasa_diaria: (tnaVal / 100) / 365,
+    dia_tope_pago: data?.dia_tope_pago || 15
+  };
 }
 
 /**
@@ -21,11 +33,13 @@ export async function getParametrosCuenta() {
  */
 export async function updateTasaAnual(tasaAnual) {
   const tna = parseFloat(tasaAnual);
+  if (isNaN(tna)) throw new Error('Tasa TNA inválida');
+  
   const tasaDiaria = (tna / 100) / 365;
 
   const { data, error } = await supabase
     .from('parametros_cuenta')
-    .upsert({ id: 1, tasa_anual: tna / 100, tasa_diaria: tasaDiaria, updated_at: new Date().toISOString() });
+    .upsert({ id: 1, tasa_anual: tna, tasa_diaria: tasaDiaria, updated_at: new Date().toISOString() });
 
   if (error) throw error;
   return data;
