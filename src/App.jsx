@@ -127,7 +127,7 @@ function App() {
                   <Route path="cuenta-corriente" element={<CuentaCorriente />} />
                   <Route path="informe-saldos" element={<InformeSaldos />} />
                   <Route path="carga-manual" element={<CargaManual />} />
-                  <Route path="gestion-deuda" element={<GestionDeuda />} />
+                  <Route path="gestion-deuda" element={<Navigate to="/cuenta-corriente" replace />} />
                   <Route path="gestion-pagos" element={<GestionPagos />} />
                   <Route path="descuentos" element={<Descuentos />} />
                   <Route path="conciliacion-bancaria" element={<ConciliacionBancaria />} />

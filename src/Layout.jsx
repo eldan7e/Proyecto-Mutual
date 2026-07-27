@@ -261,7 +261,7 @@ export default function Layout({ session, theme, toggleTheme }) {
   const APP_CATEGORIES = [
     { id: 'general', paths: ['/', '/tareas', '/log-diario', '/ingreso-diario'] },
     { id: 'mgmt', paths: ['/comunidad'] },
-    { id: 'dash', paths: ['/cuenta-corriente', '/informe-saldos', '/facturacion', '/gestion-deuda', '/gestion-pagos', '/descuentos', '/carga-manual'] },
+    { id: 'dash', paths: ['/cuenta-corriente', '/informe-saldos', '/facturacion', '/gestion-pagos', '/descuentos', '/carga-manual'] },
     { id: 'comunicacion', paths: ['/campanas'] },
     { id: 'finance', paths: ['/conciliacion-bancaria', '/movimientos-bancarios'] },
   ];
@@ -276,7 +276,6 @@ export default function Layout({ session, theme, toggleTheme }) {
     '/cuenta-corriente': 'Cuenta Corriente por Grupo',
     '/informe-saldos': 'Informe de Saldos',
     '/facturacion': 'Centro de Cobranzas',
-    '/gestion-deuda': 'Gestión de Deuda',
     '/gestion-pagos': 'Auditoría',
     '/descuentos': 'Descuentos y Cargos',
     '/carga-manual': 'Importación Manual',
