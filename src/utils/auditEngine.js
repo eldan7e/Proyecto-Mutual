@@ -554,18 +554,18 @@ export function auditLineItem(item, dbInfo, context) {
       if (diffPct < -2.0) {
         alertas.push({ 
           tipo: 'CRITICAL', 
-          msg: `DESVÍO BONIF: ${descuentoReal.toFixed(1)}% (Esperado ${descuentoEsperado}%)`,
+          msg: `DESVÍO BONIF: ${descuentoReal.toFixed(2)}% (Esperado ${descuentoEsperado}%)`,
           diff: realAbono - (precioLista * (1 - descuentoEsperado/100))
         });
       } else {
         alertas.push({ 
           tipo: 'CRITICAL', 
-          msg: `BONIF EXTRA: ${descuentoReal.toFixed(1)}% (Esperado ${descuentoEsperado}%)`,
+          msg: `BONIF EXTRA: ${descuentoReal.toFixed(2)}% (Esperado ${descuentoEsperado}%)`,
           diff: (precioLista * (1 - descuentoEsperado/100)) - realAbono
         });
       }
     } else {
-      alertas.push({ tipo: 'STABLE', msg: `Bonif. OK (${descuentoReal.toFixed(1)}%)` });
+      alertas.push({ tipo: 'STABLE', msg: `Bonif. OK (${descuentoReal.toFixed(2)}%)` });
     }
   }
 
@@ -584,21 +584,21 @@ export function auditLineItem(item, dbInfo, context) {
         if (diffPct < -2.0) {
           alertas.push({ 
             tipo: 'CRITICAL', 
-            msg: `DESVÍO BONIF: ${descuentoReal.toFixed(1)}% (Esperado ${descuentoEsperado}%)`,
+            msg: `DESVÍO BONIF: ${descuentoReal.toFixed(2)}% (Esperado ${descuentoEsperado}%)`,
             diff: realAbono - ((precioLista * (1 - descuentoEsperado/100)) * 1.21)
           });
         } else {
           alertas.push({ 
             tipo: 'CRITICAL', 
-            msg: `BONIF EXTRA: ${descuentoReal.toFixed(1)}% (Esperado ${descuentoEsperado}%)`,
+            msg: `BONIF EXTRA: ${descuentoReal.toFixed(2)}% (Esperado ${descuentoEsperado}%)`,
             diff: ((precioLista * (1 - descuentoEsperado/100)) * 1.21) - realAbono
           });
         }
       } else {
-        alertas.push({ tipo: 'STABLE', msg: `Bonif. OK (${descuentoReal.toFixed(1)}%)` });
+        alertas.push({ tipo: 'STABLE', msg: `Bonif. OK (${descuentoReal.toFixed(2)}%)` });
       }
     } else {
-      alertas.push({ tipo: 'INFO', msg: `Bonif. Real: ${descuentoReal.toFixed(1)}%` });
+      alertas.push({ tipo: 'INFO', msg: `Bonif. Real: ${descuentoReal.toFixed(2)}%` });
     }
   }
 
