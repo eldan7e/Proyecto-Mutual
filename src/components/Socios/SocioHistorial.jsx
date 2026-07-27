@@ -119,7 +119,14 @@ export default function SocioHistorial({ socio }) {
                       return (
                         <tr key={`${c.consumo_id}-${idx}`}>
                           <td style={{ fontWeight: 800 }}>{c.periodo}</td>
-                          <td style={{ fontWeight: 700 }}>{c.numero_linea}</td>
+                          <td>
+                            <div style={{ fontWeight: 700, fontSize: '13px' }}>{c.numero_linea}</div>
+                            {c.lineas?.planes_abonos?.nombre_plan && (
+                              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px', fontWeight: 500 }}>
+                                {c.lineas.planes_abonos.nombre_plan}
+                              </div>
+                            )}
+                          </td>
                           <td style={{ textAlign: 'right' }}>${Number(c.calculado?.baseAb || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                           <td style={{ textAlign: 'right', color: '#f59e0b', fontWeight: 600 }}>{c.calculado?.excedentes > 0 ? `+$${Number(c.calculado.excedentes).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}</td>
                           <td style={{ textAlign: 'right', color: '#ef4444' }}>{c.calculado?.extraAmount > 0 ? `+$${Number(c.calculado.extraAmount).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}</td>
