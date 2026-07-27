@@ -74,26 +74,31 @@ export default function CargaManual() {
         setIsPeriodPricesLoading(false);
         return;
       }
-      const prevPeriodStr = getPrevPeriodStrHelper(periodo);
+      try {
+        const prevPeriodStr = getPrevPeriodStrHelper(periodo);
 
-      const [currRes, prevRes] = await Promise.all([
-        supabase.from('precios_auditoria_periodo').select('*').eq('periodo', periodo),
-        prevPeriodStr ? supabase.from('precios_auditoria_periodo').select('*').eq('periodo', prevPeriodStr) : Promise.resolve({ data: [] })
-      ]);
+        const [currRes, prevRes] = await Promise.all([
+          supabase.from('precios_auditoria_periodo').select('*').eq('periodo', periodo),
+          prevPeriodStr ? supabase.from('precios_auditoria_periodo').select('*').eq('periodo', prevPeriodStr) : Promise.resolve({ data: [] })
+        ]);
 
-      const cMap = new Map();
-      (currRes.data || []).forEach(p => {
-        cMap.set(p.plan_id, Number(p.precio_lista) || 0);
-      });
+        const cMap = new Map();
+        (currRes.data || []).forEach(p => {
+          cMap.set(p.plan_id, Number(p.precio_lista) || 0);
+        });
 
-      const pMap = new Map();
-      (prevRes.data || []).forEach(p => {
-        pMap.set(p.plan_id, Number(p.precio_lista) || 0);
-      });
+        const pMap = new Map();
+        (prevRes.data || []).forEach(p => {
+          pMap.set(p.plan_id, Number(p.precio_lista) || 0);
+        });
 
-      setPeriodPrices(cMap);
-      setPrevPeriodPrices(pMap);
-      setIsPeriodPricesLoading(false);
+        setPeriodPrices(cMap);
+        setPrevPeriodPrices(pMap);
+      } catch (err) {
+        console.error("Error al cargar precios de auditoría:", err);
+      } finally {
+        setIsPeriodPricesLoading(false);
+      }
     }
     fetchPeriodPrices();
   }, [periodo]);
