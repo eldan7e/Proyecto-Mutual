@@ -131,7 +131,8 @@ export default function ConciliacionBancaria() {
   
   // Persisted state initializers
   const [activeTab, setActiveTab] = useState(() => {
-    return localStorage.getItem('cb_activeTab') || 'nueva';
+    const saved = localStorage.getItem('cb_activeTab');
+    return (saved === 'nueva' || saved === 'debitos') ? saved : 'nueva';
   });
   
   const [parsedMovements, setParsedMovements] = useState(() => {
@@ -3141,7 +3142,7 @@ export default function ConciliacionBancaria() {
       </div>
 
       {/* Contenidos de Pestañas */}
-      {activeTab === 'nueva' && (
+      {(activeTab === 'nueva' || activeTab !== 'debitos') && (
         <NuevaConciliacionTab
           selectedPeriod={selectedPeriod}
           parsedMovements={parsedMovements}
