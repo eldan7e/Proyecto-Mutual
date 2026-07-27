@@ -9,6 +9,8 @@ export default function SocioHistorial({ socio }) {
   const [incidentes, setIncidentes] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  const [searchTerm, setSearchTerm] = useState('');
+
   useEffect(() => {
     fetchData();
   }, [socio.socio_id]);
@@ -33,6 +35,11 @@ export default function SocioHistorial({ socio }) {
     }
   };
 
+  const filteredConsumos = consumos.filter(c => 
+    c.numero_linea?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    c.periodo?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   if (loading) {
     return <div style={{ padding: '40px', textAlign: 'center' }}><Loader2 className="animate-spin" size={28} style={{ margin: '0 auto', color: 'var(--accent)' }} /></div>;
   }
@@ -42,9 +49,30 @@ export default function SocioHistorial({ socio }) {
       
       {/* Consumos Section */}
       <div>
-        <h4 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Activity size={20} color="var(--accent)" /> Historial de Facturación
-        </h4>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '16px', flexWrap: 'wrap' }}>
+          <h4 style={{ margin: 0, fontSize: '18px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Activity size={20} color="var(--accent)" /> Historial de Facturación
+          </h4>
+          
+          {consumos.length > 0 && (
+            <input
+              type="text"
+              placeholder="Buscar por línea o período..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="air-input"
+              style={{
+                maxWidth: '240px',
+                padding: '8px 12px',
+                fontSize: '13px',
+                borderRadius: '8px',
+                border: '1px solid var(--border-light)',
+                background: 'var(--surface-overlay)',
+                color: 'var(--text-primary)'
+              }}
+            />
+          )}
+        </div>
         
         {consumos.length === 0 ? (
           <div className="glass-panel" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
@@ -59,6 +87,7 @@ export default function SocioHistorial({ socio }) {
                     <th>Período</th>
                     <th>Línea</th>
                     <th style={{ textAlign: 'right' }}>Abono Base</th>
+                    <th style={{ textAlign: 'right' }}>Excedentes</th>
                     <th style={{ textAlign: 'right' }}>Extra</th>
                     <th style={{ textAlign: 'right' }}>Dto.</th>
                     <th style={{ textAlign: 'right' }}>Total</th>
@@ -66,77 +95,86 @@ export default function SocioHistorial({ socio }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {consumos.map((c, idx) => {
-                    const prevConsumo = consumos
-                      .filter(x => x.numero_linea === c.numero_linea && x.periodo < c.periodo)
-                      .sort((a, b) => b.periodo.localeCompare(a.periodo))[0];
+                  {filteredConsumos.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-secondary)', fontSize: '13px', fontWeight: 500 }}>
+                        No se encontraron consumos que coincidan con la búsqueda.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredConsumos.map((c, idx) => {
+                      const prevConsumo = consumos
+                        .filter(x => x.numero_linea === c.numero_linea && x.periodo < c.periodo)
+                        .sort((a, b) => b.periodo.localeCompare(a.periodo))[0];
 
-                    let diffPct = null;
-                    if (prevConsumo) {
-                      const currentVal = c.calculado?.totalCobrar || 0;
-                      const prevVal = prevConsumo.calculado?.totalCobrar || 0;
-                      if (prevVal > 0) {
-                        diffPct = ((currentVal - prevVal) / prevVal) * 100;
+                      let diffPct = null;
+                      if (prevConsumo) {
+                        const currentVal = c.calculado?.totalCobrar || 0;
+                        const prevVal = prevConsumo.calculado?.totalCobrar || 0;
+                        if (prevVal > 0) {
+                          diffPct = ((currentVal - prevVal) / prevVal) * 100;
+                        }
                       }
-                    }
 
-                    return (
-                      <tr key={`${c.consumo_id}-${idx}`}>
-                        <td style={{ fontWeight: 800 }}>{c.periodo}</td>
-                        <td style={{ fontWeight: 700 }}>{c.numero_linea}</td>
-                        <td style={{ textAlign: 'right' }}>${Number(c.calculado?.baseAb || 0).toLocaleString('es-AR')}</td>
-                        <td style={{ textAlign: 'right', color: '#ef4444' }}>{c.calculado?.extraAmount > 0 ? `+$${Number(c.calculado.extraAmount).toLocaleString('es-AR')}` : '-'}</td>
-                        <td style={{ textAlign: 'right', color: '#10b981' }}>{c.calculado?.bonifManual > 0 ? `-$${Number(c.calculado.bonifManual).toLocaleString('es-AR')}` : '-'}</td>
-                        <td style={{ textAlign: 'right', fontWeight: 900 }}>
-                          <div>${Number(c.calculado?.totalCobrar || 0).toLocaleString('es-AR')}</div>
-                          {diffPct !== null && (
-                            <div style={{
-                              fontSize: '10px',
-                              fontWeight: 800,
-                              color: diffPct === 0 ? 'var(--text-secondary)' : diffPct > 0 ? '#ef4444' : '#16a34a',
-                              marginTop: '2px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'flex-end',
-                              gap: '2px'
+                      return (
+                        <tr key={`${c.consumo_id}-${idx}`}>
+                          <td style={{ fontWeight: 800 }}>{c.periodo}</td>
+                          <td style={{ fontWeight: 700 }}>{c.numero_linea}</td>
+                          <td style={{ textAlign: 'right' }}>${Number(c.calculado?.baseAb || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          <td style={{ textAlign: 'right', color: '#f59e0b', fontWeight: 600 }}>{c.calculado?.excedentes > 0 ? `+$${Number(c.calculado.excedentes).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}</td>
+                          <td style={{ textAlign: 'right', color: '#ef4444' }}>{c.calculado?.extraAmount > 0 ? `+$${Number(c.calculado.extraAmount).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}</td>
+                          <td style={{ textAlign: 'right', color: '#10b981' }}>{c.calculado?.bonifManual > 0 ? `-$${Number(c.calculado.bonifManual).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 900 }}>
+                            <div>${Number(c.calculado?.totalCobrar || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                            {diffPct !== null && (
+                              <div style={{
+                                fontSize: '10px',
+                                fontWeight: 800,
+                                color: diffPct === 0 ? 'var(--text-secondary)' : diffPct > 0 ? '#ef4444' : '#16a34a',
+                                marginTop: '2px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'flex-end',
+                                gap: '2px'
+                              }}>
+                                {diffPct > 0.05 ? `↑ +${diffPct.toFixed(1)}%` : diffPct < -0.05 ? `↓ ${diffPct.toFixed(1)}%` : '0.0%'}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <span style={{
+                              padding: '4px 8px', borderRadius: '100px', fontSize: '9px', fontWeight: 900,
+                              background: (c.estado_pago === 'ABONADO' || c.estado_pago === 'LIQUIDADO') ? 'rgba(34, 197, 94, 0.1)' : c.estado_pago === 'PENDIENTE' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                              color: (c.estado_pago === 'ABONADO' || c.estado_pago === 'LIQUIDADO') ? '#22c55e' : c.estado_pago === 'PENDIENTE' ? '#ef4444' : '#f59e0b'
                             }}>
-                              {diffPct > 0.05 ? `↑ +${diffPct.toFixed(1)}%` : diffPct < -0.05 ? `↓ ${diffPct.toFixed(1)}%` : '0.0%'}
-                            </div>
-                          )}
-                        </td>
-                        <td style={{ textAlign: 'center' }}>
-                          <span style={{
-                            padding: '4px 8px', borderRadius: '100px', fontSize: '9px', fontWeight: 900,
-                            background: (c.estado_pago === 'ABONADO' || c.estado_pago === 'LIQUIDADO') ? 'rgba(34, 197, 94, 0.1)' : c.estado_pago === 'PENDIENTE' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.1)',
-                            color: (c.estado_pago === 'ABONADO' || c.estado_pago === 'LIQUIDADO') ? '#22c55e' : c.estado_pago === 'PENDIENTE' ? '#ef4444' : '#f59e0b'
-                          }}>
-                            {c.estado_pago === 'ABONADO' ? 'PAGO' : c.estado_pago}
-                          </span>
-                          {c.pagado_por_otro && c.liq_socio_nombre && (
-                            <div 
-                              title={`Responsable del grupo: ${c.liq_socio_nombre}`}
-                              style={{
-                                fontSize: '9px',
-                                fontWeight: 700,
-                                color: 'var(--text-secondary)',
-                                marginTop: '4px',
-                                maxWidth: '110px',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                margin: '4px auto 0 auto'
-                              }}
-                            >
-                              {(c.estado_pago === 'ABONADO' || c.estado_pago === 'LIQUIDADO') 
-                                ? `Por: ${c.liq_socio_nombre}` 
-                                : `Resp: ${c.liq_socio_nombre}`
-                              }
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                              {c.estado_pago === 'ABONADO' ? 'PAGO' : c.estado_pago}
+                            </span>
+                            {c.pagado_por_otro && c.liq_socio_nombre && (
+                              <div 
+                                title={`Responsable del grupo: ${c.liq_socio_nombre}`}
+                                style={{
+                                  fontSize: '9px',
+                                  fontWeight: 700,
+                                  color: 'var(--text-secondary)',
+                                  marginTop: '4px',
+                                  maxWidth: '110px',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                  margin: '4px auto 0 auto'
+                                }}
+                              >
+                                {(c.estado_pago === 'ABONADO' || c.estado_pago === 'LIQUIDADO') 
+                                  ? `Por: ${c.liq_socio_nombre}` 
+                                  : `Resp: ${c.liq_socio_nombre}`
+                                }
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
