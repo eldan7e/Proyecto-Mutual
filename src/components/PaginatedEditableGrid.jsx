@@ -497,9 +497,8 @@ export function PaginatedEditableGrid({
                         Number(row.descuentoOriginal || 0) !== 0 ? `-$${Math.abs(Number(row.descuentoOriginal)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : '-'
                       ) : (
                         (() => {
-                          const realAbonoNeto = row.abono / 1.21;
-                          const descPct = row.precioOficial > 0 ? ((row.precioOficial - realAbonoNeto) / row.precioOficial) * 100 : 0;
-                          return descPct > 0 ? `${descPct.toFixed(1)}%` : '-';
+                          const descPct = row.precioOficial > 0 ? ((row.precioOficial - row.abono) / row.precioOficial) * 100 : 0;
+                          return descPct > 0 ? `${descPct.toFixed(2)}%` : '-';
                         })()
                       )}
                     </td>

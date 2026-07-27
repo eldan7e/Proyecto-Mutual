@@ -571,11 +571,20 @@ export function auditLineItem(item, dbInfo, context) {
 
   // --- AUDITORÍA DE BONIFICACIÓN (MOVISTAR) ---
   if (selectedProvider === 'movistar' && precioLista > 0) {
-    const realAbonoNeto = realAbono / 1.21;
-    const descuentoReal = ((precioLista - realAbonoNeto) / precioLista) * 100;
+    const descuentoReal = ((precioLista - realAbono) / precioLista) * 100;
     const descuentoEsperado = (dbInfo && dbInfo.descuento_operadora_pct > 0) 
       ? Number(dbInfo.descuento_operadora_pct) 
       : 0;
+
+    // Alerta si el descuento real es inferior al 80% mínimo requerido
+    if (descuentoReal < 79.9) {
+      auditStatus = 'WARN';
+      alertas.push({
+        tipo: 'CRITICAL',
+        msg: `BONIF INSUF: ${descuentoReal.toFixed(2)}% (Mínimo requerido 80.00%)`,
+        diff: realAbono - (precioLista * 0.20)
+      });
+    }
 
     if (descuentoEsperado > 0) {
       const diffPct = descuentoReal - descuentoEsperado;
@@ -585,19 +594,19 @@ export function auditLineItem(item, dbInfo, context) {
           alertas.push({ 
             tipo: 'CRITICAL', 
             msg: `DESVÍO BONIF: ${descuentoReal.toFixed(2)}% (Esperado ${descuentoEsperado}%)`,
-            diff: realAbono - ((precioLista * (1 - descuentoEsperado/100)) * 1.21)
+            diff: realAbono - (precioLista * (1 - descuentoEsperado/100))
           });
         } else {
           alertas.push({ 
             tipo: 'CRITICAL', 
             msg: `BONIF EXTRA: ${descuentoReal.toFixed(2)}% (Esperado ${descuentoEsperado}%)`,
-            diff: ((precioLista * (1 - descuentoEsperado/100)) * 1.21) - realAbono
+            diff: (precioLista * (1 - descuentoEsperado/100)) - realAbono
           });
         }
-      } else {
+      } else if (descuentoReal >= 79.9) {
         alertas.push({ tipo: 'STABLE', msg: `Bonif. OK (${descuentoReal.toFixed(2)}%)` });
       }
-    } else {
+    } else if (descuentoReal >= 79.9) {
       alertas.push({ tipo: 'INFO', msg: `Bonif. Real: ${descuentoReal.toFixed(2)}%` });
     }
   }
