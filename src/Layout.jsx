@@ -255,7 +255,7 @@ export default function Layout({ session, theme, toggleTheme }) {
     { path: '/cuenta-corriente', icon: Landmark, label: 'Cuenta Corriente' },
     { path: '/facturacion', icon: FileText, label: 'Facturación' },
     { path: '/campanas', icon: Mail, label: 'Comunicación' },
-    { path: '/conciliacion-bancaria', icon: Landmark, label: 'Bancos' },
+    { path: '/conciliacion-bancaria', icon: Activity, label: 'Bancos' },
   ];
 
   const APP_CATEGORIES = [

@@ -15,6 +15,8 @@ import DesgloseGrupoModal from './components/Conciliacion/DesgloseGrupoModal';
 import HistorialMovimientosTab from './components/Conciliacion/HistorialMovimientosTab';
 import DebitosAutomaticosTab from './components/Conciliacion/DebitosAutomaticosTab';
 import NuevaConciliacionTab from './components/Conciliacion/NuevaConciliacionTab';
+import SaldosGruposTab from './components/Conciliacion/SaldosGruposTab';
+import { registrarCobroCuenta } from './services/cuentaCorrienteService';
 
 const parseDateToISODate = (dateStr) => {
   if (!dateStr) return new Date().toISOString().split('T')[0];
@@ -2246,6 +2248,21 @@ export default function ConciliacionBancaria() {
           }
         }
 
+        // Registrar cobro en Cuenta Corriente unificada por grupo
+        if (groupNum) {
+          try {
+            await registrarCobroCuenta({
+              numero_grupo: groupNum,
+              nombre: row.selectedSocioLabel || `Grupo ${groupNum}`,
+              importe: Number(row.netoReal),
+              medio_pago: row.banco || 'TRANSFERENCIA',
+              observaciones: `Conciliación Bancaria - ${row.concepto}`
+            });
+          } catch (errCuenta) {
+            console.warn("Aviso al registrar cobro en cuenta corriente:", errCuenta);
+          }
+        }
+
         // Write audit log
         await supabase
           .from('audit_log')
@@ -3119,6 +3136,22 @@ export default function ConciliacionBancaria() {
             >
               Débitos Automáticos
             </button>
+            <button 
+              onClick={() => setActiveTab('saldos')}
+              className="action-button"
+              style={{ 
+                background: activeTab === 'saldos' ? 'var(--accent)' : 'transparent', 
+                color: activeTab === 'saldos' ? 'white' : 'var(--text-secondary)',
+                padding: '8px 16px', 
+                borderRadius: '12px',
+                fontSize: '13px',
+                height: '36px',
+                display: 'flex',
+                alignItems: 'center'
+              }}
+            >
+              Saldos por Grupo
+            </button>
           </div>
         </div>
       </div>
@@ -3180,6 +3213,10 @@ export default function ConciliacionBancaria() {
           periodConsumos={periodConsumos}
           handleToggleLineSelection={handleLoteRowToggleLineSelection}
         />
+      )}
+
+      {activeTab === 'saldos' && (
+        <SaldosGruposTab />
       )}
 
       {/* Modal de Desglose de Grupo */}
