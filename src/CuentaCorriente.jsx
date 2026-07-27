@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { supabase } from './supabaseClient';
 import { 
   Search, FileText, DollarSign, TrendingUp, AlertTriangle, 
   Loader2, RefreshCw, Plus, CheckCircle2, ChevronRight, ShieldCheck, 
@@ -50,6 +51,31 @@ export default function CuentaCorriente() {
     if (selectedGrupo !== null) {
       loadMovimientos(selectedGrupo);
     }
+  }, [selectedGrupo]);
+
+  // Suscripción Realtime para actualizar movimientos en tiempo real
+  useEffect(() => {
+    if (!selectedGrupo) return;
+
+    const channel = supabase
+      .channel(`movimientos-cuenta-grupo-${selectedGrupo}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'movimientos_cuenta',
+          filter: `numero_grupo=eq.${selectedGrupo}`
+        },
+        () => {
+          loadMovimientos(selectedGrupo);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [selectedGrupo]);
 
   async function loadInicial() {
