@@ -127,7 +127,15 @@ export default function SocioHistorial({ socio }) {
                               </div>
                             )}
                           </td>
-                          <td style={{ textAlign: 'right' }}>${Number(c.calculado?.baseAb || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                           <td style={{ textAlign: 'right' }}>
+                             ${Number(
+                               (c.calculado?.baseAb || 0) - 
+                               (c.calculado?.excedentes || 0) + 
+                               (c.calculado?.cAdmin || 0) + 
+                               (c.calculado?.cIVA || 0) + 
+                               (c.calculado?.tarifaAunar || 0)
+                             ).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                           </td>
                           <td style={{ textAlign: 'right', color: '#f59e0b', fontWeight: 600 }}>{c.calculado?.excedentes > 0 ? `+$${Number(c.calculado.excedentes).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}</td>
                           <td style={{ textAlign: 'right', color: '#ef4444' }}>{c.calculado?.extraAmount > 0 ? `+$${Number(c.calculado.extraAmount).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}</td>
                           <td style={{ textAlign: 'right', color: '#10b981' }}>{c.calculado?.bonifManual > 0 ? `-$${Number(c.calculado.bonifManual).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}</td>
