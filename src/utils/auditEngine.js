@@ -569,6 +569,39 @@ export function auditLineItem(item, dbInfo, context) {
     }
   }
 
+  // --- AUDITORÍA DE BONIFICACIÓN (MOVISTAR) ---
+  if (selectedProvider === 'movistar' && precioLista > 0) {
+    const realAbonoNeto = realAbono / 1.21;
+    const descuentoReal = ((precioLista - realAbonoNeto) / precioLista) * 100;
+    const descuentoEsperado = (dbInfo && dbInfo.descuento_operadora_pct > 0) 
+      ? Number(dbInfo.descuento_operadora_pct) 
+      : 0;
+
+    if (descuentoEsperado > 0) {
+      const diffPct = descuentoReal - descuentoEsperado;
+      if (Math.abs(diffPct) > 2.0) {
+        auditStatus = 'WARN';
+        if (diffPct < -2.0) {
+          alertas.push({ 
+            tipo: 'CRITICAL', 
+            msg: `DESVÍO BONIF: ${descuentoReal.toFixed(1)}% (Esperado ${descuentoEsperado}%)`,
+            diff: realAbono - ((precioLista * (1 - descuentoEsperado/100)) * 1.21)
+          });
+        } else {
+          alertas.push({ 
+            tipo: 'CRITICAL', 
+            msg: `BONIF EXTRA: ${descuentoReal.toFixed(1)}% (Esperado ${descuentoEsperado}%)`,
+            diff: ((precioLista * (1 - descuentoEsperado/100)) * 1.21) - realAbono
+          });
+        }
+      } else {
+        alertas.push({ tipo: 'STABLE', msg: `Bonif. OK (${descuentoReal.toFixed(1)}%)` });
+      }
+    } else {
+      alertas.push({ tipo: 'INFO', msg: `Bonif. Real: ${descuentoReal.toFixed(1)}%` });
+    }
+  }
+
   // AUDITORÍA: Comparación contra el mes pasado (SOLO ABONO BASE)
   const prevData = prevConsumosData.find(c => c.numero_linea && c.numero_linea.endsWith(item.telefono.slice(-10)));
   const prevAbonoBase = prevData ? Number(prevData.costo_abono_real) : 0;
