@@ -218,6 +218,7 @@ export default function InformeSaldos() {
                 <th style={{ textAlign: 'center' }}>Último Movimiento</th>
                 <th style={{ textAlign: 'right' }}>Total Facturado</th>
                 <th style={{ textAlign: 'right' }}>Total Pagado</th>
+                <th style={{ textAlign: 'right' }}>Saldo Capital</th>
                 <th style={{ textAlign: 'right' }}>Saldo Final</th>
                 <th style={{ textAlign: 'center' }}>Acción</th>
               </tr>
@@ -225,13 +226,13 @@ export default function InformeSaldos() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="8" style={{ padding: '80px', textAlign: 'center' }}>
+                  <td colSpan="9" style={{ padding: '80px', textAlign: 'center' }}>
                     <Loader2 className="animate-spin" size={32} style={{ margin: '0 auto', color: 'var(--accent)' }} />
                   </td>
                 </tr>
               ) : paginatedGroups.length === 0 ? (
                 <tr>
-                  <td colSpan="8" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                  <td colSpan="9" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
                     No se encontraron grupos para estos filtros.
                   </td>
                 </tr>
@@ -259,6 +260,9 @@ export default function InformeSaldos() {
                       </td>
                       <td style={{ textAlign: 'right', fontWeight: 600, fontSize: '14px', color: '#10b981' }}>
                         {formatMoney(g.totalPagos)}
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, fontSize: '14px', color: g.saldoCapitalUltimo > 5 ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                        {formatMoney(g.saldoCapitalUltimo)}
                       </td>
                       <td style={{ textAlign: 'right', fontWeight: 900, fontSize: '14px', color: tieneDeuda ? 'var(--danger)' : '#10b981' }}>
                         {formatMoney(g.saldoFinalUltimo)}
