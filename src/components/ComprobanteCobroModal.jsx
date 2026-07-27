@@ -34,7 +34,6 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
     desgloses.forEach(d => {
       text += `• ${d.observaciones || 'Factura'} → Capital: ${formatMoney(d.pagoAplicadoCapital)} | Interés Mora: ${formatMoney(d.pagoAplicadoInteres)}\n`;
     });
-    text += `\n*Saldo Restante del Grupo:* ${formatMoney(saldo_restante)}\n`;
     text += `\n_Asociación Mutual Aunar • Gracias por mantener su cuenta al día._`;
 
     const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
@@ -224,15 +223,8 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
             </table>
           </div>
 
-          {/* Resumen Total y Saldo Restante */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '18px', borderTop: '2px solid var(--border-light)' }}>
-            <div>
-              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 800, textTransform: 'uppercase' }}>Saldo Restante del Grupo:</span>
-              <span className={saldo_restante > 5 ? 'print-text-danger' : 'print-text-accent'} style={{ fontSize: '16px', fontWeight: 900, marginLeft: '8px', color: saldo_restante > 5 ? '#ef4444' : '#10b981' }}>
-                {formatMoney(saldo_restante)}
-              </span>
-            </div>
-
+          {/* Resumen Total Cobrado */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', paddingTop: '18px', borderTop: '2px solid var(--border-light)' }}>
             <div style={{ textAlign: 'right' }}>
               <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 800, textTransform: 'uppercase', display: 'block' }}>MONTO TOTAL PAGADO</span>
               <span className="print-text-accent" style={{ fontSize: '26px', fontWeight: 900, color: '#10b981' }}>
