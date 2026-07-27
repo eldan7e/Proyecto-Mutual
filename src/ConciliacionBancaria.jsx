@@ -3136,22 +3136,6 @@ export default function ConciliacionBancaria() {
             >
               Débitos Automáticos
             </button>
-            <button 
-              onClick={() => setActiveTab('saldos')}
-              className="action-button"
-              style={{ 
-                background: activeTab === 'saldos' ? 'var(--accent)' : 'transparent', 
-                color: activeTab === 'saldos' ? 'white' : 'var(--text-secondary)',
-                padding: '8px 16px', 
-                borderRadius: '12px',
-                fontSize: '13px',
-                height: '36px',
-                display: 'flex',
-                alignItems: 'center'
-              }}
-            >
-              Saldos por Grupo
-            </button>
           </div>
         </div>
       </div>
@@ -3212,9 +3196,7 @@ export default function ConciliacionBancaria() {
         />
       )}
 
-      {activeTab === 'saldos' && (
-        <SaldosGruposTab />
-      )}
+
 
       {/* Modal de Desglose de Grupo */}
       <DesgloseGrupoModal
