@@ -408,15 +408,10 @@ export default function NuevaConciliacionTab({
             <AlertCircle size={24} color="var(--accent)" style={{ flexShrink: 0, marginTop: '2px' }} />
             <div>
               <h4 style={{ margin: '0 0 8px 0', fontSize: '15px', fontWeight: 800, color: 'var(--accent)' }}>
-                Aclaración Importante
+                Ingreso de Extracto Bancario y Crédito Automático
               </h4>
               <p style={{ margin: 0, fontSize: '14px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
-                Estás conciliando la deuda facturada en el período <strong style={{color: 'var(--text-primary)'}}>{
-                  selectedPeriod ? new Date(parseInt(selectedPeriod.split('-')[0]), parseInt(selectedPeriod.split('-')[1]) - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }).toUpperCase() : ''
-                }</strong>. 
-                Recordá que los pagos para este período suelen realizarse al mes siguiente. Por lo tanto, deberías copiar y pegar las transferencias del extracto de <strong style={{color: 'var(--text-primary)'}}>{
-                  selectedPeriod ? new Date(parseInt(selectedPeriod.split('-')[0]), parseInt(selectedPeriod.split('-')[1]), 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }).toUpperCase() : ''
-                }</strong>.
+                Pegá el extracto bancario (Banco Nación, Banco Credicoop, etc.). El sistema vinculará los créditos al grupo pagador, registrará el movimiento en la cuenta corriente y actualizará la deuda consolidada del grupo en tiempo real.
               </p>
             </div>
           </div>

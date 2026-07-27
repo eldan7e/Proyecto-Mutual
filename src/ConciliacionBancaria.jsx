@@ -3156,9 +3156,6 @@ export default function ConciliacionBancaria() {
         </div>
       </div>
 
-      {/* Bento de Resumen de Período */}
-      <PeriodSummaryCards periodSummary={periodSummary} selectedPeriod={selectedPeriod} />
-
       {/* Contenidos de Pestañas */}
       {activeTab === 'nueva' && (
         <NuevaConciliacionTab
