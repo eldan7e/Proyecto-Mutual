@@ -95,8 +95,9 @@ export async function fetchSocioConsumosData(socioId) {
     const latestMcSaldo = mcGroupsMap[groupNum];
     let realEstadoPago = groupLiq ? groupLiq.estado_pago : 'PENDIENTE';
 
-    // If group balance in movimientos_cuenta is <= 5, it is paid
-    if (latestMcSaldo !== undefined && latestMcSaldo <= 5) {
+    // Para períodos pasados (< 2026-07), si la cuenta del grupo quedó saldada (saldo <= 5), se marca como ABONADO
+    // Para el período actual (2026-07), las facturas vencen en Agosto por lo que se respeta estrictamente el estado_pago de la liquidación
+    if (c.periodo < '2026-07' && latestMcSaldo !== undefined && latestMcSaldo <= 5) {
       realEstadoPago = 'ABONADO';
     }
 
