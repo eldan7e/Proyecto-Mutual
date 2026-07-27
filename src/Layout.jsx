@@ -277,7 +277,7 @@ export default function Layout({ session, theme, toggleTheme }) {
     '/facturacion': 'Centro de Cobranzas',
     '/gestion-pagos': 'Auditoría',
     '/descuentos': 'Descuentos y Cargos',
-    '/carga-manual': 'Importación Manual',
+    '/carga-manual': 'Carga de Facturación',
     '/planes': 'Planes y Costos',
     '/conciliacion-bancaria': 'Conciliación Bancaria',
     '/movimientos-bancarios': 'Historial de Movimientos',
