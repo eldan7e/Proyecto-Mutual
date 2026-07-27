@@ -3044,101 +3044,109 @@ export default function ConciliacionBancaria() {
         })}
       </datalist>
 
-      {/* Header Panel */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px', flexWrap: 'wrap', gap: '20px' }}>
+      {/* Encabezado Principal */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '20px' }}>
         <div>
-          <h1 style={{ fontSize: '32px', fontWeight: 900, color: 'var(--text-primary)', marginBottom: '8px' }}>Conciliación Bancaria</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Módulo de trazabilidad inteligente de transferencias e impuestos</p>
+          <h1 style={{ fontSize: '32px', fontWeight: 900, color: 'var(--text-primary)', marginBottom: '4px' }}>Conciliación Bancaria</h1>
+          <p style={{ color: 'var(--text-secondary)', margin: 0 }}>Módulo de trazabilidad inteligente de transferencias e impuestos</p>
         </div>
         
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* Selector de Periodo premium */}
-          <div 
-            className="glass-panel hover-lift" 
-            style={{ 
-              padding: '8px 16px', 
-              display: 'flex', 
-              gap: '12px', 
-              alignItems: 'center', 
-              borderRadius: '16px', 
-              border: '1px solid var(--border-light)', 
-              background: 'var(--surface)',
-              minWidth: '220px',
-              height: '46px'
-            }}
-          >
-            <div style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Calendar size={18} />
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-              <label style={{ fontSize: '9px', fontWeight: '800', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1px' }}>
-                Período Conciliación
-              </label>
-              <select
-                value={selectedPeriod}
-                onChange={(e) => setSelectedPeriod(e.target.value)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  outline: 'none',
-                  fontSize: '13.5px',
-                  fontWeight: '800',
-                  color: 'var(--text-primary)',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                  padding: 0,
-                  width: '100%'
-                }}
-              >
-                {periodosList.length === 0 ? (
-                  <option value="" style={{ background: 'var(--surface)' }}>Cargando...</option>
-                ) : (
-                  periodosList.map(p => (
-                    <option key={p} value={p} style={{ background: 'var(--surface)', color: 'var(--text-primary)' }}>
-                      {p}
-                    </option>
-                  ))
-                )}
-              </select>
-            </div>
+        {/* Selector de Periodo */}
+        <div 
+          className="glass-panel hover-lift" 
+          style={{ 
+            padding: '8px 16px', 
+            display: 'flex', 
+            gap: '12px', 
+            alignItems: 'center', 
+            borderRadius: '16px', 
+            border: '1px solid var(--border-light)', 
+            background: 'var(--surface)',
+            minWidth: '220px',
+            height: '46px'
+          }}
+        >
+          <div style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Calendar size={18} />
           </div>
-
-          {/* Selector de Pestañas Premium */}
-          <div style={{ display: 'flex', background: 'rgba(0,0,0,0.04)', padding: '4px', borderRadius: '16px', border: '1px solid var(--border-light)', height: '46px', alignItems: 'center' }}>
-            <button 
-              onClick={() => setActiveTab('nueva')}
-              className="action-button"
-              style={{ 
-                background: activeTab === 'nueva' ? 'var(--accent)' : 'transparent', 
-                color: activeTab === 'nueva' ? 'white' : 'var(--text-secondary)',
-                padding: '8px 16px', 
-                borderRadius: '12px',
-                fontSize: '13px',
-                height: '36px',
-                display: 'flex',
-                alignItems: 'center'
+          <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+            <label style={{ fontSize: '9px', fontWeight: '800', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1px' }}>
+              Período Conciliación
+            </label>
+            <select
+              value={selectedPeriod}
+              onChange={(e) => setSelectedPeriod(e.target.value)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                fontSize: '13.5px',
+                fontWeight: '800',
+                color: 'var(--text-primary)',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                padding: 0,
+                width: '100%'
               }}
             >
-              Nueva Conciliación
-            </button>
-            <button 
-              onClick={() => setActiveTab('debitos')}
-              className="action-button"
-              style={{ 
-                background: activeTab === 'debitos' ? 'var(--accent)' : 'transparent', 
-                color: activeTab === 'debitos' ? 'white' : 'var(--text-secondary)',
-                padding: '8px 16px', 
-                borderRadius: '12px',
-                fontSize: '13px',
-                height: '36px',
-                display: 'flex',
-                alignItems: 'center'
-              }}
-            >
-              Débitos Automáticos
-            </button>
+              {periodosList.length === 0 ? (
+                <option value="" style={{ background: 'var(--surface)' }}>Cargando...</option>
+              ) : (
+                periodosList.map(p => (
+                  <option key={p} value={p} style={{ background: 'var(--surface)', color: 'var(--text-primary)' }}>
+                    {p}
+                  </option>
+                ))
+              )}
+            </select>
           </div>
         </div>
+      </div>
+
+      {/* Barra de Sub-Pestañas Estilo Comunidad */}
+      <div style={{ display: 'flex', gap: '12px', borderBottom: '1px solid var(--border-light)', paddingBottom: '16px', marginBottom: '24px' }}>
+        <button
+          onClick={() => setActiveTab('nueva')}
+          className={`nav-pill ${activeTab === 'nueva' ? 'active' : ''}`}
+          style={{ 
+            border: 'none', 
+            background: activeTab === 'nueva' ? 'var(--accent)' : 'transparent',
+            color: activeTab === 'nueva' ? 'white' : 'var(--text-secondary)',
+            cursor: 'pointer', 
+            padding: '10px 20px', 
+            fontWeight: 700, 
+            borderRadius: '10px', 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '8px',
+            fontSize: '14px',
+            boxShadow: activeTab === 'nueva' ? '0 8px 18px -4px var(--accent-shadow)' : 'none',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          Nueva Conciliación
+        </button>
+        <button
+          onClick={() => setActiveTab('debitos')}
+          className={`nav-pill ${activeTab === 'debitos' ? 'active' : ''}`}
+          style={{ 
+            border: 'none', 
+            background: activeTab === 'debitos' ? 'var(--accent)' : 'transparent',
+            color: activeTab === 'debitos' ? 'white' : 'var(--text-secondary)',
+            cursor: 'pointer', 
+            padding: '10px 20px', 
+            fontWeight: 700, 
+            borderRadius: '10px', 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '8px',
+            fontSize: '14px',
+            boxShadow: activeTab === 'debitos' ? '0 8px 18px -4px var(--accent-shadow)' : 'none',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          Débitos Automáticos
+        </button>
       </div>
 
       {/* Contenidos de Pestañas */}
