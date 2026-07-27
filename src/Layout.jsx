@@ -259,7 +259,7 @@ export default function Layout({ session, theme, toggleTheme }) {
 
   const APP_CATEGORIES = [
     { id: 'general', paths: ['/', '/tareas', '/log-diario', '/ingreso-diario'] },
-    { id: 'mgmt', paths: ['/comunidad'] },
+    { id: 'mgmt', paths: ['/comunidad?tab=socios', '/comunidad?tab=grupos', '/comunidad?tab=planes'] },
     { id: 'facturacion', paths: ['/facturacion', '/gestion-pagos', '/descuentos', '/carga-manual'] },
     { id: 'bancos', paths: ['/cuenta-corriente', '/informe-saldos', '/conciliacion-bancaria', '/movimientos-bancarios'] },
     { id: 'comunicacion', paths: ['/campanas'] },
@@ -270,8 +270,11 @@ export default function Layout({ session, theme, toggleTheme }) {
     '/tareas': 'Tablero de Tareas',
     '/log-diario': 'Log Diario',
     '/ingreso-diario': 'Ingreso Diario',
-    '/comunidad': 'Gestión de Comunidad',
-    '/socios': 'Fichas de Socios',
+    '/comunidad?tab=socios': 'Socios',
+    '/comunidad?tab=grupos': 'Gestión de Grupos',
+    '/comunidad?tab=planes': 'Planes y Costos',
+    '/comunidad': 'Socios',
+    '/socios': 'Socios',
     '/cuenta-corriente': 'Cuenta Corriente por Grupo',
     '/informe-saldos': 'Informe de Saldos',
     '/facturacion': 'Centro de Cobranzas',
@@ -288,7 +291,7 @@ export default function Layout({ session, theme, toggleTheme }) {
   const activeCategory = APP_CATEGORIES.find(cat => {
     const currentPath = location.pathname.toLowerCase().replace(/\/$/, '') || '/';
     return cat.paths.some(p => {
-      const targetPath = p.toLowerCase().replace(/\/$/, '') || '/';
+      const targetPath = p.split('?')[0].toLowerCase().replace(/\/$/, '') || '/';
       return currentPath === targetPath;
     });
   }) || APP_CATEGORIES[0];
@@ -328,13 +331,15 @@ export default function Layout({ session, theme, toggleTheme }) {
             const currentFullPath = location.pathname + location.search;
             const isActive = item.path === '/' 
               ? (location.pathname === '/' || ['/tareas', '/log-diario', '/ingreso-diario'].includes(location.pathname))
-              : item.path === '/facturacion'
-                ? ['/facturacion', '/gestion-pagos', '/descuentos', '/carga-manual'].includes(location.pathname)
-                : item.path === '/conciliacion-bancaria'
-                  ? ['/conciliacion-bancaria', '/cuenta-corriente', '/informe-saldos', '/movimientos-bancarios'].includes(location.pathname)
-                  : item.path.includes('?') 
-                    ? currentFullPath === item.path 
-                    : location.pathname === item.path;
+              : item.path === '/comunidad'
+                ? location.pathname === '/comunidad'
+                : item.path === '/facturacion'
+                  ? ['/facturacion', '/gestion-pagos', '/descuentos', '/carga-manual'].includes(location.pathname)
+                  : item.path === '/conciliacion-bancaria'
+                    ? ['/conciliacion-bancaria', '/cuenta-corriente', '/informe-saldos', '/movimientos-bancarios'].includes(location.pathname)
+                    : item.path.includes('?') 
+                      ? currentFullPath === item.path 
+                      : location.pathname === item.path;
             const Icon = item.icon;
             return (
               <Link
@@ -376,15 +381,21 @@ export default function Layout({ session, theme, toggleTheme }) {
               {categoryNames[activeCategory.id]}
             </div>
             <div className="top-nav-pills">
-              {activeCategory.paths.map((path) => (
-                <Link 
-                  key={path} 
-                  to={path} 
-                  className={`nav-pill ${location.pathname === path ? 'active' : ''}`}
-                >
-                  {pageNames[path]}
-                </Link>
-              ))}
+              {activeCategory.paths.map((path) => {
+                const currentFullPath = location.pathname + location.search;
+                const isPillActive = path.includes('?') 
+                  ? (currentFullPath === path || (path === '/comunidad?tab=socios' && location.pathname === '/comunidad' && !location.search))
+                  : location.pathname === path;
+                return (
+                  <Link 
+                    key={path} 
+                    to={path} 
+                    className={`nav-pill ${isPillActive ? 'active' : ''}`}
+                  >
+                    {pageNames[path]}
+                  </Link>
+                );
+              })}
             </div>
           </div>
 
