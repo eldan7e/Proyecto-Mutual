@@ -54,7 +54,19 @@ export default function CargaManual() {
   const [sortByAnomalies, setSortByAnomalies] = useState(false);
   const [selectedRows, setSelectedRows] = useState(new Set());
 
-  // Cargar precios de la matriz para el periodo seleccionado
+  const getPrevPeriodStrHelper = (pStr) => {
+    if (!pStr) return '';
+    const [year, month] = pStr.split('-').map(Number);
+    let prevYear = year;
+    let prevMonth = month - 1;
+    if (prevMonth === 0) {
+      prevMonth = 12;
+      prevYear -= 1;
+    }
+    return `${prevYear}-${String(prevMonth).padStart(2, '0')}`;
+  };
+
+  // Cargar precios de la matriz para el periodo seleccionado y el periodo anterior
   useEffect(() => {
     async function fetchPeriodPrices() {
       setIsPeriodPricesLoading(true);
@@ -62,22 +74,25 @@ export default function CargaManual() {
         setIsPeriodPricesLoading(false);
         return;
       }
-      const { data, error } = await supabase
-        .from('precios_auditoria_periodo')
-        .select('*')
-        .eq('periodo', periodo);
-      
-      if (error) {
-        console.error("Error al cargar precios de auditoría del periodo:", error);
-        setIsPeriodPricesLoading(false);
-        return;
-      }
+      const prevPeriodStr = getPrevPeriodStrHelper(periodo);
+
+      const [currRes, prevRes] = await Promise.all([
+        supabase.from('precios_auditoria_periodo').select('*').eq('periodo', periodo),
+        prevPeriodStr ? supabase.from('precios_auditoria_periodo').select('*').eq('periodo', prevPeriodStr) : Promise.resolve({ data: [] })
+      ]);
+
+      const cMap = new Map();
+      (currRes.data || []).forEach(p => {
+        cMap.set(p.plan_id, Number(p.precio_lista) || 0);
+      });
 
       const pMap = new Map();
-      data?.forEach(p => {
+      (prevRes.data || []).forEach(p => {
         pMap.set(p.plan_id, Number(p.precio_lista) || 0);
       });
-      setPeriodPrices(pMap);
+
+      setPeriodPrices(cMap);
+      setPrevPeriodPrices(pMap);
       setIsPeriodPricesLoading(false);
     }
     fetchPeriodPrices();
@@ -489,26 +504,69 @@ export default function CargaManual() {
       const avgPrev = countVal > 0 ? (totalPrev / countVal) : 0;
       const avgCurr = countVal > 0 ? (totalCurr / countVal) : 0;
 
+      // Buscar plan_id en dbLines para obtener los precios de lista del mes anterior y actual
+      let dbPlanInfo = null;
+      const normPlanName = planName.toLowerCase().replace(/\s+/g, '');
+      for (const dbLine of dbLines.values()) {
+        if (dbLine.plan_db && dbLine.plan_db.toLowerCase().replace(/\s+/g, '') === normPlanName && dbLine.planes_abonos) {
+          dbPlanInfo = dbLine.planes_abonos;
+          break;
+        }
+      }
+      const planId = dbPlanInfo?.plan_id;
+
+      // Precio de lista actual
+      let currListPrice = 0;
+      if (planId && periodPrices.has(planId) && periodPrices.get(planId) > 0) {
+        currListPrice = periodPrices.get(planId);
+      } else {
+        currListPrice = dbPlanInfo?.precio_oficial || dbPlanInfo?.precio || 0;
+      }
+      const sampleWithList = lines.find(l => Number(l.precioListaOriginal) > 0 || Number(l.precioOficial) > 0);
+      if (sampleWithList) {
+        const parsedList = Number(sampleWithList.precioListaOriginal || sampleWithList.precioOficial);
+        if (parsedList > 0) currListPrice = parsedList;
+      }
+
+      // Precio de lista anterior
+      let prevListPrice = 0;
+      if (planId && prevPeriodPrices.has(planId) && prevPeriodPrices.get(planId) > 0) {
+        prevListPrice = prevPeriodPrices.get(planId);
+      } else {
+        if (avgPct !== 0 && currListPrice > 0) {
+          prevListPrice = Math.round(currListPrice / (1 + avgPct / 100));
+        }
+      }
+
       planIncreases.push({ 
         plan: planName, 
         increase: avgPct,
         avgPrevAbono: avgPrev,
-        avgCurrAbono: avgCurr
+        avgCurrAbono: avgCurr,
+        prevListPrice,
+        currListPrice
       });
     }
     
     // Ordenar los de mayor aumento primero
     planIncreases.sort((a, b) => b.increase - a.increase);
 
-    // Calcular promedio ponderado de aumento de este proveedor
+    // Calcular aumento sugerido a la Tarifa Aunar basado en el aumento puro de los planes más bajos sin excedentes
+    let candidateRows = fileData.filter(row => row.prevAbonoBase > 0 && (row.excedentes || 0) === 0);
+    // Filtrar aumentos distorsionados (> 10%) causados por pérdida de bonificaciones de operadora
+    const pureLines = candidateRows.filter(row => {
+      const pct = ((row.abono - row.prevAbonoBase) / row.prevAbonoBase) * 100;
+      return pct <= 10.0;
+    });
+
+    const targetRows = pureLines.length > 0 ? pureLines : (candidateRows.length > 0 ? candidateRows : fileData.filter(row => row.prevAbonoBase > 0));
+
     let totalLinesWithPrev = 0;
     let sumPct = 0;
-    fileData.forEach(row => {
-      if (row.prevAbonoBase > 0) {
-        const pct = ((row.abono - row.prevAbonoBase) / row.prevAbonoBase) * 100;
-        sumPct += pct;
-        totalLinesWithPrev++;
-      }
+    targetRows.forEach(row => {
+      const pct = ((row.abono - row.prevAbonoBase) / row.prevAbonoBase) * 100;
+      sumPct += pct;
+      totalLinesWithPrev++;
     });
     const weightedAvgPct = totalLinesWithPrev > 0 ? (sumPct / totalLinesWithPrev) : 0;
 
@@ -1007,8 +1065,18 @@ export default function CargaManual() {
                           {hasAbonoData && (
                             <span>Abono Base Factura: <span style={{ textDecoration: 'line-through' }}>${p.avgPrevAbono.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> ({confirmStats?.prevMonthLabel || 'Mes Ant.'}) → <span style={{ color: 'var(--text-primary)', fontWeight: 800 }}>${p.avgCurrAbono.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> ({confirmStats?.currMonthLabel || 'Actual'}) <span style={{ color: diffAbono > 0 ? '#ef4444' : '#10b981', marginLeft: '4px' }}>({diffAbono >= 0 ? '+' : '-'}${Math.abs(diffAbono).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span></span>
                           )}
-                          {hasData && (
-                            <span>Precio Lista Sugerido: <span style={{ textDecoration: 'line-through' }}>${curPrecio.toLocaleString('es-AR')}</span> → <span style={{ color: 'var(--accent)', fontWeight: 800 }}>${sugPrecio.toLocaleString('es-AR')}</span></span>
+                          {(p.prevListPrice > 0 || p.currListPrice > 0 || hasData) && (
+                            <span>
+                              Precio Lista: {p.prevListPrice > 0 ? (
+                                <><span style={{ textDecoration: 'line-through' }}>${p.prevListPrice.toLocaleString('es-AR')}</span> ({confirmStats?.prevMonthLabel || 'Mes Ant.'}) → </>
+                              ) : ''}
+                              <span style={{ color: 'var(--accent)', fontWeight: 800 }}>${(p.currListPrice || curPrecio).toLocaleString('es-AR')}</span> ({confirmStats?.currMonthLabel || 'Actual'})
+                              {p.prevListPrice > 0 && p.currListPrice > 0 && (
+                                <span style={{ color: p.currListPrice >= p.prevListPrice ? '#ef4444' : '#10b981', marginLeft: '4px' }}>
+                                  ({p.currListPrice >= p.prevListPrice ? '+' : '-'}${Math.abs(p.currListPrice - p.prevListPrice).toLocaleString('es-AR')})
+                                </span>
+                              )}
+                            </span>
                           )}
                         </div>
                       </div>
@@ -1025,11 +1093,13 @@ export default function CargaManual() {
                           <span style={{ color: 'var(--accent)', fontSize: '18px', fontWeight: 900 }}>${confirmStats.sugTarifa.toLocaleString('es-AR')}</span>
                         </div>
                         <span style={{ fontSize: '11px', fontWeight: 800, background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6', padding: '3px 10px', borderRadius: '100px', whiteSpace: 'nowrap' }}>
-                          {confirmStats.weightedAvgPct >= 0 ? '+' : ''}{confirmStats.weightedAvgPct.toFixed(1)}% Ponderado
+                          {confirmStats.weightedAvgPct >= 0 ? '+' : ''}{confirmStats.weightedAvgPct.toFixed(1)}% {selectedProvider === 'movistar' ? '(Planes Base)' : 'Ponderado'}
                         </span>
                       </div>
                       <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 500 }}>
-                        Aumento calculado ponderando la variación real de todas las líneas activas de este proveedor.
+                        {selectedProvider === 'movistar' 
+                          ? 'Aumento sugerido basado en el incremento puro (~2%) de los planes base sin excedentes.' 
+                          : 'Aumento calculado ponderando la variación real de las líneas activas.'}
                       </div>
                     </div>
                   )}
