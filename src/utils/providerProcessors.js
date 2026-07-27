@@ -148,8 +148,21 @@ export const procesarPersonal = (textLines) => {
       }
       
       if (val > 0) {
+        let label = 'Descuentos Adicionales';
+        // Intentar extraer el nombre específico de la línea de detalle
+        if (idx + 1 < lines.length) {
+          const nextLine = lines[idx + 1];
+          const nextNorm = norm(nextLine);
+          if (nextNorm.startsWith('DESCUENTOCONEXIONTOTAL') || nextNorm.startsWith('DESCUENTO')) {
+            const descMatch = nextLine.match(/Descuento\s+([A-Za-zÀ-ÿ0-9\s]+?)(?=\s+\d|\s+-|\s+\$)/i);
+            if (descMatch) {
+              label = 'Descuento ' + descMatch[1].trim();
+            }
+          }
+        }
+
         current = {
-          telefono: 'DESCUENTOS ADICIONALES',
+          telefono: label,
           bruto: -val,
           excedentes: 0,
           descuentoMonto: 0,
@@ -398,7 +411,7 @@ export const procesarPersonal = (textLines) => {
   const finalMap = new Map();
   results.forEach(r => {
     const tel = r.telefono;
-    if (!tel || (tel !== 'INTERNET' && tel !== 'DESCUENTOS ADICIONALES' && !tel.includes('SUELTA') && tel.length < 6)) return;
+    if (!tel || (tel !== 'INTERNET' && !tel.toLowerCase().startsWith('descuento') && !tel.includes('SUELTA') && tel.length < 6)) return;
     if (r.bruto === 0) return; // Descartar entradas vacías
 
     const netoTotal = r.bruto;
