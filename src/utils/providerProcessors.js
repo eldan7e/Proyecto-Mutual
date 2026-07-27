@@ -441,9 +441,9 @@ export const procesarMovistar = (lines) => {
     if (amounts.length >= 10) { // Cuadro 1: Cargos Netos detallados (suele tener ~16 montos)
       existing.abonoNeto = parseMovistarNumber(amounts[0]);
       existing.montoNeto = parseMovistarNumber(amounts[amounts.length - 1]);
-    } else if (amounts.length === 1) { // Cuadro 2: Total c/ Impuestos (tiene solo 1 monto al final)
-      existing.montoFinal = parseMovistarNumber(amounts[0]);
-      const planTxt = text.replace(phone, '').replace(amounts[0], '').trim();
+    } else if (amounts.length >= 1) { // Cuadro 2: Total c/ Impuestos (puede tener GB con decimales, total al final)
+      existing.montoFinal = parseMovistarNumber(amounts[amounts.length - 1]);
+      const planTxt = text.replace(phone, '').replace(amounts[amounts.length - 1], '').trim();
       if (planTxt) existing.plan = planTxt;
     }
     phoneMap.set(phone, existing);
@@ -469,51 +469,22 @@ export const procesarMovistar = (lines) => {
     invoiceTotal = Math.max(0, invoiceTotal - reconexionAmount);
   }
 
-  // Calcular taxFactor dinámico usando la moda de los ratios para evitar desvíos por anomalías
-  const ratios = [];
-  for (const r of phoneMap.values()) {
-    if (r.montoNeto > 100 && r.montoFinal > 100) {
-      ratios.push(r.montoFinal / r.montoNeto);
-    }
-  }
-  let taxFactor = 1.21;
-  if (ratios.length > 0) {
-    const groups = {};
-    ratios.forEach(ratio => {
-      const rounded = Math.round(ratio * 100) / 100;
-      groups[rounded] = (groups[rounded] || 0) + 1;
-    });
-    
-    let bestGroup = '1.21';
-    let maxCount = 0;
-    for (const [g, count] of Object.entries(groups)) {
-      if (count > maxCount) {
-        maxCount = count;
-        bestGroup = g;
-      }
-    }
-    
-    const targetGroupVal = parseFloat(bestGroup);
-    const validRatios = ratios.filter(r => Math.abs(r - targetGroupVal) < 0.02);
-    if (validRatios.length > 0) {
-      const sum = validRatios.reduce((acc, v) => acc + v, 0);
-      taxFactor = Math.round((sum / validRatios.length) * 10000) / 10000;
-    } else {
-      taxFactor = targetGroupVal;
-    }
-  }
+  const taxFactor = 1.21;
 
   let mappedLines = Array.from(phoneMap.values()).map(r => {
-    const totalConImpuestos = r.montoFinal > 0 ? r.montoFinal : (r.montoNeto * taxFactor);
+    const totalConImpuestos = r.montoFinal > 0 ? r.montoFinal : Math.round(r.montoNeto * 1.21 * 100) / 100;
     const excedenteNeto = r.montoNeto > 0 ? Math.max(0, r.montoNeto - r.abonoNeto) : 0;
     
-    // Capturar cargos/adicionales cobrados solo con impuestos en la factura (ej: bonos adicionales)
+    const totalCalculadoConIVA = Math.round(r.montoNeto * 1.21 * 100) / 100;
     const extraChargesWithTax = r.montoFinal > 0 && r.montoNeto > 0
-      ? Math.max(0, r.montoFinal - (r.montoNeto * taxFactor))
+      ? Math.max(0, Math.round((r.montoFinal - totalCalculadoConIVA) * 100) / 100)
       : 0;
 
-    const excedenteConImpuestos = (excedenteNeto * taxFactor) + extraChargesWithTax;
-    const abonoConImpuestos = totalConImpuestos - excedenteConImpuestos;
+    const excedenteConImpuestos = Math.round(((excedenteNeto * 1.21) + extraChargesWithTax) * 100) / 100;
+    const abonoConImpuestos = Math.round((totalConImpuestos - excedenteConImpuestos) * 100) / 100;
+    
+    // Mismatch de IVA: cuando el monto con impuestos del comprobante (montoFinal) no coincide con el calculado con 21% IVA
+    const ivaMismatch = r.montoFinal > 0 && r.montoNeto > 0 && Math.abs(r.montoFinal - totalCalculadoConIVA) > 0.10;
       
     return {
       telefono: r.telefono,
@@ -521,7 +492,10 @@ export const procesarMovistar = (lines) => {
       abonoNet: abonoConImpuestos,
       excedenteNet: excedenteConImpuestos,
       plan: r.plan || "Movistar Móvil",
-      _montoNetoOriginal: r.montoNeto // para heurística de filtrado
+      _montoNetoOriginal: r.montoNeto, // para heurística de filtrado
+      ivaMismatch,
+      montoCalculadoIVA: totalCalculadoConIVA,
+      montoComprobante: r.montoFinal
     };
   });
 
@@ -545,7 +519,10 @@ export const procesarMovistar = (lines) => {
         montoStr: r.totalNet.toFixed(2),
         excedenteStr: r.excedenteNet.toFixed(2),
         abonoStr: r.abonoNet.toFixed(2),
-        plan: r.plan
+        plan: r.plan,
+        ivaMismatch: r.ivaMismatch,
+        montoCalculadoIVA: r.montoCalculadoIVA.toFixed(2),
+        montoComprobante: r.montoComprobante.toFixed(2)
       };
     }),
     invoiceTotal,

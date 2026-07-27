@@ -489,6 +489,14 @@ export function auditLineItem(item, dbInfo, context) {
   const alertas = [];
   let auditStatus = 'OK';
 
+  if (selectedProvider === 'movistar' && item.ivaMismatch) {
+    alertas.push({
+      tipo: 'CRITICAL',
+      msg: `DESVÍO IVA: Comprobante $${Number(item.montoComprobante).toLocaleString('es-AR')} vs Calculado 21% IVA $${Number(item.montoCalculadoIVA).toLocaleString('es-AR')}`
+    });
+    auditStatus = 'WARN';
+  }
+
   const provMap = { 'claro': 1, 'movistar': 2, 'personal': 3 };
   if (dbInfo && dbInfo.proveedor_id !== provMap[selectedProvider]) {
     const currentProvName = dbInfo.proveedor_id === 1 ? 'CLARO' : dbInfo.proveedor_id === 2 ? 'MOVISTAR' : 'PERSONAL';
