@@ -484,13 +484,17 @@ export const procesarMovistar = (lines) => {
     const amounts = allAmounts.filter(m => m.includes(',') && m.split(',')[1].length === 2);
     const existing = phoneMap.get(phone) || { telefono: phone, montoNeto: 0, abonoNeto: 0, montoFinal: 0, plan: '' };
 
-    if (amounts.length >= 10) { // Cuadro 1: Cargos Netos detallados (suele tener ~16 montos)
+    if (amounts.length >= 2) { // Cuadro 1: Cargos Netos detallados (abono al inicio, total neto al final)
       existing.abonoNeto = parseMovistarNumber(amounts[0]);
       existing.montoNeto = parseMovistarNumber(amounts[amounts.length - 1]);
-    } else if (amounts.length >= 1) { // Cuadro 2: Total c/ Impuestos (puede tener GB con decimales, total al final)
-      existing.montoFinal = parseMovistarNumber(amounts[amounts.length - 1]);
-      const planTxt = text.replace(phone, '').replace(amounts[amounts.length - 1], '').trim();
-      if (planTxt) existing.plan = planTxt;
+    } else if (amounts.length === 1) { // Cuadro 2: Total c/ Impuestos (monto final con impuestos si no hay montoNeto)
+      if (existing.montoNeto === 0) {
+        existing.montoFinal = parseMovistarNumber(amounts[0]);
+      }
+      const planTxt = text.replace(phone, '').replace(amounts[0], '').trim();
+      if (planTxt && (!existing.plan || existing.plan === 'Movistar Móvil')) {
+        existing.plan = planTxt;
+      }
     }
     phoneMap.set(phone, existing);
   });
@@ -518,20 +522,28 @@ export const procesarMovistar = (lines) => {
   const taxFactor = 1.21;
 
   let mappedLines = Array.from(phoneMap.values()).map(r => {
-    const totalConImpuestos = r.montoFinal > 0 ? r.montoFinal : Math.round(r.montoNeto * 1.21 * 100) / 100;
-    const excedenteNeto = r.montoNeto > 0 ? Math.max(0, r.montoNeto - r.abonoNeto) : 0;
-    
-    const totalCalculadoConIVA = Math.round(r.montoNeto * 1.21 * 100) / 100;
-    const extraChargesWithTax = r.montoFinal > 0 && r.montoNeto > 0
-      ? Math.max(0, Math.round((r.montoFinal - totalCalculadoConIVA) * 100) / 100)
-      : 0;
+    let totalConImpuestos = 0;
+    let abonoConImpuestos = 0;
+    let excedenteConImpuestos = 0;
+    let totalCalculadoConIVA = 0;
 
-    const excedenteConImpuestos = Math.round(((excedenteNeto * 1.21) + extraChargesWithTax) * 100) / 100;
-    const abonoConImpuestos = Math.round((totalConImpuestos - excedenteConImpuestos) * 100) / 100;
-    
-    // Mismatch de IVA: cuando el monto con impuestos del comprobante (montoFinal) no coincide con el calculado con 21% IVA
+    if (r.montoNeto > 0) {
+      totalCalculadoConIVA = Math.round(r.montoNeto * 1.21 * 100) / 100;
+      const excedenteNeto = Math.max(0, r.montoNeto - r.abonoNeto);
+      const extraChargesWithTax = r.montoFinal > 0 && r.montoFinal > totalCalculadoConIVA
+        ? Math.max(0, Math.round((r.montoFinal - totalCalculadoConIVA) * 100) / 100)
+        : 0;
+
+      excedenteConImpuestos = Math.round(((excedenteNeto * 1.21) + extraChargesWithTax) * 100) / 100;
+      totalConImpuestos = (r.montoFinal > 0 && r.montoFinal >= totalCalculadoConIVA) ? r.montoFinal : totalCalculadoConIVA;
+      abonoConImpuestos = Math.round((totalConImpuestos - excedenteConImpuestos) * 100) / 100;
+    } else if (r.montoFinal > 0) {
+      totalConImpuestos = r.montoFinal;
+      abonoConImpuestos = r.montoFinal;
+    }
+
     const ivaMismatch = r.montoFinal > 0 && r.montoNeto > 0 && Math.abs(r.montoFinal - totalCalculadoConIVA) > 0.10;
-      
+
     return {
       telefono: r.telefono,
       totalNet: totalConImpuestos,
