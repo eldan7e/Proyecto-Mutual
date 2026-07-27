@@ -252,6 +252,7 @@ export default function CargaManual() {
 
           return {
             linea: normPhone,
+            proveedorIdDb: dbInfo?.proveedor_id,
             plan: auditData.planDisplay,
             planOficial: dbInfo?.plan_db || 'No registrado',
             gbOficial: dbInfo?.gb_db,
@@ -430,6 +431,11 @@ export default function CargaManual() {
     const groupedByPlan = {};
     
     fileData.forEach(row => {
+      // Ignorar si la línea pertenece a otro proveedor en DB (ej: portabilidad)
+      if (row.proveedorIdDb && row.proveedorIdDb !== currentProvId) {
+        return;
+      }
+
       let planName = row.planOficial !== 'No registrado' ? row.planOficial : row.plan;
       
       // Normalizar y buscar coincidencia en dbLines para agrupar duplicados (ej: Plan4GB vs Plan 4 GB)
