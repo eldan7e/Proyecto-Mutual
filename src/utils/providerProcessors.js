@@ -132,6 +132,39 @@ export const procesarPersonal = (textLines) => {
     const rawLine = lines[idx];
     const u = norm(rawLine);
 
+    // --- NUEVO: Capturar descuentos globales de la cooperativa/cuenta ---
+    if (u.startsWith('DESCUENTOSADICIONALES') || u.startsWith('DESCUENTOCONEXIONTOTAL')) {
+      closeCurrent();
+      let val = 0;
+      if (rawLine.includes('$')) {
+        const m = rawLine.match(/\$\s*(-?[\d\.,]+)/);
+        if (m) val = parsePersonalNumber(m[1].replace('-', ''));
+      } else if (idx + 1 < lines.length && lines[idx + 1].includes('$')) {
+        const m = lines[idx + 1].match(/\$\s*(-?[\d\.,]+)/);
+        if (m) {
+          val = parsePersonalNumber(m[1].replace('-', ''));
+          idx++;
+        }
+      }
+      
+      if (val > 0) {
+        current = {
+          telefono: 'DESCUENTOS ADICIONALES',
+          bruto: -val,
+          excedentes: 0,
+          descuentoMonto: 0,
+          descuentoPct: '',
+          plan: 'Descuento Global'
+        };
+      }
+      continue;
+    }
+
+    if (u.startsWith('DESCUENTOCONEXION')) {
+      closeCurrent();
+      continue;
+    }
+
     // LÍNEA MÓVIL o FIJA (soporta formatos viejos y nuevos de 10 dígitos)
     const cleanLineNorm = rawLine.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[\(\)\s]/g, '');
     const isNewPhoneHeader = /^(?:LINEA(?:MOVIL|FIJA)?\d{7,10}|\d{10})/.test(cleanLineNorm);
@@ -365,7 +398,7 @@ export const procesarPersonal = (textLines) => {
   const finalMap = new Map();
   results.forEach(r => {
     const tel = r.telefono;
-    if (!tel || (tel !== 'INTERNET' && !tel.includes('SUELTA') && tel.length < 6)) return;
+    if (!tel || (tel !== 'INTERNET' && tel !== 'DESCUENTOS ADICIONALES' && !tel.includes('SUELTA') && tel.length < 6)) return;
     if (r.bruto === 0) return; // Descartar entradas vacías
 
     const netoTotal = r.bruto;

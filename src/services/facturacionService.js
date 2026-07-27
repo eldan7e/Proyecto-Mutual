@@ -165,6 +165,7 @@ export async function saveFacturacion({
 
   const lineasPayload = fileData.map((row) => {
     const num = row.linea?.toString().replace(/\D/g, '');
+    if (!num) return null; // Ignorar líneas virtuales/no-numéricas
     const existing = existMap.get(num);
 
     // Auto-match plan by name or closest price
@@ -194,7 +195,7 @@ export async function saveFacturacion({
       proveedor_id: proveedorId,
       plan_id: matchedPlanId,
     };
-  });
+  }).filter(Boolean);
 
   const CHUNK = 50;
   for (let i = 0; i < lineasPayload.length; i += CHUNK) {
@@ -219,6 +220,7 @@ export async function saveFacturacion({
   // Re-fetch period prices for audit columns
   const consumosPayload = fileData.map((row) => {
     const num = row.linea?.toString().replace(/\D/g, '');
+    if (!num) return null; // Ignorar líneas virtuales/no-numéricas
     const lineaObj = lineasPayload.find((l) => l.numero_linea === num);
     const planId = lineaObj?.plan_id;
     const dbPlan = (dbPlanes || []).find((p) => p.plan_id === planId);
@@ -249,7 +251,7 @@ export async function saveFacturacion({
         ? row.precioOficial 
         : (row.precioListaOriginal ? Number(row.precioListaOriginal) : null),
     };
-  });
+  }).filter(Boolean);
 
   const consumoChunks = [];
   for (let i = 0; i < consumosPayload.length; i += CHUNK) {
