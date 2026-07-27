@@ -31,6 +31,22 @@ export default function BatchModal({ isPeriodoLiquidado, selectedPeriodo, initia
           )}
         </div>
 
+        {isPeriodoLiquidado && (
+          <div style={{
+            background: 'rgba(245, 158, 11, 0.1)',
+            border: '1px solid rgba(245, 158, 11, 0.3)',
+            color: '#d97706',
+            padding: '10px 14px',
+            borderRadius: '12px',
+            fontSize: '11px',
+            fontWeight: 700,
+            lineHeight: '1.4',
+            marginBottom: '16px'
+          }}>
+            ⚠️ Este período ya tiene liquidaciones generadas. Modificar la matriz actualizará los consumos, pero deberás regenerar las liquidaciones de los socios para que reflejen los nuevos precios.
+          </div>
+        )}
+
         <div style={{ background: 'var(--surface)', padding: '12px 16px', borderRadius: '16px', border: '1px solid var(--border-light)', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div style={{ background: 'var(--accent-light)', color: 'var(--accent)', padding: '6px', borderRadius: '8px' }}><DollarSign size={16} /></div>
@@ -40,7 +56,6 @@ export default function BatchModal({ isPeriodoLiquidado, selectedPeriodo, initia
           </div>
           <input 
             type="number"
-            disabled={isPeriodoLiquidado}
             className="premium-input"
             style={{ height: '32px', width: '120px', fontSize: '14px', textAlign: 'center', fontWeight: 800, padding: '4px 8px' }}
             value={globalTarifaAunar}
@@ -73,7 +88,6 @@ export default function BatchModal({ isPeriodoLiquidado, selectedPeriodo, initia
                   <td style={{ padding: '8px', textAlign: 'right' }}>
                     <input 
                       type="number"
-                      disabled={isPeriodoLiquidado}
                       className="premium-input"
                       style={{ padding: '4px 8px', height: 'auto', width: '100px', textAlign: 'right', fontSize: '13px', fontWeight: 600 }}
                       value={plan.precio}
@@ -88,7 +102,6 @@ export default function BatchModal({ isPeriodoLiquidado, selectedPeriodo, initia
                   <td style={{ padding: '8px', textAlign: 'right' }}>
                     <input 
                       type="number"
-                      disabled={isPeriodoLiquidado}
                       className="premium-input"
                       style={{ padding: '4px 8px', height: 'auto', width: '100px', textAlign: 'right', fontSize: '13px', fontWeight: 600 }}
                       value={plan.tarifa}
@@ -108,7 +121,7 @@ export default function BatchModal({ isPeriodoLiquidado, selectedPeriodo, initia
 
         <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
           <button onClick={onClose} className="air-btn" style={{ flex: 1, padding: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>Cancelar</button>
-          <button onClick={() => onSave(batchPlans)} disabled={isSaving || isPeriodoLiquidado} className="air-btn" style={{ flex: 2, background: 'var(--accent)', color: 'white', padding: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+          <button onClick={() => onSave(batchPlans)} disabled={isSaving} className="air-btn" style={{ flex: 2, background: 'var(--accent)', color: 'white', padding: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
             {isSaving ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle2 size={18} />}
             Guardar
           </button>
