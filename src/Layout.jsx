@@ -252,18 +252,17 @@ export default function Layout({ session, theme, toggleTheme }) {
   const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Inicio' },
     { path: '/comunidad', icon: Users, label: 'Comunidad' },
-    { path: '/cuenta-corriente', icon: Landmark, label: 'Cuenta Corriente' },
     { path: '/facturacion', icon: FileText, label: 'Facturación' },
+    { path: '/conciliacion-bancaria', icon: Landmark, label: 'Bancos' },
     { path: '/campanas', icon: Mail, label: 'Comunicación' },
-    { path: '/conciliacion-bancaria', icon: Activity, label: 'Bancos' },
   ];
 
   const APP_CATEGORIES = [
     { id: 'general', paths: ['/', '/tareas', '/log-diario', '/ingreso-diario'] },
     { id: 'mgmt', paths: ['/comunidad'] },
-    { id: 'dash', paths: ['/cuenta-corriente', '/informe-saldos', '/facturacion', '/gestion-pagos', '/descuentos', '/carga-manual'] },
+    { id: 'facturacion', paths: ['/facturacion', '/gestion-pagos', '/descuentos', '/carga-manual'] },
+    { id: 'bancos', paths: ['/cuenta-corriente', '/informe-saldos', '/conciliacion-bancaria', '/movimientos-bancarios'] },
     { id: 'comunicacion', paths: ['/campanas'] },
-    { id: 'finance', paths: ['/conciliacion-bancaria', '/movimientos-bancarios'] },
   ];
 
   const pageNames = {
@@ -297,9 +296,9 @@ export default function Layout({ session, theme, toggleTheme }) {
   const categoryNames = {
     'general': 'INICIO',
     'mgmt': 'GESTIÓN COMUNIDAD',
-    'dash': 'GESTIÓN FACTURACIÓN',
+    'facturacion': 'GESTIÓN FACTURACIÓN',
+    'bancos': 'CONCILIACIÓN Y CUENTAS BANCARIAS',
     'comunicacion': 'COMUNICACIÓN',
-    'finance': 'GESTIÓN BANCARIA',
     'admin': 'CONFIGURACIÓN SISTEMA'
   };
 
@@ -329,11 +328,13 @@ export default function Layout({ session, theme, toggleTheme }) {
             const currentFullPath = location.pathname + location.search;
             const isActive = item.path === '/' 
               ? (location.pathname === '/' || ['/tareas', '/log-diario', '/ingreso-diario'].includes(location.pathname))
-              : item.path === '/conciliacion-bancaria'
-                ? ['/conciliacion-bancaria', '/movimientos-bancarios'].includes(location.pathname)
-                : item.path.includes('?') 
-                  ? currentFullPath === item.path 
-                  : location.pathname === item.path;
+              : item.path === '/facturacion'
+                ? ['/facturacion', '/gestion-pagos', '/descuentos', '/carga-manual'].includes(location.pathname)
+                : item.path === '/conciliacion-bancaria'
+                  ? ['/conciliacion-bancaria', '/cuenta-corriente', '/informe-saldos', '/movimientos-bancarios'].includes(location.pathname)
+                  : item.path.includes('?') 
+                    ? currentFullPath === item.path 
+                    : location.pathname === item.path;
             const Icon = item.icon;
             return (
               <Link
