@@ -9,6 +9,49 @@ import Modal from './components/Modal';
 
 const TIPOS = { DESCUENTO: 'DESCUENTO', CARGO: 'CARGO', CARGO_PCT: 'CARGO_PCT' };
 
+const getCurrentPeriodYMD = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+};
+
+export function getEstimatedEndDate(ctaNumero, totalCuotas, startPeriodStr = null) {
+  const cta = parseInt(ctaNumero, 10) || 1;
+  const total = parseInt(totalCuotas, 10) || 1;
+  const remainingMonths = Math.max(0, total - cta);
+
+  let year, month;
+  if (typeof startPeriodStr === 'string' && startPeriodStr.includes('-')) {
+    const parts = startPeriodStr.split('-');
+    year = parseInt(parts[0], 10);
+    month = parseInt(parts[1], 10);
+  } else if (startPeriodStr instanceof Date) {
+    year = startPeriodStr.getFullYear();
+    month = startPeriodStr.getMonth() + 1;
+  } else {
+    const now = new Date();
+    year = now.getFullYear();
+    month = now.getMonth() + 1;
+  }
+
+  let targetMonth = month + remainingMonths;
+  let targetYear = year + Math.floor((targetMonth - 1) / 12);
+  targetMonth = ((targetMonth - 1) % 12) + 1;
+
+  const monthsFull = [
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+  ];
+
+  return {
+    monthName: monthsFull[targetMonth - 1],
+    shortMonth: monthsFull[targetMonth - 1].substring(0, 3),
+    year: targetYear,
+    remainingMonths,
+    formatted: `${monthsFull[targetMonth - 1]} ${targetYear}`,
+    shortFormatted: `${monthsFull[targetMonth - 1].substring(0, 3)} ${targetYear}`
+  };
+}
+
 const EMPTY_FORM = {
   tipo: 'DESCUENTO',
   descripcion: '',
@@ -17,6 +60,7 @@ const EMPTY_FORM = {
   total_cuotas: 12,
   socio_id: '',
   numero_linea: '',
+  periodo_inicio: getCurrentPeriodYMD()
 };
 
 export default function Descuentos() {
@@ -227,6 +271,7 @@ export default function Descuentos() {
   }
 
   function openEdit(a) {
+    const startStr = a.created_at ? a.created_at.substring(0, 7) : getCurrentPeriodYMD();
     setForm({
       tipo: a.tipo,
       descripcion: a.descripcion || '',
@@ -235,6 +280,7 @@ export default function Descuentos() {
       total_cuotas: a.total_cuotas,
       socio_id: a.socios?.socio_id || '',
       numero_linea: a.lineas?.numero_linea || '',
+      periodo_inicio: startStr,
     });
     setEditId(a.id);
     fetchSocios();
@@ -416,7 +462,7 @@ export default function Descuentos() {
                 <th onClick={() => handleSort('valor')} style={{ cursor: 'pointer', textAlign: 'right' }}>
                    Valor <SortIcon col="valor" />
                 </th>
-                <th onClick={() => handleSort('restantes')} style={{ cursor: 'pointer', textAlign: 'center', minWidth: '130px' }}>
+                <th onClick={() => handleSort('restantes')} style={{ cursor: 'pointer', textAlign: 'center', minWidth: '140px' }}>
                    Estado Cuotas <SortIcon col="restantes" />
                 </th>
                 <th style={{ textAlign: 'right', paddingRight: '24px' }}>Acciones</th>
@@ -441,6 +487,9 @@ export default function Descuentos() {
                 const rest = cuotasRestantes(a);
                 const pct = progreso(a);
                 const isD = a.tipo === 'DESCUENTO';
+                const startStr = a.created_at ? a.created_at.substring(0, 7) : null;
+                const est = getEstimatedEndDate(a.cta_numero, a.total_cuotas, startStr);
+                const isFinished = rest === 0;
                 return (
                   <tr key={a.id}>
                     <td style={{ padding: '16px 24px' }}>
@@ -483,7 +532,7 @@ export default function Descuentos() {
                         {a.tipo === 'DESCUENTO' ? `-${a.valor}%` : a.tipo === 'CARGO_PCT' ? `+${a.valor}%` : `$${Number(a.valor).toLocaleString('es-AR')}`}
                       </div>
                     </td>
-                    <td style={{ textAlign: 'center', minWidth: '130px' }}>
+                    <td style={{ textAlign: 'center', minWidth: '140px' }}>
                       <div style={{ 
                         display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
                         background: 'rgba(0,0,0,0.03)', padding: '6px 12px', borderRadius: '10px'
@@ -493,6 +542,10 @@ export default function Descuentos() {
                         </div>
                         <div style={{ width: '60px', height: '4px', background: 'var(--border-light)', borderRadius: '10px', overflow: 'hidden' }}>
                           <div style={{ width: `${pct}%`, height: '100%', background: isD ? '#10b981' : '#f97316', borderRadius: '10px' }}></div>
+                        </div>
+                        <div style={{ fontSize: '10px', fontWeight: 700, color: isFinished ? '#10b981' : 'var(--text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                          <Calendar size={10} />
+                          <span>{isFinished ? 'Finalizado' : `Fin: ${est.shortFormatted}`}</span>
                         </div>
                       </div>
                     </td>
@@ -549,16 +602,52 @@ export default function Descuentos() {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+              <div>
+                <label className="form-label">Mes de Inicio</label>
+                <input className="premium-input" style={{ width: '100%', padding: '12px' }} type="month" value={form.periodo_inicio || getCurrentPeriodYMD()} onChange={e => setForm({...form, periodo_inicio: e.target.value})} />
+              </div>
               <div>
                 <label className="form-label">Cuota Inicial</label>
-                <input className="premium-input" style={{ width: '100%', padding: '12px' }} type="number" value={form.cta_numero} required onChange={e => setForm({...form, cta_numero: e.target.value})} />
+                <input className="premium-input" style={{ width: '100%', padding: '12px' }} type="number" min="1" value={form.cta_numero} required onChange={e => setForm({...form, cta_numero: e.target.value})} />
               </div>
               <div>
                 <label className="form-label">Total Cuotas</label>
-                <input className="premium-input" style={{ width: '100%', padding: '12px' }} type="number" value={form.total_cuotas} required onChange={e => setForm({...form, total_cuotas: e.target.value})} />
+                <input className="premium-input" style={{ width: '100%', padding: '12px' }} type="number" min="1" value={form.total_cuotas} required onChange={e => setForm({...form, total_cuotas: e.target.value})} />
               </div>
             </div>
+
+            {(() => {
+              const est = getEstimatedEndDate(form.cta_numero, form.total_cuotas, form.periodo_inicio);
+              return (
+                <div style={{
+                  padding: '14px 18px',
+                  background: 'rgba(16, 185, 129, 0.08)',
+                  border: '1px solid rgba(16, 185, 129, 0.25)',
+                  borderRadius: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justify: 'space-between',
+                  gap: '12px',
+                  marginTop: '4px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <Calendar size={22} color="#10b981" />
+                    <div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Fecha de Finalización Estimada (Año Calendario)
+                      </div>
+                      <div style={{ fontSize: '15px', fontWeight: 900, color: 'var(--text-primary)', marginTop: '2px' }}>
+                        {est.formatted}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: '11px', fontWeight: 800, background: 'var(--surface)', padding: '4px 12px', borderRadius: '8px', border: '1px solid var(--border-light)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                    {est.remainingMonths === 0 ? 'Última cuota' : `${est.remainingMonths + 1} meses en total`}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           <button type="submit" className="air-btn air-btn-primary" style={{ width: '100%', padding: '16px', borderRadius: '16px', justifyContent: 'center' }} disabled={saving}>
