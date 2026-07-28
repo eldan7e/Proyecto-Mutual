@@ -260,7 +260,7 @@ export default function Layout({ session, theme, toggleTheme }) {
   const APP_CATEGORIES = [
     { id: 'general', paths: ['/', '/tareas', '/log-diario', '/ingreso-diario'] },
     { id: 'mgmt', paths: ['/comunidad?tab=socios', '/comunidad?tab=grupos', '/comunidad?tab=planes'] },
-    { id: 'facturacion', paths: ['/facturacion', '/gestion-pagos', '/descuentos', '/carga-manual'] },
+    { id: 'facturacion', paths: ['/facturacion', '/comprobantes-afip', '/gestion-pagos', '/descuentos', '/carga-manual'] },
     { id: 'bancos', paths: ['/cuenta-corriente', '/informe-saldos', '/conciliacion-bancaria', '/movimientos-bancarios'] },
     { id: 'comunicacion', paths: ['/campanas'] },
   ];
@@ -278,6 +278,7 @@ export default function Layout({ session, theme, toggleTheme }) {
     '/cuenta-corriente': 'Cuenta Corriente por Grupo',
     '/informe-saldos': 'Informe de Saldos',
     '/facturacion': 'Centro de Cobranzas',
+    '/comprobantes-afip': 'Comprobantes y AFIP',
     '/gestion-pagos': 'Auditoría',
     '/descuentos': 'Descuentos y Cargos',
     '/carga-manual': 'Carga de Facturación',
@@ -334,7 +335,7 @@ export default function Layout({ session, theme, toggleTheme }) {
               : item.path === '/comunidad'
                 ? location.pathname === '/comunidad'
                 : item.path === '/facturacion'
-                  ? ['/facturacion', '/gestion-pagos', '/descuentos', '/carga-manual'].includes(location.pathname)
+                  ? ['/facturacion', '/comprobantes-afip', '/gestion-pagos', '/descuentos', '/carga-manual'].includes(location.pathname)
                   : item.path === '/conciliacion-bancaria'
                     ? ['/conciliacion-bancaria', '/cuenta-corriente', '/informe-saldos', '/movimientos-bancarios'].includes(location.pathname)
                     : item.path.includes('?') 

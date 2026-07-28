@@ -41,6 +41,7 @@ const Tareas = safeLazy(() => import('./Tareas'));
 const LogDiario = safeLazy(() => import('./LogDiario'));
 const CuentaCorriente = safeLazy(() => import('./CuentaCorriente'));
 const InformeSaldos = safeLazy(() => import('./InformeSaldos'));
+const ComprobantesAFIP = safeLazy(() => import('./ComprobantesAFIP'));
 
 // Global hooks initializer
 function GlobalHooksInitializer() {
@@ -124,6 +125,7 @@ function App() {
                   <Route path="socios" element={<Navigate to="/comunidad?tab=socios" replace />} />
                   <Route path="planes" element={<Navigate to="/comunidad?tab=planes" replace />} />
                   <Route path="facturacion" element={<Facturacion />} />
+                  <Route path="comprobantes-afip" element={<ComprobantesAFIP />} />
                   <Route path="cuenta-corriente" element={<CuentaCorriente />} />
                   <Route path="informe-saldos" element={<InformeSaldos />} />
                   <Route path="carga-manual" element={<CargaManual />} />
