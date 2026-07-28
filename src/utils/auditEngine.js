@@ -310,14 +310,14 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       totalCobrar = (subtotalConCargos - bonifSocio) + otrosCargosOp - bonifManual;
     }
 
-    // Auditoría específica de Movistar — Descuento escalonado por GB
+    // Auditoría específica de Movistar — Descuento base del 80%
     const precioLista = Number(consumo.precio_lista_audit || config.historicalPrice?.precio_lista || dbInfo?.precio || 0);
     let movistarAudit = null;
     if (parseInt(providerId) === 2 && precioLista > 0) {
       const gbIncluidos = Number(dbInfo?.gb_incluidos || 0);
-      const expectedPct = gbIncluidos >= 10 ? 85 : 80;
+      const expectedPct = (dbInfo && dbInfo.descuento_operadora_pct > 0) ? Number(dbInfo.descuento_operadora_pct) : 80;
       const tolerancePct = expectedPct - 2.1; // margen de tolerancia ~2%
-      const actualDiscountPct = Math.round((1 - (costoAbonoReal / precioLista)) * 1000) / 10;
+      const actualDiscountPct = Math.round(((precioLista - costoAbonoReal) / precioLista) * 1000) / 10;
       const meetsAgreement = actualDiscountPct >= tolerancePct;
       const expectedCosto = precioLista * (1 - expectedPct / 100);
       movistarAudit = {
@@ -574,7 +574,7 @@ export function auditLineItem(item, dbInfo, context) {
     const descuentoReal = ((precioLista - realAbono) / precioLista) * 100;
     const descuentoEsperado = (dbInfo && dbInfo.descuento_operadora_pct > 0) 
       ? Number(dbInfo.descuento_operadora_pct) 
-      : 0;
+      : 80;
 
     // Alerta si el descuento real es inferior al 80% mínimo requerido
     if (descuentoReal < 79.9) {
