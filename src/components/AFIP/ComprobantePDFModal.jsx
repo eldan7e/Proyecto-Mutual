@@ -141,12 +141,12 @@ export default function ComprobantePDFModal({ comprobante, onClose }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '6px' }}>
                   <img src="/logo.png" alt="Mutual Aunar Logo" style={{ width: '44px', height: '44px', objectFit: 'contain' }} />
                   <div>
-                    <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.02em' }}>MUTUAL AUNAR</h2>
+                    <h2 style={{ margin: 0, fontSize: '17px', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.02em' }}>ASOCIACION MUTUAL DE EMPLEADOS (AUNAR)</h2>
                     <p style={{ margin: '1px 0 0 0', fontWeight: 700, fontSize: '11px', color: '#16a34a' }}>Servicios de Telecomunicaciones & Conectividad</p>
                   </div>
                 </div>
-                <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#475569' }}><strong>Domicilio Comercial:</strong> San Martín 450, CABA · Tel: (011) 4328-9900</p>
-                <p style={{ margin: '2px 0 0 0', fontSize: '11px', color: '#64748b' }}><strong>Condición IVA:</strong> IVA Exento / Entidad Mutualista sin fines de lucro</p>
+                <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#475569' }}><strong>Domicilio Comercial:</strong> Diagonal 76 46 “4” La Plata, Provincia de Buenos Aires, Argentina · Tel: (0221) 621-0369</p>
+                <p style={{ margin: '2px 0 0 0', fontSize: '11px', color: '#64748b' }}><strong>Condición IVA:</strong> IVA Exento</p>
               </div>
 
               {/* Letter Box in Center */}
