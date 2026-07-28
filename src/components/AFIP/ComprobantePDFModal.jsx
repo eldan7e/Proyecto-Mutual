@@ -1,9 +1,32 @@
-import { useRef } from 'react';
-import { Printer, Download, X, CheckCircle2, ShieldCheck, FileText } from 'lucide-react';
+import { useRef, useState, useEffect } from 'react';
+import { Printer, Download, X, CheckCircle2, ShieldCheck, FileText, Smartphone } from 'lucide-react';
 import { formatMoney } from '../../utils/cuentaCorrienteEngine';
+import { supabase } from '../../supabaseClient';
 
 export default function ComprobantePDFModal({ comprobante, onClose }) {
   const printRef = useRef();
+  const [lineasReceptor, setLineasReceptor] = useState(comprobante?.lineas || []);
+
+  useEffect(() => {
+    if (comprobante && (comprobante.numero_grupo || comprobante.socio_id) && (!comprobante.lineas || comprobante.lineas.length === 0)) {
+      fetchLineasReceptor();
+    }
+  }, [comprobante]);
+
+  async function fetchLineasReceptor() {
+    try {
+      let query = supabase.from('lineas').select('numero_linea, proveedores:proveedor_id(nombre)');
+      if (comprobante.numero_grupo) {
+        query = query.eq('numero_grupo', comprobante.numero_grupo);
+      } else if (comprobante.socio_id) {
+        query = query.eq('socio_id', comprobante.socio_id);
+      }
+      const { data } = await query;
+      if (data) setLineasReceptor(data);
+    } catch (err) {
+      console.error('Error fetching lineas for voucher PDF:', err);
+    }
+  }
 
   if (!comprobante) return null;
 
@@ -73,7 +96,7 @@ export default function ComprobantePDFModal({ comprobante, onClose }) {
       `}</style>
 
       <div style={{
-        background: 'var(--surface)', borderRadius: '24px', width: '100%', maxWidth: '820px',
+        background: 'var(--surface)', borderRadius: '24px', width: '100%', maxWidth: '840px',
         maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden',
         boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)', border: '1px solid var(--border-light)'
       }}>
@@ -113,12 +136,17 @@ export default function ComprobantePDFModal({ comprobante, onClose }) {
               display: 'grid', gridTemplateColumns: '1fr auto 1fr', borderBottom: '2px solid #000',
               paddingBottom: '16px', marginBottom: '20px', position: 'relative'
             }}>
-              {/* Left Column - Issuer */}
+              {/* Left Column - Issuer with Logo */}
               <div>
-                <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 900, color: '#0f172a' }}>MUTUAL AUNAR</h2>
-                <p style={{ margin: '4px 0 0 0', fontWeight: 700, fontSize: '12px', color: '#475569' }}>Servicios de Telecomunicaciones & Conectividad</p>
-                <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#64748b' }}>Domicilio Comercial: Av. Principal 1234, CABA</p>
-                <p style={{ margin: '2px 0 0 0', fontSize: '11px', color: '#64748b' }}>Condición IVA: IVA Exento / Entidad sin fines de lucro</p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '6px' }}>
+                  <img src="/logo.png" alt="Mutual Aunar Logo" style={{ width: '44px', height: '44px', objectFit: 'contain' }} />
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.02em' }}>MUTUAL AUNAR</h2>
+                    <p style={{ margin: '1px 0 0 0', fontWeight: 700, fontSize: '11px', color: '#16a34a' }}>Servicios de Telecomunicaciones & Conectividad</p>
+                  </div>
+                </div>
+                <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#475569' }}><strong>Domicilio Comercial:</strong> San Martín 450, CABA · Tel: (011) 4328-9900</p>
+                <p style={{ margin: '2px 0 0 0', fontSize: '11px', color: '#64748b' }}><strong>Condición IVA:</strong> IVA Exento / Entidad Mutualista sin fines de lucro</p>
               </div>
 
               {/* Letter Box in Center */}
@@ -149,6 +177,11 @@ export default function ComprobantePDFModal({ comprobante, onClose }) {
                 <p style={{ margin: 0 }}><strong>Receptor / Titular:</strong> {receptorNombre}</p>
                 {receptorGrupo && <p style={{ margin: '4px 0 0 0', color: '#0284c7', fontWeight: 700 }}>{receptorGrupo}</p>}
                 <p style={{ margin: '4px 0 0 0' }}><strong>CUIT / DNI:</strong> {receptorCuit}</p>
+                {lineasReceptor && lineasReceptor.length > 0 && (
+                  <p style={{ margin: '6px 0 0 0', fontSize: '11px', color: '#0f172a', fontWeight: 700 }}>
+                    <strong>Líneas abonadas:</strong> {lineasReceptor.map(l => `${l.numero_linea}${l.proveedores?.nombre ? ` (${l.proveedores.nombre})` : ''}`).join(', ')}
+                  </p>
+                )}
               </div>
               <div style={{ textAlign: 'right' }}>
                 <p style={{ margin: 0 }}><strong>Condición de IVA:</strong> {receptorCondicion}</p>
