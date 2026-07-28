@@ -3,12 +3,13 @@ import { FileText, Plus, CheckCircle2, FileCheck, ArrowUpRight, Search, Printer,
 import EmisionComprobanteForm from './components/AFIP/EmisionComprobanteForm';
 import HistorialEmitidosTab from './components/AFIP/HistorialEmitidosTab';
 import FacturasRecibidasTab from './components/AFIP/FacturasRecibidasTab';
+import ConfiguracionAFIPTab from './components/AFIP/ConfiguracionAFIPTab';
 import ComprobantePDFModal from './components/AFIP/ComprobantePDFModal';
 import { supabase } from './supabaseClient';
 import { formatMoney } from './utils/cuentaCorrienteEngine';
 
 export default function ComprobantesAFIP() {
-  const [activeTab, setActiveTab] = useState('emitir'); // 'emitir' | 'emitidos' | 'recibidas'
+  const [activeTab, setActiveTab] = useState('emitir'); // 'emitir' | 'emitidos' | 'recibidas' | 'config'
   const [comprobantePDF, setComprobantePDF] = useState(null);
 
   const [stats, setStats] = useState({
@@ -103,10 +104,10 @@ export default function ComprobantesAFIP() {
             <ShieldCheck size={16} color="#f59e0b" />
           </div>
           <div style={{ fontSize: '16px', fontWeight: 900, color: '#f59e0b', marginTop: '4px' }}>
-            Activo / Modo Seguro
+            Configurable / WSFE v1
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-            Punto de Venta 0001 · CUIT Mutual 30-71234567-8
+            Certificados Digitales & CUIT Emisor
           </div>
         </div>
 
@@ -150,6 +151,18 @@ export default function ComprobantesAFIP() {
         >
           📑 Facturas Recibidas (Compras)
         </button>
+        <button 
+          onClick={() => setActiveTab('config')}
+          style={{
+            padding: '10px 20px', borderRadius: '10px', border: 'none',
+            background: activeTab === 'config' ? 'var(--surface)' : 'transparent',
+            color: activeTab === 'config' ? 'var(--accent)' : 'var(--text-secondary)',
+            fontWeight: 800, fontSize: '13px', cursor: 'pointer',
+            boxShadow: activeTab === 'config' ? 'var(--shadow-soft)' : 'none', transition: 'all 0.2s'
+          }}
+        >
+          ⚙️ Configuración AFIP / Certificados
+        </button>
       </div>
 
       {/* Active Tab Content */}
@@ -162,6 +175,9 @@ export default function ComprobantesAFIP() {
         )}
         {activeTab === 'recibidas' && (
           <FacturasRecibidasTab />
+        )}
+        {activeTab === 'config' && (
+          <ConfiguracionAFIPTab />
         )}
       </div>
 
