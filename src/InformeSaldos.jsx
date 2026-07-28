@@ -18,7 +18,7 @@ export default function InformeSaldos() {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
-  const [soloDeudores, setSoloDeudores] = useState(true);
+  const [soloDeudores, setSoloDeudores] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -52,12 +52,13 @@ export default function InformeSaldos() {
     let totalPagosHist = 0;
 
     gruposData.forEach(g => {
-      totalCapitalDeuda += Math.max(0, g.saldoFinalUltimo);
+      const bal = g.saldoCapitalUltimo > 0 ? g.saldoCapitalUltimo : Math.max(0, g.saldoFinalUltimo || 0);
+      totalCapitalDeuda += bal;
       totalFacturasHist += g.totalFacturas;
       totalPagosHist += g.totalPagos;
     });
 
-    const gruposDeudoresCount = gruposData.filter(g => g.saldoFinalUltimo > 5).length;
+    const gruposDeudoresCount = gruposData.filter(g => g.saldoFinalUltimo > 5 || g.saldoCapitalUltimo > 5).length;
 
     return {
       totalCapitalDeuda,

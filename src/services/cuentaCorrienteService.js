@@ -211,10 +211,8 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
       (g.nombre || '').toLowerCase().includes(s) ||
       (g.empresas || '').toLowerCase().includes(s)
     );
-  }
-
-  if (soloDeudores) {
-    resultado = resultado.filter(g => g.saldoFinalUltimo > 5);
+  } else if (soloDeudores) {
+    resultado = resultado.filter(g => g.saldoFinalUltimo > 5 || g.saldoCapitalUltimo > 5);
   }
 
   resultado.sort((a, b) => b.saldoFinalUltimo - a.saldoFinalUltimo);
