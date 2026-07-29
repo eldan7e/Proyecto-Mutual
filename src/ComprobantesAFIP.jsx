@@ -171,10 +171,10 @@ export default function ComprobantesAFIP() {
           <EmisionComprobanteForm onComprobanteEmitido={handleComprobanteEmitido} />
         )}
         {activeTab === 'emitidos' && (
-          <HistorialEmitidosTab onVerPDF={(comp) => setComprobantePDF(comp)} />
+          <HistorialEmitidosTab onVerPDF={(comp) => setComprobantePDF(comp)} onRefetchStats={fetchStats} />
         )}
         {activeTab === 'recibidas' && (
-          <FacturasRecibidasTab />
+          <FacturasRecibidasTab onRefetchStats={fetchStats} />
         )}
         {activeTab === 'config' && (
           <ConfiguracionAFIPTab />

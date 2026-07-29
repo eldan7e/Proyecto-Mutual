@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
-import { Search, Plus, RefreshCw, Loader2, FileCheck, Building2, AlertCircle } from 'lucide-react';
+import { Search, Plus, RefreshCw, Loader2, FileCheck, Building2, AlertCircle, Trash2 } from 'lucide-react';
 import { formatMoney } from '../../utils/cuentaCorrienteEngine';
 
-export default function FacturasRecibidasTab() {
+export default function FacturasRecibidasTab({ onRefetchStats }) {
   const [recibidas, setRecibidas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -46,6 +46,26 @@ export default function FacturasRecibidasTab() {
     }
   }
 
+  async function handleDelete(item) {
+    if (!window.confirm(`¿Desea eliminar la factura recibida de ${item.denominacion_emisor} por ${formatMoney(item.imp_total || 0)}?`)) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('afip_recibidas')
+        .delete()
+        .eq('id', item.id);
+
+      if (error) throw error;
+
+      await fetchRecibidas();
+      if (onRefetchStats) onRefetchStats();
+    } catch (err) {
+      alert('Error al eliminar factura recibida: ' + err.message);
+    }
+  }
+
   async function handleCreateRecibida(e) {
     e.preventDefault();
     if (!form.denominacion_emisor || !form.imp_total) return alert('Completa los campos obligatorios');
@@ -66,7 +86,8 @@ export default function FacturasRecibidasTab() {
 
       setIsModalOpen(false);
       setForm({ fecha: new Date().toISOString().split('T')[0], tipo: 'Factura A', cod_autorizacion: '', nro_doc_emisor: '', denominacion_emisor: '', imp_total: '', proveedor_id: '' });
-      fetchRecibidas();
+      await fetchRecibidas();
+      if (onRefetchStats) onRefetchStats();
     } catch (err) {
       alert('Error al guardar comprobante: ' + err.message);
     }
@@ -115,15 +136,16 @@ export default function FacturasRecibidasTab() {
               <th>CUIT Emisor</th>
               <th>Tipo Comprobante</th>
               <th>CAE / Control</th>
-              <th style={{ textAlign: 'right', paddingRight: '24px' }}>Importe Total</th>
+              <th style={{ textAlign: 'right' }}>Importe Total</th>
+              <th style={{ textAlign: 'right', paddingRight: '24px', width: '80px' }}>Acciones</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan="6" style={{ padding: '80px', textAlign: 'center' }}><Loader2 className="animate-spin" size={32} style={{ margin: '0 auto', color: 'var(--accent)' }} /></td></tr>
+              <tr><td colSpan="7" style={{ padding: '80px', textAlign: 'center' }}><Loader2 className="animate-spin" size={32} style={{ margin: '0 auto', color: 'var(--accent)' }} /></td></tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan="6" style={{ padding: '80px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                <td colSpan="7" style={{ padding: '80px', textAlign: 'center', color: 'var(--text-secondary)' }}>
                   No hay comprobantes de compra/proveedor registrados.
                 </td>
               </tr>
@@ -145,8 +167,18 @@ export default function FacturasRecibidasTab() {
                   <td>
                     <div style={{ fontSize: '12px', fontFamily: 'monospace', fontWeight: 700 }}>{item.cod_autorizacion || '—'}</div>
                   </td>
-                  <td style={{ textAlign: 'right', paddingRight: '24px', fontWeight: 900, fontSize: '15px' }}>
+                  <td style={{ textAlign: 'right', fontWeight: 900, fontSize: '15px' }}>
                     {formatMoney(item.imp_total || 0)}
+                  </td>
+                  <td style={{ textAlign: 'right', paddingRight: '24px' }}>
+                    <button 
+                      onClick={() => handleDelete(item)}
+                      className="icon-button-delete" 
+                      title="Eliminar Comprobante Recibido"
+                      style={{ padding: '6px' }}
+                    >
+                      <Trash2 size={16} />
+                    </button>
                   </td>
                 </tr>
               ))

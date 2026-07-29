@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
-import { Search, Printer, Download, FileText, CheckCircle2, AlertCircle, RefreshCw, Loader2, ArrowUpRight } from 'lucide-react';
+import { Search, Printer, Download, FileText, CheckCircle2, AlertCircle, RefreshCw, Loader2, ArrowUpRight, Trash2 } from 'lucide-react';
 import { formatMoney } from '../../utils/cuentaCorrienteEngine';
 
-export default function HistorialEmitidosTab({ onVerPDF }) {
+export default function HistorialEmitidosTab({ onVerPDF, onRefetchStats }) {
   const [comprobantes, setComprobantes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -27,6 +27,27 @@ export default function HistorialEmitidosTab({ onVerPDF }) {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleDelete(item) {
+    const compDesc = `${item.tipo} N° ${String(item.id).padStart(8, '0')} (${item.denominacion_receptor || 'Consumidor Final'})`;
+    if (!window.confirm(`¿Desea eliminar el comprobante ${compDesc}? Esta acción no se puede deshacer.`)) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('afip_emitidas')
+        .delete()
+        .eq('id', item.id);
+
+      if (error) throw error;
+
+      await fetchEmitidos();
+      if (onRefetchStats) onRefetchStats();
+    } catch (err) {
+      alert('Error al eliminar comprobante: ' + err.message);
     }
   }
 
@@ -147,13 +168,23 @@ export default function HistorialEmitidosTab({ onVerPDF }) {
                       </span>
                     </td>
                     <td style={{ paddingRight: '24px', textAlign: 'right' }}>
-                      <button 
-                        onClick={() => onVerPDF(item)}
-                        className="air-btn" 
-                        style={{ background: 'var(--surface-light)', border: '1px solid var(--border-light)', padding: '6px 12px', fontSize: '12px' }}
-                      >
-                        <Printer size={14} style={{ marginRight: '4px' }} /> Imprimir PDF
-                      </button>
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                        <button 
+                          onClick={() => onVerPDF(item)}
+                          className="air-btn" 
+                          style={{ background: 'var(--surface-light)', border: '1px solid var(--border-light)', padding: '6px 12px', fontSize: '12px' }}
+                        >
+                          <Printer size={14} style={{ marginRight: '4px' }} /> Imprimir PDF
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(item)}
+                          className="icon-button-delete" 
+                          title="Eliminar Comprobante"
+                          style={{ padding: '6px' }}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
