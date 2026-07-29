@@ -93,7 +93,7 @@ export const procesarPersonal = (textLines) => {
   let invoiceTotal = 0;
   distinctTotals.forEach(s => { invoiceTotal += parsePersonalNumber(s); });
 
-  // --- PASO 1b: Detectar impuestos reales del PDF (SUMAR valores distintos) ---
+  // --- PASO 1b: Detectar impuestos reales del PDF ---
   const distinctTaxes = new Set();
   textLines.forEach(l => {
     const u = norm(l);
@@ -125,67 +125,35 @@ export const procesarPersonal = (textLines) => {
   let hasSkippedPlanPrice = false;
 
   const closeCurrent = () => {
-    if (current) { results.push({ ...current }); current = null; }
+    if (current) { 
+      // Si la línea tiene bruto o excedentes válidos, la guardamos
+      if (current.bruto > 0 || current.excedentes > 0 || current.telefono.startsWith('Descuento')) {
+        results.push({ ...current }); 
+      }
+      current = null; 
+    }
   };
 
   for (let idx = 0; idx < lines.length; idx++) {
     const rawLine = lines[idx];
     const u = norm(rawLine);
 
-    // --- NUEVO: Capturar descuentos globales de la cooperativa/cuenta ---
-    if (u.startsWith('DESCUENTOSADICIONALES') || u.startsWith('DESCUENTOCONEXIONTOTAL')) {
+    // 1. Detectar encabazados con numero de linea explicito (ej. "linea2216824786CARGOS DEL MES")
+    const embeddedLineMatch = u.match(/LINEA(\d{8,10})/);
+    if (embeddedLineMatch) {
       closeCurrent();
-      let val = 0;
-      if (rawLine.includes('$')) {
-        const m = rawLine.match(/\$\s*(-?[\d\.,]+)/);
-        if (m) val = parsePersonalNumber(m[1].replace('-', ''));
-      } else if (idx + 1 < lines.length && lines[idx + 1].includes('$')) {
-        const m = lines[idx + 1].match(/\$\s*(-?[\d\.,]+)/);
-        if (m) {
-          val = parsePersonalNumber(m[1].replace('-', ''));
-          idx++;
-        }
-      }
-      
-      if (val > 0) {
-        let label = 'Descuentos Adicionales';
-        // Intentar extraer el nombre específico de la línea de detalle
-        if (idx + 1 < lines.length) {
-          const nextLine = lines[idx + 1];
-          const nextNorm = norm(nextLine);
-          if (nextNorm.startsWith('DESCUENTOCONEXIONTOTAL') || nextNorm.startsWith('DESCUENTO')) {
-            const descMatch = nextLine.match(/Descuento\s+([A-Za-zÀ-ÿ0-9\s]+?)(?=\s+\d|\s+-|\s+\$)/i);
-            if (descMatch) {
-              label = 'Descuento ' + descMatch[1].trim();
-            }
-          }
-        }
-
-        current = {
-          telefono: label,
-          bruto: -val,
-          excedentes: 0,
-          descuentoMonto: 0,
-          descuentoPct: '',
-          plan: 'Descuento Global'
-        };
-      }
+      lastLooseLineNumber = embeddedLineMatch[1];
       continue;
     }
 
-    if (u.startsWith('DESCUENTOCONEXION')) {
-      closeCurrent();
-      continue;
-    }
-
-    // LÍNEA MÓVIL o FIJA (soporta formatos viejos y nuevos de 10 dígitos)
+    // 2. LÍNEA MÓVIL o FIJA estándar (ej. "LÍNEA MOVIL (11)24041845 $ 20.617,77")
     const cleanLineNorm = rawLine.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[\(\)\s]/g, '');
     const isNewPhoneHeader = /^(?:LINEA(?:MOVIL|FIJA)?\d{7,10}|\d{10})/.test(cleanLineNorm);
 
     if (isNewPhoneHeader) {
       closeCurrent();
       const phoneMatch = cleanLineNorm.match(/\b\d{7,10}\b/) || cleanLineNorm.match(/\d{7,10}/);
-      const phone = phoneMatch ? phoneMatch[0] : 'LINEA SUELTA';
+      const phone = phoneMatch ? phoneMatch[0] : (lastLooseLineNumber || 'LINEA SUELTA');
       
       const priceM = rawLine.match(/\$\s*([\d\.,]+)/);
       let bruto = 0;
@@ -210,10 +178,11 @@ export const procesarPersonal = (textLines) => {
         plan: planName
       };
       hasSkippedPlanPrice = false;
+      lastLooseLineNumber = null;
       continue;
     }
 
-    // --- CORRECCIÓN: BRUTO EN LÍNEA SIGUIENTE ---
+    // 3. BRUTO EN LÍNEA SIGUIENTE O BLOQUE SUELTO
     if (current && current.bruto === 0) {
       const priceOnlyMatch = rawLine.trim().match(/^\$\s*([\d\.,]+)$/);
       if (priceOnlyMatch) {
@@ -222,8 +191,7 @@ export const procesarPersonal = (textLines) => {
       }
     }
 
-    // INTERNET (sin número de teléfono)
-    // Ej: ABONOS INTERNET $13.061,66 o SERVICIOS de INTERNET on one line and $ 17.235,54 on the next line
+    // 4. INTERNET / SERVICIOS DE INTERNET
     if (u.startsWith('ABONOSINTERNET') || u.startsWith('SERVICIOSDEINTERNET')) {
       let val = 0;
       if (rawLine.includes('$')) {
@@ -233,7 +201,7 @@ export const procesarPersonal = (textLines) => {
         const m = lines[idx + 1].match(/\$\s*([\d\.,]+)/);
         if (m) {
           val = parsePersonalNumber(m[1]);
-          idx++; // Skip next line (amount)
+          idx++;
         }
       }
 
@@ -256,25 +224,7 @@ export const procesarPersonal = (textLines) => {
       continue;
     }
 
-    // TELEFONÍA FIJA como sección (sin monto en el header de sección, el monto viene en LÍNEAFIJA)
-    // ABONOSTELEFONÍAFIJA → skip, la línea LÍNEAFIJA la maneja el caso de arriba
-    // También puede decir SERVICIOSDETELEFONIAFIJA
-    if ((u.startsWith('ABONOSTELEFONI') || u.startsWith('SERVICIOSDETELEFONI')) && (!rawLine.includes('$') || u.includes('FIJA'))) {
-      if (u.includes('FIJA') && !u.startsWith('LINEAFIJA')) continue; 
-    }
-
-    // Guardar temporalmente si aparece una línea sin "CARGOSDELMES" en el mismo renglón
-    const looseLineMatch = u.match(/^LINEA(?:MOVIL\(?\d{2,4}\)?)?(\d{6,})$/);
-    if (looseLineMatch) {
-      if (current && current.telefono === 'LINEA SUELTA') {
-        current.telefono = looseLineMatch[1].slice(-10);
-      } else {
-        lastLooseLineNumber = looseLineMatch[1].slice(-10);
-      }
-      continue;
-    }
-
-    // Bloque suelto SIN número de teléfono explícito: CARGOSDELMES Cant...
+    // 5. CARGOS DEL MES (Bloque de línea suelta)
     if (u.startsWith('CARGOSDELMES') && !u.includes('TOTAL') && !current) {
       current = {
         telefono: lastLooseLineNumber ? lastLooseLineNumber : 'LINEA SUELTA',
@@ -289,40 +239,35 @@ export const procesarPersonal = (textLines) => {
       continue;
     }
 
-    // TOTAL CARGOS DEL MES (Global de factura)
+    // 6. TOTAL CARGOS DEL MES (Cierre de bloque)
     if (u.includes('TOTALCARGOSDELMES')) {
       const m = rawLine.match(/\$\s*([\d\.,]+)/);
       if (m) {
         const val = parsePersonalNumber(m[1]);
-        if (current) {
-          // Si NO es el total de toda la factura, es el total de este bloque
-          if (val !== invoiceTotal && current.bruto === 0) {
-            current.bruto = val - (current._blockTax || 0);
-          }
-          closeCurrent();
+        if (current && val !== invoiceTotal && current.bruto === 0) {
+          current.bruto = val - (current._blockTax || 0);
         }
       }
+      closeCurrent();
       continue;
     }
 
-    // EXTRAS (excedentes): Roaming, Packs, Gigas adicionales, WiFiPass, SMS Premium
-    // Ignoramos: Plan, Descuento, ServicioBasico, IVA, Impuestos, PLANESYSERVICIOS, OTROSCARGOS
+    // 7. DETALLES, EXCEDENTES Y DESCUENTOS DENTRO DEL BLOQUE ACTUAL
     if (current) {
-      // Intentar extraer el nombre del plan para líneas sueltas
-      if (u.includes('PLAN') && (current.plan === 'Plan Personal' || current.plan.toUpperCase() === 'PLANESYSERVICIOS')) {
-        const planMatch = rawLine.match(/(?:_?\s*)(Plan[\w\d]+(?:\(\d+-\d+-\d+-\d+\))?)/i);
+      // Capturar nombre del plan si aún no se asignó
+      if (u.includes('PLAN') && (current.plan === 'Plan Personal' || current.plan === 'Plan Fijo')) {
+        const planMatch = rawLine.match(/(?:_?\s*)(Plan[\w\d\s]+(?:\(\d+-\d+-\d+-\d+\))?)/i);
         if (planMatch && !planMatch[1].toUpperCase().includes('SERVICIOS')) {
-          current.plan = planMatch[1];
+          current.plan = planMatch[1].trim();
         }
       }
 
-      // Capturar descuento del operador
+      // Capturar porcentaje y monto de descuento del operador
       if (u.includes('DESCUENTO')) {
         const descMatch = rawLine.match(/[Dd]escuento\s*(\d+)%/);
         if (descMatch && !current.descuentoPct) {
           current.descuentoPct = descMatch[1] + '%';
         }
-        // Acumular montos negativos de descuento (último número negativo de la línea)
         const negMatch = rawLine.match(/-[\s\$]*([\d\.,]+)/g) || rawLine.match(/-([\d\.]*,\d{1,2})(?!\d)/g);
         if (negMatch) {
           const lastNeg = negMatch[negMatch.length - 1];
@@ -331,21 +276,7 @@ export const procesarPersonal = (textLines) => {
         }
       }
 
-      // Capturar IMPUESTOS del bloque suelto (bruto aún no asignado)
-      if (u.startsWith('IMPUESTOS') && rawLine.includes('$') && current.bruto === 0) {
-        const taxM = rawLine.match(/\$\s*([\d\.,]+)/);
-        if (taxM) current._blockTax = (current._blockTax || 0) + parsePersonalNumber(taxM[1]);
-      }
-
-      // TOTALCARGOSDELMES dentro de un bloque: si bruto=0, es el total del bloque suelto
-      if (u.startsWith('TOTALCARGOSDELMES') || (u.startsWith('TOTALCARGOS') && u.includes('DELMES'))) {
-        if (current.bruto === 0) {
-          const tm = rawLine.match(/\$\s*([\d\.,]+)/);
-          if (tm) current.bruto = parsePersonalNumber(tm[1]) - (current._blockTax || 0);
-        }
-        continue;
-      }
-
+      // Extras / Excedentes (Roaming, Gigas, WiFi Pass, etc)
       const isSkippedDetail = u.includes('PLAN') || u.includes('DESCUENTO') ||
         u.includes('SERVICIOBASICO') || u.includes('PLANESYSERVICIOS') ||
         u.includes('OTROSCARGOS') || u.includes('IMPUESTOS') ||
@@ -359,9 +290,7 @@ export const procesarPersonal = (textLines) => {
           const valStr = amounts[amounts.length - 1];
           const isNegative = valStr.includes('-');
           const val = parsePersonalNumber(valStr.replace('-', ''));
-          // Acumular solo valores positivos razonables (excedentes reales)
           if (!isNegative && val > 0 && val < 200000) {
-            // --- CORRECCIÓN: SALTAR EL PRIMER VALOR POSITIVO (PLAN LIST PRICE) ---
             if (!hasSkippedPlanPrice) {
               hasSkippedPlanPrice = true;
               continue;
@@ -375,44 +304,12 @@ export const procesarPersonal = (textLines) => {
 
   closeCurrent();
 
-  // --- PASO 3.5: Fusionar INTERNET con LÍNEA FIJA (número siguiente del mismo bloque) ---
-  for (let i = 0; i < results.length; i++) {
-    if (results[i].telefono === 'INTERNET') {
-      let targetIndex = -1;
-      for (let j = i + 1; j < results.length; j++) {
-        const nextRec = results[j];
-        if (nextRec.plan === 'Plan Fijo' || (nextRec.telefono && nextRec.telefono.includes('2341812')) || nextRec.plan.includes('Fijo')) {
-          targetIndex = j;
-          break;
-        }
-      }
-
-      if (targetIndex !== -1) {
-        const internet = results[i];
-        const fija = results[targetIndex];
-        
-        fija.bruto += internet.bruto;
-        fija.excedentes += internet.excedentes;
-        fija.descuentoMonto += internet.descuentoMonto;
-        
-        if (!fija.descuentoPct && internet.descuentoPct) {
-          fija.descuentoPct = internet.descuentoPct;
-        }
-        fija.plan = 'Plan Internet + Fijo';
-        
-        results.splice(i, 1);
-        i--; // ajustar índice
-      }
-    }
-  }
-
-  // --- PASO 4: Convertir a neto y deduplicar ---
-  // IMPORTANTE: En Personal, los montos extraídos de la factura ya son netos (pre-impuestos)
+  // --- PASO 4: Convertir montos netos a finales (incluyendo IVA 21%) ---
   const finalMap = new Map();
   results.forEach(r => {
     const tel = r.telefono;
     if (!tel || (tel !== 'INTERNET' && !tel.toLowerCase().startsWith('descuento') && !tel.includes('SUELTA') && tel.length < 6)) return;
-    if (r.bruto === 0) return; // Descartar entradas vacías
+    if (r.bruto === 0 && r.excedentes === 0) return;
 
     const netoTotal = r.bruto;
     const netoExced = r.excedentes;
@@ -423,7 +320,6 @@ export const procesarPersonal = (textLines) => {
     }
 
     if (!finalMap.has(key) || r.bruto > (finalMap.get(key)._bruto || 0)) {
-      // Personal extrae Neto, por lo que sumamos IVA 21% para comparar peras con peras
       finalMap.set(key, {
         telefono: key,
         montoTotal: netoTotal * 1.21,
