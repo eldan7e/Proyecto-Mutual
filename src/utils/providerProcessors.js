@@ -255,11 +255,16 @@ export const procesarPersonal = (textLines) => {
 
     // 7. DETALLES, EXCEDENTES Y DESCUENTOS DENTRO DEL BLOQUE ACTUAL
     if (current) {
-      // Capturar nombre del plan si aún no se asignó
+      // Capturar nombre del plan si aún no se asignó o es genérico
       if (u.includes('PLAN') && (current.plan === 'Plan Personal' || current.plan === 'Plan Fijo')) {
-        const planMatch = rawLine.match(/(?:_?\s*)(Plan[\w\d\s]+(?:\(\d+-\d+-\d+-\d+\))?)/i);
-        if (planMatch && !planMatch[1].toUpperCase().includes('SERVICIOS')) {
-          current.plan = planMatch[1].trim();
+        const planMatch = rawLine.match(/Plan\s*(\d+\s*GB(?:\s*Control)?|\d+\s*MB)/i);
+        if (planMatch) {
+          current.plan = 'Plan ' + planMatch[1].trim();
+        } else {
+          const genericPlanMatch = rawLine.match(/Plan\s*([A-Za-z0-9\s]+?)(?=\s+\d|\s+-|\s+\$|$)/i);
+          if (genericPlanMatch && !genericPlanMatch[1].toUpperCase().includes('SERVICIOS')) {
+            current.plan = 'Plan ' + genericPlanMatch[1].trim();
+          }
         }
       }
 
