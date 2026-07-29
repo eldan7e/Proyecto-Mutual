@@ -105,12 +105,13 @@ export const procesarPersonal = (textLines) => {
   let invoiceTax = 0;
   distinctTaxes.forEach(s => { invoiceTax += parsePersonalNumber(s); });
 
-  // --- PASO 2: Filtrar líneas de basura ---
+  // --- PASO 2: Filtrar líneas de basura y encabezados de resumen global ---
   const SKIP = [
     'FACTURAN', 'PAGINA', 'FECHAVENCIMIENTO', 'PERIODOABONO', 'PERIODOCONSUMO',
     'DETALLEDECARGOSFACTURADOS', 'BENEFICIODUPLICATUSGIGASAUTOMATICO',
     'ABONOSMOVILES', 'CANTIDADCARGO', 'CARGOSFACTURADOSCANTIDAD',
-    'IMPORTEENPESOS', 'IMPORTETOTAL'
+    'IMPORTEENPESOS', 'IMPORTETOTAL', 'DESCUENTOSADICIONALES', 'DESCUENTOCONEXIONTOTAL',
+    'SUBTOTALSINIMPUESTOS', 'TOTALCARGOSDELMES'
   ];
   const lines = textLines.filter(l => {
     const u = norm(l);
@@ -308,7 +309,9 @@ export const procesarPersonal = (textLines) => {
   const finalMap = new Map();
   results.forEach(r => {
     const tel = r.telefono;
-    if (!tel || (tel !== 'INTERNET' && !tel.toLowerCase().startsWith('descuento') && !tel.includes('SUELTA') && tel.length < 6)) return;
+    // Ignorar resúmenes, descuentos globales o etiquetas no asociadas a líneas/servicios reales
+    if (!tel || tel.toLowerCase().startsWith('descuento') || tel.includes('SUELTA') || tel === 'LINEA SUELTA') return;
+    if (tel !== 'INTERNET' && tel.length < 6) return;
     if (r.bruto === 0 && r.excedentes === 0) return;
 
     const netoTotal = r.bruto;
