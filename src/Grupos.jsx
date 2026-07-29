@@ -476,8 +476,8 @@ export default function Grupos() {
                   const montoAbonadoReal = liqSiguiente ? Number(liqSiguiente.monto_abonado) : Number(liq.monto_abonado);
                   
                   const facturado = Number(liq.monto_total_facturado);
-                  const diferencia = Math.abs(facturado - montoAbonadoReal);
-                  const estadoPagoReal = diferencia < 5.0 ? 'ABONADO' : (montoAbonadoReal > 5.0 ? 'PARCIAL' : 'PENDIENTE');
+                  const diferencia = facturado - montoAbonadoReal;
+                  const estadoPagoReal = (montoAbonadoReal >= (facturado - 5.0)) ? 'ABONADO' : (montoAbonadoReal > 5.0 ? 'PARCIAL' : 'PENDIENTE');
 
                   return (
                     <div key={liq.liquidacion_id} style={{ padding: '14px', background: 'var(--bg-app)', borderRadius: '14px', border: '1px solid var(--border-light)' }}>
