@@ -266,17 +266,18 @@ export function PaginatedEditableGrid({
       })
       .sort((a, b) => {
         if (sortByAnomalies) {
-          const aChanges = (!a.isValid || a.linea.startsWith('SUELTA_') || a.planOficial === 'No registrado' || !arePlansEquivalent(a.plan, a.planOficial) || a.auditStatus === 'WARN' || (a.alertas && a.alertas.length > 0)) ? 1 : 0;
-          const bChanges = (!b.isValid || b.linea.startsWith('SUELTA_') || b.planOficial === 'No registrado' || !arePlansEquivalent(b.plan, b.planOficial) || b.auditStatus === 'WARN' || (b.alertas && b.alertas.length > 0)) ? 1 : 0;
+          const aCritAlerts = (a.alertas || []).some(al => al.tipo === 'CRITICAL') ? 1 : 0;
+          const bCritAlerts = (b.alertas || []).some(al => al.tipo === 'CRITICAL') ? 1 : 0;
+
+          const aChanges = (!a.isValid || a.linea.startsWith('SUELTA_') || a.planOficial === 'No registrado' || !arePlansEquivalent(a.plan, a.planOficial) || a.auditStatus === 'WARN' || aCritAlerts) ? 1 : 0;
+          const bChanges = (!b.isValid || b.linea.startsWith('SUELTA_') || b.planOficial === 'No registrado' || !arePlansEquivalent(b.plan, b.planOficial) || b.auditStatus === 'WARN' || bCritAlerts) ? 1 : 0;
           if (bChanges !== aChanges) return bChanges - aChanges;
 
           const aCrit = (!a.isValid || a.linea.startsWith('SUELTA_')) ? 1 : 0;
           const bCrit = (!b.isValid || b.linea.startsWith('SUELTA_')) ? 1 : 0;
           if (bCrit !== aCrit) return bCrit - aCrit;
 
-          const aAlerts = a.alertas && a.alertas.length > 0 ? 1 : 0;
-          const bAlerts = b.alertas && b.alertas.length > 0 ? 1 : 0;
-          return bAlerts - aAlerts;
+          return bCritAlerts - aCritAlerts;
         }
         if (filterExcedentes) {
           const excA = a.excedentes || 0;
