@@ -305,6 +305,37 @@ export const procesarPersonal = (textLines) => {
 
   closeCurrent();
 
+  // --- PASO 3.5: Consolidar SERVICIOS DE INTERNET en la Línea Fija Principal 2212341812 ---
+  let internetItem = null;
+  let fijaIndex = -1;
+
+  for (let i = 0; i < results.length; i++) {
+    if (results[i].telefono === 'INTERNET') {
+      internetItem = results[i];
+    } else if (results[i].telefono.includes('2341812') || results[i].plan === 'Plan Fijo' || results[i].plan.includes('Fijo')) {
+      if (fijaIndex === -1) fijaIndex = i;
+    }
+  }
+
+  if (internetItem && fijaIndex !== -1) {
+    const fija = results[fijaIndex];
+    fija.bruto += internetItem.bruto;
+    fija.excedentes += internetItem.excedentes;
+    fija.descuentoMonto += internetItem.descuentoMonto;
+    if (!fija.descuentoPct && internetItem.descuentoPct) {
+      fija.descuentoPct = internetItem.descuentoPct;
+    }
+    fija.plan = 'Plan Internet 300 MB + Fijo';
+
+    // Eliminar el objeto 'INTERNET' independiente
+    const intIdx = results.indexOf(internetItem);
+    if (intIdx !== -1) results.splice(intIdx, 1);
+  } else if (internetItem) {
+    // Si no se encontró la línea fija en la lista, renombrar el registro de Internet a la línea 2212341812 por defecto
+    internetItem.telefono = '2212341812';
+    internetItem.plan = 'Plan Internet 300 MB + Fijo';
+  }
+
   // --- PASO 4: Convertir montos netos a finales (incluyendo IVA 21%) ---
   const finalMap = new Map();
   results.forEach(r => {
