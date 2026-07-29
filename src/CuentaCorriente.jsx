@@ -167,18 +167,22 @@ export default function CuentaCorriente() {
     );
   }, [gruposList, searchGrupo]);
 
-  // Cálculos consolidados del grupo actual (calculados estrictamente hasta fechaFinCalculo)
+  // Cálculos consolidados del grupo actual (calculados estrictamente hasta fechaFinCalculo o fecha de pago)
   const kpis = useMemo(() => {
     let saldoCapitalActual = 0;
     let interesMoraAcumulado = 0;
     let facturasPendientes = [];
 
-    movimientosFiltrados.forEach(m => {
+    movimientosFiltrados.forEach((m, idx) => {
       const imp = Math.abs(Number(m.importe) || 0);
       if (m.tipo === 'FACTURA') {
         const capitalPend = Math.max(0, imp - Number(m.pago_aplicado_capital || 0));
-        if (capitalPend > 0.05) {
-          const dias = calcularDiasMora(m.fecha, fechaFinCalculo);
+        const saldoCap = Number(m.saldo_capital || 0);
+        if (capitalPend > 0.05 && saldoCap > 0) {
+          const siguientePago = movimientosFiltrados.find((p, pIdx) => pIdx > idx && p.tipo === 'PAGO');
+          const fechaCorteMora = siguientePago ? siguientePago.fecha : fechaFinCalculo;
+          
+          const dias = calcularDiasMora(m.fecha, fechaCorteMora);
           const intCalc = calcularInteresMora(capitalPend, dias, tna);
           interesMoraAcumulado += Math.max(0, intCalc - Number(m.pago_aplicado_interes || 0));
           facturasPendientes.push({ ...m, capitalPendiente: capitalPend });
@@ -570,8 +574,18 @@ export default function CuentaCorriente() {
                   const imp = Number(m.importe) || 0;
                   const isFactura = m.tipo === 'FACTURA';
                   const isPago = m.tipo === 'PAGO';
-                  const diasMora = isFactura ? calcularDiasMora(m.fecha, fechaFinCalculo) : 0;
-                  const intMora = isFactura ? calcularInteresMora(imp - Number(m.pago_aplicado_capital||0), diasMora, tna) : 0;
+                  
+                  // Determinar la fecha de pago o corte real para el cálculo de la mora
+                  // Si el saldo de capital es negativo o 0 (saldo a favor), no hay mora acumulada
+                  const saldoCap = Number(m.saldo_capital || 0);
+                  const tieneMora = isFactura && (imp - Number(m.pago_aplicado_capital || 0)) > 0.05 && saldoCap > 0;
+                  
+                  // Fecha límite para mora: si hubo un pago posterior en el listado, se corta en ese pago; de lo contrario en fechaFinCalculo
+                  const siguientePago = movimientosFiltrados.find((p, pIdx) => pIdx > idx && p.tipo === 'PAGO');
+                  const fechaCorteMora = siguientePago ? siguientePago.fecha : fechaFinCalculo;
+                  
+                  const diasMora = tieneMora ? calcularDiasMora(m.fecha, fechaCorteMora) : 0;
+                  const intMora = tieneMora ? calcularInteresMora(imp - Number(m.pago_aplicado_capital || 0), diasMora, tna) : 0;
 
                   return (
                     <tr key={m.id || idx}>

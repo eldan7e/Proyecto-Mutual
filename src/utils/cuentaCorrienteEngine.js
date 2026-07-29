@@ -9,23 +9,22 @@ export const DEFAULT_TNA = 120.0;
 export const DIA_TOPE_PAGO = 15;
 
 /**
- * Calcula los días de mora entre la fecha de vencimiento (o día 15 del mes) y la fecha de cálculo/pago.
- * @param {string|Date} fechaEmisionOFactura - Fecha de la factura o vencimiento
- * @param {string|Date} [fechaPagoOCalculo] - Fecha de cálculo/pago (default: hoy)
+ * Calcula los días de mora entre la fecha de la factura/vencimiento y la fecha en que se realiza el pago.
+ * @param {string|Date} fechaEmisionOFactura - Fecha de presentación/emisión de la factura
+ * @param {string|Date} [fechaPagoOCalculo] - Fecha en que se abonó el pago (o fecha de corte si está pendiente)
  * @param {number} [diaTope=15] - Día tope de pago del mes
- * @returns {number} Días de mora (>= 0)
+ * @returns {number} Días de mora reales (>= 0)
  */
 export function calcularDiasMora(fechaEmisionOFactura, fechaPagoOCalculo = new Date(), diaTope = DIA_TOPE_PAGO) {
-  if (!fechaEmisionOFactura) return 0;
+  if (!fechaEmisionOFactura || !fechaPagoOCalculo) return 0;
   
   const fFactura = new Date(fechaEmisionOFactura);
-  const fCalculo = new Date(fechaPagoOCalculo);
+  const fPago = new Date(fechaPagoOCalculo);
   
-  // Establecer vencimiento en el día tope del mes de la factura o mes siguiente si se emite después del día 15
+  // Establecer vencimiento (día 15 del mes de la factura o mes siguiente si se emite después del día 15)
   let anoVenc = fFactura.getFullYear();
   let mesVenc = fFactura.getMonth();
   
-  // Si la fecha de la factura ya es posterior al día 15, vence el 15 del mes siguiente
   if (fFactura.getDate() > diaTope) {
     mesVenc += 1;
     if (mesVenc > 11) {
@@ -36,7 +35,8 @@ export function calcularDiasMora(fechaEmisionOFactura, fechaPagoOCalculo = new D
   
   const fVencimiento = new Date(anoVenc, mesVenc, diaTope, 23, 59, 59);
   
-  const diffMs = fCalculo - fVencimiento;
+  // Si la fecha de pago ocurrió dentro del plazo o antes del vencimiento -> 0 días de mora
+  const diffMs = fPago - fVencimiento;
   if (diffMs <= 0) return 0;
   
   return Math.floor(diffMs / (1000 * 60 * 60 * 24));
