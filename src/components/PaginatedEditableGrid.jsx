@@ -256,14 +256,23 @@ export function PaginatedEditableGrid({
         if (filterExcedentes) {
           return (row.excedentes || 0) > 0;
         }
-        
+        if (filterBajasBonif) {
+          const hasBonifAlert = (row.alertas || []).some(al => 
+            al.msg.includes('BONIF') || al.msg.includes('DESVÍO') || al.msg.includes('DESVIO')
+          );
+          return hasBonifAlert;
+        }
         return true;
       })
       .sort((a, b) => {
         if (sortByAnomalies) {
-          const aCritical = (!a.isValid || a.linea.startsWith('SUELTA_') || a.planOficial === 'No registrado' || a.auditStatus === 'WARN') ? 1 : 0;
-          const bCritical = (!b.isValid || b.linea.startsWith('SUELTA_') || b.planOficial === 'No registrado' || b.auditStatus === 'WARN') ? 1 : 0;
-          if (bCritical !== aCritical) return bCritical - aCritical;
+          const aChanges = (!a.isValid || a.linea.startsWith('SUELTA_') || a.planOficial === 'No registrado' || !arePlansEquivalent(a.plan, a.planOficial) || a.auditStatus === 'WARN' || (a.alertas && a.alertas.length > 0)) ? 1 : 0;
+          const bChanges = (!b.isValid || b.linea.startsWith('SUELTA_') || b.planOficial === 'No registrado' || !arePlansEquivalent(b.plan, b.planOficial) || b.auditStatus === 'WARN' || (b.alertas && b.alertas.length > 0)) ? 1 : 0;
+          if (bChanges !== aChanges) return bChanges - aChanges;
+
+          const aCrit = (!a.isValid || a.linea.startsWith('SUELTA_')) ? 1 : 0;
+          const bCrit = (!b.isValid || b.linea.startsWith('SUELTA_')) ? 1 : 0;
+          if (bCrit !== aCrit) return bCrit - aCrit;
 
           const aAlerts = a.alertas && a.alertas.length > 0 ? 1 : 0;
           const bAlerts = b.alertas && b.alertas.length > 0 ? 1 : 0;
@@ -272,12 +281,16 @@ export function PaginatedEditableGrid({
         if (filterExcedentes) {
           const excA = a.excedentes || 0;
           const excB = b.excedentes || 0;
-          return excB - excA; // Mayor a Menor excedente
+          return excB - excA; 
         }
         if (filterBajasBonif) {
           const discA = a.precioOficial > 0 ? Math.abs(((a.precioOficial - a.abono) / a.precioOficial) * 100) : 0;
           const discB = b.precioOficial > 0 ? Math.abs(((b.precioOficial - b.abono) / b.precioOficial) * 100) : 0;
-          return discA - discB;
+          const expectedA = selectedProvider === 'claro' ? 90 : (a.descuentoEsperado || 80);
+          const expectedB = selectedProvider === 'claro' ? 90 : (b.descuentoEsperado || 80);
+          const devA = expectedA - discA;
+          const devB = expectedB - discB;
+          return devB - devA;
         }
         return 0;
       });
