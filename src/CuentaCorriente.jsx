@@ -167,36 +167,88 @@ export default function CuentaCorriente() {
     );
   }, [gruposList, searchGrupo]);
 
-  // Cálculos consolidados del grupo actual (calculados estrictamente sobre el saldo de capital remanente impago)
+  // Cálculos consolidados del grupo actual procesados exactamente bajo el motor acumulativo de 9 columnas del Excel
+  const movimientosProcesados = useMemo(() => {
+    let capAnt = 0;
+    let intAnt = 0;
+    let fechaAnt = null;
+
+    return movimientosFiltrados.map((m, idx) => {
+      const imp = Math.abs(Number(m.importe) || 0);
+      const isFactura = m.tipo === 'FACTURA';
+      const isPago = m.tipo === 'PAGO';
+
+      // 1. Plazo Dias
+      let plazoDias = 0;
+      if (fechaAnt) {
+        const dAnt = new Date(fechaAnt);
+        const dAct = new Date(m.fecha);
+        const diff = dAct - dAnt;
+        plazoDias = diff > 0 ? Math.floor(diff / (1000 * 60 * 60 * 24)) : 0;
+      }
+
+      // 2. Intereses Mora ($)
+      const tasaDiaria = (tna / 100) / 365;
+      const interesTranche = tasaDiaria * plazoDias;
+      const interesMora = Math.round((capAnt * interesTranche) * 100) / 100;
+
+      // 3. Interes Pendiente Acumulado
+      const intAcumulado = intAnt + interesMora;
+
+      // 4. Imputación de Pagos a Interés vs Capital
+      let pagoInt = 0;
+      let pagoCap = 0;
+      let capNuevo = capAnt;
+
+      if (isPago) {
+        pagoInt = Math.min(imp, intAcumulado);
+        pagoCap = Math.max(0, imp - intAcumulado);
+        capNuevo = capAnt - pagoCap;
+      } else {
+        capNuevo = capAnt + imp;
+      }
+
+      const intFinal = intAcumulado - pagoInt;
+      const saldoFin = capNuevo + intFinal;
+
+      // Guardar acumuladores para la fila siguiente
+      fechaAnt = m.fecha;
+      capAnt = capNuevo;
+      intAnt = intFinal;
+
+      return {
+        ...m,
+        plazo_dias: plazoDias,
+        interes_mora: interesMora,
+        pago_aplicado_interes: pagoInt,
+        pago_aplicado_capital: pagoCap,
+        saldo_capital: capNuevo,
+        interes_pend_final: intFinal,
+        saldo_final: saldoFin
+      };
+    });
+  }, [movimientosFiltrados, tna]);
+
+  // KPIs consolidados del grupo actual
   const kpis = useMemo(() => {
     let saldoCapitalActual = 0;
     let interesMoraAcumulado = 0;
-    let facturasPendientes = [];
 
-    if (movimientosFiltrados.length > 0) {
-      const ultimo = movimientosFiltrados[movimientosFiltrados.length - 1];
-      saldoCapitalActual = Number(ultimo.saldo_capital || 0);
+    if (movimientosProcesados.length > 0) {
+      const ultimo = movimientosProcesados[movimientosProcesados.length - 1];
+      saldoCapitalActual = ultimo.saldo_capital;
+      interesMoraAcumulado = ultimo.interes_pend_final;
     }
 
-    // Si el grupo tiene saldo impago (saldoCapitalActual > 0), calcular la mora sobre el remanente impago actual
-    if (saldoCapitalActual > 0.05) {
-      // Buscar la última factura para tomar su fecha de vencimiento/emisión
-      const ultimaFactura = [...movimientosFiltrados].reverse().find(m => m.tipo === 'FACTURA');
-      if (ultimaFactura) {
-        const dias = calcularDiasMora(ultimaFactura.fecha, fechaFinCalculo);
-        interesMoraAcumulado = calcularInteresMora(saldoCapitalActual, dias, tna);
-      }
-    }
-
-    const totalConsolidado = Math.max(0, saldoCapitalActual + interesMoraAcumulado);
+    const totalConsolidado = saldoCapitalActual + interesMoraAcumulado;
 
     return {
       saldoCapitalActual,
       interesMoraAcumulado,
       totalConsolidado,
-      facturasPendientes
+      facturasPendientes: movimientosProcesados.filter(m => m.tipo === 'FACTURA' && (m.importe - (m.pago_aplicado_capital || 0)) > 0.05)
     };
-  }, [movimientosFiltrados, tna, fechaFinCalculo]);
+  }, [movimientosProcesados]);
 
   // Preparar modal de cobro FIFO
   function openCobroModal() {
@@ -556,29 +608,20 @@ export default function CuentaCorriente() {
                     <Loader2 size={32} className="animate-spin" style={{ margin: '0 auto', color: 'var(--accent)' }} />
                   </td>
                 </tr>
-              ) : movimientosFiltrados.length === 0 ? (
+              ) : movimientosProcesados.length === 0 ? (
                 <tr>
                   <td colSpan="9" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
                     No se encontraron movimientos registrados en el rango de fechas seleccionado.
                   </td>
                 </tr>
               ) : (
-                movimientosFiltrados.map((m, idx) => {
+                movimientosProcesados.map((m, idx) => {
                   const imp = Number(m.importe) || 0;
                   const isFactura = m.tipo === 'FACTURA';
                   const isPago = m.tipo === 'PAGO';
                   
-                  // Determinar la fecha de pago o corte real para el cálculo de la mora
-                  // Si el saldo de capital es negativo o 0 (saldo a favor), no hay mora acumulada
-                  const saldoCap = Number(m.saldo_capital || 0);
-                  const tieneMora = isFactura && (imp - Number(m.pago_aplicado_capital || 0)) > 0.05 && saldoCap > 0;
-                  
-                  // Fecha límite para mora: si hubo un pago posterior en el listado, se corta en ese pago; de lo contrario en fechaFinCalculo
-                  const siguientePago = movimientosFiltrados.find((p, pIdx) => pIdx > idx && p.tipo === 'PAGO');
-                  const fechaCorteMora = siguientePago ? siguientePago.fecha : fechaFinCalculo;
-                  
-                  const diasMora = tieneMora ? calcularDiasMora(m.fecha, fechaCorteMora) : 0;
-                  const intMora = tieneMora ? calcularInteresMora(imp - Number(m.pago_aplicado_capital || 0), diasMora, tna) : 0;
+                  const diasMora = m.plazo_dias || 0;
+                  const intMora = m.interes_mora || 0;
 
                   return (
                     <tr key={m.id || idx}>
