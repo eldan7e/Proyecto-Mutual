@@ -167,32 +167,25 @@ export default function CuentaCorriente() {
     );
   }, [gruposList, searchGrupo]);
 
-  // Cálculos consolidados del grupo actual (calculados estrictamente hasta fechaFinCalculo o fecha de pago)
+  // Cálculos consolidados del grupo actual (calculados estrictamente sobre el saldo de capital remanente impago)
   const kpis = useMemo(() => {
     let saldoCapitalActual = 0;
     let interesMoraAcumulado = 0;
     let facturasPendientes = [];
 
-    movimientosFiltrados.forEach((m, idx) => {
-      const imp = Math.abs(Number(m.importe) || 0);
-      if (m.tipo === 'FACTURA') {
-        const capitalPend = Math.max(0, imp - Number(m.pago_aplicado_capital || 0));
-        const saldoCap = Number(m.saldo_capital || 0);
-        if (capitalPend > 0.05 && saldoCap > 0) {
-          const siguientePago = movimientosFiltrados.find((p, pIdx) => pIdx > idx && p.tipo === 'PAGO');
-          const fechaCorteMora = siguientePago ? siguientePago.fecha : fechaFinCalculo;
-          
-          const dias = calcularDiasMora(m.fecha, fechaCorteMora);
-          const intCalc = calcularInteresMora(capitalPend, dias, tna);
-          interesMoraAcumulado += Math.max(0, intCalc - Number(m.pago_aplicado_interes || 0));
-          facturasPendientes.push({ ...m, capitalPendiente: capitalPend });
-        }
-      }
-    });
-
     if (movimientosFiltrados.length > 0) {
       const ultimo = movimientosFiltrados[movimientosFiltrados.length - 1];
       saldoCapitalActual = Number(ultimo.saldo_capital || 0);
+    }
+
+    // Si el grupo tiene saldo impago (saldoCapitalActual > 0), calcular la mora sobre el remanente impago actual
+    if (saldoCapitalActual > 0.05) {
+      // Buscar la última factura para tomar su fecha de vencimiento/emisión
+      const ultimaFactura = [...movimientosFiltrados].reverse().find(m => m.tipo === 'FACTURA');
+      if (ultimaFactura) {
+        const dias = calcularDiasMora(ultimaFactura.fecha, fechaFinCalculo);
+        interesMoraAcumulado = calcularInteresMora(saldoCapitalActual, dias, tna);
+      }
     }
 
     const totalConsolidado = Math.max(0, saldoCapitalActual + interesMoraAcumulado);
