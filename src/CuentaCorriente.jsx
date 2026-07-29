@@ -168,12 +168,14 @@ export default function CuentaCorriente() {
   }, [gruposList, searchGrupo]);
 
   // Cálculos consolidados del grupo actual procesados exactamente bajo el motor acumulativo de 9 columnas del Excel
-  const movimientosProcesados = useMemo(() => {
+  // IMPORTANTE: Se procesan TODOS los movimientos del grupo en orden cronológico para arrastrar el Saldo Capital y Saldo Final
+  // acumulado histórico real (por ejemplo saldos a favor de años anteriores) antes de aplicar el filtro visual de fecha.
+  const todosMovimientosProcesados = useMemo(() => {
     let capAnt = 0;
     let intAnt = 0;
     let fechaAnt = null;
 
-    return movimientosFiltrados.map((m, idx) => {
+    return movimientos.map((m) => {
       const imp = Math.abs(Number(m.importe) || 0);
       const isFactura = m.tipo === 'FACTURA';
       const isPago = m.tipo === 'PAGO';
@@ -190,7 +192,8 @@ export default function CuentaCorriente() {
       // 2. Intereses Mora ($)
       const tasaDiaria = (tna / 100) / 365;
       const interesTranche = tasaDiaria * plazoDias;
-      const interesMora = Math.round((capAnt * interesTranche) * 100) / 100;
+      // La mora se calcula si el capital anterior es positivo (deuda)
+      const interesMora = capAnt > 0 ? Math.round((capAnt * interesTranche) * 100) / 100 : 0;
 
       // 3. Interes Pendiente Acumulado
       const intAcumulado = intAnt + interesMora;
@@ -227,15 +230,25 @@ export default function CuentaCorriente() {
         saldo_final: saldoFin
       };
     });
-  }, [movimientosFiltrados, tna]);
+  }, [movimientos, tna]);
+
+  // Movimientos procesados y filtrados por el rango de fechas seleccionado por el usuario
+  const movimientosProcesados = useMemo(() => {
+    return todosMovimientosProcesados.filter(m => {
+      if (!m.fecha) return true;
+      if (fechaInicio && m.fecha < fechaInicio) return false;
+      if (fechaFinCalculo && m.fecha > fechaFinCalculo) return false;
+      return true;
+    });
+  }, [todosMovimientosProcesados, fechaInicio, fechaFinCalculo]);
 
   // KPIs consolidados del grupo actual
   const kpis = useMemo(() => {
     let saldoCapitalActual = 0;
     let interesMoraAcumulado = 0;
 
-    if (movimientosProcesados.length > 0) {
-      const ultimo = movimientosProcesados[movimientosProcesados.length - 1];
+    if (todosMovimientosProcesados.length > 0) {
+      const ultimo = todosMovimientosProcesados[todosMovimientosProcesados.length - 1];
       saldoCapitalActual = ultimo.saldo_capital;
       interesMoraAcumulado = ultimo.interes_pend_final;
     }
@@ -246,9 +259,9 @@ export default function CuentaCorriente() {
       saldoCapitalActual,
       interesMoraAcumulado,
       totalConsolidado,
-      facturasPendientes: movimientosProcesados.filter(m => m.tipo === 'FACTURA' && (m.importe - (m.pago_aplicado_capital || 0)) > 0.05)
+      facturasPendientes: todosMovimientosProcesados.filter(m => m.tipo === 'FACTURA' && (m.importe - (m.pago_aplicado_capital || 0)) > 0.05)
     };
-  }, [movimientosProcesados]);
+  }, [todosMovimientosProcesados]);
 
   // Preparar modal de cobro FIFO
   function openCobroModal() {
