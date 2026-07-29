@@ -602,10 +602,54 @@ export default function Descuentos() {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr 1fr', gap: '16px' }}>
               <div>
                 <label className="form-label">Mes de Inicio</label>
-                <input className="premium-input" style={{ width: '100%', padding: '12px' }} type="month" value={form.periodo_inicio || getCurrentPeriodYMD()} onChange={e => setForm({...form, periodo_inicio: e.target.value})} />
+                {(() => {
+                  const parts = (form.periodo_inicio || getCurrentPeriodYMD()).split('-');
+                  const curYear = parts[0] || '2026';
+                  const curMonth = parts[1] || '07';
+                  const MESES = [
+                    { val: '01', label: 'Enero' },
+                    { val: '02', label: 'Febrero' },
+                    { val: '03', label: 'Marzo' },
+                    { val: '04', label: 'Abril' },
+                    { val: '05', label: 'Mayo' },
+                    { val: '06', label: 'Junio' },
+                    { val: '07', label: 'Julio' },
+                    { val: '08', label: 'Agosto' },
+                    { val: '09', label: 'Septiembre' },
+                    { val: '10', label: 'Octubre' },
+                    { val: '11', label: 'Noviembre' },
+                    { val: '12', label: 'Diciembre' },
+                  ];
+                  const ANOS = ['2024', '2025', '2026', '2027', '2028', '2029', '2030'];
+
+                  return (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '6px' }}>
+                      <select 
+                        className="premium-input" 
+                        style={{ padding: '12px 8px', fontSize: '13px' }}
+                        value={curMonth}
+                        onChange={e => setForm({...form, periodo_inicio: `${curYear}-${e.target.value}`})}
+                      >
+                        {MESES.map(m => (
+                          <option key={m.val} value={m.val}>{m.label}</option>
+                        ))}
+                      </select>
+                      <select 
+                        className="premium-input" 
+                        style={{ padding: '12px 8px', fontSize: '13px' }}
+                        value={curYear}
+                        onChange={e => setForm({...form, periodo_inicio: `${e.target.value}-${curMonth}`})}
+                      >
+                        {ANOS.map(y => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })()}
               </div>
               <div>
                 <label className="form-label">Cuota Inicial</label>
