@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { supabase } from './supabaseClient';
 import { 
   Tag, Search, AlertCircle, CheckCircle2, TrendingDown, 
@@ -64,14 +64,15 @@ const EMPTY_FORM = {
 };
 
 export default function Descuentos() {
-  const [adicionales, setAdicionales] = useState([]);
+  const [rawAdicionales, setRawAdicionales] = useState([]);
   const [error, setError] = useState(null);
   const [socios, setSocios] = useState([]);
   const [lineasBySocio, setLineasBySocio] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterTipo, setFilterTipo] = useState('');
-  const [mostrarInactivos, setMostrarInactivos] = useState(true);
+  const [filterCompany, setFilterCompany] = useState('');
+  const [mostrarInactivos, setMostrarInactivos] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editId, setEditId] = useState(null);
@@ -89,13 +90,12 @@ export default function Descuentos() {
 
   useEffect(() => {
     fetchAll();
-  }, [debouncedSearch, filterTipo, mostrarInactivos, sortCol, sortDir]);
+  }, []);
 
   async function fetchAll() {
     setLoading(true);
     setError(null);
     try {
-      // 1. Fetch Adicionales con joins simplificados
       let query = supabase
         .from('adicionales')
         .select(`
@@ -111,33 +111,23 @@ export default function Descuentos() {
         `)
         .order('id', { ascending: false });
         
-      if (!mostrarInactivos) {
-        query = query.eq('activo', true);
-      }
-
       const { data, error: supabaseError } = await query;
 
       if (supabaseError) {
         console.error("Error Fetching Adicionales:", supabaseError);
         setError("Error al cargar datos: " + supabaseError.message);
         
-        // Fallback robusto por si fallan los joins profundos
         let fallbackQuery = supabase
           .from('adicionales')
           .select(`
             id, tipo, descripcion, valor, cta_numero, total_cuotas, activo,
             socios(socio_id, nombre_completo, nro_socio)
           `);
-          
-        if (!mostrarInactivos) {
-          fallbackQuery = fallbackQuery.eq('activo', true);
-        }
         
         const { data: fallback } = await fallbackQuery;
-        
-        applyFilters(fallback || []);
+        setRawAdicionales(fallback || []);
       } else {
-        applyFilters(data || []);
+        setRawAdicionales(data || []);
       }
     } catch (err) {
       console.error("Error Crítico:", err);
@@ -147,12 +137,15 @@ export default function Descuentos() {
     }
   }
 
-  function applyFilters(data) {
-    if (!data) {
-      setAdicionales([]);
-      return;
+  const adicionales = useMemo(() => {
+    let result = [...rawAdicionales];
+
+    if (!mostrarInactivos) {
+      result = result.filter(a => a.activo === true && (a.cta_numero || 0) <= (a.total_cuotas || 0));
+    } else {
+      result = result.filter(a => a.activo === false || (a.cta_numero || 0) > (a.total_cuotas || 0));
     }
-    let result = [...data];
+
     if (debouncedSearch) {
       const term = debouncedSearch.toLowerCase();
       result = result.filter(a => {
@@ -162,12 +155,22 @@ export default function Descuentos() {
         return nom.includes(term) || dsc.includes(term);
       });
     }
+
     if (filterTipo) {
       result = result.filter(a => a.tipo === filterTipo);
     }
-    result = sortData(result, sortCol, sortDir);
-    setAdicionales(result);
-  }
+
+    if (filterCompany) {
+      const companyTerm = filterCompany.toLowerCase();
+      result = result.filter(a => {
+        const desc = (a.descripcion || '').toLowerCase();
+        const prov = (a.lineas?.proveedores?.nombre || '').toLowerCase();
+        return desc.includes(companyTerm) || prov.includes(companyTerm);
+      });
+    }
+
+    return sortData(result, sortCol, sortDir);
+  }, [rawAdicionales, debouncedSearch, filterTipo, filterCompany, mostrarInactivos, sortCol, sortDir]);
 
   function sortData(data, col, dir) {
     if (!data) return [];
@@ -205,7 +208,6 @@ export default function Descuentos() {
     const newDir = sortCol === col && sortDir === 'asc' ? 'desc' : 'asc';
     setSortCol(col);
     setSortDir(newDir);
-    setAdicionales(prev => sortData(prev, col, newDir));
   }
 
   function SortIcon({ col }) {
@@ -440,6 +442,19 @@ export default function Descuentos() {
               style={{ background: 'none', border: 'none', outline: 'none', width: '100%', fontWeight: 600, color: 'var(--text-primary)' }}
             />
           </div>
+
+          <select 
+            className="premium-input" 
+            style={{ width: '180px', padding: '10px', height: '44px', fontWeight: 700 }}
+            value={filterCompany}
+            onChange={(e) => setFilterCompany(e.target.value)}
+          >
+            <option value="">Todas las operadoras</option>
+            <option value="Claro">Claro</option>
+            <option value="Movistar">Movistar</option>
+            <option value="Personal">Personal</option>
+          </select>
+
           <button onClick={fetchAll} className="icon-button-edit">
             <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
           </button>
@@ -484,12 +499,12 @@ export default function Descuentos() {
                   </td>
                 </tr>
               ) : adicionales.map(a => {
-                const rest = cuotasRestantes(a);
-                const pct = progreso(a);
+                const isFinished = (a.cta_numero || 0) > (a.total_cuotas || 0);
+                const rest = Math.max(0, (a.total_cuotas || 0) - (a.cta_numero || 0));
+                const pct = a.total_cuotas > 0 ? Math.min(100, Math.round(((a.cta_numero || 0) / a.total_cuotas) * 100)) : 0;
                 const isD = a.tipo === 'DESCUENTO';
                 const startStr = a.created_at ? a.created_at.substring(0, 7) : null;
                 const est = getEstimatedEndDate(a.cta_numero, a.total_cuotas, startStr);
-                const isFinished = rest === 0;
                 return (
                   <tr key={a.id}>
                     <td style={{ padding: '16px 24px' }}>
