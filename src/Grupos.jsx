@@ -467,8 +467,18 @@ export default function Grupos() {
               <div style={{ color: 'var(--text-secondary)', fontSize: '13px', fontStyle: 'italic', padding: '10px' }}>No hay registros de liquidación en el sistema</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {liquidacionesHistory.map((liq) => {
+                {liquidacionesHistory.map((liq, idx) => {
                   const payments = liq.movimientos_bancarios || [];
+                  
+                  // CORRECCIÓN DEL DESFASAJE: 
+                  // El abono de esta factura se encuentra registrado en el periodo siguiente en la base de datos
+                  const liqSiguiente = idx > 0 ? liquidacionesHistory[idx - 1] : null;
+                  const montoAbonadoReal = liqSiguiente ? Number(liqSiguiente.monto_abonado) : Number(liq.monto_abonado);
+                  
+                  const facturado = Number(liq.monto_total_facturado);
+                  const diferencia = Math.abs(facturado - montoAbonadoReal);
+                  const estadoPagoReal = diferencia < 5.0 ? 'ABONADO' : (montoAbonadoReal > 5.0 ? 'PARCIAL' : 'PENDIENTE');
+
                   return (
                     <div key={liq.liquidacion_id} style={{ padding: '14px', background: 'var(--bg-app)', borderRadius: '14px', border: '1px solid var(--border-light)' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
@@ -477,18 +487,18 @@ export default function Grupos() {
                         </span>
                         <span style={{ 
                           fontSize: '9px', 
-                          background: liq.estado_pago === 'ABONADO' ? 'var(--accent)' : liq.estado_pago === 'PARCIAL' ? '#f59e0b' : '#ef4444', 
+                          background: estadoPagoReal === 'ABONADO' ? 'var(--accent)' : estadoPagoReal === 'PARCIAL' ? '#f59e0b' : '#ef4444', 
                           color: 'white', 
                           padding: '3px 8px', 
                           borderRadius: '100px', 
                           fontWeight: 900 
                         }}>
-                          {liq.estado_pago}
+                          {estadoPagoReal}
                         </span>
                       </div>
                       <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, display: 'flex', justifyContent: 'space-between' }}>
-                        <span>Facturado: ${parseFloat(liq.monto_total_facturado).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                        <span>Abonado: ${parseFloat(liq.monto_abonado).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                        <span>Facturado: ${facturado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                        <span>Abonado: ${montoAbonadoReal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
                       </div>
                       
                       {payments.length > 0 && (
