@@ -278,10 +278,22 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       }
     }
     
-    // Los descuentos de Claro ahora se toman directamente de socios.desc_adicionales y lineas.descuento_esperado
-    // Sin overrides hardcodeados por período/línea
+    // Evitar la duplicación de descuentos si el porcentaje en lineas.descuento_esperado
+    // ya es idéntico o incluye al acumulado en la tabla de adicionales
+    let effectiveDiscountPct = discountPct;
+    if (descExtraPct > 0) {
+      if (discountPct === 0) {
+        effectiveDiscountPct = descExtraPct;
+      } else if (Math.abs(discountPct - descExtraPct) < 0.01) {
+        // Mismo descuento registrado en ambas tablas (lineas y adicionales) -> NO duplicar
+        effectiveDiscountPct = discountPct;
+      } else if (discountPct > 0 && descExtraPct > 0) {
+        // Tomar el porcentaje real sin duplicar la suma de la misma bonificación
+        effectiveDiscountPct = Math.max(discountPct, descExtraPct);
+      }
+    }
 
-    const pctBonifSocio = (discountPct + descExtraPct) / 100;
+    const pctBonifSocio = effectiveDiscountPct / 100;
     const bonifManual = Number(consumo.bonificaciones || 0);
 
     let bonifSocio = 0;
