@@ -3,7 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import Socios from './Socios';
 import Grupos from './Grupos';
 import Planes from './Planes';
-import { Users, UserIcon, Layers } from 'lucide-react';
+import Descuentos from './Descuentos';
+import { Users, UserIcon, Layers, Tag } from 'lucide-react';
 
 export default function Comunidad() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -26,18 +27,17 @@ export default function Comunidad() {
             <h1 style={{ fontSize: '28px', fontWeight: 900, letterSpacing: '-0.03em', color: 'var(--text-primary)' }}>Gestión de Comunidad</h1>
           </div>
           <p style={{ color: 'var(--text-secondary)', fontSize: '15px', fontWeight: 500 }}>
-            Administración centralizada de socios, grupos familiares/facturación y catálogo de planes
+            Administración centralizada de socios, grupos familiares/facturación, descuentos y catálogo de planes
           </p>
         </div>
       </div>
-
-
 
       {/* Render Component Dynamically */}
       <div style={{ minHeight: '400px' }}>
         {activeTab === 'socios' && <Socios hideHeader={true} />}
         {activeTab === 'grupos' && <Grupos />}
         {activeTab === 'planes' && <Planes hideHeader={true} />}
+        {activeTab === 'descuentos' && <Descuentos />}
       </div>
     </div>
   );

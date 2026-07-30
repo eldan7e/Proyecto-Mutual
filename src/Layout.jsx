@@ -259,8 +259,8 @@ export default function Layout({ session, theme, toggleTheme }) {
 
   const APP_CATEGORIES = [
     { id: 'general', paths: ['/', '/tareas', '/log-diario', '/ingreso-diario'] },
-    { id: 'mgmt', paths: ['/comunidad?tab=socios', '/comunidad?tab=grupos', '/comunidad?tab=planes'] },
-    { id: 'facturacion', paths: ['/facturacion', '/comprobantes-afip', '/gestion-pagos', '/descuentos', '/carga-manual'] },
+    { id: 'mgmt', paths: ['/comunidad?tab=socios', '/comunidad?tab=grupos', '/comunidad?tab=planes', '/comunidad?tab=descuentos'] },
+    { id: 'facturacion', paths: ['/facturacion', '/comprobantes-afip', '/gestion-pagos', '/carga-manual'] },
     { id: 'bancos', paths: ['/cuenta-corriente', '/informe-saldos', '/conciliacion-bancaria', '/movimientos-bancarios'] },
     { id: 'comunicacion', paths: ['/campanas'] },
   ];
@@ -273,6 +273,7 @@ export default function Layout({ session, theme, toggleTheme }) {
     '/comunidad?tab=socios': 'Socios',
     '/comunidad?tab=grupos': 'Gestión de Grupos',
     '/comunidad?tab=planes': 'Planes y Costos',
+    '/comunidad?tab=descuentos': 'Descuentos y Cargos',
     '/comunidad': 'Socios',
     '/socios': 'Socios',
     '/cuenta-corriente': 'Cuenta Corriente por Grupo',

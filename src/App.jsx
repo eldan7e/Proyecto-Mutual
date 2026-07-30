@@ -131,7 +131,7 @@ function App() {
                   <Route path="carga-manual" element={<CargaManual />} />
                   <Route path="gestion-deuda" element={<Navigate to="/cuenta-corriente" replace />} />
                   <Route path="gestion-pagos" element={<GestionPagos />} />
-                  <Route path="descuentos" element={<Descuentos />} />
+                  <Route path="descuentos" element={<Navigate to="/comunidad?tab=descuentos" replace />} />
                   <Route path="conciliacion-bancaria" element={<ConciliacionBancaria />} />
                   <Route path="movimientos-bancarios" element={<MovimientosBancarios />} />
                   <Route path="ingreso-diario" element={<IngresoDiario />} />
