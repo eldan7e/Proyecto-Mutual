@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Search, AlertTriangle, TrendingUp, Hash, Info, Percent
+  Search, AlertTriangle, TrendingUp, Hash, Info, Percent, RefreshCw, Loader2
 } from 'lucide-react';
 
 const isFixedOrInternet = (p) => {
@@ -9,7 +9,7 @@ const isFixedOrInternet = (p) => {
   return l.includes('fijo') || l.includes('fija') || l.includes('internet') || l.includes('a100e') || l.includes('ctf14');
 };
 
-const arePlansEquivalent = (p1, p2) => {
+export const arePlansEquivalent = (p1, p2) => {
   if (!p1 || !p2) return false;
   if (isFixedOrInternet(p1) && isFixedOrInternet(p2)) return true;
   const normalize = (s) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "").replace(/personal|claro|movistar|plan/g, "");
@@ -241,12 +241,18 @@ export function PaginatedEditableGrid({
   prevConsumosData,
   selectedRows,
   setSelectedRows,
-  onUpdateLineaPlan
+  onUpdateLineaPlan,
+  onUpdateAllLineasPlanes,
+  isUpdatingPlanes
 }) {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
   const [filterExcedentes, setFilterExcedentes] = useState(false);
   const [filterBajasBonif, setFilterBajasBonif] = useState(false);
+
+  const pendingPlanUpdatesCount = React.useMemo(() => {
+    return (fileData || []).filter(row => row.plan && !arePlansEquivalent(row.plan, row.planOficial)).length;
+  }, [fileData]);
 
   const filteredData = React.useMemo(() => {
     return fileData
@@ -378,6 +384,25 @@ export function PaginatedEditableGrid({
           >
             <Percent size={16} /> Priorizar Bonificación
           </button>
+          {/* Bulk Button: Actualizar Todos los Planes en DB */}
+          {pendingPlanUpdatesCount > 0 && onUpdateAllLineasPlanes && (
+            <button 
+              onClick={onUpdateAllLineasPlanes}
+              disabled={isUpdatingPlanes}
+              className="air-btn hover-lift" 
+              style={{ 
+                background: 'rgba(37, 99, 235, 0.12)', 
+                color: '#2563eb',
+                border: '1px solid rgba(37, 99, 235, 0.4)',
+                fontWeight: 800,
+                display: 'flex', alignItems: 'center', gap: '8px'
+              }}
+            >
+              {isUpdatingPlanes ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+              Actualizar Todos los Planes en DB ({pendingPlanUpdatesCount})
+            </button>
+          )}
+
           <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', width: '300px' }}>
             <Search size={16} color="var(--text-secondary)" />
             <input 

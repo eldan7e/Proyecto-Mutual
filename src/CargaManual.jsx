@@ -14,7 +14,7 @@ import { verificarTextoCruzado } from './utils/validators';
 import { calculateInvoiceTotals, auditLineItem, consolidateFixedServices } from './utils/auditEngine';
 import { saveFacturacion } from './services/facturacionService';
 import Modal from './components/Modal';
-import { PaginatedEditableGrid as EditableGrid } from './components/PaginatedEditableGrid';
+import { PaginatedEditableGrid as EditableGrid, arePlansEquivalent } from './components/PaginatedEditableGrid';
 import Step3SuccessScreen from './components/CargaManual/Step3SuccessScreen';
 import { useToast } from './components/ui/ToastProvider';
 import { useConfirm } from './components/ui/ConfirmProvider';
@@ -53,6 +53,11 @@ export default function CargaManual() {
   const [forceSave, setForceSave] = useState(false);
   const [sortByAnomalies, setSortByAnomalies] = useState(false);
   const [selectedRows, setSelectedRows] = useState(new Set());
+  const [isUpdatingPlanes, setIsUpdatingPlanes] = useState(false);
+
+  const pendingPlanUpdates = React.useMemo(() => {
+    return (fileData || []).filter(row => row.plan && !arePlansEquivalent(row.plan, row.planOficial));
+  }, [fileData]);
 
   const getPrevPeriodStrHelper = (pStr) => {
     if (!pStr) return '';
@@ -431,7 +436,133 @@ export default function CargaManual() {
     }
   };
 
+  const handleUpdateAllLineasPlanes = async () => {
+    const provMap = { 'claro': 1, 'movistar': 2, 'personal': 3 };
+    const currentProvId = provMap[selectedProvider];
+
+    const linesToUpdate = fileData.filter(
+      row => row.plan && !arePlansEquivalent(row.plan, row.planOficial)
+    );
+
+    if (linesToUpdate.length === 0) {
+      addToast('No hay planes pendientes de actualizar en DB', 'info');
+      return;
+    }
+
+    setIsUpdatingPlanes(true);
+    try {
+      // 1. Cargar planes existentes para este proveedor
+      const { data: dbPlanes, error: planesErr } = await supabase
+        .from('planes_abonos')
+        .select('*')
+        .eq('proveedor_id', currentProvId);
+
+      if (planesErr) throw planesErr;
+
+      const planMap = new Map();
+      (dbPlanes || []).forEach(p => {
+        if (p.nombre_plan) planMap.set(p.nombre_plan.toLowerCase().trim(), p);
+      });
+
+      const updatedRowMap = new Map();
+      const lineasPayload = [];
+
+      // 2. Identificar o crear plan para cada línea
+      for (const row of linesToUpdate) {
+        const targetPlanName = row.plan.trim();
+        const normName = targetPlanName.toLowerCase();
+        let existingPlan = planMap.get(normName);
+
+        if (!existingPlan) {
+          const planPrice = row.abono || row.precioListaOriginal || 0;
+          const { data: newPlan, error: createErr } = await supabase
+            .from('planes_abonos')
+            .insert({
+              nombre_plan: targetPlanName,
+              proveedor_id: currentProvId,
+              precio: planPrice,
+              es_plan_internet: targetPlanName.toLowerCase().includes('internet')
+            })
+            .select()
+            .single();
+
+          if (createErr) throw createErr;
+          existingPlan = newPlan;
+          planMap.set(normName, newPlan);
+        }
+
+        lineasPayload.push({
+          numero_linea: row.linea,
+          plan_id: existingPlan.plan_id
+        });
+
+        updatedRowMap.set(row.linea, {
+          targetPlanId: existingPlan.plan_id,
+          planName: existingPlan.nombre_plan,
+          planPrice: existingPlan.precio
+        });
+      }
+
+      // 3. Actualizar la tabla lineas en DB
+      for (const item of lineasPayload) {
+        const { error: lineUpdErr } = await supabase
+          .from('lineas')
+          .update({ plan_id: item.plan_id })
+          .eq('numero_linea', item.numero_linea);
+
+        if (lineUpdErr) throw lineUpdErr;
+      }
+
+      // 4. Actualizar la grilla local
+      setFileData(prev => prev.map(row => {
+        const info = updatedRowMap.get(row.linea);
+        if (info) {
+          return {
+            ...row,
+            planOficial: info.planName,
+            alertas: row.alertas?.filter(a => !a.msg.includes('PLAN') && !a.msg.includes('DESVÍO') && !a.msg.includes('DESVIO'))
+          };
+        }
+        return row;
+      }));
+
+      // 5. Actualizar el caché dbLines
+      setDbLines(prev => {
+        const next = new Map(prev);
+        updatedRowMap.forEach((info, lineaNum) => {
+          const norm = normalizePhone(lineaNum);
+          const cached = next.get(norm);
+          if (cached) {
+            next.set(norm, {
+              ...cached,
+              plan_id: info.targetPlanId,
+              plan_db: info.planName,
+              precio_oficial: info.planPrice || cached.precio_oficial
+            });
+          }
+        });
+        return next;
+      });
+
+      addToast(`¡Se actualizaron ${linesToUpdate.length} línea(s) con sus nuevos planes en DB exitosamente!`, 'success');
+    } catch (err) {
+      console.error("Error al actualizar todos los planes:", err);
+      addToast('Error al actualizar planes en masa: ' + err.message, 'error');
+    } finally {
+      setIsUpdatingPlanes(false);
+    }
+  };
+
   const handlePreSave = () => {
+    // BLOQUEAR GUARDADO SI HAY PLANES PENDIENTES DE ACTUALIZAR
+    if (pendingPlanUpdates.length > 0) {
+      addToast(
+        `⚠️ No se puede guardar la liquidación. Hay ${pendingPlanUpdates.length} línea(s) con planes pendientes de actualizar en DB. Actualice los planes antes de continuar.`,
+        'error'
+      );
+      return;
+    }
+
     const currentProvId = selectedProvider === 'claro' ? 1 : selectedProvider === 'movistar' ? 2 : 3;
     const prevLinesCount = (prevConsumosData || []).filter(c => Number(c.proveedor_id || 0) === currentProvId).length;
     const currentLinesCount = fileData.length;
@@ -960,6 +1091,26 @@ export default function CargaManual() {
             >
               <RefreshCw size={20} /> Volver a Editar
             </button>
+            {pendingPlanUpdates.length > 0 && (
+              <button
+                onClick={handleUpdateAllLineasPlanes}
+                disabled={isUpdatingPlanes}
+                className="air-btn hover-lift"
+                style={{
+                  background: '#2563eb',
+                  color: '#ffffff',
+                  fontWeight: 700,
+                  padding: '16px 24px',
+                  fontSize: '14px',
+                  boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                {isUpdatingPlanes ? <Loader2 className="animate-spin" size={20} /> : <><RefreshCw size={20}/> Actualizar Todos los Planes en DB ({pendingPlanUpdates.length})</>}
+              </button>
+            )}
             <button
               onClick={handlePreSave}
               disabled={isSaving}
@@ -988,6 +1139,8 @@ export default function CargaManual() {
             selectedRows={selectedRows}
             setSelectedRows={setSelectedRows}
             onUpdateLineaPlan={handleUpdateLineaPlan}
+            onUpdateAllLineasPlanes={handleUpdateAllLineasPlanes}
+            isUpdatingPlanes={isUpdatingPlanes}
           />
         </div>
       )}
