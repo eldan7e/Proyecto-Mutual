@@ -108,13 +108,26 @@ export default function Planes({ hideHeader = false }) {
 
     if (error) console.error(error);
 
-    const { data: lineasData } = await supabase
-      .from('lineas')
-      .select('plan_id, numero_linea');
+    // Cargar la totalidad de las líneas asignadas a planes con paginación continua (Superando el límite de 1000)
+    let allLineas = [];
+    let from = 0;
+    const step = 1000;
+    while (true) {
+      const { data: chunk, error: chunkErr } = await supabase
+        .from('lineas')
+        .select('plan_id, numero_linea')
+        .range(from, from + step - 1);
+      
+      if (chunkErr) { console.error('Error al cargar paquete de líneas:', chunkErr); break; }
+      if (!chunk || chunk.length === 0) break;
+      allLineas.push(...chunk);
+      if (chunk.length < step) break;
+      from += step;
+    }
 
     const countsMap = {};
     const lineToPlan = {};
-    lineasData?.forEach(l => {
+    allLineas.forEach(l => {
       if (l.plan_id) {
         countsMap[l.plan_id] = (countsMap[l.plan_id] || 0) + 1;
         if (l.numero_linea) {
