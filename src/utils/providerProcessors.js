@@ -164,11 +164,29 @@ export const procesarPersonal = (textLines) => {
     const rawLine = lines[idx];
     const u = norm(rawLine);
 
-    // 1. Detectar encabezados con numero de linea explicito (ej. "linea2216824786CARGOS DEL MES")
+    // 1. Detectar encabezados con numero de linea explicito (ej. "linea2216824786CARGOS DEL MES" o "linea2216824786PLANES Y SERVICIOS $ 7.185,12")
     const embeddedLineMatch = u.match(/LINEA(\d{8,10})/);
     if (embeddedLineMatch) {
       closeCurrent();
-      lastLooseLineNumber = embeddedLineMatch[1];
+      const phone = embeddedLineMatch[1];
+      const priceM = rawLine.match(/\$\s*([\d\.,]+)/);
+      let bruto = 0;
+      if (priceM) {
+        bruto = parsePersonalNumber(priceM[1]);
+      }
+
+      let planName = 'Plan Personal';
+
+      current = {
+        telefono: phone,
+        bruto: bruto,
+        excedentes: 0,
+        descuentoMonto: 0,
+        descuentoPct: '',
+        plan: planName
+      };
+      hasSkippedPlanPrice = false;
+      lastLooseLineNumber = priceM ? null : phone;
       continue;
     }
 
