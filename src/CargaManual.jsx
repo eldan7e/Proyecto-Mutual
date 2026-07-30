@@ -5,7 +5,7 @@ import {
   AlertCircle, Save, Smartphone, Receipt, Search,
   ArrowRight, RefreshCw, Info, PieChart, TrendingUp, TrendingDown,
   FileText, Loader2, Calendar, Sparkles, Database, Zap,
-  Flag, MessageSquare, AlertTriangle, CheckSquare, CreditCard, Download
+  Flag, MessageSquare, AlertTriangle, CheckSquare, CreditCard, Download, Copy, Check
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import { normalizePhone, getParserByProvider } from './utils/invoiceParsers';
@@ -25,6 +25,19 @@ export default function CargaManual() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('procesamiento');
   const [rawData, setRawData] = useState('');
+  const [copiado, setCopiado] = useState(false);
+
+  const handleCopiarTodo = async () => {
+    if (!rawData) return;
+    try {
+      await navigator.clipboard.writeText(rawData);
+      setCopiado(true);
+      addToast({ type: 'success', title: '¡Copiado!', message: 'Texto copiado al portapapeles' });
+      setTimeout(() => setCopiado(false), 2000);
+    } catch (err) {
+      addToast({ type: 'error', title: 'Error', message: 'No se pudo copiar el texto' });
+    }
+  };
   const [fileData, setFileData] = useState([]);
   const [dbLines, setDbLines] = useState(new Map());
   const [isSaving, setIsSaving] = useState(false);
@@ -964,7 +977,7 @@ export default function CargaManual() {
               padding: '20px 32px',
               background: 'var(--surface)'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <button 
                   onClick={() => setRawData('')} 
                   className="btn-ghost"
@@ -973,7 +986,29 @@ export default function CargaManual() {
                   Limpiar
                 </button>
                 {rawData && (
-                  <span style={{ fontSize: '13px', color: 'var(--accent)', fontWeight: 700 }}>
+                  <button 
+                    onClick={handleCopiarTodo}
+                    className="btn-ghost hover-lift"
+                    style={{ 
+                      padding: '10px 20px', 
+                      borderRadius: '12px', 
+                      fontSize: '14px', 
+                      fontWeight: copiado ? 800 : 600, 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: '8px',
+                      background: copiado ? 'rgba(16, 185, 129, 0.12)' : 'var(--surface-light)',
+                      color: copiado ? '#10b981' : 'var(--text-primary)',
+                      border: `1px solid ${copiado ? 'rgba(16, 185, 129, 0.3)' : 'var(--border-light)'}`,
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    {copiado ? <Check size={16} color="#10b981" /> : <Copy size={16} />}
+                    {copiado ? '¡Copiado!' : 'Copiar Todo'}
+                  </button>
+                )}
+                {rawData && (
+                  <span style={{ fontSize: '13px', color: 'var(--accent)', fontWeight: 700, marginLeft: '8px' }}>
                     {rawData.split('\n').filter(l => l.trim()).length} renglones de texto detectados
                   </span>
                 )}
