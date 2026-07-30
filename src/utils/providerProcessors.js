@@ -81,13 +81,33 @@ const norm = (s) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCa
  *  - Las líneas de extras (Roaming, Pack, Gigas, WiFiPass, SMS) se acumulan como excedente.
  */
 export const procesarPersonal = (textLines) => {
+  // --- PASO 0: Pre-procesar líneas para limpiar artefactos de salto de página ---
+  // El PDF concatena texto del footer/header de página al final de una línea de datos.
+  // Ej: "Plan 4 GB 1 35.297,52 35.297,52Fecha Vencimiento 04/08/2026"
+  const cleanedLines = [];
+  for (const rawL of textLines) {
+    // Separar contenido concatenado con "Fecha Vencimiento" (inicio del footer de página)
+    const fvIdx = rawL.indexOf('Fecha Vencimiento');
+    if (fvIdx > 0) {
+      cleanedLines.push(rawL.substring(0, fvIdx));
+      // El resto del footer será filtrado por el SKIP list
+    } else {
+      cleanedLines.push(rawL);
+    }
+  }
+
   // --- PASO 1: Detectar el total global de la factura (SUMAR valores distintos) ---
   const distinctTotals = new Set();
-  textLines.forEach(l => {
+  // Guardar también los valores individuales como números para comparación posterior
+  const individualTotalValues = new Set();
+  cleanedLines.forEach(l => {
     const u = norm(l);
     if (u.startsWith('TOTALCARGOSDELMES') || (u.startsWith('TOTALCARGOS') && u.includes('DELMES'))) {
       const m = l.match(/\$\s*([\d\.]+,\d{1,2})/);
-      if (m) distinctTotals.add(m[1]);
+      if (m) {
+        distinctTotals.add(m[1]);
+        individualTotalValues.add(parsePersonalNumber(m[1]));
+      }
     }
   });
   let invoiceTotal = 0;
@@ -95,7 +115,7 @@ export const procesarPersonal = (textLines) => {
 
   // --- PASO 1b: Detectar impuestos reales del PDF ---
   const distinctTaxes = new Set();
-  textLines.forEach(l => {
+  cleanedLines.forEach(l => {
     const u = norm(l);
     if (u.startsWith('IMPUESTOS') && l.includes('$')) {
       const m = l.match(/\$\s*([\d\.]+,\d{1,2})/);
@@ -110,12 +130,17 @@ export const procesarPersonal = (textLines) => {
     'FACTURAN', 'PAGINA', 'FECHAVENCIMIENTO', 'PERIODOABONO', 'PERIODOCONSUMO',
     'DETALLEDECARGOSFACTURADOS', 'BENEFICIODUPLICATUSGIGASAUTOMATICO',
     'ABONOSMOVILES', 'CANTIDADCARGO', 'CARGOSFACTURADOSCANTIDAD',
-    'IMPORTEENPESOS', 'IMPORTETOTAL', 'DESCUENTOSADICIONALES', 'DESCUENTOCONEXIONTOTAL',
-    'SUBTOTALSINIMPUESTOS', 'TOTALCARGOSDELMES'
+    'IMPORTEENPESOS', 'IMPORTETOTAL',
+    // Encabezados de sección que no deben llegar al parser de líneas
+    'ABONOSENTUSNEGOCIOS', 'SERVICIOSMOVILES', 'SUBTOTALSINIMPUESTOS',
+    // Líneas huérfanas de headers de tabla de página (post limpieza de salto de página)
+    'UNITARIO'
   ];
-  const lines = textLines.filter(l => {
+  const lines = cleanedLines.filter(l => {
     const u = norm(l);
     if (!u) return false;
+    // Filtrar líneas huérfanas muy cortas que son restos de headers de tabla
+    if (u === 'TOTAL' || u === 'PESOS' || u === 'CARGO') return false;
     return !SKIP.some(s => u.includes(s));
   });
 
@@ -139,7 +164,7 @@ export const procesarPersonal = (textLines) => {
     const rawLine = lines[idx];
     const u = norm(rawLine);
 
-    // 1. Detectar encabazados con numero de linea explicito (ej. "linea2216824786CARGOS DEL MES")
+    // 1. Detectar encabezados con numero de linea explicito (ej. "linea2216824786CARGOS DEL MES")
     const embeddedLineMatch = u.match(/LINEA(\d{8,10})/);
     if (embeddedLineMatch) {
       closeCurrent();
@@ -147,7 +172,48 @@ export const procesarPersonal = (textLines) => {
       continue;
     }
 
-    // 2. LÍNEA MÓVIL o FIJA estándar (ej. "LÍNEA MOVIL (11)24041845 $ 20.617,77")
+    // 2. Capturar descuentos globales de la cooperativa/cuenta
+    // Solo tratar como encabezado de sección si tiene $ (encabezado real) y NO es una línea
+    // de detalle con cantidades (ej: "Descuento Conexión Total 1 -8.264,47 -8.264,47")
+    const isDescSectionHeader = (u.startsWith('DESCUENTOSADICIONALES') && rawLine.includes('$'));
+    if (isDescSectionHeader) {
+      closeCurrent();
+      let val = 0;
+      const m = rawLine.match(/\$\s*(-?[\d\.,]+)/);
+      if (m) val = parsePersonalNumber(m[1].replace('-', ''));
+      
+      if (val > 0) {
+        let label = 'Descuentos Adicionales';
+        // Intentar extraer el nombre específico de la línea de detalle
+        if (idx + 1 < lines.length) {
+          const nextLine = lines[idx + 1];
+          const nextNorm = norm(nextLine);
+          if (nextNorm.startsWith('DESCUENTOCONEXIONTOTAL') || nextNorm.startsWith('DESCUENTO')) {
+            const descMatch = nextLine.match(/Descuento\s+([A-Za-zÀ-ÿ0-9\s]+?)(?=\s+\d|\s+-|\s+\$)/i);
+            if (descMatch) {
+              label = 'Descuento ' + descMatch[1].trim();
+            }
+          }
+        }
+
+        current = {
+          telefono: label,
+          bruto: -val,
+          excedentes: 0,
+          descuentoMonto: 0,
+          descuentoPct: '',
+          plan: 'Descuento Global'
+        };
+      }
+      continue;
+    }
+
+    if (u.startsWith('DESCUENTOCONEXION')) {
+      closeCurrent();
+      continue;
+    }
+
+    // 3. LÍNEA MÓVIL o FIJA estándar (ej. "LÍNEA MOVIL (11)24041845 $ 20.617,77")
     const cleanLineNorm = rawLine.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[\(\)\s]/g, '');
     const isNewPhoneHeader = /^(?:LINEA(?:MOVIL|FIJA)?\d{7,10}|\d{10})/.test(cleanLineNorm);
 
@@ -183,7 +249,7 @@ export const procesarPersonal = (textLines) => {
       continue;
     }
 
-    // 3. BRUTO EN LÍNEA SIGUIENTE O BLOQUE SUELTO
+    // 4. BRUTO EN LÍNEA SIGUIENTE O BLOQUE SUELTO
     if (current && current.bruto === 0) {
       const priceOnlyMatch = rawLine.trim().match(/^\$\s*([\d\.,]+)$/);
       if (priceOnlyMatch) {
@@ -192,7 +258,7 @@ export const procesarPersonal = (textLines) => {
       }
     }
 
-    // 4. INTERNET / SERVICIOS DE INTERNET
+    // 5. INTERNET / SERVICIOS DE INTERNET
     if (u.startsWith('ABONOSINTERNET') || u.startsWith('SERVICIOSDEINTERNET')) {
       let val = 0;
       if (rawLine.includes('$')) {
@@ -225,7 +291,7 @@ export const procesarPersonal = (textLines) => {
       continue;
     }
 
-    // 5. CARGOS DEL MES (Bloque de línea suelta)
+    // 6. CARGOS DEL MES (Bloque de línea suelta)
     if (u.startsWith('CARGOSDELMES') && !u.includes('TOTAL') && !current) {
       current = {
         telefono: lastLooseLineNumber ? lastLooseLineNumber : 'LINEA SUELTA',
@@ -240,20 +306,24 @@ export const procesarPersonal = (textLines) => {
       continue;
     }
 
-    // 6. TOTAL CARGOS DEL MES (Cierre de bloque)
+    // 7. TOTAL CARGOS DEL MES (Cierre de bloque)
     if (u.includes('TOTALCARGOSDELMES')) {
       const m = rawLine.match(/\$\s*([\d\.,]+)/);
       if (m) {
         const val = parsePersonalNumber(m[1]);
-        if (current && val !== invoiceTotal && current.bruto === 0) {
-          current.bruto = val - (current._blockTax || 0);
+        if (current) {
+          const isGlobalTotal = individualTotalValues.has(val);
+          if (!isGlobalTotal && current.bruto === 0) {
+            current.bruto = val - (current._blockTax || 0);
+          }
+          closeCurrent();
         }
       }
       closeCurrent();
       continue;
     }
 
-    // 7. DETALLES, EXCEDENTES Y DESCUENTOS DENTRO DEL BLOQUE ACTUAL
+    // 8. DETALLES, EXCEDENTES Y DESCUENTOS DENTRO DEL BLOQUE ACTUAL
     if (current) {
       // Capturar nombre del plan si aún no se asignó o es genérico
       if (u.includes('PLAN') && (current.plan === 'Plan Personal' || current.plan === 'Plan Fijo')) {
