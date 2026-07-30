@@ -510,10 +510,8 @@ export const procesarMovistar = (lines) => {
     if (amounts.length >= 2) { // Cuadro 1: Cargos Netos detallados (abono al inicio, total neto al final)
       existing.abonoNeto = parseMovistarNumber(amounts[0]);
       existing.montoNeto = parseMovistarNumber(amounts[amounts.length - 1]);
-    } else if (amounts.length === 1) { // Cuadro 2: Total c/ Impuestos (monto final con impuestos si no hay montoNeto)
-      if (existing.montoNeto === 0) {
-        existing.montoFinal = parseMovistarNumber(amounts[0]);
-      }
+    } else if (amounts.length === 1) { // Cuadro 2: Total c/ Impuestos y Plan contratado
+      existing.montoFinal = parseMovistarNumber(amounts[0]);
       const planTxt = text.replace(phone, '').replace(amounts[0], '').trim();
       if (planTxt && (!existing.plan || existing.plan === 'Movistar Móvil')) {
         existing.plan = planTxt;
