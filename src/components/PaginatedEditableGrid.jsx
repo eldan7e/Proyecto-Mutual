@@ -384,24 +384,6 @@ export function PaginatedEditableGrid({
           >
             <Percent size={16} /> Priorizar Bonificación
           </button>
-          {/* Bulk Button: Actualizar Todos los Planes en DB */}
-          {pendingPlanUpdatesCount > 0 && onUpdateAllLineasPlanes && (
-            <button 
-              onClick={onUpdateAllLineasPlanes}
-              disabled={isUpdatingPlanes}
-              className="air-btn hover-lift" 
-              style={{ 
-                background: 'rgba(37, 99, 235, 0.12)', 
-                color: '#2563eb',
-                border: '1px solid rgba(37, 99, 235, 0.4)',
-                fontWeight: 800,
-                display: 'flex', alignItems: 'center', gap: '8px'
-              }}
-            >
-              {isUpdatingPlanes ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-              Actualizar Todos los Planes en DB ({pendingPlanUpdatesCount})
-            </button>
-          )}
 
           <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', width: '300px' }}>
             <Search size={16} color="var(--text-secondary)" />
