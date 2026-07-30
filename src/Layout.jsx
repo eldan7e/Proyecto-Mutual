@@ -253,7 +253,7 @@ export default function Layout({ session, theme, toggleTheme }) {
     { path: '/', icon: LayoutDashboard, label: 'Inicio' },
     { path: '/comunidad', icon: Users, label: 'Comunidad' },
     { path: '/facturacion', icon: FileText, label: 'Facturación' },
-    { path: '/conciliacion-bancaria', icon: Landmark, label: 'Bancos' },
+    { path: '/cuenta-corriente', icon: Landmark, label: 'Bancos' },
     { path: '/campanas', icon: Mail, label: 'Comunicación' },
   ];
 
@@ -302,7 +302,7 @@ export default function Layout({ session, theme, toggleTheme }) {
     'general': 'INICIO',
     'mgmt': 'GESTIÓN COMUNIDAD',
     'facturacion': 'GESTIÓN FACTURACIÓN',
-    'bancos': 'CONCILIACIÓN Y CUENTAS BANCARIAS',
+    'bancos': 'GESTIÓN BANCARIA',
     'comunicacion': 'COMUNICACIÓN',
     'admin': 'CONFIGURACIÓN SISTEMA'
   };
@@ -337,7 +337,7 @@ export default function Layout({ session, theme, toggleTheme }) {
                 ? location.pathname === '/comunidad'
                 : item.path === '/facturacion'
                   ? ['/facturacion', '/comprobantes-afip', '/gestion-pagos', '/descuentos', '/carga-manual'].includes(location.pathname)
-                  : item.path === '/conciliacion-bancaria'
+                  : item.path === '/cuenta-corriente'
                     ? ['/conciliacion-bancaria', '/cuenta-corriente', '/informe-saldos', '/movimientos-bancarios'].includes(location.pathname)
                     : item.path.includes('?') 
                       ? currentFullPath === item.path 
