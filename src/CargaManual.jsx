@@ -1067,7 +1067,7 @@ export default function CargaManual() {
                 )}
                 {selectedProvider !== 'claro' && (
                   <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                    <span style={{color: '#94a3b8'}}>IVA est.:</span> ${(invoiceTotals.tax > 0 ? invoiceTotals.tax : fileData.reduce((acc, curr) => acc + (selectedProvider === 'personal' ? curr.montoFactura * 0.27 : curr.montoFactura - (curr.montoFactura / 1.21)), 0)).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <span style={{color: '#94a3b8'}}>IVA est.:</span> ${(invoiceTotals.tax > 0 ? invoiceTotals.tax : fileData.reduce((acc, curr) => acc + (curr.montoFactura - (curr.montoFactura / 1.21)), 0)).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </div>
                 )}
                 <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
