@@ -57,17 +57,6 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
     // La línea 2216824786 (Anchordoquy) viene facturada aparte con IVA incluido en su abono base
     const isBilledSeparately = consumo.numero_linea === '2216824786';
     let adjustedCostoAbonoReal = costoAbonoReal;
-    if (isBilledSeparately) {
-      if (period && period.startsWith('2026-01')) {
-        adjustedCostoAbonoReal = costoAbonoReal * 1.21;
-      } else if (period && period >= '2026-04') {
-        // En abril el excel viene sin el recargo del 1.24
-        adjustedCostoAbonoReal = costoAbonoReal;
-      } else {
-        adjustedCostoAbonoReal = (costoAbonoReal + excedentes) * 1.2435385;
-        excedentes = 0;
-      }
-    }
     let abonoBase = adjustedCostoAbonoReal + excedentes;
     let gastosAdmin = (isInternet && !isPersonal) ? 0 : adjustedCostoAbonoReal * 0.05;
     
@@ -523,15 +512,6 @@ export function auditLineItem(item, dbInfo, context) {
 
   const isBilledSeparately = item.telefono === '2216824786';
   if (isBilledSeparately && selectedProvider === 'personal') {
-    const neto = montoFacturado / 1.21;
-    const netoExc = excMonto / 1.21;
-    const period = context.periodo;
-    if (period && period.startsWith('2026-01')) {
-      montoFacturado = neto * 1.21;
-    } else {
-      montoFacturado = (neto + netoExc) * 1.2435385;
-      excMonto = 0;
-    }
     montoFacturado = Math.round(montoFacturado * 100) / 100;
   }
 

@@ -13,7 +13,8 @@ import {
   getParametrosCuenta, updateTasaAnual 
 } from './services/cuentaCorrienteService';
 import { 
-  calcularDiasMora, calcularInteresMora, imputarCobroFIFO, formatMoney 
+  calcularDiasMora, calcularInteresMora, imputarCobroFIFO, formatMoney,
+  recalcularSaldosGrupo
 } from './utils/cuentaCorrienteEngine';
 
 export default function CuentaCorriente() {
@@ -170,66 +171,9 @@ export default function CuentaCorriente() {
   // Cálculos consolidados del grupo actual procesados exactamente bajo el motor acumulativo de 9 columnas del Excel
   // IMPORTANTE: Se procesan TODOS los movimientos del grupo en orden cronológico para arrastrar el Saldo Capital y Saldo Final
   // acumulado histórico real (por ejemplo saldos a favor de años anteriores) antes de aplicar el filtro visual de fecha.
+  // Usa la función centralizada recalcularSaldosGrupo que replica EXACTAMENTE las fórmulas del Excel AUNAR.
   const todosMovimientosProcesados = useMemo(() => {
-    let capAnt = 0;
-    let intAnt = 0;
-    let fechaAnt = null;
-
-    return movimientos.map((m) => {
-      const imp = Math.abs(Number(m.importe) || 0);
-      const isFactura = m.tipo === 'FACTURA';
-      const isPago = m.tipo === 'PAGO';
-
-      // 1. Plazo Dias
-      let plazoDias = 0;
-      if (fechaAnt) {
-        const dAnt = new Date(fechaAnt);
-        const dAct = new Date(m.fecha);
-        const diff = dAct - dAnt;
-        plazoDias = diff > 0 ? Math.floor(diff / (1000 * 60 * 60 * 24)) : 0;
-      }
-
-      // 2. Intereses Mora ($)
-      const tasaDiaria = (tna / 100) / 365;
-      const interesTranche = tasaDiaria * plazoDias;
-      // La mora se calcula si el capital anterior es positivo (deuda)
-      const interesMora = capAnt > 0 ? Math.round((capAnt * interesTranche) * 100) / 100 : 0;
-
-      // 3. Interes Pendiente Acumulado
-      const intAcumulado = intAnt + interesMora;
-
-      // 4. Imputación de Pagos a Interés vs Capital
-      let pagoInt = 0;
-      let pagoCap = 0;
-      let capNuevo = capAnt;
-
-      if (isPago) {
-        pagoInt = Math.min(imp, intAcumulado);
-        pagoCap = Math.max(0, imp - intAcumulado);
-        capNuevo = capAnt - pagoCap;
-      } else {
-        capNuevo = capAnt + imp;
-      }
-
-      const intFinal = intAcumulado - pagoInt;
-      const saldoFin = capNuevo + intFinal;
-
-      // Guardar acumuladores para la fila siguiente
-      fechaAnt = m.fecha;
-      capAnt = capNuevo;
-      intAnt = intFinal;
-
-      return {
-        ...m,
-        plazo_dias: plazoDias,
-        interes_mora: interesMora,
-        pago_aplicado_interes: pagoInt,
-        pago_aplicado_capital: pagoCap,
-        saldo_capital: capNuevo,
-        interes_pend_final: intFinal,
-        saldo_final: saldoFin
-      };
-    });
+    return recalcularSaldosGrupo(movimientos, tna);
   }, [movimientos, tna]);
 
   // Movimientos procesados y filtrados por el rango de fechas seleccionado por el usuario

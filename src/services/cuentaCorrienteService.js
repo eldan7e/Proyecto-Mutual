@@ -1,4 +1,5 @@
 import { supabase } from '../supabaseClient';
+import { recalcularSaldosGrupo, DEFAULT_TNA } from '../utils/cuentaCorrienteEngine';
 
 /**
  * Obtiene la configuración de parámetros de la cuenta corriente (TNA, día tope, etc)
@@ -130,6 +131,7 @@ export async function fetchMovimientosGrupo(numeroGrupo) {
  * Obtiene la lista resumida de todos los grupos con sus saldos actuales
  */
 export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = false } = {}) {
+  // 1. Cargar TODOS los movimientos con campos necesarios para el recálculo
   let allData = [];
   const limit = 1000;
   let offset = 0;
@@ -137,10 +139,11 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
   while (true) {
     let query = supabase
       .from('movimientos_cuenta')
-      .select('id, numero_grupo, nombre, empresa, fecha, importe, tipo, saldo_capital, saldo_final')
+      .select('id, numero_grupo, nombre, empresa, fecha, importe, tipo')
       .not('numero_grupo', 'is', null)
       .order('numero_grupo', { ascending: true })
       .order('fecha', { ascending: true })
+      .order('id', { ascending: true })
       .range(offset, offset + limit - 1);
 
     const { data, error } = await query;
@@ -151,10 +154,36 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
     offset += limit;
   }
 
-  // Pre-cargar todos los grupos del sistema
+  // 2. Obtener la TNA vigente
+  let tna = DEFAULT_TNA;
+  try {
+    const params = await getParametrosCuenta();
+    if (params && params.tasa_anual) {
+      tna = Number(params.tasa_anual);
+    }
+  } catch (_) { /* usar default */ }
+
+  // 3. Pre-cargar nombres de grupos
   const todosLosGrupos = await fetchGruposUnicos().catch(() => []);
+  const nombresMap = {};
+  todosLosGrupos.forEach(g => {
+    nombresMap[g.numero_grupo] = g.nombre || `Grupo ${g.numero_grupo}`;
+  });
+
+  // 4. Agrupar movimientos por numero_grupo
+  const movPorGrupo = {};
+  allData.forEach(mov => {
+    const g = mov.numero_grupo;
+    if (!movPorGrupo[g]) {
+      movPorGrupo[g] = [];
+    }
+    movPorGrupo[g].push(mov);
+  });
+
+  // 5. Recalcular saldos usando el motor EXACTO del Excel para cada grupo
   const gruposMap = {};
 
+  // Inicializar grupos sin movimientos desde el catálogo
   todosLosGrupos.forEach(g => {
     gruposMap[g.numero_grupo] = {
       numero_grupo: g.numero_grupo,
@@ -164,46 +193,58 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
       totalPagos: 0,
       ultimoMovimientoFecha: 'Sin movimientos',
       saldoCapitalUltimo: 0,
+      interesPendUltimo: 0,
       saldoFinalUltimo: 0,
       movimientosCount: 0
     };
   });
 
-  allData.forEach(mov => {
-    const g = mov.numero_grupo;
-    if (!gruposMap[g]) {
-      gruposMap[g] = {
-        numero_grupo: g,
-        nombre: mov.nombre || `Grupo ${g}`,
-        empresas: new Set(),
-        totalFacturas: 0,
-        totalPagos: 0,
-        ultimoMovimientoFecha: mov.fecha,
-        saldoCapitalUltimo: Number(mov.saldo_capital || 0),
-        saldoFinalUltimo: Number(mov.saldo_final || 0),
-        movimientosCount: 0
-      };
-    }
+  for (const [grupoNum, movimientos] of Object.entries(movPorGrupo)) {
+    const g = Number(grupoNum);
 
-    const item = gruposMap[g];
-    item.movimientosCount++;
-    item.ultimoMovimientoFecha = mov.fecha;
-    item.saldoCapitalUltimo = Number(mov.saldo_capital || 0);
-    item.saldoFinalUltimo = Number(mov.saldo_final || 0);
-    if (mov.nombre && (!item.nombre || item.nombre.startsWith('Grupo'))) item.nombre = mov.nombre;
-    if (mov.empresa) item.empresas.add(mov.empresa);
+    // Recalcular con el motor del Excel
+    const procesados = recalcularSaldosGrupo(movimientos, tna);
 
-    const imp = Math.abs(Number(mov.importe) || 0);
-    if (mov.tipo === 'FACTURA') item.totalFacturas += imp;
-    if (mov.tipo === 'PAGO') item.totalPagos += imp;
-  });
+    // Obtener el último movimiento procesado para extraer los saldos finales
+    const ultimo = procesados.length > 0 ? procesados[procesados.length - 1] : null;
 
+    // Calcular totales de facturas y pagos
+    let totalFacturas = 0;
+    let totalPagos = 0;
+    const empresas = new Set();
+    let nombreGrupo = nombresMap[g] || `Grupo ${g}`;
+
+    movimientos.forEach(mov => {
+      const imp = Math.abs(Number(mov.importe) || 0);
+      if (mov.tipo === 'FACTURA') totalFacturas += imp;
+      if (mov.tipo === 'PAGO') totalPagos += imp;
+      if (mov.empresa) empresas.add(mov.empresa);
+      if (mov.nombre && (nombreGrupo === `Grupo ${g}` || !nombreGrupo)) {
+        nombreGrupo = mov.nombre;
+      }
+    });
+
+    gruposMap[g] = {
+      numero_grupo: g,
+      nombre: nombreGrupo,
+      empresas,
+      totalFacturas,
+      totalPagos,
+      ultimoMovimientoFecha: ultimo ? ultimo.fecha : 'Sin movimientos',
+      saldoCapitalUltimo: ultimo ? ultimo.saldo_capital : 0,
+      interesPendUltimo: ultimo ? ultimo.interes_pend_final : 0,
+      saldoFinalUltimo: ultimo ? ultimo.saldo_final : 0,
+      movimientosCount: procesados.length
+    };
+  }
+
+  // 6. Formatear resultado
   let resultado = Object.values(gruposMap).map(g => ({
     ...g,
-    empresas: Array.from(g.empresas).join(', ') || 'N/D'
+    empresas: g.empresas instanceof Set ? Array.from(g.empresas).join(', ') || 'N/D' : (g.empresas || 'N/D')
   }));
 
-  // Aplicar filtros
+  // 7. Aplicar filtros
   if (search && search.trim()) {
     const s = search.toLowerCase().trim();
     resultado = resultado.filter(g =>

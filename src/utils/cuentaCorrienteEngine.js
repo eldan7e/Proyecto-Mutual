@@ -1,12 +1,106 @@
 /**
  * Motor de Cálculo de Cuentas Corrientes e Intereses por Mora
  * Basado en las reglas y fórmulas del Excel AUNAR
+ * 
+ * FÓRMULAS EXACTAS DEL EXCEL (hoja REGISTROS_ANEXADOS):
+ * 1. Plazo Dias       = FechaActual - FechaAnterior (días entre filas consecutivas del mismo grupo)
+ * 2. Interes %        = (TNA_decimal / 365) × PlazoDias
+ * 3. Intereses $      = SaldoCapitalAnterior × Interes%   (SOLO si SaldoCapAnterior > 0)
+ * 4. Int Pend Acum    = IntPendFinalAnterior + Intereses$
+ * 5. Pago a Interes   = (si PAGO) min(abs(Importe), IntPendAcum)  |  (si FACTURA) 0
+ * 6. Pago a Capital   = (si PAGO) abs(Importe) - PagoAInteres     |  (si FACTURA) 0
+ * 7. Saldo Capital    = SaldoCapAnterior + Importe  (facturas +, pagos -)
+ * 8. Int Pend Final   = IntPendAcum - PagoAInteres
+ * 9. Saldo Final      = SaldoCapital + IntPendFinal
  */
 
-// TASA ANUAL DEFAULT: 120% (1.20)
+// TASA ANUAL DEFAULT: 120% (en la celda del Excel almacena 1.20 como decimal)
 // TASA DIARIA: 1.20 / 365 = 0.0032876712328767123
 export const DEFAULT_TNA = 120.0;
 export const DIA_TOPE_PAGO = 15;
+
+/**
+ * Recalcula los saldos de un grupo EXACTAMENTE como lo hace el Excel AUNAR.
+ * Procesa los movimientos de UN grupo en orden cronológico y produce las 9 columnas
+ * calculadas del Excel: plazo_dias, interes_pct, interes_mora, interes_pend_acumulado,
+ * pago_aplicado_interes, pago_aplicado_capital, saldo_capital, interes_pend_final, saldo_final.
+ * 
+ * @param {Array} movimientos - Movimientos de UN grupo, deben estar ordenados por fecha ASC
+ * @param {number} [tnaPct=120] - Tasa nominal anual en PORCENTAJE (ej: 120 para 120%)
+ * @returns {Array} Movimientos enriquecidos con las columnas de cálculo del Excel
+ */
+export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA) {
+  // Convertir TNA porcentaje a decimal (120% → 1.20) para coincidir con el Excel
+  const tnaDecimal = tnaPct / 100;
+  const tasaDiaria = tnaDecimal / 365;
+
+  let saldoCapAnt = 0;
+  let intPendAnt = 0;
+  let fechaAnt = null;
+
+  return movimientos.map((m) => {
+    // Determinar tipo de movimiento
+    const isPago = m.tipo === 'PAGO';
+    // Importe: positivo para facturas, negativo para pagos (tal cual viene del Excel)
+    const importeOriginal = Number(m.importe) || 0;
+
+    // 1. Plazo Dias: diferencia en días entre esta fila y la anterior
+    let plazoDias = 0;
+    if (fechaAnt) {
+      const dAnt = new Date(fechaAnt);
+      const dAct = new Date(m.fecha);
+      const diffMs = dAct - dAnt;
+      plazoDias = diffMs > 0 ? Math.floor(diffMs / (1000 * 60 * 60 * 24)) : 0;
+    }
+
+    // 2. Interes % (tasa diaria × plazo)
+    const interesPct = tasaDiaria * plazoDias;
+
+    // 3. Intereses $ — SOLO si el saldo capital anterior es positivo (deuda)
+    //    Si el grupo tiene saldo a favor (negativo), NO genera intereses
+    const interesMora = saldoCapAnt > 0 ? saldoCapAnt * interesPct : 0;
+
+    // 4. Interes Pendiente Acumulado = interés anterior + interés nuevo
+    const intPendAcum = intPendAnt + interesMora;
+
+    // 5 & 6. Imputación de pagos: primero a interés, luego a capital
+    let pagoAInteres = 0;
+    let pagoACapital = 0;
+
+    if (isPago) {
+      const montoAbsoluto = Math.abs(importeOriginal);
+      pagoAInteres = Math.min(montoAbsoluto, intPendAcum);
+      pagoACapital = montoAbsoluto - pagoAInteres;
+    }
+
+    // 7. Saldo Capital = anterior + importe (facturas suman, pagos restan porque son negativos)
+    const saldoCapital = saldoCapAnt + importeOriginal;
+
+    // 8. Interes Pendiente Final = acumulado - lo que se pagó de interés
+    const intPendFinal = intPendAcum - pagoAInteres;
+
+    // 9. Saldo Final = capital + interés pendiente
+    const saldoFinal = saldoCapital + intPendFinal;
+
+    // Guardar acumuladores para la siguiente fila
+    fechaAnt = m.fecha;
+    saldoCapAnt = saldoCapital;
+    intPendAnt = intPendFinal;
+
+    return {
+      ...m,
+      plazo_dias: plazoDias,
+      interes_pct: interesPct,
+      interes_mora: interesMora,
+      interes_pend_acumulado: intPendAcum,
+      pago_aplicado_interes: pagoAInteres,
+      pago_aplicado_capital: pagoACapital,
+      saldo_capital: saldoCapital,
+      interes_pend_final: intPendFinal,
+      saldo_final: saldoFinal
+    };
+  });
+}
 
 /**
  * Calcula los días de mora entre la fecha de la factura/vencimiento y la fecha en que se realiza el pago.

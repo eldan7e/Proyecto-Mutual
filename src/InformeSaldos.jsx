@@ -45,15 +45,17 @@ export default function InformeSaldos() {
     }
   }
 
-  // KPIs globales
+  // KPIs globales - Recalculados dinámicamente con el motor del Excel
   const stats = useMemo(() => {
     let totalCapitalDeuda = 0;
+    let totalInteresesPend = 0;
     let totalFacturasHist = 0;
     let totalPagosHist = 0;
 
     gruposData.forEach(g => {
-      const bal = g.saldoCapitalUltimo > 0 ? g.saldoCapitalUltimo : Math.max(0, g.saldoFinalUltimo || 0);
-      totalCapitalDeuda += bal;
+      // Solo sumar saldos positivos (deuda)
+      if (g.saldoCapitalUltimo > 0) totalCapitalDeuda += g.saldoCapitalUltimo;
+      if ((g.interesPendUltimo || 0) > 0) totalInteresesPend += g.interesPendUltimo;
       totalFacturasHist += g.totalFacturas;
       totalPagosHist += g.totalPagos;
     });
@@ -62,6 +64,8 @@ export default function InformeSaldos() {
 
     return {
       totalCapitalDeuda,
+      totalInteresesPend,
+      totalDeudaConsolidada: totalCapitalDeuda + totalInteresesPend,
       totalFacturasHist,
       totalPagosHist,
       gruposDeudoresCount,
@@ -131,6 +135,19 @@ export default function InformeSaldos() {
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
             {stats.gruposDeudoresCount} grupos con saldo impago {'>'} $5
+          </div>
+        </div>
+
+        <div className="glass-panel" style={{ padding: '20px', borderRadius: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)' }}>TOTAL INTERESES MORA</span>
+            <AlertTriangle size={16} color="#ef4444" />
+          </div>
+          <div style={{ fontSize: '24px', fontWeight: 900, color: '#ef4444' }}>
+            {formatMoney(stats.totalInteresesPend)}
+          </div>
+          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+            Intereses pendientes acumulados
           </div>
         </div>
 
@@ -220,6 +237,7 @@ export default function InformeSaldos() {
                 <th style={{ textAlign: 'right' }}>Total Facturado</th>
                 <th style={{ textAlign: 'right' }}>Total Pagado</th>
                 <th style={{ textAlign: 'right' }}>Saldo Capital</th>
+                <th style={{ textAlign: 'right' }}>Interés Pend.</th>
                 <th style={{ textAlign: 'right' }}>Saldo Final</th>
                 <th style={{ textAlign: 'center' }}>Acción</th>
               </tr>
@@ -227,13 +245,13 @@ export default function InformeSaldos() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="9" style={{ padding: '80px', textAlign: 'center' }}>
+                  <td colSpan="10" style={{ padding: '80px', textAlign: 'center' }}>
                     <Loader2 className="animate-spin" size={32} style={{ margin: '0 auto', color: 'var(--accent)' }} />
                   </td>
                 </tr>
               ) : paginatedGroups.length === 0 ? (
                 <tr>
-                  <td colSpan="9" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                  <td colSpan="10" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
                     No se encontraron grupos para estos filtros.
                   </td>
                 </tr>
@@ -264,6 +282,9 @@ export default function InformeSaldos() {
                       </td>
                       <td style={{ textAlign: 'right', fontWeight: 700, fontSize: '14px', color: g.saldoCapitalUltimo > 5 ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
                         {formatMoney(g.saldoCapitalUltimo)}
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 600, fontSize: '13px', color: (g.interesPendUltimo || 0) > 0 ? '#ef4444' : 'var(--text-secondary)' }}>
+                        {(g.interesPendUltimo || 0) > 0.01 ? formatMoney(g.interesPendUltimo) : '-'}
                       </td>
                       <td style={{ textAlign: 'right', fontWeight: 900, fontSize: '14px', color: tieneDeuda ? 'var(--danger)' : '#10b981' }}>
                         {formatMoney(g.saldoFinalUltimo)}

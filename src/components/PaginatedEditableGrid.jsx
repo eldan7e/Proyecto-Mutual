@@ -261,12 +261,21 @@ export function PaginatedEditableGrid({
         if (!matchesSearch) return false;
         if (filterExcedentes) {
           return (row.excedentes || 0) > 0;
-        }
-        if (filterBajasBonif) {
-          const hasBonifAlert = (row.alertas || []).some(al => 
-            al.msg.includes('BONIF') || al.msg.includes('DESVÍO') || al.msg.includes('DESVIO')
-          );
-          return hasBonifAlert;
+        }        if (filterBajasBonif) {
+          if (selectedProvider === 'personal') {
+            const currentPrice = row.abono || 0;
+            const prevPrice = row.prevAbonoBase || 0;
+            const hasIncreaseAlert = (row.alertas || []).some(al => 
+              al.msg.includes('AUMENTO') || al.msg.includes('DESVÍO') || al.msg.includes('DESVIO') || al.msg.includes('VAR')
+            );
+            const hasPriceIncrease = prevPrice > 0 ? (currentPrice - prevPrice) > 0.5 : false;
+            return hasPriceIncrease || hasIncreaseAlert;
+          } else {
+            const hasBonifAlert = (row.alertas || []).some(al => 
+              al.msg.includes('BONIF') || al.msg.includes('DESVÍO') || al.msg.includes('DESVIO')
+            );
+            return hasBonifAlert;
+          }
         }
         return true;
       })
@@ -291,13 +300,25 @@ export function PaginatedEditableGrid({
           return excB - excA; 
         }
         if (filterBajasBonif) {
-          const discA = a.precioOficial > 0 ? Math.abs(((a.precioOficial - a.abono) / a.precioOficial) * 100) : 0;
-          const discB = b.precioOficial > 0 ? Math.abs(((b.precioOficial - b.abono) / b.precioOficial) * 100) : 0;
-          const expectedA = selectedProvider === 'claro' ? 90 : (a.descuentoEsperado || 80);
-          const expectedB = selectedProvider === 'claro' ? 90 : (b.descuentoEsperado || 80);
-          const devA = expectedA - discA;
-          const devB = expectedB - discB;
-          return devB - devA;
+          if (selectedProvider === 'personal') {
+            const prevA = a.prevAbonoBase || 0;
+            const currA = a.abono || 0;
+            const diffA = prevA > 0 ? (currA - prevA) : 0;
+
+            const prevB = b.prevAbonoBase || 0;
+            const currB = b.abono || 0;
+            const diffB = prevB > 0 ? (currB - prevB) : 0;
+
+            return diffB - diffA;
+          } else {
+            const discA = a.precioOficial > 0 ? Math.abs(((a.precioOficial - a.abono) / a.precioOficial) * 100) : 0;
+            const discB = b.precioOficial > 0 ? Math.abs(((b.precioOficial - b.abono) / b.precioOficial) * 100) : 0;
+            const expectedA = selectedProvider === 'claro' ? 90 : (a.descuentoEsperado || 80);
+            const expectedB = selectedProvider === 'claro' ? 90 : (b.descuentoEsperado || 80);
+            const devA = expectedA - discA;
+            const devB = expectedB - discB;
+            return devB - devA;
+          }
         }
         return 0;
       });
@@ -367,7 +388,7 @@ export function PaginatedEditableGrid({
             <TrendingUp size={16} /> Priorizar Excedentes
           </button>
 
-          {/* Button 3: Priorizar Bonificación */}
+          {/* Button 3: Priorizar Bonificación / Priorizar Aumento */}
           <button 
             onClick={() => {
               setFilterExcedentes(false);
@@ -376,13 +397,21 @@ export function PaginatedEditableGrid({
             }}
             className="air-btn" 
             style={{ 
-              background: filterBajasBonif ? 'rgba(168, 85, 247, 0.1)' : 'var(--surface)', 
-              color: filterBajasBonif ? '#a855f7' : 'var(--text-secondary)',
-              border: `1px solid ${filterBajasBonif ? '#a855f7' : 'var(--border-light)'}`,
+              background: filterBajasBonif ? (selectedProvider === 'personal' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(168, 85, 247, 0.1)') : 'var(--surface)', 
+              color: filterBajasBonif ? (selectedProvider === 'personal' ? '#ef4444' : '#a855f7') : 'var(--text-secondary)',
+              border: `1px solid ${filterBajasBonif ? (selectedProvider === 'personal' ? '#ef4444' : '#a855f7') : 'var(--border-light)'}`,
               display: 'flex', alignItems: 'center', gap: '8px'
             }}
           >
-            <Percent size={16} /> Priorizar Bonificación
+            {selectedProvider === 'personal' ? (
+              <>
+                <TrendingUp size={16} /> Priorizar Aumento
+              </>
+            ) : (
+              <>
+                <Percent size={16} /> Priorizar Bonificación
+              </>
+            )}
           </button>
 
           <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', width: '300px' }}>
