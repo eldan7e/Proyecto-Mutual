@@ -32,10 +32,10 @@ export default function CargaManual() {
     try {
       await navigator.clipboard.writeText(rawData);
       setCopiado(true);
-      addToast({ type: 'success', title: '¡Copiado!', message: 'Texto copiado al portapapeles' });
+      addToast('¡Texto copiado al portapapeles!', 'success');
       setTimeout(() => setCopiado(false), 2000);
     } catch (err) {
-      addToast({ type: 'error', title: 'Error', message: 'No se pudo copiar el texto' });
+      addToast('No se pudo copiar el texto', 'error');
     }
   };
   const [fileData, setFileData] = useState([]);
