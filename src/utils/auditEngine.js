@@ -114,7 +114,7 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       const W = U + V;
       const X = W * 0.01; // Impuesto 1% (Ley 26573)
       
-      let recargoRatio = 0.07;
+      let Z_val = 1.07;
       let rawMargin = esPlanFijoOInternet ? 100 : 107;
       if (consumo.mutual_margen_aplicado !== undefined && consumo.mutual_margen_aplicado !== null && Number(consumo.mutual_margen_aplicado) > 0) {
         rawMargin = Number(consumo.mutual_margen_aplicado);
@@ -122,23 +122,14 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
         rawMargin = Number(dbInfo.mutual_margen_pct);
       }
 
-      if (rawMargin === 100) {
-        recargoRatio = 1.0; // Recargo del 100% por plan
-      } else if (rawMargin > 100) {
-        recargoRatio = (rawMargin - 100) / 100.0; // ej. 107 -> 0.07
-      } else if (rawMargin > 1.0) {
-        recargoRatio = rawMargin / 100.0; // ej. 7 -> 0.07
-      } else {
-        recargoRatio = Math.max(0, rawMargin);
-      }
-
-      const AA = abonoBaseClaro * recargoRatio;
+      Z_val = rawMargin <= 2.0 ? rawMargin : rawMargin / 100.0;
+      const AA = abonoBaseClaro * Z_val;
       
       gastosAdmin = V + X + AA;
       ivaFinal = 0;
       abonoBase = abonoBaseClaro;
       
-      totalBrutoSinAdicionales = W + tarifaAunarFija + recargoRatio + X + AA;
+      totalBrutoSinAdicionales = W + tarifaAunarFija + Z_val + X + AA;
     } else if (isMovistar) {
       // ============================================================
       // FÓRMULA REAL DEL EXCEL DE MOVISTAR (verificada con archivo)
