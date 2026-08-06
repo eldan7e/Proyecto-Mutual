@@ -268,14 +268,6 @@ export async function saveFacturacion({
     )
   );
 
-  // Avanzar cuotas de adicionales al registrar un nuevo periodo de facturación
-  try {
-    await supabase.rpc('avanzar_cuotas_adicionales');
-  } catch (errCuotas) {
-    console.error('Error al avanzar cuotas de adicionales:', errCuotas);
-  }
-
-
 
   if (planIncreases && planIncreases.length > 0 && proveedorId !== 1) {
     progress(fileData.length, fileData.length, 'Sincronizando precios de planes...');

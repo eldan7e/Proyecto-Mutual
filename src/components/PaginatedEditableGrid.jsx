@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Search, AlertTriangle, TrendingUp, Hash, Info, Percent, RefreshCw, Loader2
+  Search, AlertTriangle, TrendingUp, Hash, Info, Percent, RefreshCw, Loader2, Tag
 } from 'lucide-react';
+import DescuentoModal from './CargaManual/DescuentoModal';
 
 const isFixedOrInternet = (p) => {
   if (!p) return false;
@@ -210,7 +211,7 @@ function SearchableLineaSelect({ dbLines, selectedProvider, onSelect }) {
             filteredLines.map(item => (
               <DropdownItem 
                 key={item.norm}
-                label={`${item.norm} (${item.info.nombre})`}
+                label={`${item.norm} - ${item.info.nombre || 'Sin socio'}`}
                 onClick={() => {
                   onSelect(item.norm);
                   setSearchTerm('');
@@ -243,12 +244,15 @@ export function PaginatedEditableGrid({
   setSelectedRows,
   onUpdateLineaPlan,
   onUpdateAllLineasPlanes,
-  isUpdatingPlanes
+  isUpdatingPlanes,
+  onApplyDescuento
 }) {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
   const [filterExcedentes, setFilterExcedentes] = useState(false);
   const [filterBajasBonif, setFilterBajasBonif] = useState(false);
+  const [selectedRowForDescuento, setSelectedRowForDescuento] = useState(null);
+  const [isDescuentoModalOpen, setIsDescuentoModalOpen] = useState(false);
 
   const pendingPlanUpdatesCount = React.useMemo(() => {
     return (fileData || []).filter(row => row.plan && !arePlansEquivalent(row.plan, row.planOficial)).length;
@@ -432,10 +436,10 @@ export function PaginatedEditableGrid({
             <tr>
               <th>Línea / Plan</th>
               <th>Socio</th>
-              {(selectedProvider === 'claro' || selectedProvider === 'movistar') && (
+              {(selectedProvider === 'claro' || selectedProvider === 'movistar' || selectedProvider === 'personal') && (
                 <>
                   <th style={{ textAlign: 'center' }}>Precio Lista</th>
-                  <th style={{ textAlign: 'center' }}>Bonif.</th>
+                  <th style={{ textAlign: 'center' }}>Descuentos</th>
                 </>
               )}
               <th style={{ textAlign: 'center' }}>Mes Ant.</th>
@@ -443,6 +447,7 @@ export function PaginatedEditableGrid({
               <th style={{ textAlign: 'center' }}>Excedentes</th>
               <th style={{ textAlign: 'center' }}>Total</th>
               <th style={{ textAlign: 'center' }}>Audit. Variación</th>
+              <th style={{ textAlign: 'center' }}>Acciones</th>
             </tr>
         </thead>
         <tbody>
@@ -531,7 +536,7 @@ export function PaginatedEditableGrid({
                     />
                   )}
                 </td>
-                {(selectedProvider === 'claro' || selectedProvider === 'movistar') && (
+                {(selectedProvider === 'claro' || selectedProvider === 'movistar' || selectedProvider === 'personal') && (
                   <>
                     <td style={{ textAlign: 'center', color: '#64748b', fontSize: '11px' }}>
                       <div style={{fontSize: '9px', color: '#94a3b8'}}>LISTA</div>
@@ -542,13 +547,25 @@ export function PaginatedEditableGrid({
                       )}
                     </td>
                     <td style={{ textAlign: 'center', color: '#10b981', fontWeight: 600, fontSize: '11px' }}>
-                      <div style={{fontSize: '9px', color: '#94a3b8'}}>BONIF.</div>
+                      <div style={{fontSize: '9px', color: '#94a3b8'}}>DESCUENTOS</div>
                       {selectedProvider === 'claro' ? (
                         Number(row.descuentoOriginal || 0) !== 0 ? `-$${Math.abs(Number(row.descuentoOriginal)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : '-'
                       ) : (
                         (() => {
-                          const descPct = row.precioOficial > 0 ? ((row.precioOficial - row.abono) / row.precioOficial) * 100 : 0;
-                          return descPct > 0 ? `${descPct.toFixed(2)}%` : '-';
+                          const pLista = row.precioOficial || row.precioListaOriginal || 0;
+                          const descPct = pLista > 0 ? ((pLista - row.abono) / pLista) * 100 : 0;
+                          const expectedPct = selectedProvider === 'personal' ? 80 : (row.descuentoEsperado || 80);
+                          const meets80 = descPct >= (expectedPct - 2.5);
+                          return (
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                              <span style={{ color: meets80 ? '#10b981' : '#ef4444', fontWeight: 800 }}>
+                                {descPct > 0 ? `${descPct.toFixed(1)}%` : '0%'}
+                              </span>
+                              <span style={{ fontSize: '9px', color: meets80 ? '#059669' : '#dc2626' }}>
+                                (Esp: {expectedPct}%)
+                              </span>
+                            </div>
+                          );
                         })()
                       )}
                     </td>
@@ -588,12 +605,37 @@ export function PaginatedEditableGrid({
                     <div style={{ fontSize: '10px', color: '#94a3b8' }}>Sin datos previos</div>
                   )}
                 </td>
+                <td style={{ textAlign: 'center' }}>
+                  <button
+                    onClick={() => {
+                      setSelectedRowForDescuento(row);
+                      setIsDescuentoModalOpen(true);
+                    }}
+                    title="Aplicar o gestionar descuento"
+                    className="air-btn"
+                    style={{
+                      background: 'rgba(16, 185, 129, 0.1)',
+                      color: '#10b981',
+                      border: '1px solid rgba(16, 185, 129, 0.2)',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      padding: '4px 8px',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    <Tag size={12} /> Descuento
+                  </button>
+                </td>
               </tr>
             );
           })}
           {paginatedData.length === 0 && (
             <tr>
-              <td colSpan={9} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
+              <td colSpan={10} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
                 No se encontraron líneas.
               </td>
             </tr>
@@ -629,6 +671,23 @@ export function PaginatedEditableGrid({
             </button>
           </div>
         </div>
+      )}
+
+      {/* Modal de Aplicación de Descuento */}
+      {isDescuentoModalOpen && selectedRowForDescuento && (
+        <DescuentoModal
+          isOpen={isDescuentoModalOpen}
+          onClose={() => {
+            setIsDescuentoModalOpen(false);
+            setSelectedRowForDescuento(null);
+          }}
+          row={selectedRowForDescuento}
+          onApply={async (data) => {
+            if (onApplyDescuento) {
+              await onApplyDescuento(data);
+            }
+          }}
+        />
       )}
     </div>
   );

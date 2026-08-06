@@ -17,6 +17,7 @@ import useTableFilters from './hooks/useTableFilters';
 import useDebounce from './hooks/useDebounce';
 import BatchModal from './components/GestionPagos/BatchModal';
 import AuditLineRow from './components/GestionPagos/AuditLineRow';
+import DescuentoModal from './components/CargaManual/DescuentoModal';
 import { useToast } from './components/ui/ToastProvider';
 import { useConfirm } from './components/ui/ConfirmProvider';
 
@@ -106,6 +107,81 @@ export default function GestionPagos() {
   const [globalDiscountType, setGlobalDiscountType] = useState('$'); // '%' or '$'
   const [editingAbonoId, setEditingAbonoId] = useState(null);
   const [tempAbono, setTempAbono] = useState("");
+
+  const [selectedRowForDescuento, setSelectedRowForDescuento] = useState(null);
+  const [isDescuentoModalOpen, setIsDescuentoModalOpen] = useState(false);
+
+  const handleOpenDescuento = (d) => {
+    const abonoBaseFull = (d.calculado?.baseAb || 0) + (d.calculado?.cAdmin || 0) + (d.calculado?.cIVA || 0) + (d.calculado?.tarifaAunar || 0);
+    setSelectedRowForDescuento({
+      linea: d.numero_linea,
+      socioNombre: d.lineas?.socios?.nombre_completo,
+      socioId: d.lineas?.socios?.socio_id,
+      planOficial: d.lineas?.planes_abonos?.nombre_plan,
+      abono: abonoBaseFull,
+      consumoId: d.consumo_id
+    });
+    setIsDescuentoModalOpen(true);
+  };
+
+  const handleApplyDescuentoGestionPagos = async ({ linea, socioId, tipo, valor, esPorcentaje, esDuradero, cuotas, descripcion, consumoId }) => {
+    try {
+      const numValor = Number(valor);
+      if (isNaN(numValor) || numValor <= 0) return;
+
+      const isDesc = tipo === 'DESCUENTO';
+
+      if (esDuradero) {
+        // Guardar en la tabla 'adicionales' para que figure en Descuentos y Cargos
+        const { error: errAdicional } = await supabase
+          .from('adicionales')
+          .insert({
+            socio_id: socioId || null,
+            numero_linea: linea,
+            tipo: tipo || 'DESCUENTO',
+            descripcion: descripcion || `${isDesc ? 'Descuento' : 'Cargo'} ${numValor}${esPorcentaje ? '%' : '$'} (${cuotas} meses)`,
+            valor: numValor,
+            cta_numero: 1,
+            total_cuotas: Number(cuotas) || 12,
+            activo: true,
+            periodo_inicio: selectedPeriodo || new Date().toISOString().substring(0, 7)
+          });
+
+        if (errAdicional) throw errAdicional;
+
+        if (isDesc && esPorcentaje) {
+          await supabase
+            .from('lineas')
+            .update({ descuento_esperado: numValor })
+            .eq('numero_linea', linea);
+        }
+
+        addToast(`${isDesc ? 'Descuento' : 'Cargo'} duradero (${cuotas} meses) guardado en Descuentos y Cargos`, 'success');
+      } else {
+        if (consumoId) {
+          if (isDesc) {
+            const { error: errConsumo } = await supabase
+              .from('consumos')
+              .update({ bonificaciones: numValor })
+              .eq('consumo_id', consumoId);
+            if (errConsumo) throw errConsumo;
+          } else {
+            const { error: errConsumo } = await supabase
+              .from('consumos')
+              .update({ otros_cargos_op: numValor })
+              .eq('consumo_id', consumoId);
+            if (errConsumo) throw errConsumo;
+          }
+        }
+        addToast(`${isDesc ? 'Descuento' : 'Cargo'} de ${esPorcentaje ? numValor + '%' : '$' + numValor} aplicado para este período`, 'success');
+      }
+
+      fetchLineas();
+    } catch (err) {
+      console.error("Error al aplicar ajuste en gestión de pagos:", err);
+      addToast("Error al guardar el ajuste: " + (err.message || err), "error");
+    }
+  };
 
   const updateUrlParams = (key, value) => {
     setSearchParams(prev => {
@@ -707,7 +783,7 @@ export default function GestionPagos() {
                     </th>
                     <th onClick={() => handleSort('ajustes')} style={{ textAlign: 'right', cursor: 'pointer' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end' }}>
-                        Bonif. {sortConfig.key === 'ajustes' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />) : <ArrowUpDown size={12} opacity={0.3} />}
+                        Descuentos {sortConfig.key === 'ajustes' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />) : <ArrowUpDown size={12} opacity={0.3} />}
                       </div>
                     </th>
                     <th onClick={() => handleSort('totalCobrar')} style={{ textAlign: 'right', paddingRight: '12px', cursor: 'pointer' }}>
@@ -726,6 +802,7 @@ export default function GestionPagos() {
                       adicionalesData={adicionalesData}
                       onSaveAbono={handleSaveAbono}
                       onSaveExcedente={handleSaveExcedente}
+                      onOpenDescuento={handleOpenDescuento}
                     />
                   ))}
                   {sortedData.length === 0 && (
@@ -860,6 +937,19 @@ export default function GestionPagos() {
           onClose={() => setIsBatchModalOpen(false)}
           isSaving={isSaving}
           handleLoadPreviousPeriodPrices={handleLoadPreviousPeriodPrices}
+        />
+      )}
+
+      {/* Modal de Descuento */}
+      {isDescuentoModalOpen && selectedRowForDescuento && (
+        <DescuentoModal
+          isOpen={isDescuentoModalOpen}
+          onClose={() => {
+            setIsDescuentoModalOpen(false);
+            setSelectedRowForDescuento(null);
+          }}
+          row={selectedRowForDescuento}
+          onApply={handleApplyDescuentoGestionPagos}
         />
       )}
     </div>

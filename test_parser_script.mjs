@@ -1,0 +1,40 @@
+import { procesarPersonal } from './src/utils/providerProcessors.js';
+
+const sampleText = `ABONOS EN TUS NEGOCIOS $ 17.578,52
+SERVICIOS de INTERNET $ 17.578,51
+Internet 300 MB 1 70.314,05 70.314,05
+Descuento 75% - Mes 3 de 6 1 -52.735,54 -52.735,54
+SERVICIOS de TELEFONÍA FIJA $0,01
+LÍNEA FIJA (221)2341812 $ 0,01
+Servicio Básico Telefónico 1 0,01 0,01
+SERVICIOS MÓVILES $ 1.143.630,87
+LÍNEA MOVIL (11)24041845 $ 20.617,77
+Plan 30 GB 1 82.471,07 82.471,07
+Descuento 75% - Mes 2 de 6 1 -61.853,30 -61.853,30
+LÍNEA MOVIL (11)32334429 $ 20.617,77
+Plan 30 GB 1 82.471,07 82.471,07
+Descuento 75% - Mes 2 de 6 1 -61.853,30 -61.853,30
+LÍNEA MOVIL (221)3084915 $ 71.052,99
+Plan 15 GB 1 70.140,50 70.140,50
+Descuento 80% - Mes 2 de 6 1 -56.112,40 -56.112,40
+5 GB 30 días 50OFF 1 1.652,90 1.652,90
+5 GB 30 días 15 3.305,79 49.586,85
+WiFi Pass 10 GB 3 días 2 2.892,57 5.785,14
+DESCUENTOS ADICIONALES $ -8.264,47
+Descuento Conexión Total 1 -8.264,47 -8.264,47
+SUBTOTAL SIN IMPUESTOS $ 1.152.944,92
+IMPUESTOS $ 242.118,43
+IVA 21% 242.118,43
+TOTAL CARGOS DEL MES $ 1.395.063,35
+linea2216824786CARGOS DEL MES Cant. Cargo Unitario Importe en pesos Importe Total
+PLANES Y SERVICIOS $ 7.185,12
+_Plan 4GB (21-07 - 20-08) ¹ 1 35.925,62 21/27% IVA 35.925,62
+Descuento _Plan 4GB (21-07 - 20-08) ¹ 1 -28.740,50 21/27% IVA -28.740,50
+IMPUESTOS $ 1.725,81
+IVA 21% 1.504,05
+IVA 27% 6,21
+Percep.IVA RG2408/08 3% 215,55
+TOTAL CARGOS DEL MES $ 8.910,93`;
+
+const lines = sampleText.split('\n');
+console.log(JSON.stringify(procesarPersonal(lines), null, 2));

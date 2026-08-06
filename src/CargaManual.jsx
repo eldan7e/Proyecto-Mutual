@@ -566,6 +566,77 @@ export default function CargaManual() {
     }
   };
 
+  const handleApplyDescuento = async ({ linea, socioId, tipo, valor, esPorcentaje, esDuradero, cuotas, descripcion }) => {
+    try {
+      const numValor = Number(valor);
+      if (isNaN(numValor) || numValor <= 0) return;
+
+      if (esDuradero) {
+        // 1. Guardar en la tabla 'adicionales' en Supabase para que figure en Descuentos y Cargos
+        const { error: errAdicional } = await supabase
+          .from('adicionales')
+          .insert({
+            socio_id: socioId || null,
+            numero_linea: linea,
+            tipo: 'DESCUENTO',
+            descripcion: descripcion || `Descuento ${numValor}${esPorcentaje ? '%' : '$'}`,
+            valor: numValor,
+            cta_numero: 1,
+            total_cuotas: Number(cuotas) || 12,
+            activo: true,
+            periodo_inicio: periodo
+          });
+
+        if (errAdicional) throw errAdicional;
+
+        // 2. Si es porcentaje (ej. 80%), actualizar descuento_esperado en la tabla 'lineas'
+        if (esPorcentaje) {
+          await supabase
+            .from('lineas')
+            .update({ descuento_esperado: numValor })
+            .eq('numero_linea', linea);
+        }
+
+        addToast(`Descuento duradero (${cuotas} meses) registrado correctamente en Descuentos y Cargos`, 'success');
+      } else {
+        addToast(`Descuento de ${esPorcentaje ? numValor + '%' : '$' + numValor} aplicado para el período actual`, 'success');
+      }
+
+      // 3. Actualizar la vista en vivo de fileData
+      setFileData(prev => prev.map(row => {
+        if (row.linea === linea) {
+          let nuevoMonto = row.monto;
+          let nuevoAbono = row.abono;
+          let nuevoDescuento = row.descuentoEsperado || 0;
+          
+          if (esPorcentaje) {
+            nuevoDescuento = numValor;
+            const pLista = row.precioOficial || row.abono;
+            if (pLista > 0) {
+              nuevoAbono = pLista * (1 - numValor / 100);
+              nuevoMonto = nuevoAbono + (row.excedentes || 0);
+            }
+          } else {
+            nuevoMonto = Math.max(0, row.monto - numValor);
+          }
+
+          return {
+            ...row,
+            abono: Math.round(nuevoAbono * 100) / 100,
+            monto: Math.round(nuevoMonto * 100) / 100,
+            descuentoEsperado: nuevoDescuento,
+            descuentoOriginal: esPorcentaje ? `${numValor}%` : `$${numValor}`
+          };
+        }
+        return row;
+      }));
+
+    } catch (err) {
+      console.error("Error al aplicar descuento:", err);
+      addToast("Error al guardar el descuento: " + (err.message || err), "error");
+    }
+  };
+
   const handlePreSave = () => {
     // BLOQUEAR GUARDADO SI HAY PLANES PENDIENTES DE ACTUALIZAR
     if (pendingPlanUpdates.length > 0) {
@@ -1183,6 +1254,7 @@ export default function CargaManual() {
             onUpdateLineaPlan={handleUpdateLineaPlan}
             onUpdateAllLineasPlanes={handleUpdateAllLineasPlanes}
             isUpdatingPlanes={isUpdatingPlanes}
+            onApplyDescuento={handleApplyDescuento}
           />
         </div>
       )}

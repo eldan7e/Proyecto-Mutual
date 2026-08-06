@@ -114,31 +114,31 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       const W = U + V;
       const X = W * 0.01; // Impuesto 1% (Ley 26573)
       
-      let Z_val = 1.07;
-      if (esPlanFijoOInternet) {
-        let rawMargin = 100; // Por defecto 100% para planes de internet/fijos
-        if (consumo.mutual_margen_aplicado !== undefined && consumo.mutual_margen_aplicado !== null) {
-          rawMargin = Number(consumo.mutual_margen_aplicado);
-        } else if (dbInfo && dbInfo.mutual_margen_pct !== undefined && dbInfo.mutual_margen_pct !== null) {
-          rawMargin = Number(dbInfo.mutual_margen_pct);
-        }
-        Z_val = rawMargin <= 2.0 ? rawMargin : rawMargin / 100.0;
-      } else {
-        let rawMargin = 107; // Por defecto 107% (7% recargo) para planes móviles
-        if (consumo.mutual_margen_aplicado !== undefined && consumo.mutual_margen_aplicado !== null) {
-          rawMargin = Number(consumo.mutual_margen_aplicado);
-        } else if (dbInfo && dbInfo.mutual_margen_pct !== undefined && dbInfo.mutual_margen_pct !== null) {
-          rawMargin = Number(dbInfo.mutual_margen_pct);
-        }
-        Z_val = rawMargin <= 2.0 ? rawMargin : rawMargin / 100.0;
+      let recargoRatio = 0.07;
+      let rawMargin = esPlanFijoOInternet ? 100 : 107;
+      if (consumo.mutual_margen_aplicado !== undefined && consumo.mutual_margen_aplicado !== null && Number(consumo.mutual_margen_aplicado) > 0) {
+        rawMargin = Number(consumo.mutual_margen_aplicado);
+      } else if (dbInfo && dbInfo.mutual_margen_pct !== undefined && dbInfo.mutual_margen_pct !== null && Number(dbInfo.mutual_margen_pct) > 0) {
+        rawMargin = Number(dbInfo.mutual_margen_pct);
       }
-      const AA = abonoBaseClaro * Z_val;
+
+      if (rawMargin === 100) {
+        recargoRatio = 1.0; // Recargo del 100% por plan
+      } else if (rawMargin > 100) {
+        recargoRatio = (rawMargin - 100) / 100.0; // ej. 107 -> 0.07
+      } else if (rawMargin > 1.0) {
+        recargoRatio = rawMargin / 100.0; // ej. 7 -> 0.07
+      } else {
+        recargoRatio = Math.max(0, rawMargin);
+      }
+
+      const AA = abonoBaseClaro * recargoRatio;
       
       gastosAdmin = V + X + AA;
       ivaFinal = 0;
       abonoBase = abonoBaseClaro;
       
-      totalBrutoSinAdicionales = W + tarifaAunarFija + Z_val + X + AA;
+      totalBrutoSinAdicionales = W + tarifaAunarFija + recargoRatio + X + AA;
     } else if (isMovistar) {
       // ============================================================
       // FÓRMULA REAL DEL EXCEL DE MOVISTAR (verificada con archivo)
@@ -248,12 +248,6 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       if (discountPct === 80 || discountPct === 80.5 || discountPct === 90) {
         discountPct = 0;
       }
-    } else if (isPersonal) {
-      if (discountPct === 80 || discountPct === 80.5 || discountPct === 90) {
-        if (consumo.numero_linea !== '2215940741') {
-          discountPct = 0;
-        }
-      }
     } else if (isMovistar) {
       let periodKey = '';
       if (typeof period === 'string') {
@@ -266,7 +260,7 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
         }
       }
     }
-    
+
     // Evitar la duplicación de descuentos si el porcentaje en lineas.descuento_esperado
     // ya es idéntico o incluye al acumulado en la tabla de adicionales
     let effectiveDiscountPct = discountPct;
@@ -311,17 +305,20 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       totalCobrar = (subtotalConCargos - bonifSocio) + otrosCargosOp - bonifManual;
     }
 
-    // Auditoría específica de Movistar — Descuento base del 80%
+    // Auditoría específica de Movistar y Personal — Descuento base del 80% esperado
     const precioLista = Number(consumo.precio_lista_audit || config.historicalPrice?.precio_lista || dbInfo?.precio || 0);
     let movistarAudit = null;
-    if (parseInt(providerId) === 2 && precioLista > 0) {
+    let operatorAudit = null;
+    if ((parseInt(providerId) === 2 || parseInt(providerId) === 3) && precioLista > 0) {
       const gbIncluidos = Number(dbInfo?.gb_incluidos || 0);
-      const expectedPct = (dbInfo && dbInfo.descuento_operadora_pct > 0) ? Number(dbInfo.descuento_operadora_pct) : 80;
-      const tolerancePct = expectedPct - 2.1; // margen de tolerancia ~2%
+      const expectedPct = (dbInfo && dbInfo.descuento_operadora_pct > 0) 
+        ? Number(dbInfo.descuento_operadora_pct) 
+        : (lineInfo?.descuento_esperado !== undefined && lineInfo?.descuento_esperado !== null ? Number(lineInfo.descuento_esperado) : 80);
+      const tolerancePct = expectedPct - 2.5; // margen de tolerancia ~2.5%
       const actualDiscountPct = Math.round(((precioLista - costoAbonoReal) / precioLista) * 1000) / 10;
       const meetsAgreement = actualDiscountPct >= tolerancePct;
       const expectedCosto = precioLista * (1 - expectedPct / 100);
-      movistarAudit = {
+      operatorAudit = {
         precioLista,
         costoAbonoReal,
         actualDiscountPct,
@@ -330,6 +327,7 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
         gbIncluidos,
         diferencia: Math.round((costoAbonoReal - expectedCosto) * 100) / 100
       };
+      movistarAudit = operatorAudit;
     }
 
     const _finalBaseAb = Math.round(abonoBase * 100) / 100;
@@ -360,6 +358,7 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
         hasExtras: cargosExtra > 0,
         extraAmount: cargosExtra,
         isPorted: lineInfo?.proveedor_id !== parseInt(providerId),
+        operatorAudit,
         movistarAudit
       }
     };
@@ -686,7 +685,13 @@ export function consolidateFixedServices(resultados, selectedProvider) {
           fija.isValid = true;
         }
 
-        fija.plan = `Internet + Tel Fijo (CONSOLIDADO)`;
+        if (esCTF14) {
+          fija.plan = 'A100E';
+        } else if (esTFT26) {
+          fija.plan = '3MC26';
+        } else {
+          fija.plan = matchInternet.plan || matchInternet.plan_db || fija.plan;
+        }
 
         // Sumar los importes reales facturados (Cuenta Internet + Línea Fija)
         const fijaAbonoInit = Number(fija.costo_abono_real ?? fija.abono ?? 0);

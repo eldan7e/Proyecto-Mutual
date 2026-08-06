@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  ChevronDown, ChevronUp, ArrowUpDown, Loader2, Search
+  ChevronDown, ChevronUp, ArrowUpDown, Loader2, Search, Plus, Tag
 } from 'lucide-react';
+import DescuentoModal from '../CargaManual/DescuentoModal';
 
 export default function LiquidacionesSocio({
   sortedSocioData,
@@ -17,8 +18,24 @@ export default function LiquidacionesSocio({
   totalSocioCobrar,
   totalFacturaSinCalcular,
   exportSociosToCSV,
-  totalLote
+  totalLote,
+  onApplyDescuento
 }) {
+  const [selectedRowForDescuento, setSelectedRowForDescuento] = useState(null);
+  const [isDescuentoModalOpen, setIsDescuentoModalOpen] = useState(false);
+
+  const handleOpenDescuento = (d, abonoBaseFull) => {
+    setSelectedRowForDescuento({
+      linea: d.numero_linea,
+      socioNombre: d.lineas?.socios?.nombre_completo,
+      socioId: d.lineas?.socios?.socio_id,
+      planOficial: d.lineas?.planes_abonos?.nombre_plan,
+      abono: abonoBaseFull,
+      consumoId: d.consumo_id
+    });
+    setIsDescuentoModalOpen(true);
+  };
+
   const handleSort = (key) => {
     let direction = 'desc';
     if (sortConfig.key === key && sortConfig.direction === 'desc') {
@@ -256,17 +273,45 @@ export default function LiquidacionesSocio({
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       {d.calculado?.bonifManual > 0 ? (
-                        <div style={{ display: 'inline-block', background: '#ecfdf5', padding: '4px 8px', borderRadius: '6px', border: '1px solid #a7f3d0' }}>
+                        <div 
+                          onClick={() => handleOpenDescuento(d, abonoBaseFull)}
+                          title="Editar o gestionar descuento"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#ecfdf5', padding: '4px 8px', borderRadius: '6px', border: '1px solid #a7f3d0', cursor: 'pointer' }}
+                        >
                           <span style={{ fontWeight: 800, color: '#059669' }}>
                             -${d.calculado.bonifManual.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                           </span>
                           {d.calculado?.appliedDiscountPct > 0 && (
                             <div style={{ fontSize: '9px', color: '#059669', fontWeight: 800, textTransform: 'uppercase', marginTop: '2px' }}>
-                              {d.calculado.appliedDiscountPct}% DESC.
+                              ({d.calculado.appliedDiscountPct}%)
                             </div>
                           )}
+                          <Tag size={12} color="#059669" />
                         </div>
-                      ) : '-'}
+                      ) : (
+                        <button
+                          onClick={() => handleOpenDescuento(d, abonoBaseFull)}
+                          style={{
+                            padding: '3px 8px',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            color: '#64748b',
+                            border: '1px dashed var(--border-light)',
+                            borderRadius: '6px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            cursor: 'pointer',
+                            background: 'rgba(0,0,0,0.02)',
+                            transition: 'all 0.15s ease'
+                          }}
+                          title="Crear descuento para esta línea"
+                          onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
+                          onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border-light)'}
+                        >
+                          <Plus size={11} /> $0 (Crear)
+                        </button>
+                      )}
                     </td>
                     <td style={{ textAlign: 'right', fontWeight: 900, color: 'var(--accent)', paddingRight: '24px', fontSize: '15px' }}>
                       ${(d.calculado?.totalCobrar || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
@@ -304,7 +349,6 @@ export default function LiquidacionesSocio({
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
-              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
               disabled={currentPage === 1}
               className="pagination-btn-nav"
               style={{ padding: '8px 16px', fontSize: '13px' }}

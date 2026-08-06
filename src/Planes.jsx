@@ -948,7 +948,7 @@ export default function Planes({ hideHeader = false }) {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
               <div>
-                <label className="form-label">Bonif. Mut (%)</label>
+                <label className="form-label">Recargo Plan (%)</label>
                 <input className="premium-input" style={{ width: '100%', padding: '12px' }} name="mutual_margen_pct" type="number" step="0.1" defaultValue={editingPlan?.mutual_margen_pct} required />
               </div>
               <div>

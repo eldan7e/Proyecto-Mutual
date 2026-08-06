@@ -164,6 +164,13 @@ export async function generarLiquidaciones({ lineasData, selectedPeriodo, select
 
   if (rpcError) throw rpcError;
 
+  // Avanzar las cuotas de descuentos y adicionales ÚNICAMENTE tras guardar y generar las liquidaciones auditadas del período
+  try {
+    await supabase.rpc('avanzar_cuotas_adicionales');
+  } catch (errCuotas) {
+    console.error('Error al avanzar cuotas de adicionales en liquidación:', errCuotas);
+  }
+
   return { count: inserts.length };
 }
 
