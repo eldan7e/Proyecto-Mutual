@@ -164,16 +164,19 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
         const G = excedentes;                         // EXCED. $ INCL. (excedentes c/ IVA)
         const V = Math.round((abonoRealTaxes + G) * 100) / 100; // COSTO EMPRESA = total_linea de factura ajustado
         
-        const Y_mov = Math.max(0, V - G);            // MOVISTAR SIN EXC = abono sin excedente (es igual a abonoRealTaxes)
+        const Y_mov = Math.max(0, V - G);            // MOVISTAR SIN EXC = abono sin excedente
         const W = Math.round(Y_mov * 0.05 * 100) / 100;  // Costo Adm = Y * 5%
-        const ivaComponent = Y_mov * 2.1 / 10;       // IVA = Y * 21% (escrito como Y*2.1/10 en Excel)
+        
+        // Si el costo del abono ya incluye IVA (costoAbonoReal viene con IVA de la factura), 
+        // no debemos sumar el 21% de IVA nuevamente encima de V.
+        const ivaComponent = 0;
 
         abonoBase = V;                                // Para mostrar en UI
         gastosAdmin = W;                              // Admin solo sobre abono sin excedente
-        ivaFinal = Math.round(ivaComponent * 100) / 100;
+        ivaFinal = 0;
 
-        // T.AUNAR = ((V + W + CuotaSocial) + (Y * 2.1 / 10))
-        totalBrutoSinAdicionales = Math.round((V + W + tarifaAunarFija + ivaComponent) * 100) / 100;
+        // T.AUNAR = V + W + CuotaSocial
+        totalBrutoSinAdicionales = Math.round((V + W + tarifaAunarFija) * 100) / 100;
       } else {
         // Lógica vieja (Excel enero): Estimamos Y multiplicando por 1.2626
         const taxMultiplier = 1.26263157;
