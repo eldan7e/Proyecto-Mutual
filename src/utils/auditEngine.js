@@ -145,7 +145,9 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       // Usar defaults SOLO si no hay valores explícitos guardados en consumo o historial
       const hasAppliedTarifa = consumo.tarifa_aunar_aplicada !== undefined && consumo.tarifa_aunar_aplicada !== null && Number(consumo.tarifa_aunar_aplicada) > 0;
       if (!hasHistoricalTarifa && !hasAppliedTarifa && !(config && config.tarifaAunar)) {
-        if (consumo.periodo && consumo.periodo >= '2026-02') {
+        if (consumo.periodo && consumo.periodo >= '2026-07') {
+          tarifaAunarFija = 7600;
+        } else if (consumo.periodo && consumo.periodo >= '2026-02') {
           tarifaAunarFija = 6700;
         } else {
           tarifaAunarFija = dbInfo?.tarifa_aunar ? Number(dbInfo.tarifa_aunar) : 6500;
