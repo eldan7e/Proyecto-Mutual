@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ClipboardPaste, Table, UserX, CheckCircle2, 
@@ -326,7 +326,7 @@ export default function CargaManual() {
     }, 0);
   };
 
-  const handleAssignSocio = (lineaNum, socioId) => {
+  const handleAssignSocio = useCallback((lineaNum, socioId) => {
     const socio = allSocios.find(s => s.socio_id === parseInt(socioId));
     setFileData(prev => prev.map(row => {
       if (row.linea === lineaNum) {
@@ -341,9 +341,9 @@ export default function CargaManual() {
       }
       return row;
     }));
-  };
+  }, [allSocios]);
 
-  const handleAssignLinea = (sueltaId, nuevaLinea) => {
+  const handleAssignLinea = useCallback((sueltaId, nuevaLinea) => {
     setFileData(prev => prev.map(row => {
       if (row.linea === sueltaId) {
         const normPhone = normalizePhone(nuevaLinea);
@@ -361,9 +361,9 @@ export default function CargaManual() {
       }
       return row;
     }));
-  };
+  }, [dbLines]);
 
-  const handleUpdateLineaPlan = async (lineaNum, planName, planPrice) => {
+  const handleUpdateLineaPlan = useCallback(async (lineaNum, planName, planPrice) => {
     const provMap = { 'claro': 1, 'movistar': 2, 'personal': 3 };
     const currentProvId = provMap[selectedProvider];
 
@@ -447,7 +447,7 @@ export default function CargaManual() {
       console.error("Error updating plan for line:", err);
       addToast('Error al actualizar el plan: ' + err.message, 'error');
     }
-  };
+  }, [selectedProvider, confirm, addToast, dbLines]);
 
   const handleUpdateAllLineasPlanes = async () => {
     const provMap = { 'claro': 1, 'movistar': 2, 'personal': 3 };
@@ -566,7 +566,7 @@ export default function CargaManual() {
     }
   };
 
-  const handleApplyDescuento = async ({ linea, socioId, tipo, valor, esPorcentaje, esDuradero, cuotas, descripcion }) => {
+  const handleApplyDescuento = useCallback(async ({ linea, socioId, tipo, valor, esPorcentaje, esDuradero, cuotas, descripcion }) => {
     try {
       const numValor = Number(valor);
       if (isNaN(numValor) || numValor <= 0) return;
@@ -635,7 +635,7 @@ export default function CargaManual() {
       console.error("Error al aplicar descuento:", err);
       addToast("Error al guardar el descuento: " + (err.message || err), "error");
     }
-  };
+  }, [periodo, addToast]);
 
   const handlePreSave = () => {
     // BLOQUEAR GUARDADO SI HAY PLANES PENDIENTES DE ACTUALIZAR

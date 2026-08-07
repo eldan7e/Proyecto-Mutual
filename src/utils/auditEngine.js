@@ -5,12 +5,7 @@ import { getParserByProvider } from './invoiceParsers.js';
  */
 
 export function calculateAuditLine(consumo, lineInfo, config = {}) {
-  // DEBUG: Log first 3 calls to verify the function receives correct data
-  if (!calculateAuditLine._debugCount) calculateAuditLine._debugCount = 0;
-  if (calculateAuditLine._debugCount < 3) {
-    calculateAuditLine._debugCount++;
-    console.log('AUDIT_DEBUG línea:', consumo?.numero_linea, 'costo_abono_real:', consumo?.costo_abono_real, 'providerId:', config?.providerId, 'plan:', lineInfo?.planes_abonos?.nombre_plan);
-  }
+
   try {
     const { providerId, period, historicalPrice } = config;
     
@@ -326,12 +321,7 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
           ? Number(consumo.total_linea) 
           : Math.round(totalCobrar * 100) / 100;
     
-    // DEBUG: verify final values for first 3 lines
-    if (!calculateAuditLine._resultCount) calculateAuditLine._resultCount = 0;
-    if (calculateAuditLine._resultCount < 3) {
-      calculateAuditLine._resultCount++;
-      console.log('AUDIT_RESULT línea:', consumo?.numero_linea, 'baseAb:', _finalBaseAb, 'tarifaAunar:', tarifaAunarFija, 'totalCobrar:', _finalTotalCobrar);
-    }
+
 
     return {
       ...consumo,

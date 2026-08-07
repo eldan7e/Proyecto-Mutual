@@ -102,7 +102,7 @@ body::before {
   border: 1px solid var(--border-light);
   box-shadow: var(--shadow-premium);
   transform: translate3d(0, 0, 0);
-  transition: background-color 0.5s ease, border-color 0.5s ease, box-shadow 0.5s ease;
+  transition: background-color 0.5s ease, border-color 0.5s ease;
 }
 
 .app-container {
@@ -115,8 +115,7 @@ body::before {
 /* Sidebar Estilo Apple */
 .floating-sidebar {
   background: var(--surface);
-  backdrop-filter: blur(8px); /* Reducido para mejor performance */
-  -webkit-backdrop-filter: blur(8px);
+  /* backdrop-filter removed for performance — sidebar is always visible */
   border-radius: 32px;
   width: 80px;
   padding: 32px 14px;
@@ -818,14 +817,13 @@ th {
 
 .batch-card {
   background: var(--surface);
-  backdrop-filter: blur(12px) saturate(160%);
   border: 1px solid var(--border-light);
   border-radius: 28px;
   padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 20px;
-  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.3s ease;
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.3s ease;
   position: relative;
   overflow: hidden;
   transform: translate3d(0, 0, 0);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Search, AlertTriangle, TrendingUp, Hash, Info, Percent, RefreshCw, Loader2, Tag
 } from 'lucide-react';
@@ -226,6 +226,188 @@ function SearchableLineaSelect({ dbLines, selectedProvider, onSelect }) {
   );
 }
 
+// ---- Memoized Row Component ----
+const descuentoBtnStyle = {
+  background: 'rgba(16, 185, 129, 0.1)',
+  color: '#10b981',
+  border: '1px solid rgba(16, 185, 129, 0.2)',
+  fontSize: '11px',
+  fontWeight: 700,
+  padding: '4px 8px',
+  borderRadius: '6px',
+  cursor: 'pointer',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '4px'
+};
+
+const updatePlanBtnStyle = {
+  background: 'rgba(37, 99, 235, 0.1)',
+  border: 'none',
+  color: '#2563eb',
+  fontSize: '9px',
+  fontWeight: 800,
+  padding: '2px 6px',
+  borderRadius: '4px',
+  cursor: 'pointer',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '2px',
+  transition: 'all 0.2s'
+};
+
+const GridRow = React.memo(function GridRow({ row, selectedProvider, dbLines, allSocios, handleAssignLinea, handleAssignSocio, onUpdateLineaPlan, onOpenDescuento }) {
+  const prevPrice = row.prevAbonoBase || 0;
+  const currentPrice = row.abono || 0;
+  const diffPct = prevPrice > 0 ? ((currentPrice - prevPrice) / prevPrice) * 100 : 0;
+  const isError = row.montoFactura < row.abono;
+
+  return (
+    <tr className={isError ? 'row-error' : ''} style={{ 
+      background: isError ? '#fef2f2' : 'transparent',
+      borderLeft: row.auditStatus === 'WARN' ? '4px solid #ef4444' : 'none'
+    }}>
+      <td>
+        {row.linea.startsWith('SUELTA_') ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div style={{ fontWeight: 800, fontSize: '14px', color: '#ef4444' }}>{row.linea}</div>
+            <SearchableLineaSelect 
+              dbLines={dbLines}
+              selectedProvider={selectedProvider}
+              onSelect={(newLinea) => handleAssignLinea(row.linea, newLinea)}
+            />
+          </div>
+        ) : (
+          <div style={{ fontWeight: 800, fontSize: '14px' }}>{row.linea}</div>
+        )}
+         <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Mut: {row.planOficial}</div>
+        <div style={{ fontSize: '10px', color: '#2563eb', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+          <span>Fac: {row.plan}</span>
+           {row.plan && !arePlansEquivalent(row.plan, row.planOficial) && onUpdateLineaPlan && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onUpdateLineaPlan(row.linea, row.plan, row.abono || 0);
+              }}
+              style={updatePlanBtnStyle}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(37, 99, 235, 0.2)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(37, 99, 235, 0.1)'}
+            >
+              Actualizar en DB
+            </button>
+          )}
+        </div>
+        
+        {/* Renderizado de Alertas Dinámicas */}
+        {row.alertas?.map((alerta, i) => (
+          <div key={i} style={{ 
+            fontSize: '9px', 
+            color: alerta.tipo === 'CRITICAL' ? '#ef4444' : alerta.tipo === 'INFO' ? '#3b82f6' : '#10b981', 
+            fontWeight: 800, 
+            marginTop: '4px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px'
+          }}>
+            {alerta.tipo === 'CRITICAL' && <AlertTriangle size={10} />}
+            {alerta.tipo === 'INFO' && <Info size={10} />}
+            {alerta.msg}
+          </div>
+        ))}
+      </td>
+      <td>
+        {row.isValid ? (
+          <div style={{ fontWeight: 700, fontSize: '13px' }}>{row.socioNombre}</div>
+        ) : (
+          <SearchableSocioSelect 
+            allSocios={allSocios} 
+            onSelect={(socioId) => handleAssignSocio(row.linea, socioId)} 
+          />
+        )}
+      </td>
+      {(selectedProvider === 'claro' || selectedProvider === 'movistar' || selectedProvider === 'personal') && (
+        <>
+          <td style={{ textAlign: 'center', color: '#64748b', fontSize: '11px' }}>
+            <div style={{fontSize: '9px', color: '#94a3b8'}}>LISTA</div>
+            {selectedProvider === 'claro' ? (
+              `$${Number(row.precioListaOriginal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
+            ) : (
+              `$${Number(row.precioOficial || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
+            )}
+          </td>
+          <td style={{ textAlign: 'center', color: '#10b981', fontWeight: 600, fontSize: '11px' }}>
+            <div style={{fontSize: '9px', color: '#94a3b8'}}>DESCUENTOS</div>
+            {selectedProvider === 'claro' ? (
+              Number(row.descuentoOriginal || 0) !== 0 ? `-$${Math.abs(Number(row.descuentoOriginal)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : '-'
+            ) : (
+              (() => {
+                const pLista = row.precioOficial || row.precioListaOriginal || 0;
+                const descPct = pLista > 0 ? ((pLista - row.abono) / pLista) * 100 : 0;
+                const expectedPct = selectedProvider === 'personal' ? 80 : (row.descuentoEsperado || 80);
+                const meets80 = descPct >= (expectedPct - 2.5);
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <span style={{ color: meets80 ? '#10b981' : '#ef4444', fontWeight: 800 }}>
+                      {descPct > 0 ? `${descPct.toFixed(1)}%` : '0%'}
+                    </span>
+                    <span style={{ fontSize: '9px', color: meets80 ? '#059669' : '#dc2626' }}>
+                      (Esp: {expectedPct}%)
+                    </span>
+                  </div>
+                );
+              })()
+            )}
+          </td>
+        </>
+      )}
+      <td style={{ textAlign: 'center' }}>
+        <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{prevPrice > 0 ? `$${prevPrice.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : '--'}</div>
+      </td>
+      <td style={{ textAlign: 'center' }}>
+        <div style={{ fontWeight: 800, fontSize: '14px' }}>${currentPrice.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</div>
+      </td>
+      <td style={{ textAlign: 'center' }}>
+        <div style={{ fontSize: '13px', color: '#f59e0b', fontWeight: 600 }}>
+          {row.excedentes > 0 ? `$${row.excedentes.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : '--'}
+        </div>
+      </td>
+      <td style={{ textAlign: 'center' }}>
+        <div style={{ fontWeight: 900, fontSize: '14px', color: 'var(--text-primary)' }}>${row.monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</div>
+        {row.montoFactura === 0 && <div style={{ fontSize: '9px', color: '#10b981', fontWeight: 800 }}>(Fac: $0,00)</div>}
+      </td>
+      <td style={{ textAlign: 'center' }}>
+        {row.auditStatus === 'WARN' ? (
+          <div style={{ fontSize: '11px', fontWeight: 800, color: '#ef4444' }}>
+            ❌ NOT OK
+          </div>
+        ) : prevPrice > 0 ? (
+          <div style={{ 
+            fontSize: '11px', 
+            fontWeight: 800, 
+            color: diffPct > 1 ? '#ef4444' : '#10b981' 
+          }}>
+            {Math.abs(diffPct) < 1 ? '✔ OK' : (
+              <span>{diffPct > 0 ? '↑' : '↓'} {Math.abs(diffPct).toFixed(1)}% {diffPct > 0 ? 'AUMENTO' : 'BAJA'}</span>
+            )}
+          </div>
+        ) : (
+          <div style={{ fontSize: '10px', color: '#94a3b8' }}>Sin datos previos</div>
+        )}
+      </td>
+      <td style={{ textAlign: 'center' }}>
+        <button
+          onClick={() => onOpenDescuento(row)}
+          title="Aplicar o gestionar descuento"
+          className="air-btn"
+          style={descuentoBtnStyle}
+        >
+          <Tag size={12} /> Descuento
+        </button>
+      </td>
+    </tr>
+  );
+});
+
 export function PaginatedEditableGrid({
   fileData,
   setFileData,
@@ -451,188 +633,22 @@ export function PaginatedEditableGrid({
             </tr>
         </thead>
         <tbody>
-          {paginatedData.map((row, idx) => {
-            const currentProvId = selectedProvider === 'claro' ? 1 : selectedProvider === 'movistar' ? 2 : 3;
-            const prevPrice = row.prevAbonoBase || 0;
-            
-            const currentPrice = row.abono || 0;
-            const diffPct = prevPrice > 0 ? ((currentPrice - prevPrice) / prevPrice) * 100 : 0;
-            
-            const isError = row.montoFactura < row.abono;
-
-            return (
-              <tr key={idx} className={isError ? 'row-error' : ''} style={{ 
-                background: isError ? '#fef2f2' : 'transparent',
-                borderLeft: row.auditStatus === 'WARN' ? '4px solid #ef4444' : 'none'
-              }}>
-                <td>
-                  {row.linea.startsWith('SUELTA_') ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <div style={{ fontWeight: 800, fontSize: '14px', color: '#ef4444' }}>{row.linea}</div>
-                      <SearchableLineaSelect 
-                        dbLines={dbLines}
-                        selectedProvider={selectedProvider}
-                        onSelect={(newLinea) => handleAssignLinea(row.linea, newLinea)}
-                      />
-                    </div>
-                  ) : (
-                    <div style={{ fontWeight: 800, fontSize: '14px' }}>{row.linea}</div>
-                  )}
-                   <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Mut: {row.planOficial}</div>
-                  <div style={{ fontSize: '10px', color: '#2563eb', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
-                    <span>Fac: {row.plan}</span>
-                     {row.plan && !arePlansEquivalent(row.plan, row.planOficial) && onUpdateLineaPlan && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onUpdateLineaPlan(row.linea, row.plan, row.abono || 0);
-                        }}
-                        style={{
-                          background: 'rgba(37, 99, 235, 0.1)',
-                          border: 'none',
-                          color: '#2563eb',
-                          fontSize: '9px',
-                          fontWeight: 800,
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '2px',
-                          transition: 'all 0.2s'
-                        }}
-                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(37, 99, 235, 0.2)'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'rgba(37, 99, 235, 0.1)'}
-                      >
-                        Actualizar en DB
-                      </button>
-                    )}
-                  </div>
-                  
-                  {/* Renderizado de Alertas Dinámicas */}
-                  {row.alertas?.map((alerta, i) => (
-                    <div key={i} style={{ 
-                      fontSize: '9px', 
-                      color: alerta.tipo === 'CRITICAL' ? '#ef4444' : alerta.tipo === 'INFO' ? '#3b82f6' : '#10b981', 
-                      fontWeight: 800, 
-                      marginTop: '4px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px'
-                    }}>
-                      {alerta.tipo === 'CRITICAL' && <AlertTriangle size={10} />}
-                      {alerta.tipo === 'INFO' && <Info size={10} />}
-                      {alerta.msg}
-                    </div>
-                  ))}
-                </td>
-                <td>
-                  {row.isValid ? (
-                    <div style={{ fontWeight: 700, fontSize: '13px' }}>{row.socioNombre}</div>
-                  ) : (
-                    <SearchableSocioSelect 
-                      allSocios={allSocios} 
-                      onSelect={(socioId) => handleAssignSocio(row.linea, socioId)} 
-                    />
-                  )}
-                </td>
-                {(selectedProvider === 'claro' || selectedProvider === 'movistar' || selectedProvider === 'personal') && (
-                  <>
-                    <td style={{ textAlign: 'center', color: '#64748b', fontSize: '11px' }}>
-                      <div style={{fontSize: '9px', color: '#94a3b8'}}>LISTA</div>
-                      {selectedProvider === 'claro' ? (
-                        `$${Number(row.precioListaOriginal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
-                      ) : (
-                        `$${Number(row.precioOficial || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
-                      )}
-                    </td>
-                    <td style={{ textAlign: 'center', color: '#10b981', fontWeight: 600, fontSize: '11px' }}>
-                      <div style={{fontSize: '9px', color: '#94a3b8'}}>DESCUENTOS</div>
-                      {selectedProvider === 'claro' ? (
-                        Number(row.descuentoOriginal || 0) !== 0 ? `-$${Math.abs(Number(row.descuentoOriginal)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : '-'
-                      ) : (
-                        (() => {
-                          const pLista = row.precioOficial || row.precioListaOriginal || 0;
-                          const descPct = pLista > 0 ? ((pLista - row.abono) / pLista) * 100 : 0;
-                          const expectedPct = selectedProvider === 'personal' ? 80 : (row.descuentoEsperado || 80);
-                          const meets80 = descPct >= (expectedPct - 2.5);
-                          return (
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                              <span style={{ color: meets80 ? '#10b981' : '#ef4444', fontWeight: 800 }}>
-                                {descPct > 0 ? `${descPct.toFixed(1)}%` : '0%'}
-                              </span>
-                              <span style={{ fontSize: '9px', color: meets80 ? '#059669' : '#dc2626' }}>
-                                (Esp: {expectedPct}%)
-                              </span>
-                            </div>
-                          );
-                        })()
-                      )}
-                    </td>
-                  </>
-                )}
-                <td style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{prevPrice > 0 ? `$${prevPrice.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : '--'}</div>
-                </td>
-                <td style={{ textAlign: 'center' }}>
-                  <div style={{ fontWeight: 800, fontSize: '14px' }}>${currentPrice.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</div>
-                </td>
-                <td style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '13px', color: '#f59e0b', fontWeight: 600 }}>
-                    {row.excedentes > 0 ? `$${row.excedentes.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : '--'}
-                  </div>
-                </td>
-                <td style={{ textAlign: 'center' }}>
-                  <div style={{ fontWeight: 900, fontSize: '14px', color: 'var(--text-primary)' }}>${row.monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</div>
-                  {row.montoFactura === 0 && <div style={{ fontSize: '9px', color: '#10b981', fontWeight: 800 }}>(Fac: $0,00)</div>}
-                </td>
-                <td style={{ textAlign: 'center' }}>
-                  {row.auditStatus === 'WARN' ? (
-                    <div style={{ fontSize: '11px', fontWeight: 800, color: '#ef4444' }}>
-                      ❌ NOT OK
-                    </div>
-                  ) : prevPrice > 0 ? (
-                    <div style={{ 
-                      fontSize: '11px', 
-                      fontWeight: 800, 
-                      color: diffPct > 1 ? '#ef4444' : '#10b981' 
-                    }}>
-                      {Math.abs(diffPct) < 1 ? '✔ OK' : (
-                        <span>{diffPct > 0 ? '↑' : '↓'} {Math.abs(diffPct).toFixed(1)}% {diffPct > 0 ? 'AUMENTO' : 'BAJA'}</span>
-                      )}
-                    </div>
-                  ) : (
-                    <div style={{ fontSize: '10px', color: '#94a3b8' }}>Sin datos previos</div>
-                  )}
-                </td>
-                <td style={{ textAlign: 'center' }}>
-                  <button
-                    onClick={() => {
-                      setSelectedRowForDescuento(row);
-                      setIsDescuentoModalOpen(true);
-                    }}
-                    title="Aplicar o gestionar descuento"
-                    className="air-btn"
-                    style={{
-                      background: 'rgba(16, 185, 129, 0.1)',
-                      color: '#10b981',
-                      border: '1px solid rgba(16, 185, 129, 0.2)',
-                      fontSize: '11px',
-                      fontWeight: 700,
-                      padding: '4px 8px',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px'
-                    }}
-                  >
-                    <Tag size={12} /> Descuento
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
+          {paginatedData.map((row, idx) => (
+              <GridRow 
+                key={row.linea || idx}
+                row={row}
+                selectedProvider={selectedProvider}
+                dbLines={dbLines}
+                allSocios={allSocios}
+                handleAssignLinea={handleAssignLinea}
+                handleAssignSocio={handleAssignSocio}
+                onUpdateLineaPlan={onUpdateLineaPlan}
+                onOpenDescuento={(r) => {
+                  setSelectedRowForDescuento(r);
+                  setIsDescuentoModalOpen(true);
+                }}
+              />
+            ))}
           {paginatedData.length === 0 && (
             <tr>
               <td colSpan={10} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>

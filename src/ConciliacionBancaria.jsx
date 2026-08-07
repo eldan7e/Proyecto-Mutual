@@ -2291,7 +2291,7 @@ export default function ConciliacionBancaria() {
               .from('socios')
               .update({ cbu: cbuMatch })
               .eq('socio_id', socioIdInt);
-            console.log(`CBU ${cbuMatch} guardada automáticamente para socio ID ${socioIdInt}`);
+            // CBU guardada automáticamente
           }
         }
       } catch (cbuErr) {
@@ -2712,20 +2712,13 @@ export default function ConciliacionBancaria() {
     try {
       const datosProcesados = parsearMovimientos(textToProcess);
       
-      // Diagnóstico de Parser
+      // Diagnóstico de Parser (cálculos internos sin log)
       {
         let _ing = 0, _egr = 0, _cI = 0, _cE = 0;
         datosProcesados.forEach(m => {
           if (m.netoReal > 0) { _ing += m.netoReal; _cI++; }
           else { _egr += m.netoReal; _cE++; }
         });
-        console.log('%c[PARSER v3] Diagnóstico de Conciliación', 'color: #10b981; font-weight: bold; font-size: 14px');
-        console.log(`  Movimientos: ${datosProcesados.length} (${_cI} ingresos + ${_cE} egresos)`);
-        console.log(`  Ingresos: +$${_ing.toFixed(2)}`);
-        console.log(`  Egresos: -$${Math.abs(_egr).toFixed(2)}`);
-        console.log(`  Saldo Anterior: $${datosProcesados.saldoAnterior || 0}`);
-        console.log(`  Saldo Final Extraído: $${datosProcesados.saldoFinalExtraido || 'N/A'}`);
-        console.log(`  Saldo Calculado: $${((datosProcesados.saldoAnterior || 0) + _ing + _egr).toFixed(2)}`);
       }
 
       if (datosProcesados.length === 0) {
