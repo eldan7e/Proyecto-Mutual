@@ -146,7 +146,7 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       const hasAppliedTarifa = consumo.tarifa_aunar_aplicada !== undefined && consumo.tarifa_aunar_aplicada !== null && Number(consumo.tarifa_aunar_aplicada) > 0;
       if (!hasHistoricalTarifa && !hasAppliedTarifa && !(config && config.tarifaAunar)) {
         if (consumo.periodo && consumo.periodo >= '2026-07') {
-          tarifaAunarFija = 7600;
+          tarifaAunarFija = 7548.18;
         } else if (consumo.periodo && consumo.periodo >= '2026-02') {
           tarifaAunarFija = 6700;
         } else {
