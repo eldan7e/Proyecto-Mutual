@@ -141,15 +141,15 @@ export default function AuditLineRow({ d, isPeriodoLiquidado, adicionalesData, o
             </div>
           )}
 
-          {(d.calculado?.bonifManual || 0) > 0 ? (
+          {Math.abs(d.calculado?.bonifManual || 0) > 0.01 ? (
             <div 
               onClick={() => onOpenDescuento && onOpenDescuento(d)}
               title="Editar o gestionar descuento"
               style={{ 
-                background: '#f0fdf4',
+                background: (d.calculado?.bonifManual || 0) > 0 ? '#f0fdf4' : '#fff7ed',
                 padding: '6px 10px',
                 borderRadius: '8px',
-                border: '1px solid #bcf0da',
+                border: (d.calculado?.bonifManual || 0) > 0 ? '1px solid #bcf0da' : '1px solid #ffedd5',
                 textAlign: 'right',
                 cursor: 'pointer',
                 display: 'inline-flex',
@@ -157,10 +157,10 @@ export default function AuditLineRow({ d, isPeriodoLiquidado, adicionalesData, o
                 gap: '4px'
               }}
             >
-              <div style={{ fontWeight: 800, color: '#16a34a', fontSize: '14px' }}>
-                -${Math.abs(d.calculado.bonifManual).toLocaleString('es-AR')}
+              <div style={{ fontWeight: 800, color: (d.calculado?.bonifManual || 0) > 0 ? '#16a34a' : '#c2410c', fontSize: '14px' }}>
+                {(d.calculado?.bonifManual || 0) > 0 ? '-' : '+'}${Math.abs(d.calculado.bonifManual).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
               </div>
-              <Tag size={12} color="#16a34a" />
+              <Tag size={12} color={(d.calculado?.bonifManual || 0) > 0 ? '#16a34a' : '#c2410c'} />
             </div>
           ) : (
             <button

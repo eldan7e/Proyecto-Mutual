@@ -161,13 +161,13 @@ export default function GestionPagos() {
         if (consumoId) {
           if (isDesc) {
             const { error: errConsumo } = await supabase
-              .from('consumos')
+              .from('consumos_mensuales')
               .update({ bonificaciones: numValor })
               .eq('consumo_id', consumoId);
             if (errConsumo) throw errConsumo;
           } else {
             const { error: errConsumo } = await supabase
-              .from('consumos')
+              .from('consumos_mensuales')
               .update({ otros_cargos_op: numValor })
               .eq('consumo_id', consumoId);
             if (errConsumo) throw errConsumo;

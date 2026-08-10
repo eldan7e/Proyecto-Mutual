@@ -252,15 +252,17 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
     // Evitar la duplicación de descuentos si el porcentaje en lineas.descuento_esperado
     // ya es idéntico o incluye al acumulado en la tabla de adicionales
     let effectiveDiscountPct = discountPct;
-    if (descExtraPct > 0) {
+    if (descExtraPct !== 0) {
       if (discountPct === 0) {
         effectiveDiscountPct = descExtraPct;
       } else if (Math.abs(discountPct - descExtraPct) < 0.01) {
         // Mismo descuento registrado en ambas tablas (lineas y adicionales) -> NO duplicar
         effectiveDiscountPct = discountPct;
-      } else if (discountPct > 0 && descExtraPct > 0) {
+      } else if (descExtraPct > 0 && discountPct > 0) {
         // Tomar el porcentaje real sin duplicar la suma de la misma bonificación
         effectiveDiscountPct = Math.max(discountPct, descExtraPct);
+      } else {
+        effectiveDiscountPct = discountPct + descExtraPct;
       }
     }
 
