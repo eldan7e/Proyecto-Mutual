@@ -1112,37 +1112,12 @@ export default function CargaManual() {
               <div style={{ fontSize: '32px', fontWeight: 900, lineHeight: 1, color: 'var(--accent)', letterSpacing: '-0.02em' }}>
                 ${(fileData.reduce((acc, curr) => acc + Math.round(Number(curr.montoFactura || 0) * 100), 0) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
-              <div style={{ display: 'flex', gap: '16px', borderTop: '1px solid var(--border-light)', paddingTop: '12px', marginTop: '4px', flexWrap: 'wrap' }}>
-                {selectedProvider === 'personal' ? (
-                  <>
-                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                      <span style={{color: '#94a3b8'}}>Suma Líneas:</span> ${(fileData.filter(f => f.linea !== '2216824786').reduce((acc, curr) => acc + Math.round(Number(curr.montoFactura || 0) * 100), 0) / 100).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </div>
-                    {fileData.some(f => f.linea === '2216824786') && (
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                        <span style={{color: '#38bdf8'}}>Línea Suelta (2216824786) c/imp:</span> ${(fileData.find(f => f.linea === '2216824786')?.montoFactura || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </div>
-                    )}
-                    {invoiceTotals.total > 0 && (
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                        <span style={{color: '#94a3b8'}}>Factura PDF:</span> ${invoiceTotals.total.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  invoiceTotals.total > 0 && (
-                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                      <span style={{color: '#94a3b8'}}>Factura PDF:</span> ${invoiceTotals.total.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </div>
-                  )
-                )}
-                {selectedProvider !== 'claro' && (
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                    <span style={{color: '#94a3b8'}}>IVA est.:</span> ${(invoiceTotals.tax > 0 ? invoiceTotals.tax : fileData.reduce((acc, curr) => acc + (curr.montoFactura - (curr.montoFactura / 1.21)), 0)).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                )}
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                  <span style={{color: '#f59e0b'}}>Excedentes Totales:</span> ${(fileData.reduce((acc, curr) => acc + (curr.excedentes || 0), 0)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+              <div style={{ display: 'flex', gap: '24px', borderTop: '1px solid var(--border-light)', paddingTop: '12px', marginTop: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                  <span style={{ color: '#94a3b8' }}>Total sin IVA:</span> ${((fileData.reduce((acc, curr) => acc + Math.round(Number(curr.montoFactura || 0) * 100), 0) / 100) / 1.21).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                  <span style={{ color: '#f59e0b' }}>Total Excedentes:</span> ${(fileData.reduce((acc, curr) => acc + (curr.excedentes || 0), 0)).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
               </div>
             </div>

@@ -162,13 +162,13 @@ export const procesarPersonal = (textLines) => {
 
   for (let idx = 0; idx < lines.length; idx++) {
     const rawLine = lines[idx];
-    const u = norm(rawLine);
+    const cleanLineNorm = rawLine.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[\(\)\s\-\:\.]/g, '');
 
-    // 1. Detectar encabezados con numero de linea explicito (ej. "linea2216824786CARGOS DEL MES" o "linea2216824786PLANES Y SERVICIOS $ 7.185,12")
-    const embeddedLineMatch = u.match(/LINEA(\d{8,10})/);
+    // 1. Detectar encabezados con numero de linea explicito (ej. "LINEA 2216824786", "linea2216824786", "2216824786")
+    const embeddedLineMatch = cleanLineNorm.match(/LINEA.*?(\d{8,10})/) || cleanLineNorm.match(/(2216824786)/);
     if (embeddedLineMatch) {
       closeCurrent();
-      const phone = embeddedLineMatch[1];
+      const phone = embeddedLineMatch[1] || embeddedLineMatch[0];
       const priceM = rawLine.match(/\$\s*([\d\.,]+)/);
       let bruto = 0;
       if (priceM) {
@@ -232,7 +232,6 @@ export const procesarPersonal = (textLines) => {
     }
 
     // 3. LÍNEA MÓVIL o FIJA estándar (ej. "LÍNEA MOVIL (11)24041845 $ 20.617,77")
-    const cleanLineNorm = rawLine.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[\(\)\s]/g, '');
     const isNewPhoneHeader = /^(?:LINEA(?:MOVIL|FIJA)?\d{7,10}|\d{10})/.test(cleanLineNorm);
 
     if (isNewPhoneHeader) {
