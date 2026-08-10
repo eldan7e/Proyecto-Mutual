@@ -33,16 +33,22 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
     const hasHistoricalTarifa = historicalPrice?.tarifa_aunar !== undefined && historicalPrice?.tarifa_aunar !== null && Number(historicalPrice.tarifa_aunar) > 0;
     const dbTarifa = dbInfo?.tarifa_aunar !== undefined && dbInfo?.tarifa_aunar !== null ? Number(dbInfo.tarifa_aunar) : 0;
     
-    if (consumo.tarifa_aunar_aplicada !== undefined && consumo.tarifa_aunar_aplicada !== null && Number(consumo.tarifa_aunar_aplicada) > 0) {
+    const hasAppliedTarifa = consumo.tarifa_aunar_aplicada !== undefined && consumo.tarifa_aunar_aplicada !== null && Number(consumo.tarifa_aunar_aplicada) > 0;
+
+    if (hasAppliedTarifa) {
       tarifaAunarFija = Number(consumo.tarifa_aunar_aplicada);
     } else if (hasHistoricalTarifa) {
       tarifaAunarFija = Number(historicalPrice.tarifa_aunar);
     } else if (config && config.tarifaAunar !== undefined && config.tarifaAunar !== null && Number(config.tarifaAunar) > 0) {
       tarifaAunarFija = Number(config.tarifaAunar);
+    } else if (consumo.periodo && consumo.periodo >= '2026-07') {
+      tarifaAunarFija = isPersonal ? 8335 : (isClaro ? 7630 : 7600);
+    } else if (consumo.periodo && consumo.periodo >= '2026-06') {
+      tarifaAunarFija = isPersonal ? 8170 : (isClaro ? 7630 : 7600);
     } else if (dbTarifa > 0) {
       tarifaAunarFija = dbTarifa;
     } else {
-      tarifaAunarFija = isClaro ? 7585 : 6500;
+      tarifaAunarFija = isPersonal ? 8335 : (isClaro ? 7585 : 6500);
     }
 
 

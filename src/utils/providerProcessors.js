@@ -432,9 +432,10 @@ export const procesarPersonal = (textLines) => {
   const finalMap = new Map();
   results.forEach(r => {
     const tel = r.telefono;
-    // Ignorar resúmenes, descuentos globales o etiquetas no asociadas a líneas/servicios reales
-    if (!tel || tel.toLowerCase().startsWith('descuento') || tel.includes('SUELTA') || tel === 'LINEA SUELTA') return;
-    if (tel !== 'INTERNET' && tel.length < 6) return;
+    // Ignorar resúmenes o etiquetas vacías (mantener descuentos globales negativos si existen)
+    if (!tel) return;
+    if (tel.toLowerCase().startsWith('descuento') && r.bruto >= 0) return;
+    if (tel !== 'INTERNET' && tel.length < 6 && !tel.includes('SUELTA')) return;
     if (r.bruto === 0 && r.excedentes === 0) return;
 
     const netoTotal = r.bruto;
