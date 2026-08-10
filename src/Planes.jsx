@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from './supabaseClient';
+import { registrarAuditoria } from './utils/auditLogger';
 import { 
   Search, Edit2, Plus, Database, Smartphone, 
   Globe, Save, X, Filter, TrendingDown, TrendingUp, 
@@ -397,10 +398,22 @@ export default function Planes({ hideHeader = false }) {
           const { error: err2 } = await supabase.from('planes_abonos').update({ tarifa_aunar: updatedData.tarifa_aunar }).eq('proveedor_id', updatedData.proveedor_id);
           if (err2) throw err2;
         }
+
+        await registrarAuditoria({
+          tipo_evento: 'EDIT_PLAN',
+          descripcion: `Modificado plan "${updatedData.nombre_plan}": Precio $${updatedData.precio}, Tarifa Aunar $${updatedData.tarifa_aunar}`,
+          monto: updatedData.precio
+        });
       } else {
         const { data: insertData, error: insertErr } = await supabase.from('planes_abonos').insert([updatedData]).select('plan_id').single();
         if (insertErr) throw insertErr;
         finalPlanId = insertData?.plan_id;
+
+        await registrarAuditoria({
+          tipo_evento: 'CREAR_PLAN',
+          descripcion: `Creado nuevo plan "${updatedData.nombre_plan}": Precio $${updatedData.precio}, Tarifa Aunar $${updatedData.tarifa_aunar}`,
+          monto: updatedData.precio
+        });
       }
 
       if (finalPlanId) {
@@ -479,6 +492,12 @@ export default function Planes({ hideHeader = false }) {
         if (err2) throw err2;
       }));
       
+      await registrarAuditoria({
+        tipo_evento: 'AUMENTO_MASIVO_PLANES',
+        descripcion: `Aplicado aumento masivo del ${pct}% a todos los planes de abonos.`,
+        monto: pct
+      });
+
       fetchPlanes();
       alert('Aumento aplicado correctamente.');
     } catch (err) {

@@ -109,12 +109,24 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       const W = U + V;
       const X = W * 0.01; // Impuesto 1% (Ley 26573)
       
+      const getClaroPlanMargin = (planStr) => {
+        const p = (planStr || '').trim().toUpperCase();
+        if (p.includes('CC10R') || p.includes('CC20R') || p.includes('PC70R')) return 85;
+        if (p.includes('CC11R') || p.includes('CC21R') || p.includes('CC01R') || p.includes('PC72R') || p.includes('PC82R') || p.includes('PC92R')) return 96;
+        if (p.includes('CC12R') || p.includes('CC22R') || p.includes('PC53R') || p.includes('PC73R') || p.includes('PC83R') || p.includes('PC93R') || p.includes('A066C') || p.includes('A060C') || p.includes('3MC26') || p.includes('A100E')) return 100;
+        if (p.includes('CC13R') || p.includes('CC23R') || p.includes('CC13C') || p.includes('PC54R') || p.includes('PC74R') || p.includes('PC84R') || p.includes('PC94R')) return 105;
+        if (p.includes('CC14R') || p.includes('CC24R') || p.includes('CC04R') || p.includes('PC55R') || p.includes('PC75R') || p.includes('PC95C') || p.includes('PC95R') || p.includes('PC76R') || p.includes('PC96C') || p.includes('PC96R')) return 107;
+        return 107;
+      };
+
       let Z_val = 1.07;
-      let rawMargin = esPlanFijoOInternet ? 100 : 107;
+      let rawMargin = esPlanFijoOInternet ? 100 : getClaroPlanMargin(pName);
       if (consumo.mutual_margen_aplicado !== undefined && consumo.mutual_margen_aplicado !== null && Number(consumo.mutual_margen_aplicado) > 0) {
         rawMargin = Number(consumo.mutual_margen_aplicado);
       } else if (dbInfo && dbInfo.mutual_margen_pct !== undefined && dbInfo.mutual_margen_pct !== null && Number(dbInfo.mutual_margen_pct) > 0) {
         rawMargin = Number(dbInfo.mutual_margen_pct);
+      } else if (lineInfo && lineInfo.mutual_margen_pct !== undefined && lineInfo.mutual_margen_pct !== null && Number(lineInfo.mutual_margen_pct) > 0) {
+        rawMargin = Number(lineInfo.mutual_margen_pct);
       }
 
       Z_val = rawMargin <= 2.0 ? rawMargin : rawMargin / 100.0;

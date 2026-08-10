@@ -3,17 +3,20 @@ import { Outlet, Link, useLocation } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
 import { supabase } from './supabaseClient';
 import { 
-  LayoutDashboard, FileText, LogOut, User as UserIcon, Sun, Moon, Landmark, Users, ClipboardList, UserPlus, Loader2, Activity, Mail, Bell
+  LayoutDashboard, FileText, LogOut, User as UserIcon, Sun, Moon, Landmark, Users, ClipboardList, UserPlus, Loader2, Activity, Mail, Bell, History
 } from 'lucide-react';
 import ErrorBoundary from './components/ui/ErrorBoundary';
 import Modal from './components/Modal';
 import { useToast } from './components/ui/ToastProvider';
+import AuditLogModal from './components/Admin/AuditLogModal';
+import { registrarAuditoria } from './utils/auditLogger';
 
 export default function Layout({ session, theme, toggleTheme }) {
   const location = useLocation();
   const { addToast } = useToast();
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
+  const [isAuditLogModalOpen, setIsAuditLogModalOpen] = useState(false);
   const profileRef = useRef(null);
 
   // Notification states
@@ -88,6 +91,12 @@ export default function Layout({ session, theme, toggleTheme }) {
       });
 
       if (error) throw error;
+
+      await registrarAuditoria({
+        tipo_evento: 'CREAR_USUARIO',
+        descripcion: `Registrada nueva cuenta colaborador: ${newUserEmail.trim()}`,
+        usuario: session?.user?.email
+      });
 
       alert('Cuenta registrada con éxito. Se ha enviado un correo de confirmación (si está configurado) o ya puede iniciar sesión.');
       setNewUserEmail('');
@@ -566,6 +575,14 @@ export default function Layout({ session, theme, toggleTheme }) {
                     <Users size={15} /> Gestión de Cuentas
                   </button>
                   <button 
+                    onClick={() => { setShowProfileMenu(false); setIsAuditLogModalOpen(true); }} 
+                    style={{ width: '100%', textAlign: 'left', padding: '8px 12px', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '14px', color: 'var(--text-primary)', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600 }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.04)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <History size={15} /> Registro de Actividad / Logs
+                  </button>
+                  <button 
                     onClick={handleLogout} 
                     style={{ width: '100%', textAlign: 'left', padding: '8px 12px', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '14px', color: 'var(--danger)', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600 }}
                     onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.05)'}
@@ -587,6 +604,12 @@ export default function Layout({ session, theme, toggleTheme }) {
         </div>
 
       </main>
+
+      {/* Audit Logs Modal */}
+      <AuditLogModal 
+        isOpen={isAuditLogModalOpen} 
+        onClose={() => setIsAuditLogModalOpen(false)} 
+      />
 
       {/* Account Management Modal */}
       <Modal isOpen={isUserModalOpen} onClose={() => setIsUserModalOpen(false)} title="Gestión de Cuentas / Colaboradores" maxWidth="600px">
@@ -633,6 +656,29 @@ export default function Layout({ session, theme, toggleTheme }) {
             }}
           >
             <UserPlus size={14} /> Registrar Nueva Cuenta
+          </button>
+          <button 
+            onClick={() => { setIsUserModalOpen(false); setIsAuditLogModalOpen(true); }}
+            className="nav-pill"
+            style={{ 
+              border: '1px dashed var(--border-light)', 
+              background: 'transparent', 
+              color: 'var(--text-secondary)',
+              cursor: 'pointer', 
+              padding: '8px 16px', 
+              fontWeight: 600, 
+              borderRadius: '8px', 
+              fontSize: '13px', 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '6px',
+              marginLeft: 'auto',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent)'}
+            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}
+          >
+            <History size={14} /> Logs de Actividad
           </button>
         </div>
 

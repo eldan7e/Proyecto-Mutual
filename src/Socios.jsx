@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { supabase } from './supabaseClient';
+import { registrarAuditoria } from './utils/auditLogger';
 import { 
   Search, Edit2, Trash2, Plus, Mail, Users, 
   ChevronRight, CreditCard, User as UserIcon, Shield, Hash,
@@ -294,6 +295,12 @@ export default function Socios({ hideHeader = false }) {
       if (error) {
         alert(error.message);
         hasError = true;
+      } else {
+        await registrarAuditoria({
+          tipo_evento: 'EDIT_SOCIO',
+          descripcion: `Actualizada información del socio "${socioFields.nombre_completo}"`,
+          numero_grupo: numero_grupo ? parseInt(numero_grupo, 10) : null
+        });
       }
     } else {
       const { data: inserted, error } = await supabase
@@ -307,6 +314,11 @@ export default function Socios({ hideHeader = false }) {
         hasError = true;
       } else if (inserted) {
         socioIdToUse = inserted.socio_id;
+        await registrarAuditoria({
+          tipo_evento: 'CREAR_SOCIO',
+          descripcion: `Registrado nuevo socio "${socioFields.nombre_completo}"`,
+          numero_grupo: numero_grupo ? parseInt(numero_grupo, 10) : null
+        });
       }
     }
 
@@ -393,10 +405,15 @@ export default function Socios({ hideHeader = false }) {
   }
 
   async function handleDelete(id) {
+    const socioTarget = socios.find(s => s.socio_id === id);
     if (window.confirm('¿Estás seguro de eliminar este socio?')) {
       const { error } = await supabase.from('socios').delete().eq('socio_id', id);
       if (error) alert(error.message);
       else {
+        await registrarAuditoria({
+          tipo_evento: 'ELIMINAR_SOCIO',
+          descripcion: `Eliminado socio "${socioTarget?.nombre_completo || id}"`
+        });
         fetchSocios();
         fetchKpis();
       }
