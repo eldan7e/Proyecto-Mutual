@@ -109,22 +109,29 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       const W = U + V;
       const X = W * 0.01; // Impuesto 1% (Ley 26573)
       
-      let Z_val = 1.07;
-      let rawMargin = esPlanFijoOInternet ? 100 : 107;
+      let Z_val = 0.07;
+      let rawMargin = esPlanFijoOInternet ? 0 : 7;
       if (consumo.mutual_margen_aplicado !== undefined && consumo.mutual_margen_aplicado !== null && Number(consumo.mutual_margen_aplicado) > 0) {
         rawMargin = Number(consumo.mutual_margen_aplicado);
       } else if (dbInfo && dbInfo.mutual_margen_pct !== undefined && dbInfo.mutual_margen_pct !== null && Number(dbInfo.mutual_margen_pct) > 0) {
         rawMargin = Number(dbInfo.mutual_margen_pct);
       }
 
-      Z_val = rawMargin <= 2.0 ? rawMargin : rawMargin / 100.0;
-      const AA = abonoBaseClaro * Z_val;
+      if (rawMargin > 100) {
+        Z_val = (rawMargin - 100) / 100.0;
+      } else if (rawMargin > 1) {
+        Z_val = rawMargin / 100.0;
+      } else {
+        Z_val = rawMargin;
+      }
+
+      const AA = Math.round(abonoBaseClaro * Z_val * 100) / 100;
       
-      gastosAdmin = V + X + AA;
+      gastosAdmin = Math.round((V + X + AA) * 100) / 100;
       ivaFinal = 0;
       abonoBase = abonoBaseClaro;
       
-      totalBrutoSinAdicionales = W + tarifaAunarFija + Z_val + X + AA;
+      totalBrutoSinAdicionales = Math.round((abonoBaseClaro + extraChargesClaro + gastosAdmin + tarifaAunarFija) * 100) / 100;
     } else if (isMovistar) {
       // ============================================================
       // FÓRMULA REAL DEL EXCEL DE MOVISTAR (verificada con archivo)
@@ -146,7 +153,7 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       const hasAppliedTarifa = consumo.tarifa_aunar_aplicada !== undefined && consumo.tarifa_aunar_aplicada !== null && Number(consumo.tarifa_aunar_aplicada) > 0;
       if (!hasHistoricalTarifa && !hasAppliedTarifa && !(config && config.tarifaAunar)) {
         if (consumo.periodo && consumo.periodo >= '2026-07') {
-          tarifaAunarFija = 7600;
+          tarifaAunarFija = isPersonal ? 8335 : (isClaro ? 7630 : 7600);
         } else if (consumo.periodo && consumo.periodo >= '2026-02') {
           tarifaAunarFija = 6700;
         } else {
