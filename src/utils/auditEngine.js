@@ -313,9 +313,12 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
     let operatorAudit = null;
     if ((parseInt(providerId) === 2 || parseInt(providerId) === 3) && precioLista > 0) {
       const gbIncluidos = Number(dbInfo?.gb_incluidos || 0);
-      const expectedPct = (dbInfo && dbInfo.descuento_operadora_pct > 0) 
-        ? Number(dbInfo.descuento_operadora_pct) 
-        : (lineInfo?.descuento_esperado !== undefined && lineInfo?.descuento_esperado !== null ? Number(lineInfo.descuento_esperado) : 80);
+      const isPersonalProv = parseInt(providerId) === 3;
+      const expectedPct = isPersonalProv
+        ? (lineInfo?.descuento_esperado !== undefined && lineInfo?.descuento_esperado !== null && Number(lineInfo.descuento_esperado) > 0 ? Number(lineInfo.descuento_esperado) : 80)
+        : ((dbInfo && dbInfo.descuento_operadora_pct > 0) 
+            ? Number(dbInfo.descuento_operadora_pct) 
+            : (lineInfo?.descuento_esperado !== undefined && lineInfo?.descuento_esperado !== null ? Number(lineInfo.descuento_esperado) : 80));
       const tolerancePct = expectedPct - 2.5; // margen de tolerancia ~2.5%
       const actualDiscountPct = Math.round(((precioLista - costoAbonoReal) / precioLista) * 1000) / 10;
       const meetsAgreement = actualDiscountPct >= tolerancePct;
