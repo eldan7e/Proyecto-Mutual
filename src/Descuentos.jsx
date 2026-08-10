@@ -313,6 +313,7 @@ export default function Descuentos() {
       socio_id: form.socio_id || null,
       numero_linea: form.numero_linea || null,
       activo: true,
+      periodo_inicio: form.periodo_inicio || getCurrentPeriodYMD(),
       updated_at: new Date().toISOString(),
     };
     

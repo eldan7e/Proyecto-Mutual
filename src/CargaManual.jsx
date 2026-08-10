@@ -578,7 +578,7 @@ export default function CargaManual() {
           .insert({
             socio_id: socioId || null,
             numero_linea: linea,
-            tipo: 'DESCUENTO',
+            tipo: tipo || 'DESCUENTO',
             descripcion: descripcion || `Descuento ${numValor}${esPorcentaje ? '%' : '$'}`,
             valor: numValor,
             cta_numero: 1,
