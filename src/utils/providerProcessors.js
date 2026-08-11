@@ -356,6 +356,16 @@ export const procesarPersonal = (textLines) => {
         }
       }
 
+      if (u.includes('PLAN') || u.includes('INTERNET')) {
+        const planPriceMatch = rawLine.match(/\b\d\s+([\d\.]*,\d{2})\s+([\d\.]*,\d{2})\b/);
+        if (planPriceMatch && !current.precioLista) {
+          const listPriceNet = parsePersonalNumber(planPriceMatch[2]);
+          if (listPriceNet > 1000) {
+            current.precioLista = listPriceNet * 1.21;
+          }
+        }
+      }
+
       // Capturar porcentaje y monto de descuento del operador
       if (u.includes('DESCUENTO')) {
         const descMatch = rawLine.match(/[Dd]escuento\s*(\d+)%/);
@@ -418,6 +428,9 @@ export const procesarPersonal = (textLines) => {
     if (!fija.descuentoPct && internetItem.descuentoPct) {
       fija.descuentoPct = internetItem.descuentoPct;
     }
+    if (internetItem.precioLista) {
+      fija.precioLista = (fija.precioLista || 0) + internetItem.precioLista;
+    }
     fija.plan = 'Plan Internet 300 MB + Fijo';
 
     // Eliminar el objeto 'INTERNET' independiente
@@ -456,6 +469,7 @@ export const procesarPersonal = (textLines) => {
         abonoStr: ((netoTotal - netoExced) * 1.21).toFixed(2),
         descuentoPct: r.descuentoPct || '',
         descuentoStr: (r.descuentoMonto * 1.21).toFixed(2),
+        precioListaStr: r.precioLista ? r.precioLista.toFixed(2) : '',
         plan: r.plan,
         _bruto: r.bruto
       });

@@ -532,7 +532,7 @@ export function auditLineItem(item, dbInfo, context) {
   // Excepción: planes fijos/internet (A100E, CTF14) — su precio de lista real está en el catálogo, no en la factura
   const dbPrecioLista = periodPrices.get(dbInfo?.plan_id) || dbInfo?.precio_oficial || 0;
   const parsedPrecioLista = item.precioListaStr ? Number(item.precioListaStr) : 0;
-  const precioLista = (selectedProvider === 'claro' && parsedPrecioLista > 0 && !esPlanFija)
+  const precioLista = ((selectedProvider === 'claro' || selectedProvider === 'personal') && parsedPrecioLista > 0 && !esPlanFija)
     ? parsedPrecioLista
     : (dbPrecioLista || 0);
 
