@@ -184,13 +184,13 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
         
         const Y_mov = Math.max(0, V - G);            // MOVISTAR SIN EXC = abono sin excedente (es igual a abonoRealTaxes)
         const W = Math.round(Y_mov * 0.05 * 100) / 100;  // Costo Adm = Y * 5%
-        const ivaComponent = Y_mov * 2.1 / 10;       // IVA = Y * 21% (escrito como Y*2.1/10 en Excel)
+        const ivaComponent = isPersonal ? 0 : (Y_mov * 2.1 / 10); // IVA solo para Movistar (Personal ya lo incluye)
 
         abonoBase = V;                                // Para mostrar en UI
         gastosAdmin = W;                              // Admin solo sobre abono sin excedente
         ivaFinal = Math.round(ivaComponent * 100) / 100;
 
-        // T.AUNAR = ((V + W + CuotaSocial) + (Y * 2.1 / 10))
+        // T.AUNAR = ((V + W + CuotaSocial) + (Y * 2.1 / 10 si no es Personal))
         totalBrutoSinAdicionales = Math.round((V + W + tarifaAunarFija + ivaComponent) * 100) / 100;
       } else {
         // Lógica vieja (Excel enero): Estimamos Y multiplicando por 1.2626
