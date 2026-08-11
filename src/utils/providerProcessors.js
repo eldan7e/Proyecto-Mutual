@@ -162,6 +162,7 @@ export const procesarPersonal = (textLines) => {
 
   for (let idx = 0; idx < lines.length; idx++) {
     const rawLine = lines[idx];
+    const u = norm(rawLine);
     const cleanLineNorm = rawLine.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[\(\)\s\-\:\.]/g, '');
 
     // 1. Detectar encabezados con numero de linea explicito (ej. "LINEA 2216824786", "linea2216824786", "2216824786")

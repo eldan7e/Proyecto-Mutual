@@ -311,11 +311,11 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       totalCobrar = (subtotalConCargos - bonifSocio) + otrosCargosOp - bonifManual;
     }
 
-    // Auditoría específica de Movistar y Personal — Descuento base del 80% esperado
+    // Auditoría específica de Movistar — Descuento base del 80% esperado
     const precioLista = Number(consumo.precio_lista_audit || config.historicalPrice?.precio_lista || dbInfo?.precio || 0);
     let movistarAudit = null;
     let operatorAudit = null;
-    if ((parseInt(providerId) === 2 || parseInt(providerId) === 3) && precioLista > 0) {
+    if (parseInt(providerId) === 2 && precioLista > 0) {
       const gbIncluidos = Number(dbInfo?.gb_incluidos || 0);
       const isPersonalProv = parseInt(providerId) === 3;
       const expectedPct = isPersonalProv
