@@ -551,7 +551,7 @@ export function auditLineItem(item, dbInfo, context) {
       if (diffPct < -2.0) {
         alertas.push({ 
           tipo: 'CRITICAL', 
-          msg: `DESVÍO BONIF: ${descuentoReal.toFixed(2)}% (Esperado ${descuentoEsperado}%)`,
+          msg: `BONIF INSUF: ${descuentoReal.toFixed(2)}% (Esperado ${descuentoEsperado}%)`,
           diff: realAbono - (precioLista * (1 - descuentoEsperado/100))
         });
       } else {
@@ -573,38 +573,24 @@ export function auditLineItem(item, dbInfo, context) {
       ? Number(dbInfo.descuento_operadora_pct) 
       : 80;
 
-    // Alerta si el descuento real es inferior al 80% mínimo requerido
-    if (descuentoReal < 79.9) {
+    const tolerance = 2.0;
+
+    if (descuentoReal < (descuentoEsperado - tolerance)) {
       auditStatus = 'WARN';
       alertas.push({
         tipo: 'CRITICAL',
-        msg: `BONIF INSUF: ${descuentoReal.toFixed(2)}% (Mínimo requerido 80.00%)`,
-        diff: realAbono - (precioLista * 0.20)
+        msg: `BONIF INSUF: ${descuentoReal.toFixed(2)}% (Mínimo requerido ${descuentoEsperado.toFixed(2)}%)`,
+        diff: realAbono - (precioLista * (1 - descuentoEsperado / 100))
       });
-    }
-
-    if (descuentoEsperado > 0) {
-      const diffPct = descuentoReal - descuentoEsperado;
-      if (Math.abs(diffPct) > 2.0) {
-        auditStatus = 'WARN';
-        if (diffPct < -2.0) {
-          alertas.push({ 
-            tipo: 'CRITICAL', 
-            msg: `DESVÍO BONIF: ${descuentoReal.toFixed(2)}% (Esperado ${descuentoEsperado}%)`,
-            diff: realAbono - (precioLista * (1 - descuentoEsperado/100))
-          });
-        } else {
-          alertas.push({ 
-            tipo: 'CRITICAL', 
-            msg: `BONIF EXTRA: ${descuentoReal.toFixed(2)}% (Esperado ${descuentoEsperado}%)`,
-            diff: (precioLista * (1 - descuentoEsperado/100)) - realAbono
-          });
-        }
-      } else if (descuentoReal >= 79.9) {
-        alertas.push({ tipo: 'STABLE', msg: `Bonif. OK (${descuentoReal.toFixed(2)}%)` });
-      }
-    } else if (descuentoReal >= 79.9) {
-      alertas.push({ tipo: 'INFO', msg: `Bonif. Real: ${descuentoReal.toFixed(2)}%` });
+    } else if (descuentoReal > (descuentoEsperado + tolerance)) {
+      auditStatus = 'WARN';
+      alertas.push({ 
+        tipo: 'CRITICAL', 
+        msg: `BONIF EXTRA: ${descuentoReal.toFixed(2)}% (Esperado ${descuentoEsperado}%)`,
+        diff: (precioLista * (1 - descuentoEsperado / 100)) - realAbono
+      });
+    } else {
+      alertas.push({ tipo: 'STABLE', msg: `Bonif. OK (${descuentoReal.toFixed(2)}%)` });
     }
   }
 
