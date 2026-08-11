@@ -99,16 +99,14 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       let abonoBaseClaro = costoAbonoReal;
 
       if (!esPlanFijoOInternet) {
-        if (costoAbonoReal > 30000 && precioOficialClaro > 0 && Math.abs(costoAbonoReal - precioOficialClaro) < 1.0) {
+        if (precioOficialClaro > 0) {
           abonoBaseClaro = precioOficialClaro * 0.10;
         } else if (costoAbonoReal > 0) {
           abonoBaseClaro = costoAbonoReal;
-        } else if (precioOficialClaro > 0) {
-          abonoBaseClaro = precioOficialClaro * 0.10;
         }
       }
       
-      let extraChargesClaro = isInternet ? 0 : excedentes;
+      let extraChargesClaro = (isInternet ? 0 : excedentes) + otrosCargosOp;
       
       const U = abonoBaseClaro + extraChargesClaro;
       const V = U * 0.0417; // Impuesto 4.17%
@@ -298,7 +296,7 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       const subtotalConCargos = totalBrutoSinAdicionales + cargosExtra;
       const baseCobrar = subtotalConCargos * (1 - pctBonifSocio);
       bonifSocio = subtotalConCargos - baseCobrar;
-      totalCobrar = baseCobrar + otrosCargosOp - bonifManual;
+      totalCobrar = baseCobrar - bonifManual;
     } else if (isMovistar) {
       // En Movistar, desc_adicionales se guarda positivo en DB (ej 10 = 10% off, paga 90%)
       // El descuento se aplica solo sobre el abono/tarifa (totalBrutoSinAdicionales)
