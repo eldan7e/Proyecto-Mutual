@@ -105,8 +105,11 @@ export const procesarPersonal = (textLines) => {
     if (u.startsWith('TOTALCARGOSDELMES') || (u.startsWith('TOTALCARGOS') && u.includes('DELMES'))) {
       const m = l.match(/\$\s*([\d\.]+,\d{1,2})/);
       if (m) {
-        distinctTotals.add(m[1]);
-        individualTotalValues.add(parsePersonalNumber(m[1]));
+        const val = parsePersonalNumber(m[1]);
+        if (val > 50000) {
+          distinctTotals.add(m[1]);
+          individualTotalValues.add(val);
+        }
       }
     }
   });
@@ -139,6 +142,7 @@ export const procesarPersonal = (textLines) => {
   const lines = cleanedLines.filter(l => {
     const u = norm(l);
     if (!u) return false;
+    if (/LINEA\d{7,10}/.test(u) || u.includes('2216824786')) return true;
     // Filtrar líneas huérfanas muy cortas que son restos de headers de tabla
     if (u === 'TOTAL' || u === 'PESOS' || u === 'CARGO') return false;
     return !SKIP.some(s => u.includes(s));
@@ -166,7 +170,8 @@ export const procesarPersonal = (textLines) => {
     const cleanLineNorm = rawLine.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[\(\)\s\-\:\.]/g, '');
 
     // 1. Detectar encabezados con numero de linea explicito (ej. "LINEA 2216824786", "linea2216824786", "2216824786")
-    const embeddedLineMatch = cleanLineNorm.match(/LINEA.*?(\d{8,10})/) || cleanLineNorm.match(/(2216824786)/);
+    const isTotalCargosLine = u.includes('TOTALCARGOSDELMES') || u.includes('TOTALCARGOS');
+    const embeddedLineMatch = !isTotalCargosLine && (cleanLineNorm.match(/LINEA.*?(\d{8,10})/) || cleanLineNorm.match(/(2216824786)/));
     if (embeddedLineMatch) {
       closeCurrent();
       const phone = embeddedLineMatch[1] || embeddedLineMatch[0];
@@ -333,6 +338,7 @@ export const procesarPersonal = (textLines) => {
           const isGlobalTotal = individualTotalValues.has(val);
           if (!isGlobalTotal && current.bruto === 0) {
             current.bruto = val - (current._blockTax || 0);
+            current._isConIva = true;
           }
           closeCurrent();
         }
@@ -452,7 +458,7 @@ export const procesarPersonal = (textLines) => {
     if (tel !== 'INTERNET' && tel.length < 6 && !tel.includes('SUELTA')) return;
     if (r.bruto === 0 && r.excedentes === 0) return;
 
-    const netoTotal = r.bruto;
+    const finalMonto = r._isConIva ? r.bruto : (r.bruto * 1.21);
     const netoExced = r.excedentes;
 
     let key = tel;
@@ -463,10 +469,10 @@ export const procesarPersonal = (textLines) => {
     if (!finalMap.has(key) || r.bruto > (finalMap.get(key)._bruto || 0)) {
       finalMap.set(key, {
         telefono: key,
-        montoTotal: netoTotal * 1.21,
-        montoStr: (netoTotal * 1.21).toFixed(2),
+        montoTotal: finalMonto,
+        montoStr: finalMonto.toFixed(2),
         excedenteStr: (netoExced * 1.21).toFixed(2),
-        abonoStr: ((netoTotal - netoExced) * 1.21).toFixed(2),
+        abonoStr: (finalMonto - netoExced * 1.21).toFixed(2),
         descuentoPct: r.descuentoPct || '',
         descuentoStr: (r.descuentoMonto * 1.21).toFixed(2),
         precioListaStr: r.precioLista ? r.precioLista.toFixed(2) : '',

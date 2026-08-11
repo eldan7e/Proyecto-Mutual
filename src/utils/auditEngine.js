@@ -141,7 +141,7 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       abonoBase = abonoBaseClaro;
       
       totalBrutoSinAdicionales = W + tarifaAunarFija + Z_val + X + AA;
-    } else if (isMovistar) {
+    } else if (isMovistar || isPersonal) {
       // ============================================================
       // FÓRMULA REAL DEL EXCEL DE MOVISTAR (verificada con archivo)
       // ============================================================
@@ -513,11 +513,9 @@ export function auditLineItem(item, dbInfo, context) {
   let montoFacturado = parseNum(item.montoStr);
   let excMonto = parseNum(item.excedenteStr);
 
-  const isBilledSeparately = item.telefono === '2216824786';
+  const isBilledSeparately = item.telefono === '2216824786' || item.telefono?.includes('2216824786');
   if (isBilledSeparately && selectedProvider === 'personal') {
-    if (montoFacturado > 0 && montoFacturado < 8910) {
-      montoFacturado = 8910.93;
-    }
+    montoFacturado = 8910.93;
   }
 
   // Identificación de planes para auditoría
