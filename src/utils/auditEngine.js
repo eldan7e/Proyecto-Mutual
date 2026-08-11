@@ -315,7 +315,7 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
     const precioLista = Number(consumo.precio_lista_audit || config.historicalPrice?.precio_lista || dbInfo?.precio || 0);
     let movistarAudit = null;
     let operatorAudit = null;
-    if (parseInt(providerId) === 2 && precioLista > 0) {
+    if ((parseInt(providerId) === 2 || parseInt(providerId) === 3) && precioLista > 0) {
       const gbIncluidos = Number(dbInfo?.gb_incluidos || 0);
       const isPersonalProv = parseInt(providerId) === 3;
       const expectedPct = isPersonalProv
@@ -566,8 +566,8 @@ export function auditLineItem(item, dbInfo, context) {
     }
   }
 
-  // --- AUDITORÍA DE BONIFICACIÓN (MOVISTAR) ---
-  if (selectedProvider === 'movistar' && precioLista > 0) {
+  // --- AUDITORÍA DE BONIFICACIÓN (MOVISTAR / PERSONAL) ---
+  if ((selectedProvider === 'movistar' || selectedProvider === 'personal') && precioLista > 0) {
     const descuentoReal = ((precioLista - realAbono) / precioLista) * 100;
     const descuentoEsperado = (dbInfo && dbInfo.descuento_operadora_pct > 0) 
       ? Number(dbInfo.descuento_operadora_pct) 
