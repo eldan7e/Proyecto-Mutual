@@ -329,11 +329,10 @@ const GridRow = React.memo(function GridRow({ row, selectedProvider, dbLines, al
         <>
           <td style={{ textAlign: 'center', color: '#64748b', fontSize: '11px' }}>
             <div style={{fontSize: '9px', color: '#94a3b8'}}>LISTA</div>
-            {selectedProvider === 'claro' ? (
-              `$${Number(row.precioListaOriginal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
-            ) : (
-              `$${Number(row.precioOficial || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
-            )}
+            {(() => {
+              const displayListPrice = (Number(row.precioListaOriginal) > 0) ? Number(row.precioListaOriginal) : Number(row.precioOficial || 0);
+              return displayListPrice > 0 ? `$${displayListPrice.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : '--';
+            })()}
           </td>
           <td style={{ textAlign: 'center', color: '#10b981', fontWeight: 600, fontSize: '11px' }}>
             <div style={{fontSize: '9px', color: '#94a3b8'}}>DESCUENTOS</div>
@@ -341,7 +340,7 @@ const GridRow = React.memo(function GridRow({ row, selectedProvider, dbLines, al
               Number(row.descuentoOriginal || 0) !== 0 ? `-$${Math.abs(Number(row.descuentoOriginal)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : '-'
             ) : (
               (() => {
-                const pLista = row.precioOficial || row.precioListaOriginal || 0;
+                const pLista = (Number(row.precioListaOriginal) > 0) ? Number(row.precioListaOriginal) : (Number(row.precioOficial) || 0);
                 const descPct = pLista > 0 ? ((pLista - row.abono) / pLista) * 100 : 0;
                 const expectedPct = selectedProvider === 'personal' ? 80 : (row.descuentoEsperado || 80);
                 const meets80 = descPct >= (expectedPct - 2.5);
