@@ -294,7 +294,7 @@ export default function Facturacion() {
         </div>
 
         <div className="bento-card" style={{ padding: '20px' }}>
-          <div className="bento-card-title">Margen de Gestión</div>
+          <div className="bento-card-title">Margen de Aunar</div>
           <div style={{ fontSize: '28px', fontWeight: 900, color: 'var(--accent)' }}>
             ${(stats.totalMargenGestion || 0).toLocaleString('es-AR')}
           </div>
