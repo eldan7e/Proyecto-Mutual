@@ -175,16 +175,100 @@ export default function Contaduria() {
   async function loadTodasLiquidaciones() {
     setLoadingLiqs(true);
     try {
-      const { data, error } = await supabase
+      // 1. Cargar todas las liquidaciones generadas por lotes
+      const { data: liqsData, error: liqsError } = await supabase
         .from('liquidaciones_grupos')
         .select('*, proveedores(nombre), socios(nombre_completo)')
         .order('periodo', { ascending: false })
         .order('numero_grupo', { ascending: true });
 
-      if (error) throw error;
-      setLiquidacionesAll(data || []);
+      if (liqsError) throw liqsError;
+
+      const mapComprobantes = {};
+
+      (liqsData || []).forEach(l => {
+        if (l.numero_grupo === 0) return;
+        const key = `${l.numero_grupo}_${l.periodo}`;
+        mapComprobantes[key] = {
+          liquidacion_id: l.liquidacion_id,
+          numero_grupo: l.numero_grupo,
+          periodo: l.periodo,
+          monto_total_facturado: Number(l.monto_total_facturado || 0),
+          monto_abonado: Number(l.monto_abonado || 0),
+          estado_pago: l.estado_pago || 'IMPAGA',
+          proveedores: l.proveedores || { nombre: 'MUTUAL' },
+          socios: l.socios || { nombre_completo: l.nombre || `Grupo ${l.numero_grupo}` },
+          total_lineas_lote: l.total_lineas_lote || 1,
+          origen: 'LIQUIDACION'
+        };
+      });
+
+      // 2. Cargar FACTURAS desde movimientos_cuenta (historicos y periodos anteriores)
+      let allMovs = [];
+      const limit = 1000;
+      let offset = 0;
+
+      while (true) {
+        const { data: mChunk, error: mErr } = await supabase
+          .from('movimientos_cuenta')
+          .select('id, numero_grupo, nombre, empresa, fecha, periodo, importe')
+          .eq('tipo', 'FACTURA')
+          .order('fecha', { ascending: false })
+          .range(offset, offset + limit - 1);
+
+        if (mErr) break;
+        allMovs.push(...(mChunk || []));
+        if (!mChunk || mChunk.length < limit) break;
+        offset += limit;
+      }
+
+      // Agrupar FACTURAS por numero_grupo y periodo
+      const movsFactMap = {};
+      allMovs.forEach(m => {
+        if (m.numero_grupo === 0 || !m.numero_grupo) return;
+        const fPeriodo = m.periodo || (m.fecha ? String(m.fecha).slice(0, 7) : '2026-01');
+        const key = `${m.numero_grupo}_${fPeriodo}`;
+
+        if (!movsFactMap[key]) {
+          movsFactMap[key] = {
+            numero_grupo: m.numero_grupo,
+            periodo: fPeriodo,
+            nombre: m.nombre,
+            empresa: m.empresa || 'MUTUAL',
+            monto_total_facturado: 0,
+            count: 0
+          };
+        }
+        movsFactMap[key].monto_total_facturado += Number(m.importe || 0);
+        movsFactMap[key].count += 1;
+      });
+
+      // Fusionar los periodos que no estén en liquidaciones_grupos
+      for (const [key, mf] of Object.entries(movsFactMap)) {
+        if (!mapComprobantes[key]) {
+          mapComprobantes[key] = {
+            liquidacion_id: `HIST-${mf.numero_grupo}-${mf.periodo}`,
+            numero_grupo: mf.numero_grupo,
+            periodo: mf.periodo,
+            monto_total_facturado: mf.monto_total_facturado,
+            monto_abonado: mf.monto_total_facturado, // Históricos ya liquidados/cobrados
+            estado_pago: 'COBRADA',
+            proveedores: { nombre: mf.empresa },
+            socios: { nombre_completo: mf.nombre || `Grupo ${mf.numero_grupo}` },
+            total_lineas_lote: mf.count || 1,
+            origen: 'HISTORICO_EXCEL'
+          };
+        }
+      }
+
+      const listaCompleta = Object.values(mapComprobantes).sort((a, b) => {
+        if (b.periodo !== a.periodo) return b.periodo.localeCompare(a.periodo);
+        return a.numero_grupo - b.numero_grupo;
+      });
+
+      setLiquidacionesAll(listaCompleta);
     } catch (err) {
-      console.error('Error al cargar liquidaciones:', err);
+      console.error('Error al cargar liquidaciones unificadas:', err);
     } finally {
       setLoadingLiqs(false);
     }
