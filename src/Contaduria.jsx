@@ -574,6 +574,12 @@ export default function Contaduria() {
     };
   }, [liquidacionesAll, saldosData]);
 
+  // Informacion del titular del grupo seleccionado
+  const titularSeleccionadoInfo = useMemo(() => {
+    if (!selectedGrupo) return null;
+    return gruposList.find(g => g.numero_grupo === selectedGrupo) || null;
+  }, [selectedGrupo, gruposList]);
+
   // Movimientos del grupo seleccionado
   const ultimoMovGrupo = useMemo(() => {
     if (movimientos.length === 0) return null;
