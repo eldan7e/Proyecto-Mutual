@@ -452,7 +452,8 @@ export default function GestionPagos() {
       await eliminarCargaMasiva({ selectedPeriodo, selectedProveedor });
       addToast('Datos cargados eliminados correctamente. Puedes volver a subir el CSV en Carga Manual.', 'success');
       setLineasData([]);
-      fetchInitialData();
+      await fetchInitialData();
+      fetchLineas();
     } catch (e) {
       addToast('Error al eliminar datos: ' + e.message, 'error');
     } finally {

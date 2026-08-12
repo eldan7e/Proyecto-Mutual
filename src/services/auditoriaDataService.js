@@ -149,39 +149,8 @@ export async function fetchLineas(periodo, proveedorId) {
       !excepciones.has(c.numero_linea)
   );
 
-  // Fallback: Si no hay consumos guardados en DB para este período, traemos las líneas activas con sus planes
+  // Si no hay consumos guardados en DB para este período y proveedor, retornar lista vacía
   if (providerConsumos.length === 0) {
-    const masterLineas = await fetchAllPaginated(() =>
-      supabase
-        .from('lineas')
-        .select('*, planes_abonos(*), socios:socios!lineas_socio_id_fkey(*), responsable:socios!lineas_socio_responsable_id_fkey(*), proveedores!lineas_proveedor_id_fkey(*)')
-        .eq('proveedor_id', proveedorId)
-        .eq('estado', 'ACTIVA')
-    );
-
-    const syntheticConsumos = (masterLineas || []).filter(l => !excepciones.has(l.numero_linea)).map(l => {
-      const p = l.planes_abonos || {};
-      return {
-        periodo,
-        numero_linea: l.numero_linea,
-        proveedor_id: proveedorId,
-        costo_abono_real: Number(p.precio || 0),
-        excedentes: 0,
-        bonificaciones: 0,
-        total_linea: Number(p.precio || 0),
-        estado_pago: 'PENDIENTE',
-        precio_lista_audit: Number(p.precio || 0),
-        tarifa_aunar_aplicada: Number(p.tarifa_aunar || 0),
-        mutual_margen_aplicado: Number(p.mutual_margen_pct || 0),
-        precio_lista_factura: Number(p.precio || 0)
-      };
-    });
-
-    const { processed: synthProcessed, adicionalesMap: synthAdic } = await enrichConsumosWithAudit(
-      syntheticConsumos,
-      periodo
-    );
-
     const { data: officialPlans } = await supabase.from('planes_abonos').select('*').eq('proveedor_id', proveedorId);
     let batchPlans = (officialPlans || []).map(p => ({
       id: p.plan_id,
@@ -189,11 +158,11 @@ export async function fetchLineas(periodo, proveedorId) {
       precio: Number(p.precio || 0),
       tarifa: Number(p.tarifa_aunar || 0)
     }));
-    let defaultTarifaAunar = batchPlans[0]?.tarifa || (proveedorId === 1 ? 7585 : 6500);
+    let defaultTarifaAunar = batchPlans[0]?.tarifa || (proveedorId === 1 ? 7585 : (proveedorId === 3 ? 8335 : 6500));
 
     return {
-      lineasData: synthProcessed,
-      adicionalesMap: synthAdic,
+      lineasData: [],
+      adicionalesMap: {},
       isPeriodoLiquidado: false,
       batchPlans,
       defaultTarifaAunar
