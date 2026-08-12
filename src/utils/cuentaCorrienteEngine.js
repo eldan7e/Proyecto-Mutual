@@ -56,9 +56,8 @@ export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA) {
     // 2. Interes % (tasa diaria × plazo)
     const interesPct = tasaDiaria * plazoDias;
 
-    // 3. Intereses $ — SOLO si el saldo capital anterior es positivo (deuda)
-    //    Si el grupo tiene saldo a favor (negativo), NO genera intereses
-    const interesMora = saldoCapAnt > 0 ? saldoCapAnt * interesPct : 0;
+    // 3. Intereses $ (SaldoCapitalAnterior × Interes%)
+    const interesMora = saldoCapAnt * interesPct;
 
     // 4. Interes Pendiente Acumulado = interés anterior + interés nuevo
     const intPendAcum = intPendAnt + interesMora;
@@ -73,8 +72,8 @@ export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA) {
       pagoACapital = montoAbsoluto - pagoAInteres;
     }
 
-    // 7. Saldo Capital = anterior + importe (facturas suman, pagos restan porque son negativos)
-    const saldoCapital = saldoCapAnt + importeOriginal;
+    // 7. Saldo Capital = anterior + importe + pagoAInteres (para facturas suma importe, para pagos resta solo pagoACapital)
+    const saldoCapital = isPago ? (saldoCapAnt - pagoACapital) : (saldoCapAnt + importeOriginal);
 
     // 8. Interes Pendiente Final = acumulado - lo que se pagó de interés
     const intPendFinal = intPendAcum - pagoAInteres;
