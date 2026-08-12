@@ -41,6 +41,7 @@ const Tareas = safeLazy(() => import('./Tareas'));
 const LogDiario = safeLazy(() => import('./LogDiario'));
 const CuentaCorriente = safeLazy(() => import('./CuentaCorriente'));
 const InformeSaldos = safeLazy(() => import('./InformeSaldos'));
+const Contaduria = safeLazy(() => import('./Contaduria'));
 const ComprobantesAFIP = safeLazy(() => import('./ComprobantesAFIP'));
 
 // Global hooks initializer
@@ -126,10 +127,11 @@ function App() {
                   <Route path="planes" element={<Navigate to="/comunidad?tab=planes" replace />} />
                   <Route path="facturacion" element={<Facturacion />} />
                   <Route path="comprobantes-afip" element={<ComprobantesAFIP />} />
-                  <Route path="cuenta-corriente" element={<CuentaCorriente />} />
-                  <Route path="informe-saldos" element={<InformeSaldos />} />
+                  <Route path="contaduria" element={<Contaduria />} />
+                  <Route path="cuenta-corriente" element={<Contaduria />} />
+                  <Route path="informe-saldos" element={<Contaduria />} />
                   <Route path="carga-manual" element={<CargaManual />} />
-                  <Route path="gestion-deuda" element={<Navigate to="/cuenta-corriente" replace />} />
+                  <Route path="gestion-deuda" element={<Navigate to="/contaduria" replace />} />
                   <Route path="gestion-pagos" element={<GestionPagos />} />
                   <Route path="descuentos" element={<Navigate to="/comunidad?tab=descuentos" replace />} />
                   <Route path="conciliacion-bancaria" element={<ConciliacionBancaria />} />

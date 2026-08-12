@@ -323,6 +323,46 @@ export async function registrarCobroCuenta({
 
   if (error) throw error;
 
+  // 2. Sincronizar automáticamente liquidaciones_grupos asociadas al grupo
+  try {
+    const { data: liqsPendientes } = await supabase
+      .from('liquidaciones_grupos')
+      .select('liquidacion_id, monto_total_facturado, monto_abonado, estado_pago')
+      .eq('numero_grupo', numero_grupo)
+      .neq('estado_pago', 'ABONADO')
+      .order('periodo', { ascending: true });
+
+    if (liqsPendientes && liqsPendientes.length > 0) {
+      let remanenteCobro = monto;
+      for (const liq of liqsPendientes) {
+        if (remanenteCobro <= 0) break;
+
+        const pagadoActual = Number(liq.monto_abonado || 0);
+        const totalFact = Number(liq.monto_total_facturado || 0);
+        const pendiente = Math.max(0, totalFact - pagadoActual);
+
+        if (pendiente <= 0) continue;
+
+        const abonoAplicado = Math.min(remanenteCobro, pendiente);
+        const nuevoAbonado = pagadoActual + abonoAplicado;
+        const nuevoEstado = nuevoAbonado >= (totalFact - 1) ? 'ABONADO' : 'PARCIAL';
+
+        await supabase
+          .from('liquidaciones_grupos')
+          .update({
+            monto_abonado: Math.round(nuevoAbonado * 100) / 100,
+            estado_pago: nuevoEstado,
+            updated_at: new Date().toISOString()
+          })
+          .eq('liquidacion_id', liq.liquidacion_id);
+
+        remanenteCobro -= abonoAplicado;
+      }
+    }
+  } catch (errLiq) {
+    console.warn('Error al sincronizar estado en liquidaciones_grupos:', errLiq);
+  }
+
   // Registrar audit log
   await supabase.from('audit_log').insert({
     tipo_evento: 'REGISTRO_PAGO_CUENTA_CORRIENTE',

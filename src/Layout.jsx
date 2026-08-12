@@ -3,7 +3,7 @@ import { Outlet, Link, useLocation } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
 import { supabase } from './supabaseClient';
 import { 
-  LayoutDashboard, FileText, LogOut, User as UserIcon, Sun, Moon, Landmark, Users, ClipboardList, UserPlus, Loader2, Activity, Mail, Bell, History
+  LayoutDashboard, FileText, LogOut, User as UserIcon, Sun, Moon, Landmark, Calculator, Users, ClipboardList, UserPlus, Loader2, Activity, Mail, Bell, History
 } from 'lucide-react';
 import ErrorBoundary from './components/ui/ErrorBoundary';
 import Modal from './components/Modal';
@@ -262,7 +262,7 @@ export default function Layout({ session, theme, toggleTheme }) {
     { path: '/', icon: LayoutDashboard, label: 'Inicio' },
     { path: '/comunidad', icon: Users, label: 'Comunidad' },
     { path: '/facturacion', icon: FileText, label: 'Facturación' },
-    { path: '/cuenta-corriente', icon: Landmark, label: 'Bancos' },
+    { path: '/contaduria', icon: Calculator, label: 'Contaduría' },
     { path: '/campanas', icon: Mail, label: 'Comunicación' },
   ];
 
@@ -270,7 +270,7 @@ export default function Layout({ session, theme, toggleTheme }) {
     { id: 'general', paths: ['/', '/tareas', '/log-diario', '/ingreso-diario'] },
     { id: 'mgmt', paths: ['/comunidad?tab=socios', '/comunidad?tab=grupos', '/comunidad?tab=planes', '/comunidad?tab=descuentos'] },
     { id: 'facturacion', paths: ['/facturacion', '/comprobantes-afip', '/gestion-pagos', '/carga-manual'] },
-    { id: 'bancos', paths: ['/cuenta-corriente', '/informe-saldos', '/conciliacion-bancaria', '/movimientos-bancarios'] },
+    { id: 'bancos', paths: ['/contaduria', '/cuenta-corriente', '/informe-saldos', '/conciliacion-bancaria', '/movimientos-bancarios'] },
     { id: 'comunicacion', paths: ['/campanas'] },
   ];
 
@@ -285,8 +285,9 @@ export default function Layout({ session, theme, toggleTheme }) {
     '/comunidad?tab=descuentos': 'Descuentos y Cargos',
     '/comunidad': 'Socios',
     '/socios': 'Socios',
-    '/cuenta-corriente': 'Cuenta Corriente por Grupo',
-    '/informe-saldos': 'Informe de Saldos',
+    '/contaduria': 'Gestión de Contaduría',
+    '/cuenta-corriente': 'Gestión de Contaduría',
+    '/informe-saldos': 'Estado General de Saldos',
     '/facturacion': 'Centro de Cobranzas',
     '/comprobantes-afip': 'Comprobantes y AFIP',
     '/gestion-pagos': 'Auditoría',
