@@ -3,7 +3,8 @@ import {
   Calculator, Search, DollarSign, TrendingUp, AlertTriangle, 
   Loader2, RefreshCw, Plus, CheckCircle2, ChevronRight, ShieldCheck, 
   Download, ArrowUpRight, ArrowDownLeft, Settings, Building, Calendar, 
-  FileText, Users, Eye, Edit3, X, Receipt, Filter, Clock, Sparkles
+  FileText, Users, Eye, Edit3, X, Receipt, Filter, Clock, Sparkles,
+  FileCheck, AlertCircle, Phone, ArrowRight, CornerDownRight, Percent, Sliders
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import Modal from './components/Modal';
@@ -25,15 +26,24 @@ export default function Contaduria() {
 
   const getTodayISO = () => new Date().toISOString().slice(0, 10);
 
-  // --- ESTADOS PRINCIPALES ---
-  const [activeTab, setActiveTab] = useState('saldos'); // 'saldos' | 'extracto' | 'periodos'
+  // --- ESTADOS PRINCIPALES XUBIO ---
+  const [activeTab, setActiveTab] = useState('facturas'); // 'facturas' | 'saldos' | 'extracto' | 'lineas'
+  const [estadoFilter, setEstadoFilter] = useState('TODAS'); // 'TODAS' | 'IMPAGAS' | 'PARCIALES' | 'COBRADAS'
+  const [operadoraFilter, setOperadoraFilter] = useState('TODAS'); // 'TODAS' | 'CLARO' | 'MOVISTAR' | 'PERSONAL'
+  
+  // Listas de Datos
   const [gruposList, setGruposList] = useState([]);
   const [selectedGrupo, setSelectedGrupo] = useState(null);
   const [movimientos, setMovimientos] = useState([]);
+  const [liquidacionesAll, setLiquidacionesAll] = useState([]);
   const [liquidacionesGrupo, setLiquidacionesGrupo] = useState([]);
+  const [lineasGrupo, setLineasGrupo] = useState([]);
+
+  // Loaders
   const [loading, setLoading] = useState(false);
   const [loadingGrupos, setLoadingGrupos] = useState(false);
-  const [loadingLiquidaciones, setLoadingLiquidaciones] = useState(false);
+  const [loadingLiqs, setLoadingLiqs] = useState(false);
+  const [loadingLineas, setLoadingLineas] = useState(false);
 
   // Parámetros TNA
   const [tna, setTna] = useState(DEFAULT_TNA);
@@ -41,13 +51,14 @@ export default function Contaduria() {
   const [savingTna, setSavingTna] = useState(false);
   const [isTnaModalOpen, setIsTnaModalOpen] = useState(false);
 
-  // Filtros
+  // Filtros de Búsqueda
   const [searchGrupo, setSearchGrupo] = useState('');
   const [soloDeudores, setSoloDeudores] = useState(false);
   const [saldosData, setSaldosData] = useState([]);
 
-  // Modal de cobro FIFO
+  // Modal de cobro FIFO / Factura Específica
   const [cobroModalOpen, setCobroModalOpen] = useState(false);
+  const [targetFactura, setTargetFactura] = useState(null); // Si se cobra una factura en particular
   const [montoCobro, setMontoCobro] = useState('');
   const [medioPago, setMedioPago] = useState('TRANSFERENCIA');
   const [observacionesCobro, setObservacionesCobro] = useState('');
@@ -55,15 +66,26 @@ export default function Contaduria() {
   const [procesandoCobro, setProcesandoCobro] = useState(false);
   const [resultadoFifo, setResultadoFifo] = useState(null);
 
+  // Modal de Nota de Crédito / Ajuste Contable (estilo Xubio)
+  const [ajusteModalOpen, setAjusteModalOpen] = useState(false);
+  const [tipoAjuste, setTipoAjuste] = useState('CREDITO'); // 'CREDITO' (descuento) | 'DEBITO' (recargo)
+  const [montoAjuste, setMontoAjuste] = useState('');
+  const [conceptoAjuste, setConceptoAjuste] = useState('');
+  const [procesandoAjuste, setProcesandoAjuste] = useState(false);
+
   // Modal de Comprobante de Cobro
   const [comprobanteModalOpen, setComprobanteModalOpen] = useState(false);
   const [comprobanteData, setComprobanteData] = useState(null);
 
-  // Modal de Edición Rápida de Grupo / Socio / Línea
+  // Modal de Edición Rápida de Grupo / Titular
   const [editGrupoModalOpen, setEditGrupoModalOpen] = useState(false);
   const [grupoEditData, setGrupoEditData] = useState(null);
   const [editTitularNombre, setEditTitularNombre] = useState('');
   const [savingGrupoEdit, setSavingGrupoEdit] = useState(false);
+
+  // Modal de Desglose de Líneas de una Liquidación
+  const [desgloseLiqModalOpen, setDesgloseLiqModalOpen] = useState(false);
+  const [selectedLiqDesglose, setSelectedLiqDesglose] = useState(null);
 
   // --- CARGA INICIAL ---
   useEffect(() => {
@@ -75,11 +97,17 @@ export default function Contaduria() {
     loadSaldosGeneral();
   }, [soloDeudores, tna]);
 
+  // Cargar todas las liquidaciones (facturas)
+  useEffect(() => {
+    loadTodasLiquidaciones();
+  }, []);
+
   // Cargar detalles cuando cambia el grupo seleccionado
   useEffect(() => {
     if (selectedGrupo !== null) {
       loadMovimientos(selectedGrupo);
       loadLiquidaciones(selectedGrupo);
+      loadLineasGrupo(selectedGrupo);
     }
   }, [selectedGrupo]);
 
@@ -88,17 +116,16 @@ export default function Contaduria() {
     if (!selectedGrupo) return;
 
     const channel = supabase
-      .channel(`contaduria-grupo-${selectedGrupo}`)
+      .channel(`contaduria-full-${selectedGrupo}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
-          table: 'movimientos_cuenta',
-          filter: `numero_grupo=eq.${selectedGrupo}`
+          table: 'movimientos_cuenta'
         },
         () => {
-          loadMovimientos(selectedGrupo);
+          if (selectedGrupo) loadMovimientos(selectedGrupo);
           loadSaldosGeneral();
         }
       )
@@ -107,11 +134,11 @@ export default function Contaduria() {
         {
           event: '*',
           schema: 'public',
-          table: 'liquidaciones_grupos',
-          filter: `numero_grupo=eq.${selectedGrupo}`
+          table: 'liquidaciones_grupos'
         },
         () => {
-          loadLiquidaciones(selectedGrupo);
+          loadTodasLiquidaciones();
+          if (selectedGrupo) loadLiquidaciones(selectedGrupo);
         }
       )
       .subscribe();
@@ -145,6 +172,24 @@ export default function Contaduria() {
     }
   }
 
+  async function loadTodasLiquidaciones() {
+    setLoadingLiqs(true);
+    try {
+      const { data, error } = await supabase
+        .from('liquidaciones_grupos')
+        .select('*, proveedores(nombre), socios(nombre_completo)')
+        .order('periodo', { ascending: false })
+        .order('numero_grupo', { ascending: true });
+
+      if (error) throw error;
+      setLiquidacionesAll(data || []);
+    } catch (err) {
+      console.error('Error al cargar liquidaciones:', err);
+    } finally {
+      setLoadingLiqs(false);
+    }
+  }
+
   async function loadSaldosGeneral() {
     setLoading(true);
     try {
@@ -172,7 +217,6 @@ export default function Contaduria() {
   }
 
   async function loadLiquidaciones(numeroGrupo) {
-    setLoadingLiquidaciones(true);
     try {
       const { data, error } = await supabase
         .from('liquidaciones_grupos')
@@ -184,8 +228,23 @@ export default function Contaduria() {
       setLiquidacionesGrupo(data || []);
     } catch (err) {
       console.error('Error al cargar liquidaciones del grupo:', err);
+    }
+  }
+
+  async function loadLineasGrupo(numeroGrupo) {
+    setLoadingLineas(true);
+    try {
+      const { data, error } = await supabase
+        .from('lineas')
+        .select('*, proveedores:proveedor_id(nombre), socios:socio_id(nombre_completo), planes_abonos:plan_id(nombre_plan, precio_oficial)')
+        .eq('numero_grupo', numeroGrupo);
+
+      if (error) throw error;
+      setLineasGrupo(data || []);
+    } catch (err) {
+      console.error('Error al cargar líneas del grupo:', err);
     } finally {
-      setLoadingLiquidaciones(false);
+      setLoadingLineas(false);
     }
   }
 
@@ -207,6 +266,23 @@ export default function Contaduria() {
     } finally {
       setSavingTna(false);
     }
+  }
+
+  // Abrir Cobro para Factura Específica o Libre
+  function handleOpenCobroModal(liq = null, grupoNum = null) {
+    if (liq) {
+      setTargetFactura(liq);
+      setSelectedGrupo(liq.numero_grupo);
+      const saldoPend = Math.max(0, Number(liq.monto_total_facturado) - Number(liq.monto_abonado || 0));
+      setMontoCobro(saldoPend > 0 ? String(saldoPend) : String(liq.monto_total_facturado));
+      setObservacionesCobro(`Cobro Facturación Período ${liq.periodo} (${liq.proveedores?.nombre || 'MUTUAL'})`);
+    } else {
+      setTargetFactura(null);
+      if (grupoNum) setSelectedGrupo(grupoNum);
+      setMontoCobro('');
+      setObservacionesCobro('');
+    }
+    setCobroModalOpen(true);
   }
 
   // --- CÁLCULO DE FIFO Y COBRO ---
@@ -262,6 +338,23 @@ export default function Contaduria() {
         imputaciones: resultadoFifo?.desgloses || []
       });
 
+      // Si el cobro se originó desde una factura específica, asegurar actualización directa
+      if (targetFactura) {
+        const pagadoActual = Number(targetFactura.monto_abonado || 0);
+        const totalFact = Number(targetFactura.monto_total_facturado || 0);
+        const nuevoAbonado = Math.min(totalFact, pagadoActual + val);
+        const nuevoEstado = nuevoAbonado >= (totalFact - 1) ? 'ABONADO' : 'PARCIAL';
+
+        await supabase
+          .from('liquidaciones_grupos')
+          .update({
+            monto_abonado: Math.round(nuevoAbonado * 100) / 100,
+            estado_pago: nuevoEstado,
+            updated_at: new Date().toISOString()
+          })
+          .eq('liquidacion_id', targetFactura.liquidacion_id);
+      }
+
       addToast(`Cobro de ${formatMoney(val)} registrado exitosamente.`, 'success');
 
       setComprobanteData({
@@ -278,12 +371,16 @@ export default function Contaduria() {
       });
 
       setCobroModalOpen(false);
+      setTargetFactura(null);
       setMontoCobro('');
       setObservacionesCobro('');
       setResultadoFifo(null);
 
-      await loadMovimientos(selectedGrupo);
-      await loadLiquidaciones(selectedGrupo);
+      await loadTodasLiquidaciones();
+      if (selectedGrupo) {
+        await loadMovimientos(selectedGrupo);
+        await loadLiquidaciones(selectedGrupo);
+      }
       await loadSaldosGeneral();
 
       setComprobanteModalOpen(true);
@@ -292,6 +389,68 @@ export default function Contaduria() {
       addToast('Error al procesar el cobro: ' + err.message, 'error');
     } finally {
       setProcesandoCobro(false);
+    }
+  }
+
+  // --- REGISTRAR NOTA DE CRÉDITO / AJUSTE CONTABLE ---
+  async function handleConfirmarAjuste(e) {
+    e.preventDefault();
+    const val = parseFloat(montoAjuste);
+    if (isNaN(val) || val <= 0) {
+      addToast('Ingrese un importe de ajuste válido', 'warning');
+      return;
+    }
+
+    if (!conceptoAjuste.trim()) {
+      addToast('Ingrese el concepto o motivo del ajuste contable', 'warning');
+      return;
+    }
+
+    setProcesandoAjuste(true);
+    try {
+      const isCredito = tipoAjuste === 'CREDITO';
+      const importeFinal = isCredito ? -val : val; // Crédito resta deuda (negativo), Débito suma (positivo)
+      const titularInfo = gruposList.find(g => g.numero_grupo === selectedGrupo);
+
+      // 1. Obtener el último saldo
+      const { data: ultimos } = await supabase
+        .from('movimientos_cuenta')
+        .select('saldo_capital')
+        .eq('numero_grupo', selectedGrupo)
+        .order('fecha', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(1);
+
+      const saldoAnt = ultimos && ultimos.length > 0 ? Number(ultimos[0].saldo_capital || 0) : 0;
+      const nuevoSaldo = saldoAnt + importeFinal;
+
+      // 2. Insertar movimiento AJUSTE
+      await supabase.from('movimientos_cuenta').insert({
+        fecha: getTodayISO(),
+        numero_grupo: selectedGrupo,
+        nombre: titularInfo?.nombre || `Grupo ${selectedGrupo}`,
+        importe: importeFinal,
+        tipo: isCredito ? 'NOTA_CREDITO' : 'NOTA_DEBITO',
+        medio_pago: 'AJUSTE_CONTABLE',
+        observaciones: `Ajuste Contable (${tipoAjuste}): ${conceptoAjuste}`,
+        origen: 'CONTADURIA_XUBIO',
+        saldo_capital_anterior: saldoAnt,
+        saldo_capital: nuevoSaldo,
+        saldo_final: nuevoSaldo
+      });
+
+      addToast(`Ajuste Contable de ${formatMoney(val)} aplicado a Grupo #${selectedGrupo}`, 'success');
+      setAjusteModalOpen(false);
+      setMontoAjuste('');
+      setConceptoAjuste('');
+
+      await loadMovimientos(selectedGrupo);
+      await loadSaldosGeneral();
+    } catch (err) {
+      console.error('Error al aplicar ajuste:', err);
+      addToast('Error al procesar ajuste: ' + err.message, 'error');
+    } finally {
+      setProcesandoAjuste(false);
     }
   }
 
@@ -309,7 +468,6 @@ export default function Contaduria() {
 
     setSavingGrupoEdit(true);
     try {
-      // Actualizar nombre en movimientos_cuenta
       await supabase
         .from('movimientos_cuenta')
         .update({ nombre: editTitularNombre.trim() })
@@ -327,34 +485,72 @@ export default function Contaduria() {
     }
   }
 
+  // --- FILTRADO DE COMPROBANTES / FACTURAS ESTILO XUBIO ---
+  const facturasFiltradas = useMemo(() => {
+    return liquidacionesAll.filter(l => {
+      // Filtro por Estado
+      const totalFact = Number(l.monto_total_facturado || 0);
+      const abonado = Number(l.monto_abonado || 0);
+      const pendiente = totalFact - abonado;
+
+      const isAbonada = l.estado_pago === 'ABONADO' || pendiente <= 1;
+      const isParcial = l.estado_pago === 'PARCIAL' || (abonado > 0 && pendiente > 1);
+      const isImpaga = !isAbonada && !isParcial;
+
+      if (estadoFilter === 'IMPAGAS' && !isImpaga) return false;
+      if (estadoFilter === 'PARCIALES' && !isParcial) return false;
+      if (estadoFilter === 'COBRADAS' && !isAbonada) return false;
+
+      // Filtro por Operadora
+      const opNombre = (l.proveedores?.nombre || '').toUpperCase();
+      if (operadoraFilter !== 'TODAS' && opNombre !== operadoraFilter) return false;
+
+      // Buscador
+      if (searchGrupo.trim()) {
+        const s = searchGrupo.toLowerCase().trim();
+        const matchGrupo = String(l.numero_grupo).includes(s);
+        const matchSocio = (l.socios?.nombre_completo || '').toLowerCase().includes(s);
+        const matchPeriodo = (l.periodo || '').toLowerCase().includes(s);
+        if (!matchGrupo && !matchSocio && !matchPeriodo) return false;
+      }
+
+      return true;
+    });
+  }, [liquidacionesAll, estadoFilter, operadoraFilter, searchGrupo]);
+
   // --- CÁLCULO DE KPIs GLOBALES ---
   const statsGlobales = useMemo(() => {
-    let totalDeuda = 0;
+    let totalFacturado = 0;
     let totalCobrado = 0;
-    let totalIntereses = 0;
-    let gruposDeudoresCount = 0;
-    let totalSaldoAFavor = 0;
+    let totalPendiente = 0;
+    let comprobantesImpagosCount = 0;
 
+    liquidacionesAll.forEach(l => {
+      const fact = Number(l.monto_total_facturado || 0);
+      const abon = Number(l.monto_abonado || 0);
+      const pend = Math.max(0, fact - abon);
+
+      totalFacturado += fact;
+      totalCobrado += abon;
+      totalPendiente += pend;
+
+      if (pend > 5) comprobantesImpagosCount++;
+    });
+
+    let totalIntereses = 0;
     saldosData.forEach(g => {
-      if (g.saldoFinalUltimo > 5) {
-        totalDeuda += g.saldoFinalUltimo;
-        gruposDeudoresCount++;
-      } else if (g.saldoFinalUltimo < -5) {
-        totalSaldoAFavor += Math.abs(g.saldoFinalUltimo);
-      }
-      totalCobrado += g.totalPagos || 0;
       totalIntereses += g.interesPendUltimo || 0;
     });
 
     return {
-      totalDeuda,
+      totalFacturado,
       totalCobrado,
+      totalPendiente,
+      comprobantesImpagosCount,
       totalIntereses,
-      gruposDeudoresCount,
-      totalSaldoAFavor,
-      totalGrupos: saldosData.length
+      totalComprobantes: liquidacionesAll.length
     };
-  }, [saldosData]);
+  }, [liquidacionesAll, saldosData]);
 
   // Movimientos del grupo seleccionado
   const ultimoMovGrupo = useMemo(() => {
@@ -362,26 +558,27 @@ export default function Contaduria() {
     return movimientos[movimientos.length - 1];
   }, [movimientos]);
 
-  const titularSeleccionadoInfo = useMemo(() => {
-    return gruposList.find(g => g.numero_grupo === selectedGrupo);
-  }, [gruposList, selectedGrupo]);
-
   return (
     <div className="page-container animate-fade" style={{ paddingBottom: '60px' }}>
       
-      {/* HEADER Y KPIS DE CONTADURÍA */}
+      {/* HEADER PRINCIPAL CONTADURÍA ESTILO XUBIO */}
       <div style={{ marginBottom: '28px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{ background: 'var(--accent-light)', color: 'var(--accent)', padding: '10px', borderRadius: '14px' }}>
-              <Calculator size={24} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ background: 'var(--accent)', color: 'white', padding: '12px', borderRadius: '16px', boxShadow: '0 10px 20px -5px rgba(22, 163, 74, 0.4)' }}>
+              <Calculator size={26} />
             </div>
             <div>
-              <h1 style={{ fontSize: '26px', fontWeight: 900, letterSpacing: '-0.03em', margin: 0, color: 'var(--text-primary)' }}>
-                Gestión de Contaduría
-              </h1>
-              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, fontWeight: 500 }}>
-                Control real de cuentas corrientes, liquidaciones por grupo e intereses por mora.
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <h1 style={{ fontSize: '26px', fontWeight: 900, letterSpacing: '-0.03em', margin: 0, color: 'var(--text-primary)' }}>
+                  Facturación y Contaduría
+                </h1>
+                <span style={{ background: 'var(--accent-light)', color: 'var(--accent)', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 800 }}>
+                  SUITE ESTILO XUBIO
+                </span>
+              </div>
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '2px 0 0', fontWeight: 500 }}>
+                Administración contable de saldos pagos, impagos, liquidaciones por grupo y cobranzas.
               </p>
             </div>
           </div>
@@ -395,98 +592,307 @@ export default function Contaduria() {
           >
             <Settings size={16} /> TNA Mora: {tna}%
           </button>
+
+          <button 
+            onClick={() => {
+              if (selectedGrupo) setAjusteModalOpen(true);
+              else addToast('Seleccione un grupo primero para aplicar un ajuste', 'warning');
+            }}
+            className="air-btn"
+            style={{ background: 'var(--surface)', border: '1px solid var(--border-light)', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px', borderRadius: '12px', fontSize: '13px', fontWeight: 700 }}
+          >
+            <Plus size={16} /> Nota de Crédito / Ajuste
+          </button>
           
           <button 
-            onClick={() => setCobroModalOpen(true)}
+            onClick={() => handleOpenCobroModal()}
             className="air-btn-primary"
             style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', borderRadius: '12px', fontSize: '13px', fontWeight: 800 }}
           >
-            <Plus size={18} /> Registrar Cobro / Pago
+            <DollarSign size={18} /> Registrar Cobro
           </button>
         </div>
       </div>
 
-      {/* BENNTOCARDS KPIS */}
-      <div className="bento-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', marginBottom: '28px', gap: '16px' }}>
-        <div className="bento-card" style={{ padding: '20px', borderLeft: '4px solid #ef4444' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>DEUDA REAL ACUMULADA</span>
-            <AlertTriangle size={18} color="#ef4444" />
+      {/* DASHBOARD KPIS XUBIO */}
+      <div className="bento-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', marginBottom: '28px', gap: '16px' }}>
+        <div className="bento-card" style={{ padding: '20px', borderLeft: '4px solid var(--accent)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>FACTURACIÓN TOTAL</span>
+            <FileText size={18} color="var(--accent)" />
           </div>
-          <div style={{ fontSize: '24px', fontWeight: 900, color: '#ef4444' }}>
-            {formatMoney(statsGlobales.totalDeuda)}
+          <div style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text-primary)' }}>
+            {formatMoney(statsGlobales.totalFacturado)}
           </div>
           <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 600 }}>
-            {statsGlobales.gruposDeudoresCount} grupos con saldo pendiente
+            {statsGlobales.totalComprobantes} comprobantes liquidados
           </div>
         </div>
 
-        <div className="bento-card" style={{ padding: '20px', borderLeft: '4px solid var(--accent)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>TOTAL COBRADO / COBROS</span>
-            <CheckCircle2 size={18} color="var(--accent)" />
+        <div className="bento-card" style={{ padding: '20px', borderLeft: '4px solid #10b981' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>COBRADO E IMPUTADO</span>
+            <CheckCircle2 size={18} color="#10b981" />
           </div>
-          <div style={{ fontSize: '24px', fontWeight: 900, color: 'var(--accent)' }}>
+          <div style={{ fontSize: '22px', fontWeight: 900, color: '#10b981' }}>
             {formatMoney(statsGlobales.totalCobrado)}
           </div>
           <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 600 }}>
-            Pagos procesados e imputados
+            Ingresos reales acreditados
+          </div>
+        </div>
+
+        <div className="bento-card" style={{ padding: '20px', borderLeft: '4px solid #ef4444' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SALDO IMPAGO PENDIENTE</span>
+            <AlertCircle size={18} color="#ef4444" />
+          </div>
+          <div style={{ fontSize: '22px', fontWeight: 900, color: '#ef4444' }}>
+            {formatMoney(statsGlobales.totalPendiente)}
+          </div>
+          <div style={{ fontSize: '11px', color: '#ef4444', marginTop: '4px', fontWeight: 700 }}>
+            {statsGlobales.comprobantesImpagosCount} facturas pendientes
           </div>
         </div>
 
         <div className="bento-card" style={{ padding: '20px', borderLeft: '4px solid #f59e0b' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>INTERESES PENDIENTES</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>INTERESES MORA TNA</span>
             <TrendingUp size={18} color="#f59e0b" />
           </div>
-          <div style={{ fontSize: '24px', fontWeight: 900, color: '#f59e0b' }}>
+          <div style={{ fontSize: '22px', fontWeight: 900, color: '#f59e0b' }}>
             {formatMoney(statsGlobales.totalIntereses)}
           </div>
           <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 600 }}>
-            Interés por mora según TNA ({tna}%)
-          </div>
-        </div>
-
-        <div className="bento-card" style={{ padding: '20px', borderLeft: '4px solid #3b82f6' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SALDO EN CRÉDITO</span>
-            <DollarSign size={18} color="#3b82f6" />
-          </div>
-          <div style={{ fontSize: '24px', fontWeight: 900, color: '#3b82f6' }}>
-            {formatMoney(statsGlobales.totalSaldoAFavor)}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 600 }}>
-            Saldos a favor de los grupos
+            Tasa Nominal Anual ({tna}%)
           </div>
         </div>
       </div>
 
-      {/* PESTAÑAS PRINCIPALES DEL MÓDULO */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', background: 'rgba(0,0,0,0.03)', padding: '6px', borderRadius: '18px', width: 'fit-content' }}>
+      {/* PESTAÑAS PRINCIPALES DEL MÓDULO ESTILO XUBIO */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', background: 'rgba(0,0,0,0.03)', padding: '6px', borderRadius: '18px', width: 'fit-content', flexWrap: 'wrap' }}>
+        <button
+          onClick={() => setActiveTab('facturas')}
+          className={`nav-pill ${activeTab === 'facturas' ? 'active' : ''}`}
+          style={{ border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontWeight: 700 }}
+        >
+          <Receipt size={16} /> Facturas y Comprobantes ({facturasFiltradas.length})
+        </button>
         <button
           onClick={() => setActiveTab('saldos')}
           className={`nav-pill ${activeTab === 'saldos' ? 'active' : ''}`}
           style={{ border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontWeight: 700 }}
         >
-          <Building size={16} /> Estado General de Cuentas ({saldosData.length})
+          <Building size={16} /> Cuentas Corrientes y Saldos ({saldosData.length})
         </button>
         <button
           onClick={() => setActiveTab('extracto')}
           className={`nav-pill ${activeTab === 'extracto' ? 'active' : ''}`}
           style={{ border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontWeight: 700 }}
         >
-          <FileText size={16} /> Extracto / Libro Mayor de Grupo {selectedGrupo ? `#${selectedGrupo}` : ''}
+          <FileText size={16} /> Extracto / Libro Mayor (Grupo {selectedGrupo ? `#${selectedGrupo}` : ''})
         </button>
         <button
-          onClick={() => setActiveTab('periodos')}
-          className={`nav-pill ${activeTab === 'periodos' ? 'active' : ''}`}
+          onClick={() => setActiveTab('lineas')}
+          className={`nav-pill ${activeTab === 'lineas' ? 'active' : ''}`}
           style={{ border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontWeight: 700 }}
         >
-          <Calendar size={16} /> Períodos Liquidados por Grupo ({liquidacionesGrupo.length})
+          <Phone size={16} /> Líneas del Grupo ({lineasGrupo.length})
         </button>
       </div>
 
-      {/* TAB 1: ESTADO GENERAL DE CUENTAS (INFORME DE SALDOS POR GRUPO) */}
+      {/* PESTAÑA 1: GESTIÓN DE FACTURAS Y COMPROBANTES (VENTAS/LIQUIDACIONES ESTILO XUBIO) */}
+      {activeTab === 'facturas' && (
+        <div className="bento-card" style={{ padding: '24px' }}>
+          
+          {/* BARRA DE FILTROS CONTABLES ESTILO XUBIO */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
+            
+            {/* FILTROS DE ESTADO PAGO */}
+            <div style={{ display: 'flex', gap: '6px', background: 'rgba(0,0,0,0.03)', padding: '4px', borderRadius: '12px' }}>
+              {[
+                { id: 'TODAS', label: 'Todas' },
+                { id: 'IMPAGAS', label: 'Impagas / Vencidas' },
+                { id: 'PARCIALES', label: 'Parciales' },
+                { id: 'COBRADAS', label: 'Cobradas' }
+              ].map(f => (
+                <button
+                  key={f.id}
+                  onClick={() => setEstadoFilter(f.id)}
+                  style={{
+                    border: 'none',
+                    padding: '6px 14px',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    background: estadoFilter === f.id ? 'var(--surface)' : 'transparent',
+                    color: estadoFilter === f.id ? 'var(--accent)' : 'var(--text-secondary)',
+                    boxShadow: estadoFilter === f.id ? 'var(--shadow-soft)' : 'none'
+                  }}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {/* FILTRO OPERADORA + BUSCADOR */}
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <select
+                value={operadoraFilter}
+                onChange={(e) => setOperadoraFilter(e.target.value)}
+                className="premium-input"
+                style={{ fontSize: '12px', padding: '8px 12px', height: '40px' }}
+              >
+                <option value="TODAS">Todas las Operadoras</option>
+                <option value="CLARO">Claro</option>
+                <option value="MOVISTAR">Movistar</option>
+                <option value="PERSONAL">Personal</option>
+              </select>
+
+              <div style={{ position: 'relative', width: '260px' }}>
+                <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+                <input
+                  type="text"
+                  placeholder="Buscar grupo, socio o período..."
+                  value={searchGrupo}
+                  onChange={(e) => setSearchGrupo(e.target.value)}
+                  className="premium-input"
+                  style={{ width: '100%', paddingLeft: '38px', height: '40px', fontSize: '12px' }}
+                />
+              </div>
+
+              <button 
+                onClick={loadTodasLiquidaciones}
+                className="air-btn"
+                style={{ padding: '8px 12px', height: '40px', borderRadius: '10px' }}
+                title="Refrescar lista"
+              >
+                <RefreshCw size={14} className={loadingLiqs ? 'animate-spin' : ''} />
+              </button>
+            </div>
+          </div>
+
+          {/* TABLA PRINCIPAL DE COMPROBANTES XUBIO */}
+          <div className="table-responsive" style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '13px' }}>
+              <thead>
+                <tr style={{ background: 'rgba(0,0,0,0.02)', textAlign: 'left' }}>
+                  <th style={{ padding: '12px 14px', borderRadius: '12px 0 0 12px' }}>PERÍODO / ID</th>
+                  <th style={{ padding: '12px 14px' }}>GRUPO / SOCIO TITULAR</th>
+                  <th style={{ padding: '12px 14px' }}>OPERADORA</th>
+                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>TOTAL FACTURADO</th>
+                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>ABONADO</th>
+                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>SALDO IMPAGO</th>
+                  <th style={{ padding: '12px 14px', textAlign: 'center' }}>ESTADO CONTABLE</th>
+                  <th style={{ padding: '12px 14px', textAlign: 'center', borderRadius: '0 12px 12px 0' }}>ACCIONES XUBIO</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loadingLiqs ? (
+                  <tr>
+                    <td colSpan="8" style={{ textAlign: 'center', padding: '40px' }}>
+                      <Loader2 size={30} className="animate-spin" style={{ margin: '0 auto', color: 'var(--accent)' }} />
+                      <div style={{ marginTop: '8px', color: 'var(--text-secondary)' }}>Cargando comprobantes y facturas contables...</div>
+                    </td>
+                  </tr>
+                ) : facturasFiltradas.length === 0 ? (
+                  <tr>
+                    <td colSpan="8" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
+                      No se encontraron comprobantes o facturas para los filtros seleccionados.
+                    </td>
+                  </tr>
+                ) : (
+                  facturasFiltradas.map((liq) => {
+                    const totalFact = Number(liq.monto_total_facturado || 0);
+                    const abonado = Number(liq.monto_abonado || 0);
+                    const pendiente = Math.max(0, totalFact - abonado);
+
+                    const isCobrada = liq.estado_pago === 'ABONADO' || pendiente <= 1;
+                    const isParcial = liq.estado_pago === 'PARCIAL' || (abonado > 0 && pendiente > 1);
+
+                    return (
+                      <tr 
+                        key={liq.liquidacion_id}
+                        style={{ borderBottom: '1px solid var(--border-light)', background: selectedGrupo === liq.numero_grupo ? 'rgba(16,185,129,0.03)' : 'transparent' }}
+                      >
+                        <td style={{ padding: '12px 14px', fontWeight: 900 }}>
+                          <div>{liq.periodo}</div>
+                          <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                            #LIQ-{liq.liquidacion_id}
+                          </div>
+                        </td>
+                        <td style={{ padding: '12px 14px' }}>
+                          <div style={{ fontWeight: 800 }}>
+                            {liq.socios?.nombre_completo || `Grupo ${liq.numero_grupo}`}
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                            Grupo #{liq.numero_grupo} ({liq.total_lineas_lote || 1} líneas)
+                          </div>
+                        </td>
+                        <td style={{ padding: '12px 14px', fontWeight: 700 }}>
+                          <span style={{
+                            padding: '3px 8px', borderRadius: '6px', fontSize: '11px',
+                            background: liq.proveedores?.nombre === 'CLARO' ? 'rgba(227,6,19,0.1)' : liq.proveedores?.nombre === 'MOVISTAR' ? 'rgba(91,197,0,0.1)' : 'rgba(0,102,255,0.1)',
+                            color: liq.proveedores?.nombre === 'CLARO' ? '#e30613' : liq.proveedores?.nombre === 'MOVISTAR' ? '#5bc500' : '#0066ff'
+                          }}>
+                            {liq.proveedores?.nombre || 'OPERADORA'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800 }}>
+                          {formatMoney(totalFact)}
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, color: '#10b981' }}>
+                          {formatMoney(abonado)}
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 900, color: pendiente > 5 ? '#ef4444' : 'var(--text-primary)' }}>
+                          {formatMoney(pendiente)}
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                          <span style={{
+                            background: isCobrada ? 'rgba(16, 185, 129, 0.1)' : isParcial ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                            color: isCobrada ? '#10b981' : isParcial ? '#f59e0b' : '#ef4444',
+                            padding: '4px 10px', borderRadius: '8px', fontWeight: 900, fontSize: '11px'
+                          }}>
+                            {isCobrada ? 'COBRADA' : isParcial ? 'PARCIAL' : 'IMPAGA'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                            {!isCobrada && (
+                              <button
+                                onClick={() => handleOpenCobroModal(liq)}
+                                className="air-btn-primary"
+                                style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', fontWeight: 800 }}
+                                title="Imputar pago a esta factura"
+                              >
+                                Imputar
+                              </button>
+                            )}
+                            <button
+                              onClick={() => {
+                                setSelectedGrupo(liq.numero_grupo);
+                                setActiveTab('extracto');
+                              }}
+                              className="air-btn"
+                              style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', fontWeight: 700 }}
+                              title="Ver extracto de la cuenta"
+                            >
+                              Extracto
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* PESTAÑA 2: ESTADO GENERAL DE CUENTAS (SALDOS POR GRUPO / AGING DE DEUDA) */}
       {activeTab === 'saldos' && (
         <div className="bento-card" style={{ padding: '24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
@@ -518,7 +924,7 @@ export default function Contaduria() {
               className="air-btn"
               style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '10px', fontSize: '12px', fontWeight: 700 }}
             >
-              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Actualizar
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Actualizar Saldos
             </button>
           </div>
 
@@ -528,12 +934,12 @@ export default function Contaduria() {
                 <tr style={{ background: 'rgba(0,0,0,0.02)', textAlign: 'left' }}>
                   <th style={{ padding: '12px 16px', borderRadius: '12px 0 0 12px' }}>GRUPO / CUENTA</th>
                   <th style={{ padding: '12px 16px' }}>TITULAR REGISTRADO</th>
-                  <th style={{ padding: '12px 16px' }}>OPERADORAS</th>
+                  <th style={{ padding: '12px 16px' }}>OPERADORA</th>
                   <th style={{ padding: '12px 16px', textAlign: 'right' }}>FACTURADO</th>
                   <th style={{ padding: '12px 16px', textAlign: 'right' }}>PAGADO</th>
                   <th style={{ padding: '12px 16px', textAlign: 'right' }}>CAPITAL PEND.</th>
                   <th style={{ padding: '12px 16px', textAlign: 'right' }}>INT. MORA</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>DEUDA TOTAL</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>SALDO FINAL</th>
                   <th style={{ padding: '12px 16px', textAlign: 'center', borderRadius: '0 12px 12px 0' }}>ACCIONES</th>
                 </tr>
               </thead>
@@ -542,7 +948,7 @@ export default function Contaduria() {
                   <tr>
                     <td colSpan="9" style={{ textAlign: 'center', padding: '40px' }}>
                       <Loader2 size={32} className="animate-spin" style={{ margin: '0 auto', color: 'var(--accent)' }} />
-                      <div style={{ marginTop: '10px', color: 'var(--text-secondary)' }}>Calculando estado de cuentas en tiempo real...</div>
+                      <div style={{ marginTop: '10px', color: 'var(--text-secondary)' }}>Recalculando cuentas corrientes en vivo...</div>
                     </td>
                   </tr>
                 ) : saldosData.length === 0 ? (
@@ -572,7 +978,7 @@ export default function Contaduria() {
                             <button 
                               onClick={() => handleOpenEditGrupo(row.numero_grupo)} 
                               style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.5 }}
-                              title="Editar nombre de titular"
+                              title="Editar nombre del titular"
                             >
                               <Edit3 size={12} />
                             </button>
@@ -609,14 +1015,11 @@ export default function Contaduria() {
                               <Eye size={14} /> Extracto
                             </button>
                             <button
-                              onClick={() => {
-                                setSelectedGrupo(row.numero_grupo);
-                                setActiveTab('periodos');
-                              }}
-                              className="air-btn"
-                              style={{ padding: '6px 12px', fontSize: '11px', fontWeight: 800, background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', borderRadius: '8px' }}
+                              onClick={() => handleOpenCobroModal(null, row.numero_grupo)}
+                              className="air-btn-primary"
+                              style={{ padding: '6px 12px', fontSize: '11px', fontWeight: 800, borderRadius: '8px' }}
                             >
-                              <Calendar size={14} /> Liquidaciones
+                              Cobrar
                             </button>
                           </div>
                         </td>
@@ -630,15 +1033,14 @@ export default function Contaduria() {
         </div>
       )}
 
-      {/* TAB 2: DETALLE DE CUENTA CORRIENTE / EXTRACTO DEL GRUPO */}
+      {/* PESTAÑA 3: DETALLE DE EXTRACTO Y LIBRO MAYOR (GRUPO SELECCIONADO) */}
       {activeTab === 'extracto' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           
-          {/* SELECTOR Y RESUMEN DEL GRUPO SELECCIONADO */}
           <div className="bento-card" style={{ padding: '24px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
               <div>
-                <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>GRUPO SELECCIONADO</div>
+                <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SELECCIONAR GRUPO</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
                   <select 
                     value={selectedGrupo || ''}
@@ -663,17 +1065,16 @@ export default function Contaduria() {
                 </div>
               </div>
 
-              {/* SALDO ACTUAL Y ACCIONES */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SALDO FINAL ACTUAL</div>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SALDO ACUMULADO FINAL</div>
                   <div style={{ fontSize: '24px', fontWeight: 900, color: (ultimoMovGrupo?.saldo_final || 0) > 5 ? '#ef4444' : 'var(--accent)' }}>
                     {formatMoney(ultimoMovGrupo?.saldo_final || 0)}
                   </div>
                 </div>
 
                 <button 
-                  onClick={() => setCobroModalOpen(true)}
+                  onClick={() => handleOpenCobroModal(null, selectedGrupo)}
                   className="air-btn-primary"
                   style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '12px 20px', borderRadius: '12px', fontWeight: 800 }}
                 >
@@ -683,14 +1084,13 @@ export default function Contaduria() {
             </div>
           </div>
 
-          {/* TABLA EXTRACTO CRONOLÓGICO DEL GRUPO */}
           <div className="bento-card" style={{ padding: '24px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h3 style={{ fontSize: '16px', fontWeight: 900, margin: 0 }}>
-                Movimientos e Histórico de Cuenta Corriente (Grupo #{selectedGrupo})
+                Extracto / Libro Mayor de Cuenta (Grupo #{selectedGrupo})
               </h3>
               <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                Fórmulas exactas TNA {tna}% con imputación FIFO
+                Interés TNA {tna}% | Regla FIFO a capital e intereses
               </span>
             </div>
 
@@ -726,13 +1126,14 @@ export default function Contaduria() {
                   ) : (
                     movimientos.map((m) => {
                       const isPago = m.tipo === 'PAGO';
+                      const isNC = m.tipo === 'NOTA_CREDITO';
                       return (
                         <tr key={m.id} style={{ borderBottom: '1px solid var(--border-light)' }}>
                           <td style={{ padding: '10px 12px', fontWeight: 700 }}>{m.fecha}</td>
                           <td style={{ padding: '10px 12px' }}>
                             <span style={{
-                              background: isPago ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                              color: isPago ? '#10b981' : '#ef4444',
+                              background: isPago || isNC ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                              color: isPago || isNC ? '#10b981' : '#ef4444',
                               padding: '3px 8px', borderRadius: '6px', fontWeight: 800, fontSize: '10px'
                             }}>
                               {m.tipo}
@@ -742,7 +1143,7 @@ export default function Contaduria() {
                             <div style={{ fontWeight: 700 }}>{m.empresa || 'GENERAL'}</div>
                             <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{m.observaciones || ''}</div>
                           </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: isPago ? '#10b981' : 'var(--text-primary)' }}>
+                          <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: isPago || isNC ? '#10b981' : 'var(--text-primary)' }}>
                             {formatMoney(m.importe)}
                           </td>
                           <td style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--text-secondary)' }}>
@@ -774,16 +1175,16 @@ export default function Contaduria() {
         </div>
       )}
 
-      {/* TAB 3: PERÍODOS LIQUIDADOS POR GRUPO */}
-      {activeTab === 'periodos' && (
+      {/* PESTAÑA 4: LÍNEAS TELEFÓNICAS ASOCIADAS AL GRUPO */}
+      {activeTab === 'lineas' && (
         <div className="bento-card" style={{ padding: '24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
             <div>
               <h3 style={{ fontSize: '18px', fontWeight: 900, margin: 0 }}>
-                Períodos Liquidados y Facturados para Grupo #{selectedGrupo}
+                Líneas Telefónicas Registradas (Grupo #{selectedGrupo})
               </h3>
               <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>
-                Sincronización en tiempo real entre Facturación, Auditoría y Liquidaciones.
+                Administración de planes y asignación de socios para el grupo activo.
               </p>
             </div>
 
@@ -805,53 +1206,46 @@ export default function Contaduria() {
             <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '13px' }}>
               <thead>
                 <tr style={{ background: 'rgba(0,0,0,0.02)', textAlign: 'left' }}>
-                  <th style={{ padding: '12px 16px' }}>PERÍODO</th>
+                  <th style={{ padding: '12px 16px' }}>LÍNEA TELEFÓNICA</th>
+                  <th style={{ padding: '12px 16px' }}>SOCIO RESPONSABLE</th>
                   <th style={{ padding: '12px 16px' }}>OPERADORA</th>
-                  <th style={{ padding: '12px 16px' }}>LÍNEAS LOTE</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>FACTURADO SOCIO</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>ABONADO</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>MARGEN AUNAR</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'center' }}>ESTADO PAGO</th>
+                  <th style={{ padding: '12px 16px' }}>PLAN CONTRATADO</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>VALOR OFICIAL</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'center' }}>ESTADO LÍNEA</th>
                 </tr>
               </thead>
               <tbody>
-                {loadingLiquidaciones ? (
+                {loadingLineas ? (
                   <tr>
-                    <td colSpan="7" style={{ textAlign: 'center', padding: '30px' }}>
+                    <td colSpan="6" style={{ textAlign: 'center', padding: '30px' }}>
                       <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto', color: 'var(--accent)' }} />
                     </td>
                   </tr>
-                ) : liquidacionesGrupo.length === 0 ? (
+                ) : lineasGrupo.length === 0 ? (
                   <tr>
-                    <td colSpan="7" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary)' }}>
-                      Este grupo no posee liquidaciones generadas todavía.
+                    <td colSpan="6" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary)' }}>
+                      No hay líneas móviles asignadas a este grupo actualmente.
                     </td>
                   </tr>
                 ) : (
-                  liquidacionesGrupo.map(l => {
-                    const isAbonado = l.estado_pago === 'ABONADO';
-                    const isParcial = l.estado_pago === 'PARCIAL';
-
-                    return (
-                      <tr key={l.liquidacion_id} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                        <td style={{ padding: '12px 16px', fontWeight: 900 }}>{l.periodo}</td>
-                        <td style={{ padding: '12px 16px', fontWeight: 700 }}>{l.proveedores?.nombre || 'N/D'}</td>
-                        <td style={{ padding: '12px 16px' }}>{l.total_lineas_lote || 1} líneas</td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 800 }}>{formatMoney(l.monto_total_facturado)}</td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 800, color: 'var(--accent)' }}>{formatMoney(l.monto_abonado || 0)}</td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#059669' }}>{formatMoney(l.beneficio_aunar || 0)}</td>
-                        <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                          <span style={{
-                            background: isAbonado ? 'rgba(16, 185, 129, 0.1)' : isParcial ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                            color: isAbonado ? '#10b981' : isParcial ? '#f59e0b' : '#ef4444',
-                            padding: '4px 10px', borderRadius: '8px', fontWeight: 900, fontSize: '11px'
-                          }}>
-                            {l.estado_pago || 'PENDIENTE'}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })
+                  lineasGrupo.map(l => (
+                    <tr key={l.numero_linea} style={{ borderBottom: '1px solid var(--border-light)' }}>
+                      <td style={{ padding: '12px 16px', fontWeight: 900 }}>{l.numero_linea}</td>
+                      <td style={{ padding: '12px 16px', fontWeight: 700 }}>{l.socios?.nombre_completo || 'Sin socio asignado'}</td>
+                      <td style={{ padding: '12px 16px', fontWeight: 700 }}>{l.proveedores?.nombre || 'N/D'}</td>
+                      <td style={{ padding: '12px 16px' }}>{l.planes_abonos?.nombre_plan || 'Plan Estándar'}</td>
+                      <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 800 }}>{formatMoney(l.planes_abonos?.precio_oficial || 0)}</td>
+                      <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                        <span style={{
+                          background: l.estado === 'ACTIVA' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                          color: l.estado === 'ACTIVA' ? '#10b981' : '#ef4444',
+                          padding: '4px 10px', borderRadius: '8px', fontWeight: 900, fontSize: '11px'
+                        }}>
+                          {l.estado || 'ACTIVA'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
@@ -859,9 +1253,15 @@ export default function Contaduria() {
         </div>
       )}
 
-      {/* MODAL COBRO FIFO */}
-      <Modal isOpen={cobroModalOpen} onClose={() => setCobroModalOpen(false)} title={`Registrar Cobro - Grupo #${selectedGrupo}`} maxWidth="600px">
+      {/* MODAL COBRO FIFO / FACTURA ESPECÍFICA */}
+      <Modal isOpen={cobroModalOpen} onClose={() => setCobroModalOpen(false)} title={targetFactura ? `Imputar Cobro a Factura ${targetFactura.periodo} - Grupo #${selectedGrupo}` : `Registrar Cobro - Grupo #${selectedGrupo}`} maxWidth="600px">
         <form onSubmit={handleConfirmarCobro} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {targetFactura && (
+            <div style={{ background: 'var(--accent-light)', color: 'var(--accent)', padding: '12px 16px', borderRadius: '12px', fontSize: '13px', fontWeight: 700 }}>
+              Factura Seleccionada: Período {targetFactura.periodo} ({targetFactura.proveedores?.nombre || 'MUTUAL'}) — Total: {formatMoney(targetFactura.monto_total_facturado)} | Abonado: {formatMoney(targetFactura.monto_abonado || 0)}
+            </div>
+          )}
+
           <div>
             <label className="form-label">Fecha del Pago</label>
             <input 
@@ -903,10 +1303,10 @@ export default function Contaduria() {
           </div>
 
           <div>
-            <label className="form-label">Observaciones / Referencia</label>
+            <label className="form-label">Observaciones / Referencia Contable</label>
             <input 
               type="text" 
-              placeholder="Ej: Nro de Comprobante / Transferencia Banco" 
+              placeholder="Ej: Nro de Transferencia Banco / Recibo Xubio" 
               value={observacionesCobro} 
               onChange={(e) => setObservacionesCobro(e.target.value)} 
               className="form-input" 
@@ -952,6 +1352,57 @@ export default function Contaduria() {
               style={{ flex: 1, padding: '12px', fontWeight: 800 }}
             >
               {procesandoCobro ? <Loader2 size={18} className="animate-spin" /> : 'Confirmar Cobro'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* MODAL NOTA DE CRÉDITO / AJUSTE CONTABLE */}
+      <Modal isOpen={ajusteModalOpen} onClose={() => setAjusteModalOpen(false)} title={`Emitir Ajuste Contable - Grupo #${selectedGrupo}`} maxWidth="500px">
+        <form onSubmit={handleConfirmarAjuste} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div>
+            <label className="form-label">Tipo de Ajuste Contable</label>
+            <select 
+              value={tipoAjuste} 
+              onChange={(e) => setTipoAjuste(e.target.value)} 
+              className="form-input"
+            >
+              <option value="CREDITO">Nota de Crédito (Disminuye Deuda / Descuento)</option>
+              <option value="DEBITO">Nota de Débito (Aumenta Deuda / Recargo)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="form-label">Monto del Ajuste ($)</label>
+            <input 
+              type="number" 
+              step="0.01" 
+              placeholder="0.00" 
+              value={montoAjuste} 
+              onChange={(e) => setMontoAjuste(e.target.value)} 
+              className="form-input" 
+              required 
+            />
+          </div>
+
+          <div>
+            <label className="form-label">Concepto / Motivo Contable</label>
+            <input 
+              type="text" 
+              placeholder="Ej: Bonificación especial por reclamo de servicio" 
+              value={conceptoAjuste} 
+              onChange={(e) => setConceptoAjuste(e.target.value)} 
+              className="form-input" 
+              required 
+            />
+          </div>
+
+          <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+            <button type="button" onClick={() => setAjusteModalOpen(false)} className="air-btn" style={{ flex: 1 }}>
+              Cancelar
+            </button>
+            <button type="submit" disabled={procesandoAjuste} className="air-btn-primary" style={{ flex: 1, fontWeight: 800 }}>
+              {procesandoAjuste ? <Loader2 size={16} className="animate-spin" /> : 'Aplicar Ajuste'}
             </button>
           </div>
         </form>
