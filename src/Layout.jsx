@@ -270,7 +270,7 @@ export default function Layout({ session, theme, toggleTheme }) {
     { id: 'general', paths: ['/', '/tareas', '/log-diario', '/ingreso-diario'] },
     { id: 'mgmt', paths: ['/comunidad?tab=socios', '/comunidad?tab=grupos', '/comunidad?tab=planes', '/comunidad?tab=descuentos'] },
     { id: 'facturacion', paths: ['/facturacion', '/comprobantes-afip', '/gestion-pagos', '/carga-manual'] },
-    { id: 'bancos', paths: ['/contaduria', '/cuenta-corriente', '/informe-saldos', '/conciliacion-bancaria', '/movimientos-bancarios'] },
+    { id: 'bancos', paths: ['/contaduria', '/conciliacion-bancaria', '/movimientos-bancarios'] },
     { id: 'comunicacion', paths: ['/campanas'] },
   ];
 
@@ -286,8 +286,6 @@ export default function Layout({ session, theme, toggleTheme }) {
     '/comunidad': 'Socios',
     '/socios': 'Socios',
     '/contaduria': 'Gestión de Contaduría',
-    '/cuenta-corriente': 'Gestión de Contaduría',
-    '/informe-saldos': 'Estado General de Saldos',
     '/facturacion': 'Centro de Cobranzas',
     '/comprobantes-afip': 'Comprobantes y AFIP',
     '/gestion-pagos': 'Auditoría',
