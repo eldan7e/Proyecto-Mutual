@@ -213,6 +213,7 @@ export default function Contaduria() {
           .from('movimientos_cuenta')
           .select('id, numero_grupo, nombre, empresa, fecha, periodo, importe')
           .eq('tipo', 'FACTURA')
+          .gt('importe', 0)
           .order('fecha', { ascending: false })
           .range(offset, offset + limit - 1);
 
@@ -245,7 +246,7 @@ export default function Contaduria() {
 
       // Fusionar los periodos que no estén en liquidaciones_grupos
       for (const [key, mf] of Object.entries(movsFactMap)) {
-        if (!mapComprobantes[key]) {
+        if (!mapComprobantes[key] && mf.monto_total_facturado > 0) {
           mapComprobantes[key] = {
             liquidacion_id: `HIST-${mf.numero_grupo}-${mf.periodo}`,
             numero_grupo: mf.numero_grupo,
@@ -261,10 +262,12 @@ export default function Contaduria() {
         }
       }
 
-      const listaCompleta = Object.values(mapComprobantes).sort((a, b) => {
-        if (b.periodo !== a.periodo) return b.periodo.localeCompare(a.periodo);
-        return a.numero_grupo - b.numero_grupo;
-      });
+      const listaCompleta = Object.values(mapComprobantes)
+        .filter(l => l.monto_total_facturado > 0)
+        .sort((a, b) => {
+          if (b.periodo !== a.periodo) return b.periodo.localeCompare(a.periodo);
+          return a.numero_grupo - b.numero_grupo;
+        });
 
       setLiquidacionesAll(listaCompleta);
     } catch (err) {
