@@ -75,7 +75,7 @@ export async function fetchGruposUnicos() {
   // 1. Cargar desde grupo_socio (prioridad a titulares)
   (gsData || []).forEach(row => {
     const g = row.numero_grupo;
-    if (g !== null && g !== undefined) {
+    if (g !== null && g !== undefined && g !== 0) {
       if (!mapa[g] || (row.es_titular && row.socios?.nombre_completo)) {
         mapa[g] = {
           numero_grupo: g,
@@ -88,7 +88,7 @@ export async function fetchGruposUnicos() {
   // 2. Cargar desde lineas
   (lineasData || []).forEach(row => {
     const g = row.numero_grupo;
-    if (g !== null && g !== undefined && !mapa[g]) {
+    if (g !== null && g !== undefined && g !== 0 && !mapa[g]) {
       mapa[g] = {
         numero_grupo: g,
         nombre: row.socios?.nombre_completo || `Grupo ${g}`
@@ -99,7 +99,7 @@ export async function fetchGruposUnicos() {
   // 3. Cargar desde movimientos_cuenta
   (mcData || []).forEach(row => {
     const g = row.numero_grupo;
-    if (g !== null && g !== undefined) {
+    if (g !== null && g !== undefined && g !== 0) {
       if (!mapa[g]) {
         mapa[g] = {
           numero_grupo: g,
@@ -174,6 +174,7 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
   const movPorGrupo = {};
   allData.forEach(mov => {
     const g = mov.numero_grupo;
+    if (g === 0 || g === null || g === undefined) return;
     if (!movPorGrupo[g]) {
       movPorGrupo[g] = [];
     }

@@ -488,6 +488,8 @@ export default function Contaduria() {
   // --- FILTRADO DE COMPROBANTES / FACTURAS ESTILO XUBIO ---
   const facturasFiltradas = useMemo(() => {
     return liquidacionesAll.filter(l => {
+      if (l.numero_grupo === 0) return false;
+
       // Filtro por Estado
       const totalFact = Number(l.monto_total_facturado || 0);
       const abonado = Number(l.monto_abonado || 0);
@@ -511,12 +513,32 @@ export default function Contaduria() {
         const matchGrupo = String(l.numero_grupo).includes(s);
         const matchSocio = (l.socios?.nombre_completo || '').toLowerCase().includes(s);
         const matchPeriodo = (l.periodo || '').toLowerCase().includes(s);
-        if (!matchGrupo && !matchSocio && !matchPeriodo) return false;
+        const matchOp = opNombre.toLowerCase().includes(s);
+        if (!matchGrupo && !matchSocio && !matchPeriodo && !matchOp) return false;
       }
 
       return true;
     });
   }, [liquidacionesAll, estadoFilter, operadoraFilter, searchGrupo]);
+
+  // --- FILTRADO DE SALDOS / CUENTAS CORRIENTES ---
+  const saldosFiltrados = useMemo(() => {
+    return saldosData.filter(row => {
+      if (row.numero_grupo === 0) return false;
+
+      if (soloDeudores && row.saldoFinalUltimo <= 5) return false;
+
+      if (searchGrupo.trim()) {
+        const s = searchGrupo.toLowerCase().trim();
+        const matchGrupo = String(row.numero_grupo).includes(s);
+        const matchNombre = (row.nombre || '').toLowerCase().includes(s);
+        const matchEmpresas = (row.empresas || '').toLowerCase().includes(s);
+        if (!matchGrupo && !matchNombre && !matchEmpresas) return false;
+      }
+
+      return true;
+    });
+  }, [saldosData, soloDeudores, searchGrupo]);
 
   // --- CÁLCULO DE KPIs GLOBALES ---
   const statsGlobales = useMemo(() => {
@@ -683,7 +705,7 @@ export default function Contaduria() {
           className={`nav-pill ${activeTab === 'saldos' ? 'active' : ''}`}
           style={{ border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontWeight: 700 }}
         >
-          <Building size={16} /> Cuentas Corrientes y Saldos ({saldosData.length})
+          <Building size={16} /> Cuentas Corrientes y Saldos ({saldosFiltrados.length})
         </button>
         <button
           onClick={() => setActiveTab('extracto')}
@@ -951,14 +973,14 @@ export default function Contaduria() {
                       <div style={{ marginTop: '10px', color: 'var(--text-secondary)' }}>Recalculando cuentas corrientes en vivo...</div>
                     </td>
                   </tr>
-                ) : saldosData.length === 0 ? (
+                ) : saldosFiltrados.length === 0 ? (
                   <tr>
                     <td colSpan="9" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
                       No se encontraron cuentas o grupos para los filtros seleccionados.
                     </td>
                   </tr>
                 ) : (
-                  saldosData.map((row) => {
+                  saldosFiltrados.map((row) => {
                     const isDeudor = row.saldoFinalUltimo > 5;
                     const isCredito = row.saldoFinalUltimo < -5;
 
