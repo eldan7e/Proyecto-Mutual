@@ -316,17 +316,36 @@ export default function Contaduria() {
   }
 
   async function loadLineasGrupo(numeroGrupo) {
+    if (!numeroGrupo) {
+      setLineasGrupo([]);
+      return;
+    }
     setLoadingLineas(true);
     try {
+      // 1. Obtener socios del grupo desde v_socios_busqueda y grupo_socio
+      const { data: sociosGrupo } = await supabase
+        .from('v_socios_busqueda')
+        .select('socio_id')
+        .filter('grupo_codigo_str', 'imatch', '\\y' + numeroGrupo + '\\y');
+
+      const socioIds = (sociosGrupo || []).map(s => s.socio_id).filter(Boolean);
+
+      // 2. Armar filtro OR para traer lineas por numero_grupo O por socio_id del grupo
+      let orConds = [`numero_grupo.eq.${numeroGrupo}`];
+      if (socioIds.length > 0) {
+        orConds.push(`socio_id.in.(${socioIds.join(',')})`);
+      }
+
       const { data, error } = await supabase
         .from('lineas')
-        .select('*, proveedores:proveedor_id(nombre), socios:socio_id(nombre_completo), planes_abonos:plan_id(nombre_plan, precio_oficial)')
-        .eq('numero_grupo', numeroGrupo);
+        .select('*, proveedores:proveedor_id(nombre), socios:socio_id(nombre_completo), planes_abonos:plan_id(nombre_plan, precio)')
+        .or(orConds.join(','));
 
       if (error) throw error;
       setLineasGrupo(data || []);
     } catch (err) {
       console.error('Error al cargar líneas del grupo:', err);
+      setLineasGrupo([]);
     } finally {
       setLoadingLineas(false);
     }
@@ -1429,7 +1448,7 @@ export default function Contaduria() {
                       <td style={{ padding: '12px 16px', fontWeight: 700 }}>{l.socios?.nombre_completo || 'Sin socio asignado'}</td>
                       <td style={{ padding: '12px 16px', fontWeight: 700 }}>{l.proveedores?.nombre || 'N/D'}</td>
                       <td style={{ padding: '12px 16px' }}>{l.planes_abonos?.nombre_plan || 'Plan Estándar'}</td>
-                      <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 800 }}>{formatMoney(l.planes_abonos?.precio_oficial || 0)}</td>
+                      <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 800 }}>{formatMoney(l.planes_abonos?.precio || 0)}</td>
                       <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                         <span style={{
                           background: l.estado === 'ACTIVA' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
