@@ -569,10 +569,43 @@ export default function Contaduria() {
     }
   }
 
+  // Filtro de Período y Paginación para Facturas
+  const [periodoFilter, setPeriodoFilter] = useState('AUTO');
+  const [currentPageFacturas, setCurrentPageFacturas] = useState(1);
+  const pageSizeFacturas = 50;
+
+  // Lista de períodos de facturación disponibles ordenados de más reciente a más antiguo
+  const periodosDisponibles = useMemo(() => {
+    const pSet = new Set();
+    liquidacionesAll.forEach(l => {
+      if (l.periodo) pSet.add(l.periodo);
+    });
+    return Array.from(pSet).sort().reverse();
+  }, [liquidacionesAll]);
+
+  // Reset página cuando cambian los filtros
+  useEffect(() => {
+    setCurrentPageFacturas(1);
+  }, [searchGrupo, estadoFilter, operadoraFilter, periodoFilter]);
+
   // --- FILTRADO DE COMPROBANTES / FACTURAS ESTILO XUBIO ---
   const facturasFiltradas = useMemo(() => {
+    const hasSearch = Boolean(searchGrupo.trim());
+    let targetPeriod = null;
+
+    if (!hasSearch) {
+      if (periodoFilter === 'AUTO') {
+        targetPeriod = periodosDisponibles.length > 0 ? periodosDisponibles[0] : null;
+      } else if (periodoFilter !== 'TODOS') {
+        targetPeriod = periodoFilter;
+      }
+    }
+
     return liquidacionesAll.filter(l => {
       if (l.numero_grupo === 0) return false;
+
+      // Filtro por Período (si no hay término de búsqueda activo)
+      if (targetPeriod && l.periodo !== targetPeriod) return false;
 
       // Filtro por Estado
       const totalFact = Number(l.monto_total_facturado || 0);
@@ -591,8 +624,8 @@ export default function Contaduria() {
       const opNombre = (l.proveedores?.nombre || '').toUpperCase();
       if (operadoraFilter !== 'TODAS' && opNombre !== operadoraFilter) return false;
 
-      // Buscador
-      if (searchGrupo.trim()) {
+      // Buscador (Sobrescribe filtro de período para buscar en todos los períodos del grupo)
+      if (hasSearch) {
         const s = searchGrupo.toLowerCase().trim();
         const matchGrupo = String(l.numero_grupo).includes(s);
         const matchSocio = (l.socios?.nombre_completo || '').toLowerCase().includes(s);
@@ -603,7 +636,14 @@ export default function Contaduria() {
 
       return true;
     });
-  }, [liquidacionesAll, estadoFilter, operadoraFilter, searchGrupo]);
+  }, [liquidacionesAll, estadoFilter, operadoraFilter, searchGrupo, periodoFilter, periodosDisponibles]);
+
+  const totalPagesFacturas = Math.ceil(facturasFiltradas.length / pageSizeFacturas) || 1;
+
+  const facturasPaginadas = useMemo(() => {
+    const start = (currentPageFacturas - 1) * pageSizeFacturas;
+    return facturasFiltradas.slice(start, start + pageSizeFacturas);
+  }, [facturasFiltradas, currentPageFacturas]);
 
   // --- FILTRADO DE SALDOS / CUENTAS CORRIENTES ---
   const saldosFiltrados = useMemo(() => {
@@ -848,8 +888,21 @@ export default function Contaduria() {
               ))}
             </div>
 
-            {/* FILTRO OPERADORA + BUSCADOR */}
+            {/* FILTRO OPERADORA + PERÍODO + BUSCADOR */}
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <select
+                value={periodoFilter}
+                onChange={(e) => setPeriodoFilter(e.target.value)}
+                className="premium-input"
+                style={{ fontSize: '12px', padding: '8px 12px', height: '40px', fontWeight: 800 }}
+              >
+                <option value="AUTO">Último Período ({periodosDisponibles[0] || 'Actual'})</option>
+                <option value="TODOS">Todos los Períodos</option>
+                {periodosDisponibles.map(p => (
+                  <option key={p} value={p}>Período {p}</option>
+                ))}
+              </select>
+
               <select
                 value={operadoraFilter}
                 onChange={(e) => setOperadoraFilter(e.target.value)}
@@ -915,7 +968,7 @@ export default function Contaduria() {
                     </td>
                   </tr>
                 ) : (
-                  facturasFiltradas.map((liq) => {
+                  facturasPaginadas.map((liq) => {
                     const totalFact = Number(liq.monto_total_facturado || 0);
                     const abonado = Number(liq.monto_abonado || 0);
                     const pendiente = Math.max(0, totalFact - abonado);
@@ -1001,6 +1054,36 @@ export default function Contaduria() {
               </tbody>
             </table>
           </div>
+
+          {/* CONTROLES DE PAGINACIÓN */}
+          {facturasFiltradas.length > pageSizeFacturas && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--border-light)', flexWrap: 'wrap', gap: '12px' }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                Mostrando {((currentPageFacturas - 1) * pageSizeFacturas) + 1} - {Math.min(currentPageFacturas * pageSizeFacturas, facturasFiltradas.length)} de {facturasFiltradas.length} comprobantes
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button
+                  disabled={currentPageFacturas === 1}
+                  onClick={() => setCurrentPageFacturas(p => Math.max(1, p - 1))}
+                  className="air-btn"
+                  style={{ padding: '6px 14px', fontSize: '12px', fontWeight: 700, opacity: currentPageFacturas === 1 ? 0.5 : 1 }}
+                >
+                  Anterior
+                </button>
+                <span style={{ fontSize: '12px', fontWeight: 800, padding: '0 8px' }}>
+                  Página {currentPageFacturas} de {totalPagesFacturas}
+                </span>
+                <button
+                  disabled={currentPageFacturas >= totalPagesFacturas}
+                  onClick={() => setCurrentPageFacturas(p => Math.min(totalPagesFacturas, p + 1))}
+                  className="air-btn"
+                  style={{ padding: '6px 14px', fontSize: '12px', fontWeight: 700, opacity: currentPageFacturas >= totalPagesFacturas ? 0.5 : 1 }}
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
