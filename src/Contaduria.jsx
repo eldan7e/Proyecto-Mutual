@@ -1254,8 +1254,60 @@ export default function Contaduria() {
       )}
 
       {/* MODAL COBRO FIFO / FACTURA ESPECÍFICA */}
-      <Modal isOpen={cobroModalOpen} onClose={() => setCobroModalOpen(false)} title={targetFactura ? `Imputar Cobro a Factura ${targetFactura.periodo} - Grupo #${selectedGrupo}` : `Registrar Cobro - Grupo #${selectedGrupo}`} maxWidth="600px">
+      <Modal 
+        isOpen={cobroModalOpen} 
+        onClose={() => setCobroModalOpen(false)} 
+        title={targetFactura ? `Imputar Cobro a Factura ${targetFactura.periodo} - Grupo #${selectedGrupo}` : `Registrar Cobro ${selectedGrupo ? `- Grupo #${selectedGrupo}` : ''}`} 
+        maxWidth="600px"
+      >
         <form onSubmit={handleConfirmarCobro} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          
+          {/* SELECTOR DE GRUPO / SOCIO */}
+          <div>
+            <label className="form-label">Seleccionar Grupo / Socio Titular</label>
+            <select 
+              value={selectedGrupo || ''} 
+              onChange={(e) => {
+                const gNum = Number(e.target.value);
+                setSelectedGrupo(gNum);
+              }}
+              className="form-input"
+              style={{ fontWeight: 800 }}
+              required
+            >
+              <option value="" disabled>-- Seleccione un Grupo o Socio --</option>
+              {gruposList.map(g => (
+                <option key={g.numero_grupo} value={g.numero_grupo}>
+                  Grupo #{g.numero_grupo} - {g.nombre}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* TARJETA DE RESUMEN DE DEUDA DEL GRUPO */}
+          {selectedGrupo && (
+            <div style={{ background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', padding: '14px 18px', borderRadius: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                  DEUDA TOTAL GRUPO #{selectedGrupo} ({titularSeleccionadoInfo?.nombre || ''})
+                </div>
+                <div style={{ fontSize: '18px', fontWeight: 900, color: (ultimoMovGrupo?.saldo_final || 0) > 5 ? '#ef4444' : 'var(--accent)' }}>
+                  {formatMoney(ultimoMovGrupo?.saldo_final || 0)}
+                </div>
+              </div>
+              {(ultimoMovGrupo?.saldo_final || 0) > 0 && (
+                <button 
+                  type="button" 
+                  onClick={() => setMontoCobro(String((ultimoMovGrupo?.saldo_final || 0).toFixed(2)))} 
+                  className="air-btn"
+                  style={{ padding: '8px 14px', fontSize: '12px', fontWeight: 800, background: 'var(--accent-light)', color: 'var(--accent)', borderRadius: '10px' }}
+                >
+                  Cargar Deuda Total
+                </button>
+              )}
+            </div>
+          )}
+
           {targetFactura && (
             <div style={{ background: 'var(--accent-light)', color: 'var(--accent)', padding: '12px 16px', borderRadius: '12px', fontSize: '13px', fontWeight: 700 }}>
               Factura Seleccionada: Período {targetFactura.periodo} ({targetFactura.proveedores?.nombre || 'MUTUAL'}) — Total: {formatMoney(targetFactura.monto_total_facturado)} | Abonado: {formatMoney(targetFactura.monto_abonado || 0)}
@@ -1358,8 +1410,33 @@ export default function Contaduria() {
       </Modal>
 
       {/* MODAL NOTA DE CRÉDITO / AJUSTE CONTABLE */}
-      <Modal isOpen={ajusteModalOpen} onClose={() => setAjusteModalOpen(false)} title={`Emitir Ajuste Contable - Grupo #${selectedGrupo}`} maxWidth="500px">
+      <Modal 
+        isOpen={ajusteModalOpen} 
+        onClose={() => setAjusteModalOpen(false)} 
+        title={`Emitir Ajuste Contable ${selectedGrupo ? `- Grupo #${selectedGrupo}` : ''}`} 
+        maxWidth="500px"
+      >
         <form onSubmit={handleConfirmarAjuste} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          
+          {/* SELECTOR DE GRUPO / SOCIO */}
+          <div>
+            <label className="form-label">Seleccionar Grupo / Socio Titular</label>
+            <select 
+              value={selectedGrupo || ''} 
+              onChange={(e) => setSelectedGrupo(Number(e.target.value))}
+              className="form-input"
+              style={{ fontWeight: 800 }}
+              required
+            >
+              <option value="" disabled>-- Seleccione un Grupo o Socio --</option>
+              {gruposList.map(g => (
+                <option key={g.numero_grupo} value={g.numero_grupo}>
+                  Grupo #{g.numero_grupo} - {g.nombre}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <label className="form-label">Tipo de Ajuste Contable</label>
             <select 
