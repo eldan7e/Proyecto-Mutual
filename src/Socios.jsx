@@ -149,45 +149,39 @@ export default function Socios({ hideHeader = false }) {
   async function fetchSocios() {
     setLoading(true);
     try {
-      let uniqueGroups = [];
       const term = debouncedSearch.trim();
-
-      if (term) {
-        // 1. Fetch matching partners first to get their group numbers (safe from RLS)
-        const { data: firstResults } = await supabase
-          .from('v_socios_busqueda')
-          .select('grupo_socio, lineas, search_text')
-          .ilike('search_text', `%${term}%`);
-        
-        const termClean = term.replace(/\D/g, '');
-        const groupIds = [];
-        firstResults?.forEach(s => {
-          const hasExactGroupMatch = termClean && s.grupo_socio?.some(g => String(g.numero_grupo) === termClean);
-          const hasExactLineMatch = termClean && s.lineas?.some(l => (l.numero_linea || '').replace(/\D/g, '') === termClean);
-          
-          if (hasExactGroupMatch || hasExactLineMatch) {
-            s.grupo_socio?.forEach(g => {
-              if (g.numero_grupo) groupIds.push(g.numero_grupo);
-            });
-          }
-        });
-        uniqueGroups = [...new Set(groupIds)];
-      }
 
       let query = supabase
         .from('v_socios_busqueda')
         .select('*', { count: 'exact' });
 
-      // Apply Search Filter
+      // Apply Smart Search Filter
       if (term) {
-        if (uniqueGroups.length > 0) {
-          let orConditions = [`search_text.ilike.%${term.toLowerCase()}%`];
-          uniqueGroups.forEach(g => {
-            orConditions.push(`grupo_codigo_str.imatch.\\y${g}\\y`);
-          });
+        const isNumeric = /^\d+$/.test(term);
+
+        if (isNumeric) {
+          const orConditions = [
+            `grupo_codigo_str.imatch.\\y${term}\\y`,
+            `dni.ilike.%${term}%`,
+            `cuit.ilike.%${term}%`,
+            `nombre_completo.ilike.%${term}%`,
+            `codigo_lex.ilike.%${term}%`
+          ];
+
+          const parsedNum = parseInt(term, 10);
+          if (!isNaN(parsedNum)) {
+            orConditions.push(`nro_socio.eq.${parsedNum}`);
+          }
+
+          // Solo buscar dentro de search_text (líneas/teléfonos) para búsquedas numéricas de 6+ dígitos
+          if (term.length >= 6) {
+            orConditions.push(`search_text.ilike.%${term}%`);
+          }
+
           query = query.or(orConditions.join(','));
         } else {
-          query = query.ilike('search_text', `%${term.toLowerCase()}%`);
+          // Búsqueda por texto (nombres, email, código lex)
+          query = query.or(`nombre_completo.ilike.%${term}%,email.ilike.%${term}%,codigo_lex.ilike.%${term}%,search_text.ilike.%${term}%`);
         }
       }
 
