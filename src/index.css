@@ -1363,3 +1363,18 @@ input[type="month"].no-calendar-icon::-webkit-calendar-picker-indicator {
   box-shadow: var(--shadow-premium);
   border-color: var(--accent);
 }
+
+/* Prevenir scroll encadenado al fondo de pantalla cuando hay modales o menús activos */
+body:has(.modal-container),
+body:has([role="dialog"]),
+body.modal-open {
+  overflow: hidden !important;
+  overscroll-behavior: contain !important;
+}
+
+.modal-container,
+.glass-panel-sub,
+.air-card,
+[role="dialog"] {
+  overscroll-behavior: contain;
+}

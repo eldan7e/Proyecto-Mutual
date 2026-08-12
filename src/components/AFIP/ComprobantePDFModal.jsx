@@ -2,8 +2,10 @@ import { useRef, useState, useEffect } from 'react';
 import { Printer, Download, X, CheckCircle2, ShieldCheck, FileText, Smartphone } from 'lucide-react';
 import { formatMoney } from '../../utils/cuentaCorrienteEngine';
 import { supabase } from '../../supabaseClient';
+import useBodyScrollLock from '../../hooks/useBodyScrollLock';
 
 export default function ComprobantePDFModal({ comprobante, onClose }) {
+  useBodyScrollLock(!!comprobante);
   const printRef = useRef();
   const [lineasReceptor, setLineasReceptor] = useState(comprobante?.lineas || []);
 
@@ -84,7 +86,7 @@ export default function ComprobantePDFModal({ comprobante, onClose }) {
       position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
       background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)',
       display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000,
-      padding: '20px'
+      padding: '20px', overscrollBehavior: 'contain'
     }}>
       <style>{`
         @media print {

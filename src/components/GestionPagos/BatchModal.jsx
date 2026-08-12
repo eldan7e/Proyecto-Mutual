@@ -1,13 +1,14 @@
 import { useState } from 'react';
-import { X, Settings2, DollarSign, RefreshCw } from 'lucide-react';
-import { Loader2, CheckCircle2 } from 'lucide-react';
+import { X, Settings2, DollarSign, RefreshCw, Loader2, CheckCircle2 } from 'lucide-react';
+import useBodyScrollLock from '../../hooks/useBodyScrollLock';
 
 export default function BatchModal({ isPeriodoLiquidado, selectedPeriodo, initialBatchPlans, onSave, onClose, isSaving, handleLoadPreviousPeriodPrices }) {
+  useBodyScrollLock(true);
   const [batchPlans, setBatchPlans] = useState(initialBatchPlans);
   const [globalTarifaAunar, setGlobalTarifaAunar] = useState('');
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, overscrollBehavior: 'contain' }}>
       <div className="glass-panel-sub" style={{ width: '560px', padding: '24px', borderRadius: '24px', position: 'relative', background: 'var(--modal-bg)' }}>
         <button onClick={onClose} style={{ position: 'absolute', right: '20px', top: '20px', background: 'none', border: 'none', cursor: 'pointer' }}><X size={20} color="var(--text-secondary)" /></button>
         

@@ -1,7 +1,10 @@
 import { X } from 'lucide-react';
 import { createPortal } from 'react-dom';
+import useBodyScrollLock from '../hooks/useBodyScrollLock';
 
 export default function Modal({ isOpen, onClose, title, children, maxWidth = '500px' }) {
+  useBodyScrollLock(isOpen);
+
   if (!isOpen) return null;
 
   return createPortal(
@@ -17,7 +20,8 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = '50
       alignItems: 'center',
       justifyContent: 'center',
       zIndex: 1000,
-      padding: '20px'
+      padding: '20px',
+      overscrollBehavior: 'contain'
     }}>
       <div className="bento-card modal-container" style={{
         maxWidth: maxWidth,
@@ -31,7 +35,8 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = '50
         backdropFilter: 'none',
         WebkitBackdropFilter: 'none',
         transform: 'none',
-        transition: 'none'
+        transition: 'none',
+        overscrollBehavior: 'contain'
       }}>
         <div style={{
           display: 'flex',

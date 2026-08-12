@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import { AlertTriangle, CheckCircle2, X } from 'lucide-react';
+import useBodyScrollLock from '../../hooks/useBodyScrollLock';
 
 const ConfirmContext = createContext(null);
 
@@ -14,6 +15,8 @@ export const ConfirmProvider = ({ children }) => {
     onCancel: null,
     isDanger: false,
   });
+
+  useBodyScrollLock(confirmState.isOpen);
 
   const confirm = useCallback((options) => {
     return new Promise((resolve) => {
@@ -40,7 +43,7 @@ export const ConfirmProvider = ({ children }) => {
     <ConfirmContext.Provider value={confirm}>
       {children}
       {confirmState.isOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000, overscrollBehavior: 'contain' }}>
           <div className="air-card animate-fade" style={{ width: '400px', padding: '32px', textAlign: 'center' }}>
             <div style={{ 
               width: '64px', height: '64px', borderRadius: '50%', margin: '0 auto 20px', display: 'flex', alignItems: 'center', justifyContent: 'center',
