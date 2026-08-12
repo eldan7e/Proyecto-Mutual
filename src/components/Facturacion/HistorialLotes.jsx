@@ -40,7 +40,7 @@ export default function HistorialLotes({ batches, navigate, setSearchParams, han
 
             <div style={{ background: 'rgba(0,0,0,0.02)', padding: '20px', borderRadius: '24px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-                <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)' }}>MARGEN DE GESTIÓN</span>
+                <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)' }}>MARGEN DE AUNAR</span>
                 <span style={{ fontSize: '12px', fontWeight: 900, color: 'var(--accent)' }}>{profitPercent.toFixed(1)}%</span>
               </div>
               <div style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text-primary)', marginBottom: '4px' }}>

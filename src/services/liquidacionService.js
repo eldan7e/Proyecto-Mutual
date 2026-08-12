@@ -107,7 +107,7 @@ export async function generarLiquidaciones({ lineasData, selectedPeriodo, select
     // Costo operadora = lo que realmente paga la mutual al proveedor (ya con descuento aplicado)
     const costoRealLinea = Number(row.costo_abono_real || 0) + Number(row.excedentes || 0);
     g.costo_operadora_neto += costoRealLinea;
-    // Margen de gestión = lo que cobra al socio - lo que paga al proveedor
+    // Margen de Aunar = lo que cobra al socio - lo que paga al proveedor
     g.beneficio_aunar += lineAdjustedTotal - costoRealLinea;
   });
 
