@@ -509,21 +509,6 @@ export default function Socios({ hideHeader = false }) {
             <div 
               className="glass-panel" 
               style={{ padding: '20px', borderRadius: '20px', cursor: 'pointer', transition: 'transform 0.2s' }}
-              onClick={() => setFilterPago('BC')}
-              onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-              onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)' }}>PAGO BANCO</span>
-                <CreditCard size={16} color="#8b5cf6" />
-              </div>
-              <div style={{ fontSize: '26px', fontWeight: 900 }}>{kpis.banco}</div>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>Débito automático</div>
-            </div>
-
-            <div 
-              className="glass-panel" 
-              style={{ padding: '20px', borderRadius: '20px', cursor: 'pointer', transition: 'transform 0.2s' }}
               onClick={() => setFilterGrupo('LIBRE')}
               onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
               onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
@@ -533,7 +518,7 @@ export default function Socios({ hideHeader = false }) {
                 <AlertCircle size={16} color="#f59e0b" />
               </div>
               <div style={{ fontSize: '26px', fontWeight: 900 }}>{kpis.sinGrupo}</div>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>Líneas individuales</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>Socios sin grupo asignado</div>
             </div>
           </div>
 
