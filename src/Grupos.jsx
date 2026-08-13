@@ -489,13 +489,14 @@ export default function Grupos() {
                     top: '100%',
                     left: 0,
                     right: 0,
-                    background: 'var(--modal-bg)',
-                    border: '1px solid var(--border-light)',
-                    borderRadius: '10px',
-                    boxShadow: 'var(--shadow-premium)',
-                    zIndex: 2000,
-                    marginTop: '4px',
-                    overflow: 'hidden'
+                    background: 'var(--modal-bg, #ffffff)',
+                    border: '2px solid var(--accent)',
+                    borderRadius: '12px',
+                    boxShadow: '0 14px 36px rgba(0, 0, 0, 0.25)',
+                    zIndex: 9999,
+                    marginTop: '6px',
+                    maxHeight: '220px',
+                    overflowY: 'auto'
                   }}>
                     {socioSuggestions.map((s) => (
                       <div
@@ -506,19 +507,21 @@ export default function Grupos() {
                           }
                         }}
                         style={{
-                          padding: '10px 14px',
+                          padding: '12px 16px',
                           cursor: 'pointer',
-                          fontSize: '12.5px',
+                          fontSize: '13px',
                           borderBottom: '1px solid var(--border-light)',
-                          background: 'var(--bg-app)',
+                          background: 'var(--modal-bg, #ffffff)',
                           color: 'var(--text-primary)',
-                          transition: 'background-color 0.2s'
+                          transition: 'background 0.15s ease'
                         }}
-                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--accent-light)'}
-                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-app)'}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--accent-light)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'var(--modal-bg, #ffffff)'}
                       >
-                        <div style={{ fontWeight: 700 }}>{s.nombre_completo}</div>
-                        <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Socio #{s.nro_socio || 'S/N'}</div>
+                        <div style={{ fontWeight: 800, color: 'var(--text-primary)' }}>{s.nombre_completo}</div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', fontWeight: 600 }}>
+                          Socio #{s.nro_socio || s.socio_id}
+                        </div>
                       </div>
                     ))}
                   </div>
