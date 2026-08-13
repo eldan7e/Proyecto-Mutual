@@ -25,7 +25,7 @@ export default function Socios({ hideHeader = false }) {
   const [selectedProvider, setSelectedProvider] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [totalRecords, setTotalRecords] = useState(0);
-  const [kpis, setKpis] = useState({ total: 0, conDto: 0, sinGrupo: 0, banco: 0, lineas: 0 });
+  const [kpis, setKpis] = useState({ total: 0, conDto: 0, sinGrupo: 0, banco: 0, lineasActivas: 0, lineasTotales: 0 });
 
   async function fetchKpis() {
     try {
@@ -37,7 +37,8 @@ export default function Socios({ hideHeader = false }) {
           conDto: data.con_dto,
           sinGrupo: data.sin_grupo,
           banco: data.banco,
-          lineas: data.lineas
+          lineasActivas: data.lineas_activas ?? data.lineas ?? 0,
+          lineasTotales: data.lineas_totales ?? data.lineas ?? 0
         });
       }
     } catch (err) {
@@ -360,7 +361,7 @@ export default function Socios({ hideHeader = false }) {
           numero_linea: numero_linea.trim(),
           socio_id: socioIdToUse,
           proveedor_id: proveedor_id ? parseInt(proveedor_id, 10) : null,
-          estado: 'Activa',
+          estado: 'ACTIVA',
           numero_grupo: numero_grupo ? parseInt(numero_grupo, 10) : null
         };
 
@@ -462,10 +463,10 @@ export default function Socios({ hideHeader = false }) {
       <div style={{ display: 'block' }}>
         <>
           {/* Dashboard Summary */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '32px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '32px' }}>
             <div 
               className="glass-panel" 
-              style={{ padding: '24px', borderRadius: '24px', borderLeft: '4px solid var(--accent)', cursor: 'pointer', transition: 'transform 0.2s' }}
+              style={{ padding: '20px', borderRadius: '20px', borderLeft: '4px solid var(--accent)', cursor: 'pointer', transition: 'transform 0.2s' }}
               onClick={() => {
                 setFilterGrupo('ALL');
                 setFilterGrupoNumero('');
@@ -477,60 +478,62 @@ export default function Socios({ hideHeader = false }) {
               onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
               onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                 <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)' }}>TOTAL SOCIOS</span>
                 <Users size={16} color="var(--accent)" />
               </div>
-              <div style={{ fontSize: '28px', fontWeight: 900 }}>{kpis.total}</div>
-              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Integrantes registrados</div>
+              <div style={{ fontSize: '26px', fontWeight: 900 }}>{kpis.total}</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>Integrantes registrados</div>
             </div>
 
-            <div className="glass-panel" style={{ padding: '24px', borderRadius: '24px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)' }}>CON DESCUENTOS</span>
-                <TrendingUp size={16} color="#3b82f6" />
+            <div className="glass-panel" style={{ padding: '20px', borderRadius: '20px', borderLeft: '4px solid #10b981' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)' }}>LÍNEAS ACTIVAS</span>
+                <Phone size={16} color="#10b981" />
               </div>
-              <div style={{ fontSize: '28px', fontWeight: 900 }}>{kpis.conDto}</div>
-              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Socios con tasa preferencial</div>
+              <div style={{ fontSize: '26px', fontWeight: 900, color: '#10b981' }}>{kpis.lineasActivas}</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>En servicio operativo</div>
+            </div>
+
+            <div className="glass-panel" style={{ padding: '20px', borderRadius: '20px', borderLeft: '4px solid #6366f1' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)' }}>LÍNEAS TOTALES</span>
+                <Hash size={16} color="#6366f1" />
+              </div>
+              <div style={{ fontSize: '26px', fontWeight: 900, color: '#6366f1' }}>{kpis.lineasTotales}</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                {kpis.lineasActivas} activas + {kpis.lineasTotales - kpis.lineasActivas} bajas
+              </div>
             </div>
 
             <div 
               className="glass-panel" 
-              style={{ padding: '24px', borderRadius: '24px', cursor: 'pointer', transition: 'transform 0.2s' }}
-              onClick={() => setFilterGrupo('LIBRE')}
-              onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-              onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)' }}>SIN GRUPO</span>
-                <AlertCircle size={16} color="#f59e0b" />
-              </div>
-              <div style={{ fontSize: '28px', fontWeight: 900 }}>{kpis.sinGrupo}</div>
-              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Líneas individuales</div>
-            </div>
-
-            <div 
-              className="glass-panel" 
-              style={{ padding: '24px', borderRadius: '24px', cursor: 'pointer', transition: 'transform 0.2s' }}
+              style={{ padding: '20px', borderRadius: '20px', cursor: 'pointer', transition: 'transform 0.2s' }}
               onClick={() => setFilterPago('BC')}
               onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
               onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                 <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)' }}>PAGO BANCO</span>
                 <CreditCard size={16} color="#8b5cf6" />
               </div>
-              <div style={{ fontSize: '28px', fontWeight: 900 }}>{kpis.banco}</div>
-              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Débito automático</div>
+              <div style={{ fontSize: '26px', fontWeight: 900 }}>{kpis.banco}</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>Débito automático</div>
             </div>
 
-            <div className="glass-panel" style={{ padding: '24px', borderRadius: '24px', borderLeft: '4px solid #10b981' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)' }}>TOTAL LÍNEAS</span>
-                <Phone size={16} color="#10b981" />
+            <div 
+              className="glass-panel" 
+              style={{ padding: '20px', borderRadius: '20px', cursor: 'pointer', transition: 'transform 0.2s' }}
+              onClick={() => setFilterGrupo('LIBRE')}
+              onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+              onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)' }}>SIN GRUPO</span>
+                <AlertCircle size={16} color="#f59e0b" />
               </div>
-              <div style={{ fontSize: '28px', fontWeight: 900 }}>{kpis.lineas}</div>
-              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Líneas telefónicas activas</div>
+              <div style={{ fontSize: '26px', fontWeight: 900 }}>{kpis.sinGrupo}</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>Líneas individuales</div>
             </div>
           </div>
 
