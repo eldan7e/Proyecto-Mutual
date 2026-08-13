@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { 
   Search, Edit2, Trash2, Plus, Users, Smartphone, 
-  Mail, Hash, TrendingUp, ShieldCheck, UserCheck, Loader2, RefreshCw
+  Mail, Hash, TrendingUp, ShieldCheck, UserCheck, Loader2, RefreshCw, Eye
 } from 'lucide-react';
 import Modal from './components/Modal';
 import { fetchGrupos as loadGrupos, insertGrupo, updateGrupo, deleteGrupo, setGrupoTitular } from './services/gruposService';
@@ -19,6 +19,20 @@ export default function Grupos() {
   const [selectedProvider, setSelectedProvider] = useState('');
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [detailGrupo, setDetailGrupo] = useState(null);
+
+  // Estados de paginación de la tabla rápida
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(50);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch, selectedProvider]);
+
+  const totalPages = Math.ceil(grupos.length / pageSize) || 1;
+  const paginatedGrupos = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return grupos.slice(start, start + pageSize);
+  }, [grupos, currentPage, pageSize]);
 
   // States for liquidation and payment history of the selected group
   const [liquidacionesHistory, setLiquidacionesHistory] = useState([]);
@@ -240,90 +254,148 @@ export default function Grupos() {
         </button>
       </div>
 
-      {/* Grid de Grupos */}
+      {/* Listado de Grupos en Tabla Rápida Paginada */}
       {loading ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '24px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '16px' }}>
           {[1, 2, 3, 4, 5].map(i => (
-            <div key={i} className="skeleton" style={{ height: '64px', width: '100%', borderRadius: '16px' }}></div>
+            <div key={i} className="skeleton" style={{ height: '52px', width: '100%', borderRadius: '12px' }}></div>
           ))}
         </div>
+      ) : grupos.length === 0 ? (
+        <div className="glass-panel" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+          No se encontraron grupos que coincidan con la búsqueda.
+        </div>
       ) : (
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', 
-          gap: '24px' 
-        }}>
-          {grupos.map(g => (
-            <div key={g.numero_grupo} className="glass-panel" style={{ 
-              padding: '28px', 
-              borderRadius: '28px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '20px',
-              transition: 'all 0.3s ease',
-              border: '1px solid var(--border-light)'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div 
-                  onClick={() => { setDetailGrupo(g); setIsDetailModalOpen(true); }}
-                  style={{ 
-                    background: 'var(--accent-light)', 
-                    color: 'var(--accent)', 
-                    padding: '6px 14px', 
-                    borderRadius: '12px',
-                    fontSize: '11px',
-                    fontWeight: 900,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <Hash size={14} /> GRUPO {g.numero_grupo}
-                </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button onClick={() => { setCurrentGrupo(g); setIsModalOpen(true); }} className="icon-button-edit">
-                    <Edit2 size={16} />
-                  </button>
-                  <button onClick={() => handleDelete(g.numero_grupo)} className="icon-button-delete">
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </div>
+        <div className="glass-panel" style={{ borderRadius: '24px', overflow: 'hidden' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="premium-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: 'rgba(0,0,0,0.02)', borderBottom: '1px solid var(--border-light)' }}>
+                  <th style={{ padding: '14px 20px', textAlign: 'left', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Grupo / Alias</th>
+                  <th style={{ padding: '14px 20px', textAlign: 'left', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Titular / Responsable</th>
+                  <th style={{ padding: '14px 20px', textAlign: 'center', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Integrantes</th>
+                  <th style={{ padding: '14px 20px', textAlign: 'center', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Líneas</th>
+                  <th style={{ padding: '14px 20px', textAlign: 'left', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Email Facturación</th>
+                  <th style={{ padding: '14px 20px', textAlign: 'right', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedGrupos.map(g => (
+                  <tr 
+                    key={g.numero_grupo}
+                    style={{ borderBottom: '1px solid var(--border-light)', transition: 'background 0.15s ease' }}
+                    className="table-row-hover"
+                  >
+                    <td style={{ padding: '14px 20px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ 
+                          background: 'var(--accent-light)', 
+                          color: 'var(--accent)', 
+                          padding: '4px 10px', 
+                          borderRadius: '8px', 
+                          fontSize: '11px', 
+                          fontWeight: 900,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}>
+                          <Hash size={12} /> #{g.numero_grupo}
+                        </span>
+                        <span style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '14px' }}>
+                          {g.alias_grupo || 'Sin Alias'}
+                        </span>
+                      </div>
+                    </td>
 
-              <div onClick={() => { setDetailGrupo(g); setIsDetailModalOpen(true); }} style={{ cursor: 'pointer' }}>
-                <h3 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', letterSpacing: '-0.02em', marginBottom: '6px' }}>
-                  {g.alias_grupo || 'Grupo sin Alias'}
-                </h3>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent)', fontWeight: 800, fontSize: '14px' }}>
-                  <UserCheck size={16} /> {g.titular}
-                </div>
-              </div>
+                    <td style={{ padding: '14px 20px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: g.titular === 'Sin Titular' ? '#ef4444' : 'var(--text-primary)', fontWeight: 700, fontSize: '13px' }}>
+                        <UserCheck size={15} color={g.titular === 'Sin Titular' ? '#ef4444' : 'var(--accent)'} />
+                        {g.titular}
+                      </div>
+                    </td>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div style={{ background: 'var(--bg-app)', padding: '16px', borderRadius: '18px', textAlign: 'center', border: '1px solid var(--border-light)' }}>
-                  <div style={{ fontSize: '22px', fontWeight: 900 }}>{g.total_socios}</div>
-                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 800, textTransform: 'uppercase' }}>Integrantes</div>
-                </div>
-                <div style={{ background: 'var(--bg-app)', padding: '16px', borderRadius: '18px', textAlign: 'center', border: '1px solid var(--border-light)' }}>
-                  <div style={{ fontSize: '22px', fontWeight: 900 }}>{g.total_lineas}</div>
-                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 800, textTransform: 'uppercase' }}>Líneas</div>
-                </div>
-              </div>
+                    <td style={{ padding: '14px 20px', textAlign: 'center' }}>
+                      <span style={{ background: 'rgba(0,0,0,0.04)', padding: '4px 10px', borderRadius: '10px', fontSize: '12px', fontWeight: 800 }}>
+                        {g.total_socios}
+                      </span>
+                    </td>
 
-              <div style={{ marginTop: 'auto', paddingTop: '16px', borderTop: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ 
-                  width: '32px', height: '32px', borderRadius: '50%', background: 'var(--surface)', 
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--border-light)' 
-                }}>
-                  <Mail size={14} color="var(--text-secondary)" />
-                </div>
-                <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {g.email_facturacion || 'Sin Email'}
-                </span>
-              </div>
+                    <td style={{ padding: '14px 20px', textAlign: 'center' }}>
+                      <span style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '4px 10px', borderRadius: '10px', fontSize: '12px', fontWeight: 800 }}>
+                        {g.total_lineas}
+                      </span>
+                    </td>
+
+                    <td style={{ padding: '14px 20px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                        <Mail size={14} />
+                        <span>{g.email_facturacion || 'Sin Email'}</span>
+                      </div>
+                    </td>
+
+                    <td style={{ padding: '14px 20px', textAlign: 'right' }}>
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                        <button 
+                          onClick={() => { setDetailGrupo(g); setIsDetailModalOpen(true); }}
+                          className="air-btn"
+                          style={{ 
+                            background: 'var(--surface)', 
+                            border: '1px solid var(--border-light)', 
+                            color: 'var(--accent)', 
+                            padding: '6px 12px', 
+                            borderRadius: '10px', 
+                            fontSize: '12px', 
+                            fontWeight: 800,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <Eye size={14} /> Ver Expediente
+                        </button>
+                        <button onClick={() => { setCurrentGrupo(g); setIsModalOpen(true); }} className="icon-button-edit">
+                          <Edit2 size={15} />
+                        </button>
+                        <button onClick={() => handleDelete(g.numero_grupo)} className="icon-button-delete">
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination Controls */}
+          <div style={{ padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-light)', background: 'rgba(0,0,0,0.01)', flexWrap: 'wrap', gap: '12px' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+              Mostrando {Math.min((currentPage - 1) * pageSize + 1, grupos.length)} - {Math.min(currentPage * pageSize, grupos.length)} de {grupos.length} grupos
+            </span>
+
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                className="air-btn"
+                style={{ opacity: currentPage === 1 ? 0.5 : 1, padding: '6px 12px', fontSize: '12px', fontWeight: 700, cursor: currentPage === 1 ? 'not-allowed' : 'pointer' }}
+              >
+                Anterior
+              </button>
+              <span style={{ fontSize: '12px', fontWeight: 800, padding: '0 8px' }}>
+                Página {currentPage} de {totalPages}
+              </span>
+              <button
+                disabled={currentPage >= totalPages}
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                className="air-btn"
+                style={{ opacity: currentPage >= totalPages ? 0.5 : 1, padding: '6px 12px', fontSize: '12px', fontWeight: 700, cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer' }}
+              >
+                Siguiente
+              </button>
             </div>
-          ))}
+          </div>
         </div>
       )}
 
