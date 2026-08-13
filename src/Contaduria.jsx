@@ -175,7 +175,6 @@ export default function Contaduria() {
   async function loadTodasLiquidaciones() {
     setLoadingLiqs(true);
     try {
-      // 1. Cargar todas las liquidaciones generadas por lotes
       const { data: liqsData, error: liqsError } = await supabase
         .from('liquidaciones_grupos')
         .select('*, proveedores(nombre), socios(nombre_completo)')
@@ -184,12 +183,9 @@ export default function Contaduria() {
 
       if (liqsError) throw liqsError;
 
-      const mapComprobantes = {};
-
-      (liqsData || []).forEach(l => {
-        if (l.numero_grupo === 0) return;
-        const key = `${l.numero_grupo}_${l.periodo}`;
-        mapComprobantes[key] = {
+      const listaCompleta = (liqsData || [])
+        .filter(l => l.numero_grupo !== 0 && Number(l.monto_total_facturado || 0) > 0)
+        .map(l => ({
           liquidacion_id: l.liquidacion_id,
           numero_grupo: l.numero_grupo,
           periodo: l.periodo,
@@ -200,70 +196,7 @@ export default function Contaduria() {
           socios: l.socios || { nombre_completo: l.nombre || `Grupo ${l.numero_grupo}` },
           total_lineas_lote: l.total_lineas_lote || 1,
           origen: 'LIQUIDACION'
-        };
-      });
-
-      // 2. Cargar FACTURAS desde movimientos_cuenta (historicos y periodos anteriores)
-      let allMovs = [];
-      const limit = 1000;
-      let offset = 0;
-
-      while (true) {
-        const { data: mChunk, error: mErr } = await supabase
-          .from('movimientos_cuenta')
-          .select('id, numero_grupo, nombre, empresa, fecha, periodo, importe')
-          .eq('tipo', 'FACTURA')
-          .gt('importe', 0)
-          .order('fecha', { ascending: false })
-          .range(offset, offset + limit - 1);
-
-        if (mErr) break;
-        allMovs.push(...(mChunk || []));
-        if (!mChunk || mChunk.length < limit) break;
-        offset += limit;
-      }
-
-      // Agrupar FACTURAS por numero_grupo y periodo
-      const movsFactMap = {};
-      allMovs.forEach(m => {
-        if (m.numero_grupo === 0 || !m.numero_grupo) return;
-        const fPeriodo = m.periodo || (m.fecha ? String(m.fecha).slice(0, 7) : '2026-01');
-        const key = `${m.numero_grupo}_${fPeriodo}`;
-
-        if (!movsFactMap[key]) {
-          movsFactMap[key] = {
-            numero_grupo: m.numero_grupo,
-            periodo: fPeriodo,
-            nombre: m.nombre,
-            empresa: m.empresa || 'MUTUAL',
-            monto_total_facturado: 0,
-            count: 0
-          };
-        }
-        movsFactMap[key].monto_total_facturado += Number(m.importe || 0);
-        movsFactMap[key].count += 1;
-      });
-
-      // Fusionar los periodos que no estén en liquidaciones_grupos
-      for (const [key, mf] of Object.entries(movsFactMap)) {
-        if (!mapComprobantes[key] && mf.monto_total_facturado > 0) {
-          mapComprobantes[key] = {
-            liquidacion_id: `HIST-${mf.numero_grupo}-${mf.periodo}`,
-            numero_grupo: mf.numero_grupo,
-            periodo: mf.periodo,
-            monto_total_facturado: mf.monto_total_facturado,
-            monto_abonado: mf.monto_total_facturado, // Históricos ya liquidados/cobrados
-            estado_pago: 'COBRADA',
-            proveedores: { nombre: mf.empresa },
-            socios: { nombre_completo: mf.nombre || `Grupo ${mf.numero_grupo}` },
-            total_lineas_lote: mf.count || 1,
-            origen: 'HISTORICO_EXCEL'
-          };
-        }
-      }
-
-      const listaCompleta = Object.values(mapComprobantes)
-        .filter(l => l.monto_total_facturado > 0)
+        }))
         .sort((a, b) => {
           if (b.periodo !== a.periodo) return b.periodo.localeCompare(a.periodo);
           return a.numero_grupo - b.numero_grupo;
@@ -271,7 +204,7 @@ export default function Contaduria() {
 
       setLiquidacionesAll(listaCompleta);
     } catch (err) {
-      console.error('Error al cargar liquidaciones unificadas:', err);
+      console.error('Error al cargar liquidaciones:', err);
     } finally {
       setLoadingLiqs(false);
     }
@@ -610,8 +543,8 @@ export default function Contaduria() {
     setCurrentPageFacturas(1);
   }, [searchGrupo, estadoFilter, operadoraFilter, periodoFilter]);
 
-  // --- FILTRADO DE COMPROBANTES / FACTURAS ESTILO XUBIO ---
-  const facturasFiltradas = useMemo(() => {
+  // --- FILTRADO BASE DE COMPROBANTES PARA KPIS Y TABLA (SEGÚN PERÍODO, OPERADORA Y BÚSQUEDA) ---
+  const liquidacionesBaseKPIs = useMemo(() => {
     const hasSearch = Boolean(searchGrupo.trim());
     let targetPeriod = null;
 
@@ -629,19 +562,6 @@ export default function Contaduria() {
       // Filtro por Período (si no hay término de búsqueda activo)
       if (targetPeriod && l.periodo !== targetPeriod) return false;
 
-      // Filtro por Estado
-      const totalFact = Number(l.monto_total_facturado || 0);
-      const abonado = Number(l.monto_abonado || 0);
-      const pendiente = totalFact - abonado;
-
-      const isAbonada = l.estado_pago === 'ABONADO' || pendiente <= 1;
-      const isParcial = l.estado_pago === 'PARCIAL' || (abonado > 0 && pendiente > 1);
-      const isImpaga = !isAbonada && !isParcial;
-
-      if (estadoFilter === 'IMPAGAS' && !isImpaga) return false;
-      if (estadoFilter === 'PARCIALES' && !isParcial) return false;
-      if (estadoFilter === 'COBRADAS' && !isAbonada) return false;
-
       // Filtro por Operadora
       const opNombre = (l.proveedores?.nombre || '').toUpperCase();
       if (operadoraFilter !== 'TODAS' && opNombre !== operadoraFilter) return false;
@@ -658,7 +578,26 @@ export default function Contaduria() {
 
       return true;
     });
-  }, [liquidacionesAll, estadoFilter, operadoraFilter, searchGrupo, periodoFilter, periodosDisponibles]);
+  }, [liquidacionesAll, operadoraFilter, searchGrupo, periodoFilter, periodosDisponibles]);
+
+  // --- FILTRADO FINAL DE COMPROBANTES PARA LA TABLA (CON FILTRO DE ESTADO PAGO) ---
+  const facturasFiltradas = useMemo(() => {
+    return liquidacionesBaseKPIs.filter(l => {
+      const totalFact = Number(l.monto_total_facturado || 0);
+      const abonado = Number(l.monto_abonado || 0);
+      const pendiente = totalFact - abonado;
+
+      const isAbonada = l.estado_pago === 'ABONADO' || pendiente <= 1;
+      const isParcial = l.estado_pago === 'PARCIAL' || (abonado > 0 && pendiente > 1);
+      const isImpaga = !isAbonada && !isParcial;
+
+      if (estadoFilter === 'IMPAGAS' && !isImpaga) return false;
+      if (estadoFilter === 'PARCIALES' && !isParcial) return false;
+      if (estadoFilter === 'COBRADAS' && !isAbonada) return false;
+
+      return true;
+    });
+  }, [liquidacionesBaseKPIs, estadoFilter]);
 
   const totalPagesFacturas = Math.ceil(facturasFiltradas.length / pageSizeFacturas) || 1;
 
@@ -686,14 +625,15 @@ export default function Contaduria() {
     });
   }, [saldosData, soloDeudores, searchGrupo]);
 
-  // --- CÁLCULO DE KPIs GLOBALES ---
+  // --- CÁLCULO DE KPIs GLOBALES DINÁMICOS (ACTUALIZADOS SEGÚN PERÍODO / OPERADORA) ---
   const statsGlobales = useMemo(() => {
     let totalFacturado = 0;
     let totalCobrado = 0;
     let totalPendiente = 0;
     let comprobantesImpagosCount = 0;
+    const gruposEnSeleccion = new Set();
 
-    liquidacionesAll.forEach(l => {
+    liquidacionesBaseKPIs.forEach(l => {
       const fact = Number(l.monto_total_facturado || 0);
       const abon = Number(l.monto_abonado || 0);
       const pend = Math.max(0, fact - abon);
@@ -703,11 +643,15 @@ export default function Contaduria() {
       totalPendiente += pend;
 
       if (pend > 5) comprobantesImpagosCount++;
+      if (l.numero_grupo) gruposEnSeleccion.add(l.numero_grupo);
     });
 
     let totalIntereses = 0;
     saldosData.forEach(g => {
-      totalIntereses += g.interesPendUltimo || 0;
+      const hasFilter = periodoFilter !== 'TODOS' || operadoraFilter !== 'TODAS' || Boolean(searchGrupo.trim());
+      if (!hasFilter || gruposEnSeleccion.has(g.numero_grupo)) {
+        totalIntereses += g.interesPendUltimo || 0;
+      }
     });
 
     return {
@@ -716,9 +660,9 @@ export default function Contaduria() {
       totalPendiente,
       comprobantesImpagosCount,
       totalIntereses,
-      totalComprobantes: liquidacionesAll.length
+      totalComprobantes: liquidacionesBaseKPIs.length
     };
-  }, [liquidacionesAll, saldosData]);
+  }, [liquidacionesBaseKPIs, saldosData, periodoFilter, operadoraFilter, searchGrupo]);
 
   // Informacion del titular del grupo seleccionado
   const titularSeleccionadoInfo = useMemo(() => {

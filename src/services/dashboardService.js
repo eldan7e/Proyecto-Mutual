@@ -9,34 +9,60 @@ import { supabase } from '../supabaseClient';
  * Fetch all liquidaciones_grupos with the provider name.
  * Returns raw rows ordered by periodo desc.
  */
+/**
+ * Fetch all liquidaciones_grupos with the provider name using pagination
+ * to avoid Supabase 1000 default row limit.
+ */
 export async function fetchLiquidaciones() {
-  const { data, error } = await supabase
-    .from('liquidaciones_grupos')
-    .select('periodo, monto_total_facturado, estado_pago, proveedores(nombre)')
-    .order('periodo', { ascending: false });
+  let allData = [];
+  const limit = 1000;
+  let offset = 0;
 
-  if (error) throw error;
-  return data || [];
+  while (true) {
+    const { data, error } = await supabase
+      .from('liquidaciones_grupos')
+      .select('periodo, monto_total_facturado, estado_pago, proveedores(nombre)')
+      .order('periodo', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw error;
+    allData.push(...(data || []));
+    if (!data || data.length < limit) break;
+    offset += limit;
+  }
+
+  return allData;
 }
 
 /**
- * Fetch consumos_mensuales filtered to a set of periods.
+ * Fetch consumos_mensuales filtered to a set of periods with pagination.
  * Includes the joined linea → socio_id for counting.
  *
  * @param {string[]} periods - Array of "YYYY-MM" strings. If empty, fetches all.
  */
 export async function fetchConsumos(periods) {
-  let query = supabase
-    .from('consumos_mensuales')
-    .select('periodo, numero_linea, lineas(socio_id)');
+  let allData = [];
+  const limit = 1000;
+  let offset = 0;
 
-  if (periods && periods.length > 0) {
-    query = query.in('periodo', periods);
+  while (true) {
+    let query = supabase
+      .from('consumos_mensuales')
+      .select('periodo, numero_linea, lineas(socio_id)')
+      .range(offset, offset + limit - 1);
+
+    if (periods && periods.length > 0) {
+      query = query.in('periodo', periods);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    allData.push(...(data || []));
+    if (!data || data.length < limit) break;
+    offset += limit;
   }
 
-  const { data, error } = await query;
-  if (error) throw error;
-  return data || [];
+  return allData;
 }
 
 /**
