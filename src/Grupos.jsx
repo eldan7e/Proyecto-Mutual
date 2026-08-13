@@ -441,7 +441,7 @@ export default function Grupos() {
         title={`Expediente Grupo #${detailGrupo?.numero_grupo}`}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          <div className="glass-panel-sub" style={{ padding: '20px', borderRadius: '20px' }}>
+          <div className="glass-panel-sub" style={{ padding: '20px', borderRadius: '20px', position: 'relative', zIndex: 10, transform: 'none' }}>
             <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 900, marginBottom: '16px' }}>Integrantes del Grupo</h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
               {detailGrupo?.integrantes?.map((int, i) => (
@@ -470,7 +470,7 @@ export default function Grupos() {
               <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>
                 Asignar Nuevo Responsable (Buscador DB)
               </label>
-              <div style={{ position: 'relative' }}>
+              <div style={{ position: 'relative', zIndex: 99 }}>
                 <input
                   type="text"
                   className="premium-input"
@@ -492,8 +492,8 @@ export default function Grupos() {
                     background: 'var(--modal-bg, #ffffff)',
                     border: '2px solid var(--accent)',
                     borderRadius: '12px',
-                    boxShadow: '0 14px 36px rgba(0, 0, 0, 0.25)',
-                    zIndex: 9999,
+                    boxShadow: '0 16px 40px rgba(0, 0, 0, 0.35)',
+                    zIndex: 99999,
                     marginTop: '6px',
                     maxHeight: '220px',
                     overflowY: 'auto'
@@ -532,7 +532,7 @@ export default function Grupos() {
 
 
           {/* Historial de Liquidaciones y Pagos */}
-          <div className="glass-panel-sub" style={{ padding: '20px', borderRadius: '20px' }}>
+          <div className="glass-panel-sub" style={{ padding: '20px', borderRadius: '20px', position: 'relative', zIndex: 1, transform: 'none' }}>
             <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 900, marginBottom: '16px' }}>Historial de Liquidaciones y Pagos</h4>
             {loadingHistory ? (
               <div style={{ display: 'flex', justifyContent: 'center', padding: '20px' }}>
