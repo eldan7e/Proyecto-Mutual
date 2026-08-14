@@ -230,6 +230,7 @@ export default function ConciliacionBancaria() {
   const [titularMap, setTitularMap] = useState({});
   const [pendingLiquidaciones, setPendingLiquidaciones] = useState([]);
   const [periodConsumos, setPeriodConsumos] = useState([]);
+  const [conciliacionHistorica, setConciliacionHistorica] = useState([]);
   const [loadingMaster, setLoadingMaster] = useState(false);
 
   // Desglose de liquidaciones del grupo
@@ -332,6 +333,7 @@ export default function ConciliacionBancaria() {
       const sociosData = await conciliacionService.fetchSocios();
       const titularData = await conciliacionService.fetchTitularData();
       const pendingData = await conciliacionService.fetchPendingLiquidaciones(selectedPeriod);
+      const historicoData = await conciliacionService.fetchConciliacionHistorica();
 
       const titMap = {};
       (titularData || []).forEach(t => {
@@ -341,6 +343,7 @@ export default function ConciliacionBancaria() {
       setSocios(sociosData || []);
       setTitularMap(titMap);
       setPendingLiquidaciones(pendingData || []);
+      setConciliacionHistorica(historicoData || []);
 
       let consumosList = [];
       if (selectedPeriod) {
@@ -646,23 +649,70 @@ export default function ConciliacionBancaria() {
     'var', 'cuo', 'fac', 'hon'
   ]);
 
-  // Algoritmo de sugerencia inteligente
-  const findSuggestedSocio = (concepto, sociosList) => {
+  // Algoritmo de sugerencia inteligente con memoria de aprendizaje histórico
+  const findSuggestedSocio = (concepto, sociosList, historicoList = conciliacionHistorica) => {
     if (!concepto) return null;
     const normConcept = concepto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const rawWords = normConcept.split(/[^a-z0-9]+/).filter(Boolean);
     const conceptWords = rawWords.filter(w => !GENERIC_KEYWORDS.has(w));
 
-    // 1. Coincidencia por CUIT/CUIL (11 dígitos)
+    // 0. APRENDIZAJE HISTÓRICO (Prioridad Máxima - Mapeos confirmados previamente por CUIT / CBU)
     const cuitMatches = normConcept.match(/\b\d{11}\b/);
+    if (cuitMatches) {
+      const matchedCuit = cuitMatches[0];
+      const hist = (historicoList || []).find(h => h.cuit_transferente === matchedCuit);
+      if (hist) {
+        let socio = sociosList.find(s => s.socio_id === hist.socio_id);
+        if (!socio) {
+          socio = {
+            socio_id: hist.socio_id,
+            nombre_completo: hist.socio_nombre || `Socio Grupo ${hist.numero_grupo}`,
+            nro_socio: ''
+          };
+        }
+        return {
+          socio,
+          reason: `🧠 Aprendido (Grupo ${hist.numero_grupo})`,
+          learnedGroup: hist.numero_grupo,
+          confianza: hist.confianza || 90,
+          vecesVisto: hist.veces_visto || 1,
+          isLearned: true
+        };
+      }
+    }
+
+    const cbuMatches = normConcept.match(/\b\d{22}\b/);
+    if (cbuMatches) {
+      const matchedCbu = cbuMatches[0];
+      const hist = (historicoList || []).find(h => h.cbu_transferente === matchedCbu);
+      if (hist) {
+        let socio = sociosList.find(s => s.socio_id === hist.socio_id);
+        if (!socio) {
+          socio = {
+            socio_id: hist.socio_id,
+            nombre_completo: hist.socio_nombre || `Socio Grupo ${hist.numero_grupo}`,
+            nro_socio: ''
+          };
+        }
+        return {
+          socio,
+          reason: `🧠 Aprendido CBU (Grupo ${hist.numero_grupo})`,
+          learnedGroup: hist.numero_grupo,
+          confianza: hist.confianza || 90,
+          vecesVisto: hist.veces_visto || 1,
+          isLearned: true
+        };
+      }
+    }
+
+    // 1. Coincidencia por CUIT/CUIL (11 dígitos) en tabla Socios
     if (cuitMatches) {
       const matchedCuit = cuitMatches[0];
       const socio = sociosList.find(s => s.cuit?.replace(/\D/g, '') === matchedCuit);
       if (socio) return { socio, reason: 'CUIT' };
     }
 
-    // 1b. Coincidencia por CBU (22 dígitos)
-    const cbuMatches = normConcept.match(/\b\d{22}\b/);
+    // 1b. Coincidencia por CBU (22 dígitos) en tabla Socios
     if (cbuMatches) {
       const matchedCbu = cbuMatches[0];
       const socio = sociosList.find(s => s.cbu === matchedCbu);
@@ -2298,6 +2348,28 @@ export default function ConciliacionBancaria() {
         console.error("Error al guardar CBU automáticamente:", cbuErr);
       }
 
+      // Auto-registrar aprendizaje en conciliacion_historica
+      try {
+        const cuitMatch = row.cuit || row.concepto?.match(/\b\d{11}\b/)?.[0];
+        const cbuMatch = row.cbu || row.concepto?.match(/\b\d{22}\b/)?.[0];
+        if ((cuitMatch || cbuMatch) && groupNum) {
+          await conciliacionService.registrarAprendizajeHistorico({
+            cuit: cuitMatch,
+            cbu: cbuMatch,
+            nombreTransferente: row.concepto,
+            numeroGrupo: groupNum,
+            socioId: row.selectedSocioId,
+            socioNombre: row.selectedSocioLabel,
+            banco: row.banco,
+            monto: row.netoReal,
+            periodo: selectedPeriod,
+            confianza: 95
+          });
+        }
+      } catch (errLearn) {
+        console.warn("Aviso al guardar aprendizaje histórico:", errLearn);
+      }
+
       // Actualizar el estado visual INMEDIATAMENTE para evitar demoras/parpadeos en la tabla
       setParsedMovements(prev => prev.map(m => m.id === rowId ? { 
         ...m, 
@@ -2803,7 +2875,7 @@ export default function ConciliacionBancaria() {
         }
 
         const isTaxOrFee = m.tipo_movimiento === 'IMPUESTO' || m.tipo_movimiento === 'COMISION' || m.tipo_movimiento === 'SUSCRIPCION' || m.tipo_movimiento === 'PAGO_VEP' || m.tipo_movimiento === 'PAGO_SERVICIO' || m.tipo_movimiento === 'PAGO_ARCA' || m.tipo_movimiento === 'TRANSFERENCIA_ENVIADA';
-        const suggestion = isTaxOrFee ? null : findSuggestedSocio(m.concepto, socios);
+        const suggestion = isTaxOrFee ? null : findSuggestedSocio(m.concepto, socios, conciliacionHistorica);
 
         // Verificar duplicados (emparejamiento uno-a-uno)
         const rowDateISO = parseDateToISODate(m.fecha);
@@ -2873,10 +2945,13 @@ export default function ConciliacionBancaria() {
           dbLabel = `${suggestion.socio.nombre_completo} (Socio ${suggestion.socio.nro_socio || ''})`;
         }
 
-        // Cargar grupos del socio
-        const socioGroups = targetSocio ? (targetSocio.grupo_socio?.map(g => g.numero_grupo) || []) : [];
+        // Cargar grupos del socio (incluyendo grupo aprendido si aplica)
+        let socioGroups = targetSocio ? (targetSocio.grupo_socio?.map(g => g.numero_grupo) || []) : [];
+        if (suggestion?.learnedGroup && !socioGroups.includes(suggestion.learnedGroup)) {
+          socioGroups = [...socioGroups, suggestion.learnedGroup];
+        }
         const bankPeriod = getBankPeriod(m.concepto, rowDateISO);
-        const pendingForSocio = targetSocio
+        const pendingForSocio = (targetSocio || suggestion?.learnedGroup)
           ? pendingLiquidaciones.filter(liq => liq && socioGroups.includes(liq.numero_grupo) && (liq.periodo <= bankPeriod))
           : [];
         
@@ -3175,6 +3250,7 @@ export default function ConciliacionBancaria() {
           checkIsAmountMatch={checkIsAmountMatch}
           fetchMasterData={fetchMasterData}
           fetchPeriodSummary={fetchPeriodSummary}
+          conciliacionHistorica={conciliacionHistorica}
         />
       )}
 

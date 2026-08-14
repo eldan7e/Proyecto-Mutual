@@ -15,6 +15,7 @@ import {
   getParametrosCuenta, updateTasaAnual, fetchGruposUnicos, 
   fetchMovimientosGrupo, fetchInformeSaldosGeneral, registrarCobroCuenta 
 } from './services/cuentaCorrienteService';
+import { fetchPeriods } from './services/conciliacionService';
 import { 
   recalcularSaldosGrupo, imputarCobroFIFO, formatMoney, 
   calcularDiasMora, calcularInteresMora, DEFAULT_TNA 
@@ -38,6 +39,7 @@ export default function Contaduria() {
   const [liquidacionesAll, setLiquidacionesAll] = useState([]);
   const [liquidacionesGrupo, setLiquidacionesGrupo] = useState([]);
   const [lineasGrupo, setLineasGrupo] = useState([]);
+  const [periodosDisponiblesState, setPeriodosDisponiblesState] = useState([]);
 
   // Loaders
   const [loading, setLoading] = useState(false);
@@ -151,9 +153,10 @@ export default function Contaduria() {
   async function loadInicial() {
     setLoadingGrupos(true);
     try {
-      const [params, grupos] = await Promise.all([
+      const [params, grupos, periodos] = await Promise.all([
         getParametrosCuenta(),
-        fetchGruposUnicos()
+        fetchGruposUnicos(),
+        fetchPeriods()
       ]);
 
       if (params && params.tasa_anual) {
@@ -163,6 +166,9 @@ export default function Contaduria() {
       setGruposList(grupos);
       if (grupos.length > 0 && selectedGrupo === null) {
         setSelectedGrupo(grupos[0].numero_grupo);
+      }
+      if (periodos && periodos.length > 0) {
+        setPeriodosDisponiblesState(periodos);
       }
     } catch (err) {
       console.error('Error al cargar datos iniciales de contaduría:', err);
@@ -175,15 +181,27 @@ export default function Contaduria() {
   async function loadTodasLiquidaciones() {
     setLoadingLiqs(true);
     try {
-      const { data: liqsData, error: liqsError } = await supabase
-        .from('liquidaciones_grupos')
-        .select('*, proveedores(nombre), socios(nombre_completo)')
-        .order('periodo', { ascending: false })
-        .order('numero_grupo', { ascending: true });
+      let allLiqs = [];
+      let from = 0;
+      const pageSize = 1000;
 
-      if (liqsError) throw liqsError;
+      while (true) {
+        const { data: liqsData, error: liqsError } = await supabase
+          .from('liquidaciones_grupos')
+          .select('*, proveedores(nombre), socios(nombre_completo)')
+          .range(from, from + pageSize - 1)
+          .order('periodo', { ascending: false })
+          .order('numero_grupo', { ascending: true });
 
-      const listaCompleta = (liqsData || [])
+        if (liqsError) throw liqsError;
+        if (!liqsData || liqsData.length === 0) break;
+
+        allLiqs = allLiqs.concat(liqsData);
+        if (liqsData.length < pageSize) break;
+        from += pageSize;
+      }
+
+      const listaCompleta = allLiqs
         .filter(l => l.numero_grupo !== 0 && Number(l.monto_total_facturado || 0) > 0)
         .map(l => ({
           liquidacion_id: l.liquidacion_id,
@@ -203,6 +221,14 @@ export default function Contaduria() {
         });
 
       setLiquidacionesAll(listaCompleta);
+
+      const pSet = new Set();
+      listaCompleta.forEach(l => {
+        if (l.periodo) pSet.add(l.periodo);
+      });
+      if (pSet.size > 0) {
+        setPeriodosDisponiblesState(Array.from(pSet).sort().reverse());
+      }
     } catch (err) {
       console.error('Error al cargar liquidaciones:', err);
     } finally {
@@ -531,12 +557,12 @@ export default function Contaduria() {
 
   // Lista de períodos de facturación disponibles ordenados de más reciente a más antiguo
   const periodosDisponibles = useMemo(() => {
-    const pSet = new Set();
+    const pSet = new Set(periodosDisponiblesState);
     liquidacionesAll.forEach(l => {
       if (l.periodo) pSet.add(l.periodo);
     });
-    return Array.from(pSet).sort().reverse();
-  }, [liquidacionesAll]);
+    return Array.from(pSet).filter(Boolean).sort().reverse();
+  }, [liquidacionesAll, periodosDisponiblesState]);
 
   // Reset página cuando cambian los filtros
   useEffect(() => {

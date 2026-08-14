@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Landmark, Loader2, ArrowRightLeft, Search, HelpCircle, Save, CheckCircle2, AlertCircle, Check, Settings, Sparkles } from 'lucide-react';
+import { Landmark, Loader2, ArrowRightLeft, Search, HelpCircle, Save, CheckCircle2, AlertCircle, Check, Settings, Sparkles, FileSpreadsheet, Upload, CheckCircle, XCircle } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { supabase } from '../../supabaseClient';
+import { registrarCobroCuenta } from '../../services/cuentaCorrienteService';
+import { registrarAprendizajeHistorico } from '../../services/conciliacionService';
 
 export default function NuevaConciliacionTab({
   selectedPeriod,
@@ -31,7 +35,8 @@ export default function NuevaConciliacionTab({
   openEditConciliacionModal,
   checkIsAmountMatch,
   fetchMasterData,
-  fetchPeriodSummary
+  fetchPeriodSummary,
+  conciliacionHistorica = []
 }) {
   // Local states to isolate typing and filter re-renders from parent
   const [banco, setBanco] = useState('NACION'); // 'NACION', 'CREDICOOP'
@@ -51,6 +56,15 @@ export default function NuevaConciliacionTab({
   const [loadingIA, setLoadingIA] = useState(false);
   const [resultadoIA, setResultadoIA] = useState([]);
   const [progresoIA, setProgresoIA] = useState({ current: 0, total: 0 });
+
+  // Excel Audit Import States
+  const [excelFile, setExcelFile] = useState(null);
+  const [excelParsedData, setExcelParsedData] = useState([]);
+  const [excelSummary, setExcelSummary] = useState(null);
+  const [periodoImputacionExcel, setPeriodoImputacionExcel] = useState('');
+  const [loadingExcel, setLoadingExcel] = useState(false);
+  const [excelProgress, setExcelProgress] = useState({ current: 0, total: 0 });
+  const [excelResults, setExcelResults] = useState([]);
 
   // Reset page when filters change
   useEffect(() => {
@@ -343,6 +357,341 @@ export default function NuevaConciliacionTab({
     }
   };
 
+  // ==========================================
+  //   EXCEL AUDITADO IMPORT
+  // ==========================================
+  const handleParseExcelAuditado = async (file) => {
+    if (!file) return;
+    setExcelFile(file);
+    setExcelParsedData([]);
+    setExcelSummary(null);
+    setExcelResults([]);
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+
+      // Try to find the sheet with audited payments
+      const targetSheetNames = ['compara con cobros los positivo', 'compara con cobros los positivos', 'compara'];
+      let sheetName = workbook.SheetNames.find(s =>
+        targetSheetNames.some(t => s.toLowerCase().includes(t.toLowerCase()))
+      );
+      if (!sheetName) {
+        // Fallback: try any sheet that has a GRUPO column
+        for (const sn of workbook.SheetNames) {
+          const testData = XLSX.utils.sheet_to_json(workbook.Sheets[sn], { header: 1 });
+          if (testData.length > 0) {
+            const header = testData[0];
+            if (header && header.some(h => String(h).toUpperCase().includes('GRUPO'))) {
+              sheetName = sn;
+              break;
+            }
+          }
+        }
+      }
+      if (!sheetName) {
+        alert('No se encontró la hoja "compara con cobros los positivo" ni una hoja con columna GRUPO en el Excel.');
+        return;
+      }
+
+      const sheet = workbook.Sheets[sheetName];
+      const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+      // Find column indices from header row
+      const headerRow = rawRows[0] || [];
+      let grupoColIdx = headerRow.findIndex(h => String(h).toUpperCase().includes('GRUPO'));
+      let fechaColIdx = headerRow.findIndex(h => String(h).toUpperCase() === 'FECHA');
+      let conceptoColIdx = headerRow.findIndex(h => String(h).toUpperCase().includes('CONCEPTO'));
+      let cpbteColIdx = headerRow.findIndex(h => String(h).toUpperCase().includes('CPBTE'));
+      let creditoColIdx = headerRow.findIndex(h => String(h).toUpperCase().includes('CRÉDITO') || String(h).toUpperCase().includes('CREDITO'));
+
+      // Fallback to known column positions if headers not found
+      if (grupoColIdx === -1) grupoColIdx = 12;
+      if (fechaColIdx === -1) fechaColIdx = 1;
+      if (conceptoColIdx === -1) conceptoColIdx = 2;
+      if (cpbteColIdx === -1) cpbteColIdx = 3;
+      if (creditoColIdx === -1) creditoColIdx = 5;
+
+      const dataRows = rawRows.slice(1);
+      const parsedPayments = [];
+      let totalMonto = 0;
+      let multiGrupoCount = 0;
+
+      for (const row of dataRows) {
+        if (!row || row.length === 0) continue;
+        const grupoVal = row[grupoColIdx];
+        const credito = Number(row[creditoColIdx] || 0);
+        const cpbte = String(row[cpbteColIdx] || '').trim();
+        const concepto = String(row[conceptoColIdx] || '').trim();
+        const serialFecha = row[fechaColIdx];
+
+        if (!grupoVal || credito <= 0) continue;
+
+        // Convert Excel serial date to YYYY-MM-DD
+        let fechaISO = '';
+        if (typeof serialFecha === 'number') {
+          const utcDays = Math.floor(serialFecha - 25569);
+          const dateObj = new Date(utcDays * 86400 * 1000);
+          fechaISO = dateObj.toISOString().slice(0, 10);
+        } else if (typeof serialFecha === 'string') {
+          const parts = serialFecha.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+          if (parts) {
+            const y = parts[3].length === 2 ? '20' + parts[3] : parts[3];
+            fechaISO = `${y}-${parts[2].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
+          }
+        }
+        if (!fechaISO) fechaISO = new Date().toISOString().slice(0, 10);
+
+        const grupoStr = String(grupoVal).trim();
+
+        // Parse grupo - may contain multiple (e.g. "512 y 953")
+        const gruposList = [];
+        if (/[yY,\/]/.test(grupoStr)) {
+          multiGrupoCount++;
+          const parts = grupoStr.split(/[\s,yY\/]+/);
+          parts.forEach(p => {
+            const n = parseInt(p.trim(), 10);
+            if (!isNaN(n)) gruposList.push(n);
+          });
+        } else {
+          const n = parseInt(grupoStr, 10);
+          if (!isNaN(n)) gruposList.push(n);
+        }
+
+        if (gruposList.length === 0) continue;
+
+        // Extract CUIT from concept if present
+        const cuitMatch = concepto.match(/\b\d{11}\b/);
+        const cuit = cuitMatch ? cuitMatch[0] : null;
+
+        // Extract name from concept
+        let titular = null;
+        const nameMatch = concepto.match(/\b\d{11}\s*[\-−_]?\s*(?:VAR|CUO|FAC|HON)?\s*[\-−_]?\s*(.+?)(?:\s+CBU|$)/i);
+        if (nameMatch) titular = nameMatch[1].replace(/^[\-−_]+/, '').trim();
+
+        totalMonto += credito;
+
+        parsedPayments.push({
+          id: `excel-${parsedPayments.length}`,
+          fecha: fechaISO,
+          concepto,
+          comprobante: cpbte,
+          monto: credito,
+          grupos: gruposList,
+          grupoStr,
+          cuit,
+          titular,
+          isMultiGrupo: gruposList.length > 1
+        });
+      }
+
+      setExcelParsedData(parsedPayments);
+
+      // Calcular automáticamente el período de deuda anterior (ej: extracto de Febrero 2026-02 paga Enero 2026-01)
+      const bankMonth = parsedPayments[0]?.fecha ? parsedPayments[0].fecha.substring(0, 7) : '';
+      let defaultTargetPeriod = '';
+      if (bankMonth) {
+        const [yStr, mStr] = bankMonth.split('-');
+        let y = parseInt(yStr, 10);
+        let m = parseInt(mStr, 10) - 1;
+        if (m < 1) { m = 12; y -= 1; }
+        defaultTargetPeriod = `${y}-${String(m).padStart(2, '0')}`;
+      }
+      setPeriodoImputacionExcel(defaultTargetPeriod || selectedPeriod || '2026-01');
+
+      setExcelSummary({
+        totalFilas: parsedPayments.length,
+        totalMonto,
+        multiGrupoCount,
+        sheetName,
+        bankMonth,
+        targetDebtPeriod: defaultTargetPeriod || selectedPeriod || '2026-01'
+      });
+    } catch (err) {
+      console.error('Error al parsear Excel auditado:', err);
+      alert(`Error al leer el archivo Excel: ${err.message}`);
+    }
+  };
+
+  const handleAplicarExcelAuditado = async () => {
+    if (excelParsedData.length === 0) return;
+
+    const periodoTarget = periodoImputacionExcel || selectedPeriod || '2026-01';
+
+    const confirmed = window.confirm(
+      `¿Confirmas la importación de ${excelParsedData.length} cobros auditados por un total de $${(excelSummary?.totalMonto || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}?\n\n📌 Período a Imputar (Facturas a cancelar): ${periodoTarget}\n\nEsto registrará los pagos en movimientos bancarios, actualizará las deudas de ${periodoTarget} y generará los asientos contables.`
+    );
+    if (!confirmed) return;
+
+    setLoadingExcel(true);
+    setExcelProgress({ current: 0, total: excelParsedData.length });
+    setExcelResults([]);
+
+    const results = [];
+    let successCount = 0;
+    let errorCount = 0;
+
+    // Fetch liquidaciones for the period to resolve grupo -> liquidacion_id mapping
+    const { data: liqsData } = await supabase
+      .from('liquidaciones_grupos')
+      .select('liquidacion_id, numero_grupo, monto_total_facturado, monto_abonado, estado_pago, socio_id')
+      .eq('periodo', periodoTarget);
+
+    const liqsByGrupo = {};
+    (liqsData || []).forEach(l => {
+      liqsByGrupo[l.numero_grupo] = l;
+    });
+
+    // Fetch socios for name resolution
+    const { data: sociosData } = await supabase
+      .from('socios')
+      .select('socio_id, nombre_completo, nro_socio')
+      .in('socio_id', [...new Set((liqsData || []).map(l => l.socio_id).filter(Boolean))]);
+
+    const sociosMap = {};
+    (sociosData || []).forEach(s => { sociosMap[s.socio_id] = s; });
+
+    for (let i = 0; i < excelParsedData.length; i++) {
+      const payment = excelParsedData[i];
+      setExcelProgress({ current: i + 1, total: excelParsedData.length });
+
+      try {
+        if (payment.grupos.length === 1) {
+          // Single group payment
+          const gNum = payment.grupos[0];
+          const liq = liqsByGrupo[gNum];
+          const socio = liq ? sociosMap[liq.socio_id] : null;
+          const socioLabel = socio ? `${socio.nombre_completo} (Socio ${socio.nro_socio || ''})` : `Grupo ${gNum}`;
+
+          // 1. Insert movimiento_bancario
+          await supabase.from('movimientos_bancarios').insert({
+            fecha_movimiento: payment.fecha,
+            concepto: payment.concepto,
+            monto: payment.monto,
+            ingreso_bruto: payment.monto,
+            impuestos: 0,
+            banco: banco,
+            socio_id: liq?.socio_id || null,
+            liquidacion_id: liq?.liquidacion_id || null,
+            tipo_movimiento: 'TRANSFERENCIA_RECIBIDA'
+          });
+
+          // 2. Register cobro in cuenta corriente (this also updates liquidaciones_grupos via FIFO)
+          await registrarCobroCuenta({
+            numero_grupo: gNum,
+            nombre: socioLabel,
+            importe: payment.monto,
+            medio_pago: banco,
+            observaciones: `Importación Excel Auditado - Cpbte: ${payment.comprobante}`,
+            fecha: payment.fecha
+          });
+
+          // 3. Registrar aprendizaje histórico (confianza máxima 98%)
+          if (payment.cuit || payment.cbu) {
+            await registrarAprendizajeHistorico({
+              cuit: payment.cuit,
+              cbu: payment.cbu,
+              nombreTransferente: payment.titular || payment.concepto,
+              numeroGrupo: gNum,
+              socioId: liq?.socio_id || null,
+              socioNombre: socioLabel,
+              banco: banco,
+              monto: payment.monto,
+              periodo: periodoTarget,
+              confianza: 98
+            });
+          }
+
+          successCount++;
+          results.push({
+            status: 'ok',
+            html: `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:12.5px;color:#065f46;background:rgba(16,185,129,0.08);border-radius:8px;"><span style="font-weight:700;">✓ Grupo ${gNum}</span> <span style="opacity:0.7;">|</span> <span>$${payment.monto.toLocaleString('es-AR', {minimumFractionDigits:2})}</span> <span style="opacity:0.7;">|</span> <span style="opacity:0.7;">${socioLabel}</span></div>`
+          });
+        } else {
+          // Multi-group payment: split proportionally by debt
+          let remanente = payment.monto;
+          for (let g = 0; g < payment.grupos.length; g++) {
+            const gNum = payment.grupos[g];
+            const liq = liqsByGrupo[gNum];
+            const socio = liq ? sociosMap[liq.socio_id] : null;
+            const socioLabel = socio ? `${socio.nombre_completo}` : `Grupo ${gNum}`;
+            const isLast = g === payment.grupos.length - 1;
+            const fact = liq ? Number(liq.monto_total_facturado || 0) : 0;
+            let cuotaParte = isLast ? remanente : Math.min(remanente, fact);
+            cuotaParte = Math.round(cuotaParte * 100) / 100;
+            remanente = Math.round((remanente - cuotaParte) * 100) / 100;
+
+            if (cuotaParte > 0) {
+              await supabase.from('movimientos_bancarios').insert({
+                fecha_movimiento: payment.fecha,
+                concepto: `${payment.concepto} - Cuota parte Grupo ${gNum}`,
+                monto: cuotaParte,
+                ingreso_bruto: cuotaParte,
+                impuestos: 0,
+                banco: banco,
+                socio_id: liq?.socio_id || null,
+                liquidacion_id: liq?.liquidacion_id || null,
+                tipo_movimiento: 'TRANSFERENCIA_RECIBIDA'
+              });
+
+              await registrarCobroCuenta({
+                numero_grupo: gNum,
+                nombre: socioLabel,
+                importe: cuotaParte,
+                medio_pago: banco,
+                observaciones: `Importación Excel Auditado - Pago compartido (${payment.grupoStr}) - Cpbte: ${payment.comprobante}`,
+                fecha: payment.fecha
+              });
+
+              if (payment.cuit || payment.cbu) {
+                await registrarAprendizajeHistorico({
+                  cuit: payment.cuit,
+                  cbu: payment.cbu,
+                  nombreTransferente: payment.titular || payment.concepto,
+                  numeroGrupo: gNum,
+                  socioId: liq?.socio_id || null,
+                  socioNombre: socioLabel,
+                  banco: banco,
+                  monto: cuotaParte,
+                  periodo: periodoTarget,
+                  confianza: 98
+                });
+              }
+            }
+          }
+
+          successCount++;
+          results.push({
+            status: 'ok',
+            html: `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:12.5px;color:#92400e;background:rgba(245,158,11,0.08);border-radius:8px;"><span style="font-weight:700;">✓ Grupos ${payment.grupoStr}</span> <span style="opacity:0.7;">|</span> <span>$${payment.monto.toLocaleString('es-AR', {minimumFractionDigits:2})}</span> <span style="opacity:0.7;">| Pago dividido</span></div>`
+          });
+        }
+      } catch (err) {
+        errorCount++;
+        results.push({
+          status: 'error',
+          html: `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:12.5px;color:#991b1b;background:rgba(239,68,68,0.08);border-radius:8px;"><span style="font-weight:700;">✗ Grupo ${payment.grupoStr}</span> <span style="opacity:0.7;">|</span> <span>${err.message}</span></div>`
+        });
+      }
+
+      setExcelResults([...results]);
+    }
+
+    // Write audit log
+    await supabase.from('audit_log').insert({
+      tipo_evento: 'IMPORTACION_EXCEL_AUDITADO',
+      descripcion: `Importación Excel auditado: ${successCount} cobros exitosos, ${errorCount} errores, total $${(excelSummary?.totalMonto || 0).toLocaleString('es-AR')}`,
+      monto: excelSummary?.totalMonto || 0,
+      usuario: 'admin@aunar.com'
+    });
+
+    setLoadingExcel(false);
+
+    // Refresh parent data
+    if (typeof fetchMasterData === 'function') fetchMasterData();
+    if (typeof fetchPeriodSummary === 'function') fetchPeriodSummary(selectedPeriod);
+  };
+
   const onSubmitProcesar = () => {
     handleProcesar(rawData, banco);
   };
@@ -500,7 +849,213 @@ export default function NuevaConciliacionTab({
             )}
           </div>
 
+          {/* ──── IMPORTAR EXCEL AUDITADO ──── */}
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(99,102,241,0.04) 0%, rgba(139,92,246,0.04) 100%)',
+            border: '1px dashed var(--border-light)',
+            borderRadius: '16px',
+            padding: '24px',
+            marginBottom: '20px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <FileSpreadsheet size={22} color="#6366f1" />
+              <div>
+                <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                  Importar Excel Auditado
+                </h4>
+                <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  Cargá el Excel mensual con la pestaña de cobros ya asignados a cada grupo. Los débitos automáticos y gastos operativos se excluyen automáticamente.
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <label
+                htmlFor="excel-audit-input"
+                className="action-button"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '10px 20px',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border-light)',
+                  borderRadius: '10px',
+                  color: 'var(--text-primary)',
+                  fontWeight: 700
+                }}
+              >
+                <Upload size={16} />
+                {excelFile ? excelFile.name : 'Seleccionar archivo .xlsx'}
+              </label>
+              <input
+                id="excel-audit-input"
+                type="file"
+                accept=".xlsx,.xls"
+                style={{ display: 'none' }}
+                onChange={e => {
+                  if (e.target.files && e.target.files[0]) {
+                    handleParseExcelAuditado(e.target.files[0]);
+                  }
+                }}
+              />
+
+              {excelParsedData.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--surface)', padding: '4px 10px', borderRadius: '10px', border: '1px solid var(--border-light)' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)' }}>
+                      Imputar a Factura:
+                    </span>
+                    <select
+                      className="premium-input"
+                      value={periodoImputacionExcel}
+                      onChange={e => setPeriodoImputacionExcel(e.target.value)}
+                      style={{ fontSize: '12.5px', padding: '4px 8px', height: '32px', fontWeight: 800, border: 'none', background: 'transparent' }}
+                    >
+                      {['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07'].map(p => (
+                        <option key={p} value={p}>
+                          Período {p} {p === '2026-01' ? '(Enero)' : p === '2026-02' ? '(Febrero)' : p === '2026-03' ? '(Marzo)' : p === '2026-04' ? '(Abril)' : p === '2026-05' ? '(Mayo)' : p === '2026-06' ? '(Junio)' : '(Julio)'}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <button
+                    className="action-button"
+                    onClick={handleAplicarExcelAuditado}
+                    disabled={loadingExcel}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 20px',
+                      fontSize: '13px',
+                      background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '10px',
+                      fontWeight: 700,
+                      cursor: loadingExcel ? 'not-allowed' : 'pointer',
+                      boxShadow: '0 4px 12px rgba(99, 102, 241, 0.25)'
+                    }}
+                  >
+                    {loadingExcel ? (
+                      <><Loader2 className="animate-spin" size={16} /> Importando...</>
+                    ) : (
+                      <><CheckCircle size={16} /> Aplicar {excelParsedData.length} Cobros a Período {periodoImputacionExcel || '2026-01'}</>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Summary after parsing */}
+            {excelSummary && (
+              <div style={{
+                marginTop: '16px',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                gap: '12px'
+              }}>
+                <div style={{ background: 'var(--surface)', borderRadius: '12px', padding: '14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)' }}>{excelSummary.totalFilas}</div>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', marginTop: '2px' }}>Cobros Auditados</div>
+                </div>
+                <div style={{ background: 'var(--surface)', borderRadius: '12px', padding: '14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '20px', fontWeight: 900, color: '#10b981' }}>${excelSummary.totalMonto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</div>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', marginTop: '2px' }}>Total Cobros</div>
+                </div>
+                <div style={{ background: 'var(--surface)', borderRadius: '12px', padding: '14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '20px', fontWeight: 900, color: '#f59e0b' }}>{excelSummary.multiGrupoCount}</div>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', marginTop: '2px' }}>Pagos Divididos</div>
+                </div>
+                <div style={{ background: 'var(--surface)', borderRadius: '12px', padding: '14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '14px', fontWeight: 900, color: '#6366f1' }}>{excelSummary.sheetName.substring(0, 16)}...</div>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', marginTop: '2px' }}>Hoja Detectada</div>
+                </div>
+              </div>
+            )}
+
+            {/* Preview table */}
+            {excelParsedData.length > 0 && !loadingExcel && excelResults.length === 0 && (
+              <div style={{ marginTop: '16px', maxHeight: '300px', overflowY: 'auto', borderRadius: '12px', border: '1px solid var(--border-light)' }} className="premium-scrollbar">
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--surface)', position: 'sticky', top: 0, zIndex: 1 }}>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 800, fontSize: '11px', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-light)' }}>Fecha</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 800, fontSize: '11px', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-light)' }}>Grupo</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 800, fontSize: '11px', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-light)' }}>Concepto</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 800, fontSize: '11px', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-light)' }}>Cpbte</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 800, fontSize: '11px', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-light)' }}>Crédito</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {excelParsedData.slice(0, 50).map((p, idx) => (
+                      <tr key={p.id} style={{ borderBottom: '1px solid var(--border-light)' }}>
+                        <td style={{ padding: '6px 12px', whiteSpace: 'nowrap' }}>{p.fecha}</td>
+                        <td style={{ padding: '6px 12px' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '2px 8px',
+                            borderRadius: '6px',
+                            fontWeight: 800,
+                            fontSize: '11px',
+                            background: p.isMultiGrupo ? 'rgba(245,158,11,0.12)' : 'rgba(99,102,241,0.1)',
+                            color: p.isMultiGrupo ? '#b45309' : '#6366f1'
+                          }}>
+                            {p.grupoStr}
+                          </span>
+                        </td>
+                        <td style={{ padding: '6px 12px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.concepto}</td>
+                        <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: '11px' }}>{p.comprobante}</td>
+                        <td style={{ padding: '6px 12px', textAlign: 'right', fontWeight: 700, color: '#10b981' }}>${p.monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                      </tr>
+                    ))}
+                    {excelParsedData.length > 50 && (
+                      <tr>
+                        <td colSpan={5} style={{ padding: '8px 12px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '11px', fontStyle: 'italic' }}>
+                          ...y {excelParsedData.length - 50} cobros más
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Progress bar during import */}
+            {loadingExcel && (
+              <div style={{ marginTop: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>Importando cobros auditados...</span>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>{excelProgress.current} / {excelProgress.total}</span>
+                </div>
+                <div style={{ height: '6px', background: 'rgba(0,0,0,0.06)', borderRadius: '3px', overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${excelProgress.total > 0 ? (excelProgress.current / excelProgress.total) * 100 : 0}%`,
+                    background: 'linear-gradient(90deg, #6366f1, #8b5cf6)',
+                    borderRadius: '3px',
+                    transition: 'width 0.2s ease'
+                  }} />
+                </div>
+              </div>
+            )}
+
+            {/* Results after import */}
+            {excelResults.length > 0 && (
+              <div style={{ marginTop: '16px', maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }} className="premium-scrollbar">
+                {excelResults.map((res, i) => (
+                  <div key={`excel-res-${i}`} dangerouslySetInnerHTML={{ __html: res.html }} />
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Barra de progreso de la IA */}
+
           {(loadingIA || (progresoIA.total > 0 && resultadoIA.length > 0)) && (
             <div className="glass-panel animate-pulse" style={{ padding: '20px', borderRadius: '16px', border: '1px solid var(--border-light)', marginBottom: '20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
@@ -947,7 +1502,24 @@ export default function NuevaConciliacionTab({
                                       value={row.selectedSocioLabel || ''}
                                       onChange={e => handleSocioInputChange(row.id, e.target.value)}
                                     />
-                                    {row.suggestedSocio && !row.selectedSocioId && (
+                                    {row.suggestedSocio?.isLearned && (
+                                     <div style={{ fontSize: '10.5px', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                       <span style={{
+                                         display: 'inline-flex',
+                                         alignItems: 'center',
+                                         gap: '3px',
+                                         padding: '2px 6px',
+                                         borderRadius: '5px',
+                                         background: 'rgba(99, 102, 241, 0.12)',
+                                         color: '#4f46e5',
+                                         border: '1px solid rgba(99, 102, 241, 0.25)',
+                                         fontWeight: 700
+                                       }}>
+                                         {row.suggestedSocio.reason} (Confianza: {row.suggestedSocio.confianza}%, {row.suggestedSocio.vecesVisto}x visto)
+                                       </span>
+                                     </div>
+                                   )}
+                                   {row.suggestedSocio && !row.selectedSocioId && (
                                       <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                         <span>Sugerido por {row.suggestedSocio.reason}:</span>
                                         <button

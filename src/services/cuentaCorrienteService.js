@@ -365,12 +365,16 @@ export async function registrarCobroCuenta({
   }
 
   // Registrar audit log
-  await supabase.from('audit_log').insert({
-    tipo_evento: 'REGISTRO_PAGO_CUENTA_CORRIENTE',
-    descripcion: `Cobro PAGO registrado: Grupo ${numero_grupo} por $${monto} (${medio_pago})`,
-    monto: monto,
-    usuario: 'admin@aunar.com'
-  }).catch(e => console.warn('Audit log warn:', e));
+  try {
+    await supabase.from('audit_log').insert({
+      tipo_evento: 'REGISTRO_PAGO_CUENTA_CORRIENTE',
+      descripcion: `Cobro PAGO registrado: Grupo ${numero_grupo} por $${monto} (${medio_pago})`,
+      monto: monto,
+      usuario: 'admin@aunar.com'
+    });
+  } catch (e) {
+    console.warn('Audit log warn:', e);
+  }
 
   return data;
 }

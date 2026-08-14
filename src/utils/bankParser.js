@@ -516,18 +516,25 @@ function parsearRawText(rawLines, cleanVal, parseDateStr, formatDateAR, saldoAnt
       'PAGINA', 'PÁGINA', 'HOJA:', 'SUC:',
       'VIENE DE', 'CONTINUA EN', 'SIGUIENTE',
       'BANCO CREDICOOP', 'CREDICOOP RESPONDE', 'CALIDAD DE SERVICIOS', 'SITIO DE INTERNET',
-      'CUENTA CORRIENTE', 'DEBITO DIRECTO', 'CBU DE SU CUENTA', 'RESUMEN DE CUENTA',
+      'CUENTA CORRIENTE', 'DEBITO DIRECTO', 'CBU DE SU CUENTA', 'RESUMEN DE CUENTA', 'RESUMEN:', 'RESUMEN :',
       'SALDO ANTERIOR', 'SALDO FINAL', 'SALDO AL', 'SALDO ACTUAL',
       'TOTAL GRAV.', 'TOTAL GRAV', 'TOTAL GRAVAMEN', 'NACION ARGENTINA', 'BANCO DE LA',
       'CUIT 30-', 'IVA RESPONSABLE', 'ASOCIACION MUTUAL', '13E/48Y49', '1900 LA PLATA',
       'BUENOS AIRES', 'NRO. CUENTA', 'TOLOSA', 'FECHA MOVIMIENTOS', 'MOVIMIENTOS COMPROB',
       'DEBITOS CREDITOS', 'TOTAL GRAV. LEY', 'TOTAL GRAV. LEY 25413', 'TRANSPORTE',
-      'SUCURSAL CLAVE', 'BANCARIA UNIFORME', '0110717520071700076587'
+      'SUCURSAL CLAVE', 'BANCARIA UNIFORME', '0110717520071700076587',
+      'DESCRIPCION DEBITO CREDITO', 'FECHA COMBTE DESCRIPCION'
     ];
     
     if (ignorePhrases.some(phrase => upper.includes(phrase))) {
       return true;
     }
+
+    // Ignore header summary lines like "del: 01/02/2026 al: 28/02/2026"
+    if (/\bDEL:\s*\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/i.test(upper) || /\bDEL\s+\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\s+AL\b/i.test(upper)) {
+      return true;
+    }
+
     return false;
   };
 
@@ -729,6 +736,8 @@ function parsearRawText(rawLines, cleanVal, parseDateStr, formatDateAR, saldoAnt
     // Normalize Unicode dash characters to normal hyphen
     const line = originalLine.replace(/[\u2212\u2013\u2014]/g, '-').trim();
     if (!line) return;
+
+    if (checkShouldIgnore(line)) return;
 
     const upper = line.toUpperCase();
     if (

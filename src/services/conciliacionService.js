@@ -237,3 +237,86 @@ export const resetLiquidacionesGrupos = async (liqIds) => {
     .in('liquidacion_id', liqIds);
   if (error) throw error;
 };
+
+/**
+ * Obtiene todos los mapeos aprendidos de conciliación histórica (CUIT/CBU -> Grupo/Socio).
+ * @returns {Promise<Array>}
+ */
+export const fetchConciliacionHistorica = async () => {
+  const { data, error } = await supabase
+    .from('conciliacion_historica')
+    .select('*')
+    .order('confianza', { ascending: false });
+  if (error) {
+    console.error('Error al obtener conciliacion_historica:', error);
+    return [];
+  }
+  return data || [];
+};
+
+/**
+ * Registra o actualiza un aprendizaje de CUIT/CBU -> Grupo/Socio.
+ * @param {Object} item - Datos del aprendizaje.
+ * @returns {Promise<void>}
+ */
+export const registrarAprendizajeHistorico = async ({
+  cuit,
+  cbu,
+  nombreTransferente,
+  numeroGrupo,
+  socioId,
+  socioNombre,
+  banco,
+  monto,
+  periodo,
+  confianza = 95
+}) => {
+  if (!numeroGrupo || (!cuit && !cbu)) return;
+  const cleanCuit = cuit ? String(cuit).replace(/\D/g, '') : null;
+  if (!cleanCuit && !cbu) return;
+
+  try {
+    const { data: existing } = await supabase
+      .from('conciliacion_historica')
+      .select('id, veces_visto, confianza')
+      .eq('cuit_transferente', cleanCuit || cbu)
+      .eq('numero_grupo', parseInt(numeroGrupo, 10))
+      .maybeSingle();
+
+    if (existing) {
+      await supabase
+        .from('conciliacion_historica')
+        .update({
+          cbu_transferente: cbu || undefined,
+          nombre_transferente: nombreTransferente || undefined,
+          socio_id: socioId ? parseInt(socioId, 10) : undefined,
+          socio_nombre: socioNombre || undefined,
+          banco: banco || undefined,
+          veces_visto: (existing.veces_visto || 1) + 1,
+          ultimo_monto: monto ? Number(monto) : undefined,
+          ultimo_periodo: periodo || undefined,
+          confianza: Math.min(99, Math.max(existing.confianza || 80, confianza) + 2),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existing.id);
+    } else {
+      await supabase
+        .from('conciliacion_historica')
+        .insert({
+          cuit_transferente: cleanCuit || cbu,
+          cbu_transferente: cbu || null,
+          nombre_transferente: nombreTransferente || null,
+          numero_grupo: parseInt(numeroGrupo, 10),
+          socio_id: socioId ? parseInt(socioId, 10) : null,
+          socio_nombre: socioNombre || null,
+          banco: banco || null,
+          veces_visto: 1,
+          ultimo_monto: monto ? Number(monto) : null,
+          ultimo_periodo: periodo || null,
+          confianza: confianza || 90
+        });
+    }
+  } catch (err) {
+    console.warn('Aviso al registrar aprendizaje histórico:', err.message);
+  }
+};
