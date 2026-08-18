@@ -3136,16 +3136,22 @@ export default function ConciliacionBancaria() {
     const list = [];
     const seen = new Set();
 
-    // 1. De los movimientos parseados en memoria
+    const isCollectiveRecaudacion = (concepto) => {
+      const u = String(concepto || '').toUpperCase();
+      // Si tiene CUIT o indicadores de transferencia individual, NO es un lote colectivo
+      if (u.includes('CUIT') || u.includes('CUIL') || u.includes('DIST.TITULAR') || u.includes('TRANSF.INT') || u.includes('VAR-') || u.includes('FAC-') || u.includes('SPOT')) {
+        return false;
+      }
+      return u.includes('RECAUDACION') || u.includes('DEBITO DIRECTO') || u.includes('LOTE DEBITO') || u.includes('COBRANZA CBU') || u.includes('DEBITO AUTOMATICO') || (u.includes('DEBITO') && !u.includes('DEBITOS'));
+    };
+
+    // 1. De los movimientos parseados en memoria (solo no conciliados o colectivos)
     (parsedMovements || []).forEach((m, idx) => {
-      if (m.netoReal > 0) {
+      if (m.netoReal > 0 && !m.reconciled) {
         const key = `parsed-${m.fecha}-${m.concepto}-${m.netoReal}`;
         if (!seen.has(key)) {
           seen.add(key);
-          const isRecaudacion = String(m.concepto || '').toUpperCase().includes('RECAUDACION') || 
-                                String(m.concepto || '').toUpperCase().includes('DEBITO') ||
-                                String(m.concepto || '').toUpperCase().includes('COBRANZA') ||
-                                String(m.concepto || '').toUpperCase().includes('DEBIN');
+          const isRecaudacion = isCollectiveRecaudacion(m.concepto);
           list.push({
             id: m.id !== undefined ? m.id : `p-${idx}`,
             fecha: m.fecha,
@@ -3161,8 +3167,11 @@ export default function ConciliacionBancaria() {
       }
     });
 
-    // 2. De los movimientos registrados en la base de datos para este período
+    // 2. De los movimientos registrados en la base de datos para este período (solo NO conciliados individualmente)
     (dbBankMovements || []).forEach(dbMov => {
+      // Excluir si ya está asignado a un socio o liquidación específica (ya conciliado)
+      if (dbMov.socio_id || dbMov.liquidacion_id) return;
+
       const montoNum = Number(dbMov.monto || 0);
       if (montoNum > 0) {
         const key = `db-${dbMov.movimiento_id}`;
@@ -3171,10 +3180,7 @@ export default function ConciliacionBancaria() {
           const formattedFecha = dbMov.fecha_movimiento 
             ? dbMov.fecha_movimiento.split('-').reverse().join('/') 
             : '';
-          const isRecaudacion = String(dbMov.concepto || '').toUpperCase().includes('RECAUDACION') || 
-                                String(dbMov.concepto || '').toUpperCase().includes('DEBITO') ||
-                                String(dbMov.concepto || '').toUpperCase().includes('COBRANZA') ||
-                                String(dbMov.concepto || '').toUpperCase().includes('DEBIN');
+          const isRecaudacion = isCollectiveRecaudacion(dbMov.concepto);
           list.push({
             id: dbMov.movimiento_id,
             fecha: formattedFecha,
@@ -3191,7 +3197,7 @@ export default function ConciliacionBancaria() {
       }
     });
 
-    // Ordenar: Priorizar los que contengan RECAUDACION / DEBITO, luego por mayor monto
+    // Ordenar: Priorizar los que contengan RECAUDACION / DEBITO colectivo real, luego por mayor monto
     return list.sort((a, b) => {
       if (a.isRecaudacion && !b.isRecaudacion) return -1;
       if (!a.isRecaudacion && b.isRecaudacion) return 1;
@@ -3199,10 +3205,10 @@ export default function ConciliacionBancaria() {
     });
   }, [parsedMovements, dbBankMovements]);
 
-  // Auto-seleccionar movimiento de RECAUDACION si no hay ninguno seleccionado en loteModal
+  // Auto-seleccionar movimiento de RECAUDACION colectivo si existe
   useEffect(() => {
     if (!loteModal.row && candidateMovements.length > 0) {
-      const topRecaudacion = candidateMovements.find(m => m.isRecaudacion) || candidateMovements[0];
+      const topRecaudacion = candidateMovements.find(m => m.isRecaudacion);
       if (topRecaudacion) {
         setLoteModal(prev => ({ ...prev, row: topRecaudacion }));
       }
