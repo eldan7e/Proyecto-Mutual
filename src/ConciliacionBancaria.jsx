@@ -1897,17 +1897,24 @@ export default function ConciliacionBancaria() {
     setLoteModal(prev => ({ ...prev, loading: true }));
     
     try {
-      const bankRow = loteModal.row;
-      const bankDateISO = parseDateToISODate(bankRow.fecha);
+      const bankRow = loteModal.row || {
+        fecha: new Date().toISOString().slice(0, 10),
+        concepto: 'Recaudación Débito Automático CBU (Lote)',
+        netoReal: checkedRows.reduce((sum, r) => sum + r.monto, 0),
+        ingresoBruto: checkedRows.reduce((sum, r) => sum + r.monto, 0),
+        impuestos: 0,
+        banco: 'CREDICOOP'
+      };
+      const bankDateISO = bankRow.fecha ? parseDateToISODate(bankRow.fecha) : new Date().toISOString().slice(0, 10);
       
       // 1. Prepare bulk movimientos_bancarios inserts
       const masterMov = {
         fecha_movimiento: bankDateISO,
-        concepto: bankRow.concepto,
-        monto: bankRow.netoReal,
-        ingreso_bruto: bankRow.ingresoBruto,
-        impuestos: bankRow.impuestos,
-        banco: bankRow.banco,
+        concepto: bankRow.concepto || 'Recaudación Débito Automático CBU',
+        monto: bankRow.netoReal || 0,
+        ingreso_bruto: bankRow.ingresoBruto || bankRow.netoReal || 0,
+        impuestos: bankRow.impuestos || 0,
+        banco: bankRow.banco || 'CREDICOOP',
         socio_id: null,
         liquidacion_id: null,
         tipo_movimiento: 'OTRO_INGRESO'
@@ -3139,19 +3146,36 @@ export default function ConciliacionBancaria() {
     const isCollectiveRecaudacion = (concepto) => {
       const u = String(concepto || '').toUpperCase();
       // Si tiene CUIT o indicadores de transferencia individual, NO es un lote colectivo
-      if (u.includes('CUIT') || u.includes('CUIL') || u.includes('DIST.TITULAR') || u.includes('TRANSF.INT') || u.includes('VAR-') || u.includes('FAC-') || u.includes('SPOT')) {
+      if (
+        u.includes('CUIT') || 
+        u.includes('CUIL') || 
+        u.includes('DIST.TITULAR') || 
+        u.includes('TRANSF.INT') || 
+        u.includes('TRANSF') || 
+        u.includes('VAR-') || 
+        u.includes('FAC-') || 
+        u.includes('SPOT') || 
+        u.includes('DEBIN') ||
+        u.includes('S/CRED')
+      ) {
         return false;
       }
-      return u.includes('RECAUDACION') || u.includes('DEBITO DIRECTO') || u.includes('LOTE DEBITO') || u.includes('COBRANZA CBU') || u.includes('DEBITO AUTOMATICO') || (u.includes('DEBITO') && !u.includes('DEBITOS'));
+      return (
+        u.includes('RECAUDACION') || 
+        u.includes('DEBITO DIRECTO') || 
+        u.includes('LOTE DEBITO') || 
+        u.includes('COBRANZA CBU') || 
+        u.includes('DEBITO AUTOMATICO') ||
+        (u.includes('DEBITO') && !u.includes('DEBITOS') && !u.includes('CREDITO'))
+      );
     };
 
-    // 1. De los movimientos parseados en memoria (solo no conciliados o colectivos)
+    // 1. De los movimientos parseados en memoria (solo no conciliados y estrictamente colectivos)
     (parsedMovements || []).forEach((m, idx) => {
-      if (m.netoReal > 0 && !m.reconciled) {
+      if (m.netoReal > 0 && !m.reconciled && isCollectiveRecaudacion(m.concepto)) {
         const key = `parsed-${m.fecha}-${m.concepto}-${m.netoReal}`;
         if (!seen.has(key)) {
           seen.add(key);
-          const isRecaudacion = isCollectiveRecaudacion(m.concepto);
           list.push({
             id: m.id !== undefined ? m.id : `p-${idx}`,
             fecha: m.fecha,
@@ -3160,27 +3184,25 @@ export default function ConciliacionBancaria() {
             netoReal: m.netoReal,
             ingresoBruto: m.ingresoBruto || m.netoReal,
             impuestos: m.impuestos || 0,
-            isRecaudacion,
+            isRecaudacion: true,
             source: 'parsed'
           });
         }
       }
     });
 
-    // 2. De los movimientos registrados en la base de datos para este período (solo NO conciliados individualmente)
+    // 2. De los movimientos registrados en la base de datos para este período (solo NO conciliados y estrictamente colectivos)
     (dbBankMovements || []).forEach(dbMov => {
-      // Excluir si ya está asignado a un socio o liquidación específica (ya conciliado)
       if (dbMov.socio_id || dbMov.liquidacion_id) return;
 
       const montoNum = Number(dbMov.monto || 0);
-      if (montoNum > 0) {
+      if (montoNum > 0 && isCollectiveRecaudacion(dbMov.concepto)) {
         const key = `db-${dbMov.movimiento_id}`;
         if (!seen.has(key)) {
           seen.add(key);
           const formattedFecha = dbMov.fecha_movimiento 
             ? dbMov.fecha_movimiento.split('-').reverse().join('/') 
             : '';
-          const isRecaudacion = isCollectiveRecaudacion(dbMov.concepto);
           list.push({
             id: dbMov.movimiento_id,
             fecha: formattedFecha,
@@ -3189,7 +3211,7 @@ export default function ConciliacionBancaria() {
             netoReal: montoNum,
             ingresoBruto: Number(dbMov.ingreso_bruto || montoNum),
             impuestos: Number(dbMov.impuestos || 0),
-            isRecaudacion,
+            isRecaudacion: true,
             source: 'db',
             dbMovimientoId: dbMov.movimiento_id
           });
@@ -3197,21 +3219,19 @@ export default function ConciliacionBancaria() {
       }
     });
 
-    // Ordenar: Priorizar los que contengan RECAUDACION / DEBITO colectivo real, luego por mayor monto
-    return list.sort((a, b) => {
-      if (a.isRecaudacion && !b.isRecaudacion) return -1;
-      if (!a.isRecaudacion && b.isRecaudacion) return 1;
-      return b.netoReal - a.netoReal;
-    });
+    // Ordenar por mayor monto
+    return list.sort((a, b) => b.netoReal - a.netoReal);
   }, [parsedMovements, dbBankMovements]);
 
-  // Auto-seleccionar movimiento de RECAUDACION colectivo si existe
+  // Sincronizar selección de loteModal.row con movimientos candidatos válidos
   useEffect(() => {
-    if (!loteModal.row && candidateMovements.length > 0) {
-      const topRecaudacion = candidateMovements.find(m => m.isRecaudacion);
-      if (topRecaudacion) {
-        setLoteModal(prev => ({ ...prev, row: topRecaudacion }));
+    if (loteModal.row) {
+      const isValid = candidateMovements.some(m => String(m.id) === String(loteModal.row.id));
+      if (!isValid) {
+        setLoteModal(prev => ({ ...prev, row: candidateMovements[0] || null }));
       }
+    } else if (candidateMovements.length > 0) {
+      setLoteModal(prev => ({ ...prev, row: candidateMovements[0] }));
     }
   }, [candidateMovements, loteModal.row]);
 
