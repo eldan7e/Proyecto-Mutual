@@ -574,25 +574,23 @@ export default function Contaduria() {
     const hasSearch = Boolean(searchGrupo.trim());
     let targetPeriod = null;
 
-    if (!hasSearch) {
-      if (periodoFilter === 'AUTO') {
-        targetPeriod = periodosDisponibles.length > 0 ? periodosDisponibles[0] : null;
-      } else if (periodoFilter !== 'TODOS') {
-        targetPeriod = periodoFilter;
-      }
+    if (periodoFilter === 'AUTO') {
+      targetPeriod = periodosDisponibles.length > 0 ? periodosDisponibles[0] : null;
+    } else if (periodoFilter !== 'TODOS') {
+      targetPeriod = periodoFilter;
     }
 
     return liquidacionesAll.filter(l => {
       if (l.numero_grupo === 0) return false;
 
-      // Filtro por Período (si no hay término de búsqueda activo)
+      // Filtro por Período
       if (targetPeriod && l.periodo !== targetPeriod) return false;
 
       // Filtro por Operadora
       const opNombre = (l.proveedores?.nombre || '').toUpperCase();
       if (operadoraFilter !== 'TODAS' && opNombre !== operadoraFilter) return false;
 
-      // Buscador (Sobrescribe filtro de período para buscar en todos los períodos del grupo)
+      // Buscador
       if (hasSearch) {
         const s = searchGrupo.toLowerCase().trim();
         const matchGrupo = String(l.numero_grupo).includes(s);
