@@ -948,6 +948,21 @@ export default function NuevaConciliacionTab({
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--surface)', padding: '4px 10px', borderRadius: '10px', border: '1px solid var(--border-light)' }}>
                     <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)' }}>
+                      Banco:
+                    </span>
+                    <select
+                      className="premium-input"
+                      value={banco}
+                      onChange={e => setBanco(e.target.value)}
+                      style={{ fontSize: '12.5px', padding: '4px 8px', height: '32px', fontWeight: 800, border: 'none', background: 'transparent' }}
+                    >
+                      <option value="NACION">Banco Nación</option>
+                      <option value="CREDICOOP">Banco Credicoop</option>
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--surface)', padding: '4px 10px', borderRadius: '10px', border: '1px solid var(--border-light)' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)' }}>
                       Imputar a Factura:
                     </span>
                     <select
