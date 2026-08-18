@@ -276,26 +276,39 @@ export const parsearMovimientos = (rawText) => {
     let dialect = 'UNKNOWN';
     let colMap = {};
 
-    if (headerUpper.some(h => h.includes('NRO MOV'))) {
-      // Nacion raw format: NRO MOV., FECHA, MOVIMIENTOS, COMPROB., DEBITOS *-1, CREDITOS, SALDO, ...
-      dialect = 'NACION_RAW';
-      colMap.nroMov = headerUpper.findIndex(h => h.includes('NRO MOV'));
+    const isDebCol = (h) => (h === 'DEBITO' || h === 'DEBITOS' || h === 'DÉBITO' || h === 'DÉBITOS' || h.startsWith('DEBIT')) && !h.includes('UNIDOS') && !h.includes('TOTAL');
+    const isCredCol = (h) => (h === 'CREDITO' || h === 'CREDITOS' || h === 'CRÉDITO' || h === 'CRÉDITOS' || h.startsWith('CREDIT')) && !h.includes('UNIDOS') && !h.includes('TOTAL');
+    const isImpCol = (h) => (h === 'IMPORTE' || h === 'MONTO' || h === 'VALOR') && !h.includes('UNIDOS') && !h.includes('TOTAL');
+
+    if (headerUpper.some(h => h.includes('GRUPO')) && (headerUpper.some(isCredCol) || headerUpper.some(isImpCol))) {
+      // Sheet "compara" / Audited payments
+      dialect = 'COMPARA_AUDIT';
       colMap.fecha = headerUpper.findIndex(h => h.includes('FECHA'));
-      colMap.concepto = headerUpper.findIndex(h => h.includes('MOVIMIENTO'));
-      colMap.comprobante = headerUpper.findIndex(h => h.includes('COMPROB'));
-      colMap.debito = headerUpper.findIndex(h => h.includes('DEBITO'));
-      colMap.credito = headerUpper.findIndex(h => h.includes('CREDITO'));
-    } else if (
-      headerUpper.some(h => h.includes('IMPORTE') || h.includes('MONTO') || h.includes('VALOR')) &&
-      headerUpper.some(h => h.includes('SALDO')) &&
-      headerUpper.some(h => h.includes('COMPROB') || h.includes('CPBTE') || h.includes('TICKET'))
-    ) {
-      // Nacion CSV format: Fecha,Comprobante,Concepto,Importe,Saldo
-      dialect = 'NACION_CSV';
-      colMap.fecha = headerUpper.findIndex(h => h.includes('FECHA'));
-      colMap.concepto = headerUpper.findIndex(h => h.includes('CONCEPTO') || h.includes('DETALLE') || h.includes('DESCRIPCION'));
+      colMap.concepto = headerUpper.findIndex(h => h.includes('CONCEPTO') || h.includes('MOVIMIENTO') || h.includes('DETALLE'));
       colMap.comprobante = headerUpper.findIndex(h => h.includes('COMPROB') || h.includes('CPBTE') || h.includes('TICKET'));
-      colMap.importe = headerUpper.findIndex(h => h.includes('IMPORTE') || h.includes('MONTO') || h.includes('VALOR'));
+      colMap.importe = headerUpper.findIndex(isImpCol);
+      colMap.credito = headerUpper.findIndex(isCredCol);
+      colMap.grupo = headerUpper.findIndex(h => h.includes('GRUPO'));
+      colMap.saldo = headerUpper.findIndex(h => h === 'SALDO');
+    } else if (headerUpper.some(isDebCol) && headerUpper.some(isCredCol)) {
+      // Separate debit and credit columns (e.g. RESUMEN PDF or Credicoop RAW)
+      dialect = headerUpper.some(h => h.includes('CPBTE') || h.includes('NRO.CPBTE')) ? 'CREDICOOP_RAW' : 'NACION_RAW';
+      colMap.nroMov = headerUpper.findIndex(h => h.includes('NRO MOV') || h === 'MOV');
+      colMap.fecha = headerUpper.findIndex(h => h.includes('FECHA'));
+      colMap.concepto = headerUpper.findIndex(h => h.includes('MOVIMIENTO') || h.includes('CONCEPTO') || h.includes('DETALLE'));
+      colMap.comprobante = headerUpper.findIndex(h => h.includes('COMPROB') || h.includes('CPBTE') || h.includes('TICKET'));
+      colMap.debito = headerUpper.findIndex(isDebCol);
+      colMap.credito = headerUpper.findIndex(isCredCol);
+      colMap.saldo = headerUpper.findIndex(h => h === 'SALDO');
+    } else if (headerUpper.some(isImpCol) && headerUpper.some(h => h.includes('FECHA'))) {
+      // Single Importe column (e.g. RESUMEN or Nacion CSV)
+      dialect = 'NACION_CSV';
+      colMap.nroMov = headerUpper.findIndex(h => h.includes('NRO MOV') || h === 'MOV');
+      colMap.fecha = headerUpper.findIndex(h => h.includes('FECHA'));
+      colMap.concepto = headerUpper.findIndex(h => h.includes('CONCEPTO') || h.includes('MOVIMIENTO') || h.includes('DETALLE') || h.includes('DESCRIPCION'));
+      colMap.comprobante = headerUpper.findIndex(h => h.includes('COMPROB') || h.includes('CPBTE') || h.includes('TICKET'));
+      colMap.importe = headerUpper.findIndex(isImpCol);
+      colMap.saldo = headerUpper.findIndex(h => h === 'SALDO');
     } else if (
       headerUpper.some(h => h.includes('CPBTE') || h.includes('COMPROBANTE')) &&
       (headerUpper.some(h => h.includes('BITO')) || headerUpper.some(h => h.includes('DITO')))
@@ -309,7 +322,6 @@ export const parsearMovimientos = (rawText) => {
       colMap.credito = headerUpper.findIndex(h => h.includes('DITO') && !h.includes('BITO')); // Crédito
       colMap.saldo = headerUpper.findIndex(h => h.includes('SALDO'));
       if (colMap.credito === -1 && colMap.debito !== -1) {
-        // Fallback: find by position relative to debito
         colMap.credito = colMap.debito + 1;
       }
     } else {
@@ -353,7 +365,7 @@ export const parsearMovimientos = (rawText) => {
       const rawFecha = cols[colMap.fecha] || '';
       const fecha = formatDateAR(rawFecha);
       const concepto = (cols[colMap.concepto] || '').replace(/^[,\s]+|[,\s]+$/g, '').trim();
-      const ticket = cols[colMap.comprobante] || '';
+      let ticket = cols[colMap.comprobante] || '';
       
       const upperConcept = concepto.toUpperCase();
       if (
@@ -365,20 +377,32 @@ export const parsearMovimientos = (rawText) => {
         return;
       }
 
+      // If ticket is empty, look for ticket pattern in concept
+      if (!ticket) {
+        const mTicket = concepto.match(/(?:S\/CRED|CPBTE|COMP|TICKET|LEY 25413)\s*(\d{4,6})\b/i);
+        if (mTicket && mTicket[1]) {
+          ticket = mTicket[1];
+        }
+      }
+
       let monto = 0;
-      if (dialect === 'NACION_RAW') {
-        // Nacion: separate debit and credit columns
-        const debito = cleanVal(cols[colMap.debito]);
-        const credito = cleanVal(cols[colMap.credito]);
-        monto = credito + debito; // debito is already negative
-      } else if (dialect === 'NACION_CSV') {
-        // Nacion CSV: single Importe column, with signed values (e.g. "$ -699,30" or "$ 116.550,00")
-        monto = cleanVal(cols[colMap.importe]);
-      } else if (dialect === 'CREDICOOP_RAW') {
-        // Credicoop: Débito and Crédito are positive, debits reduce balance
-        const debito = cleanVal(cols[colMap.debito]);
-        const credito = cleanVal(cols[colMap.credito]);
-        monto = credito - debito; // credit is income, debit is expense
+      if (dialect === 'NACION_RAW' || dialect === 'CREDICOOP_RAW') {
+        const deb = colMap.debito !== -1 ? Math.abs(cleanVal(cols[colMap.debito])) : 0;
+        const cred = colMap.credito !== -1 ? Math.abs(cleanVal(cols[colMap.credito])) : 0;
+        if (cred > 0) monto = cred;
+        else if (deb > 0) monto = -deb;
+      } else if (dialect === 'NACION_CSV' || dialect === 'COMPARA_AUDIT') {
+        if (colMap.importe !== -1 && cols[colMap.importe]) {
+          monto = cleanVal(cols[colMap.importe]);
+        } else if (colMap.credito !== -1 && cols[colMap.credito]) {
+          monto = cleanVal(cols[colMap.credito]);
+        }
+      }
+
+      // If it is a tax and monto is positive, flip to negative
+      const isTax = upperConcept.includes('GRAVAMEN') || upperConcept.includes('LEY 25413') || upperConcept.includes('IMPUESTO') || upperConcept.includes('PERCEPCION') || upperConcept.includes('SIRCREB');
+      if (isTax && monto > 0) {
+        monto = -Math.abs(monto);
       }
       
       let saldoVal = colMap.saldo !== -1 && cols[colMap.saldo] ? cleanVal(cols[colMap.saldo]) : null;

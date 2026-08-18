@@ -368,14 +368,29 @@ export default function NuevaConciliacionTab({
     setExcelResults([]);
 
     try {
+      // Auto-detect bank from file name
+      const fileNameUpper = String(file.name || '').toUpperCase();
+      if (fileNameUpper.includes('BN') || fileNameUpper.includes('NACION')) {
+        setBanco('NACION');
+      } else if (fileNameUpper.includes('CREDICOOP') || fileNameUpper.includes('CABAL')) {
+        setBanco('CREDICOOP');
+      }
+
       const arrayBuffer = await file.arrayBuffer();
       const workbook = XLSX.read(arrayBuffer, { type: 'array' });
 
       // Try to find the sheet with audited payments
-      const targetSheetNames = ['compara con cobros los positivo', 'compara con cobros los positivos', 'compara'];
-      let sheetName = workbook.SheetNames.find(s =>
-        targetSheetNames.some(t => s.toLowerCase().includes(t.toLowerCase()))
-      );
+      const targetSheetNames = [
+        'compara',
+        'compara con cobros los positivo',
+        'compara con cobros los positivos',
+        'compara positivos',
+        'compara con cobros'
+      ];
+      let sheetName = workbook.SheetNames.find(s => {
+        const lower = s.toLowerCase().trim();
+        return targetSheetNames.some(t => lower === t || lower.includes(t));
+      });
       if (!sheetName) {
         // Fallback: try any sheet that has a GRUPO column
         for (const sn of workbook.SheetNames) {
@@ -390,7 +405,7 @@ export default function NuevaConciliacionTab({
         }
       }
       if (!sheetName) {
-        alert('No se encontró la hoja "compara con cobros los positivo" ni una hoja con columna GRUPO en el Excel.');
+        alert('No se encontró la hoja "compara" ni una hoja con columna GRUPO en el Excel.');
         return;
       }
 
@@ -399,18 +414,41 @@ export default function NuevaConciliacionTab({
 
       // Find column indices from header row
       const headerRow = rawRows[0] || [];
+      const isDebCol = (h) => (h === 'DEBITO' || h === 'DEBITOS' || h === 'DÉBITO' || h === 'DÉBITOS') && !h.includes('UNIDOS') && !h.includes('TOTAL');
+      const isCredCol = (h) => (h === 'CREDITO' || h === 'CREDITOS' || h === 'CRÉDITO' || h === 'CRÉDITOS' || h === 'IMPORTE' || h === 'MONTO') && !h.includes('UNIDOS') && !h.includes('TOTAL');
+
       let grupoColIdx = headerRow.findIndex(h => String(h).toUpperCase().includes('GRUPO'));
-      let fechaColIdx = headerRow.findIndex(h => String(h).toUpperCase() === 'FECHA');
-      let conceptoColIdx = headerRow.findIndex(h => String(h).toUpperCase().includes('CONCEPTO'));
-      let cpbteColIdx = headerRow.findIndex(h => String(h).toUpperCase().includes('CPBTE'));
-      let creditoColIdx = headerRow.findIndex(h => String(h).toUpperCase().includes('CRÉDITO') || String(h).toUpperCase().includes('CREDITO'));
+      let fechaColIdx = headerRow.findIndex(h => String(h).toUpperCase().includes('FECHA'));
+      let conceptoColIdx = headerRow.findIndex(h => String(h).toUpperCase().includes('CONCEPTO') || String(h).toUpperCase().includes('MOVIMIENTO') || String(h).toUpperCase().includes('DETALLE'));
+      let cpbteColIdx = headerRow.findIndex(h => String(h).toUpperCase().includes('CPBTE') || String(h).toUpperCase().includes('COMPROB') || String(h).toUpperCase().includes('TICKET'));
+      let creditoColIdx = headerRow.findIndex(h => isCredCol(String(h).toUpperCase().trim()));
+      let nombreColIdx = headerRow.findIndex(h => {
+        const u = String(h).toUpperCase().trim();
+        return u.includes('APELLIDO') || u.includes('NOMBRE') || u.includes('SOCIO') || u.includes('CLIENTE') || u.includes('INTEGRANTE');
+      });
 
       // Fallback to known column positions if headers not found
-      if (grupoColIdx === -1) grupoColIdx = 12;
+      if (grupoColIdx === -1) grupoColIdx = 7;
       if (fechaColIdx === -1) fechaColIdx = 1;
-      if (conceptoColIdx === -1) conceptoColIdx = 2;
-      if (cpbteColIdx === -1) cpbteColIdx = 3;
-      if (creditoColIdx === -1) creditoColIdx = 5;
+      if (conceptoColIdx === -1) conceptoColIdx = 3;
+      if (cpbteColIdx === -1) cpbteColIdx = 2;
+      if (creditoColIdx === -1) creditoColIdx = 4;
+
+      const cleanNum = (val) => {
+        if (val === undefined || val === null || val === '') return 0;
+        if (typeof val === 'number') return Math.abs(val);
+        let s = String(val).replace('$', '').replace(/\s/g, '');
+        if (/^\-?\d{1,3}(,\d{3})*\.\d+$/.test(s)) {
+          s = s.replace(/,/g, '');
+          return Math.abs(parseFloat(s)) || 0;
+        }
+        if (s.includes('.') && s.includes(',')) {
+          s = s.replace(/\./g, '').replace(',', '.');
+        } else if (s.includes(',')) {
+          s = s.replace(',', '.');
+        }
+        return Math.abs(parseFloat(s)) || 0;
+      };
 
       const dataRows = rawRows.slice(1);
       const parsedPayments = [];
@@ -420,17 +458,19 @@ export default function NuevaConciliacionTab({
       for (const row of dataRows) {
         if (!row || row.length === 0) continue;
         const grupoVal = row[grupoColIdx];
-        const credito = Number(row[creditoColIdx] || 0);
+        const credito = cleanNum(row[creditoColIdx]);
         const cpbte = String(row[cpbteColIdx] || '').trim();
         const concepto = String(row[conceptoColIdx] || '').trim();
         const serialFecha = row[fechaColIdx];
+        const nombreVal = nombreColIdx !== -1 && row[nombreColIdx] ? String(row[nombreColIdx]).trim() : '';
 
         if (!grupoVal || credito <= 0) continue;
 
         // Convert Excel serial date to YYYY-MM-DD
         let fechaISO = '';
-        if (typeof serialFecha === 'number') {
-          const utcDays = Math.floor(serialFecha - 25569);
+        if (typeof serialFecha === 'number' || /^\d{5}$/.test(String(serialFecha).trim())) {
+          const serial = parseInt(serialFecha, 10);
+          const utcDays = Math.floor(serial - 25569);
           const dateObj = new Date(utcDays * 86400 * 1000);
           fechaISO = dateObj.toISOString().slice(0, 10);
         } else if (typeof serialFecha === 'string') {
@@ -464,10 +504,12 @@ export default function NuevaConciliacionTab({
         const cuitMatch = concepto.match(/\b\d{11}\b/);
         const cuit = cuitMatch ? cuitMatch[0] : null;
 
-        // Extract name from concept
-        let titular = null;
-        const nameMatch = concepto.match(/\b\d{11}\s*[\-−_]?\s*(?:VAR|CUO|FAC|HON)?\s*[\-−_]?\s*(.+?)(?:\s+CBU|$)/i);
-        if (nameMatch) titular = nameMatch[1].replace(/^[\-−_]+/, '').trim();
+        // Extract name from name column or concept
+        let titular = nombreVal || null;
+        if (!titular) {
+          const nameMatch = concepto.match(/\b\d{11}\s*[\-−_]?\s*(?:VAR|CUO|FAC|HON)?\s*[\-−_]?\s*(.+?)(?:\s+CBU|$)/i);
+          if (nameMatch) titular = nameMatch[1].replace(/^[\-−_]+/, '').trim();
+        }
 
         totalMonto += credito;
 
