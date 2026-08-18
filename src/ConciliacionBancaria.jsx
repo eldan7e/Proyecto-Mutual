@@ -254,6 +254,8 @@ export default function ConciliacionBancaria() {
     saving: false
   });
 
+  const [dbBankMovements, setDbBankMovements] = useState([]);
+
   // Sincronización de períodos y resúmenes
   const [periodosList, setPeriodosList] = useState([]);
   const [selectedPeriod, setSelectedPeriod] = useState(() => {
@@ -293,6 +295,42 @@ export default function ConciliacionBancaria() {
     }
   };
 
+  const fetchDbMovementsForPeriod = async (period) => {
+    if (!period) return;
+    try {
+      const [year, month] = period.split('-').map(Number);
+      const startDate = `${period}-01`;
+      const lastDay = new Date(year, month, 0).getDate();
+      const endDate = `${period}-${String(lastDay).padStart(2, '0')}`;
+
+      const { data, error } = await supabase
+        .from('movimientos_bancarios')
+        .select(`
+          movimiento_id,
+          fecha_movimiento,
+          concepto,
+          monto,
+          ingreso_bruto,
+          impuestos,
+          banco,
+          socio_id,
+          liquidacion_id,
+          tipo_movimiento,
+          comprobante,
+          periodo
+        `)
+        .or(`periodo.eq.${period},and(fecha_movimiento.gte.${startDate},fecha_movimiento.lte.${endDate})`)
+        .gt('monto', 0)
+        .order('fecha_movimiento', { ascending: false });
+
+      if (!error && data) {
+        setDbBankMovements(data);
+      }
+    } catch (err) {
+      console.error("Error fetching db bank movements for period:", err);
+    }
+  };
+
   const fetchPeriodSummary = async (period) => {
     if (!period) return;
     setPeriodSummary(prev => ({ ...prev, loading: true }));
@@ -318,6 +356,7 @@ export default function ConciliacionBancaria() {
     if (selectedPeriod) {
       fetchMasterData();
       fetchPeriodSummary(selectedPeriod);
+      fetchDbMovementsForPeriod(selectedPeriod);
     }
   }, [selectedPeriod]);
 
@@ -350,6 +389,7 @@ export default function ConciliacionBancaria() {
         consumosList = await conciliacionService.fetchConsumosMensuales(selectedPeriod);
       }
       setPeriodConsumos(consumosList);
+      fetchDbMovementsForPeriod(selectedPeriod);
       setLoadingMaster(false);
     } catch (err) {
       console.error("Error cargando datos maestros de conciliación:", err);
@@ -3091,10 +3131,83 @@ export default function ConciliacionBancaria() {
     return member ? member.nombre_completo : 'Desconocido';
   };
 
-  // Movimientos candidatos para Débito Automático (Pendientes y positivo)
+  // Movimientos candidatos para Débito Automático (en memoria y de base de datos)
   const candidateMovements = useMemo(() => {
-    return parsedMovements.filter(m => m.netoReal > 0 && m.estado === 'PENDIENTE');
-  }, [parsedMovements]);
+    const list = [];
+    const seen = new Set();
+
+    // 1. De los movimientos parseados en memoria
+    (parsedMovements || []).forEach((m, idx) => {
+      if (m.netoReal > 0) {
+        const key = `parsed-${m.fecha}-${m.concepto}-${m.netoReal}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          const isRecaudacion = String(m.concepto || '').toUpperCase().includes('RECAUDACION') || 
+                                String(m.concepto || '').toUpperCase().includes('DEBITO') ||
+                                String(m.concepto || '').toUpperCase().includes('COBRANZA') ||
+                                String(m.concepto || '').toUpperCase().includes('DEBIN');
+          list.push({
+            id: m.id !== undefined ? m.id : `p-${idx}`,
+            fecha: m.fecha,
+            concepto: m.concepto,
+            banco: m.banco || 'BCO',
+            netoReal: m.netoReal,
+            ingresoBruto: m.ingresoBruto || m.netoReal,
+            impuestos: m.impuestos || 0,
+            isRecaudacion,
+            source: 'parsed'
+          });
+        }
+      }
+    });
+
+    // 2. De los movimientos registrados en la base de datos para este período
+    (dbBankMovements || []).forEach(dbMov => {
+      const montoNum = Number(dbMov.monto || 0);
+      if (montoNum > 0) {
+        const key = `db-${dbMov.movimiento_id}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          const formattedFecha = dbMov.fecha_movimiento 
+            ? dbMov.fecha_movimiento.split('-').reverse().join('/') 
+            : '';
+          const isRecaudacion = String(dbMov.concepto || '').toUpperCase().includes('RECAUDACION') || 
+                                String(dbMov.concepto || '').toUpperCase().includes('DEBITO') ||
+                                String(dbMov.concepto || '').toUpperCase().includes('COBRANZA') ||
+                                String(dbMov.concepto || '').toUpperCase().includes('DEBIN');
+          list.push({
+            id: dbMov.movimiento_id,
+            fecha: formattedFecha,
+            concepto: dbMov.concepto,
+            banco: dbMov.banco || 'BCO',
+            netoReal: montoNum,
+            ingresoBruto: Number(dbMov.ingreso_bruto || montoNum),
+            impuestos: Number(dbMov.impuestos || 0),
+            isRecaudacion,
+            source: 'db',
+            dbMovimientoId: dbMov.movimiento_id
+          });
+        }
+      }
+    });
+
+    // Ordenar: Priorizar los que contengan RECAUDACION / DEBITO, luego por mayor monto
+    return list.sort((a, b) => {
+      if (a.isRecaudacion && !b.isRecaudacion) return -1;
+      if (!a.isRecaudacion && b.isRecaudacion) return 1;
+      return b.netoReal - a.netoReal;
+    });
+  }, [parsedMovements, dbBankMovements]);
+
+  // Auto-seleccionar movimiento de RECAUDACION si no hay ninguno seleccionado en loteModal
+  useEffect(() => {
+    if (!loteModal.row && candidateMovements.length > 0) {
+      const topRecaudacion = candidateMovements.find(m => m.isRecaudacion) || candidateMovements[0];
+      if (topRecaudacion) {
+        setLoteModal(prev => ({ ...prev, row: topRecaudacion }));
+      }
+    }
+  }, [candidateMovements, loteModal.row]);
 
   return (
     <div style={{ animation: 'slideUpFade 0.2s cubic-bezier(0.16, 1, 0.3, 1)' }}>

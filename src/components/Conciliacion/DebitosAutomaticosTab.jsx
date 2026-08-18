@@ -20,6 +20,7 @@ export default function DebitosAutomaticosTab({
 }) {
   const [pasteText, setPasteText] = useState('');
   const [openDropdownRowId, setOpenDropdownRowId] = useState(null);
+  const [inputMethod, setInputMethod] = useState('file'); // 'file' | 'paste'
 
   const stats = React.useMemo(() => {
     const rows = loteModal.processedRows || [];
@@ -108,140 +109,274 @@ export default function DebitosAutomaticosTab({
           <div>
             <h3 style={{ fontSize: '18px', fontWeight: 800 }}>Conciliación Masiva de Débitos Automáticos</h3>
             <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-              Concilia lotes de recaudación subiendo el detalle del débito automático en Excel/CSV o pegando la tabla de texto, y vinculándolos con la transacción bancaria colectiva.
+              Conciliá lotes de recaudación subiendo el detalle del débito automático en Excel/CSV (ej: <strong>VC DEBITOS.xlsx</strong>) o pegando la tabla de texto, vinculándolos con la transacción bancaria colectiva.
             </p>
           </div>
         </div>
 
         {/* Dropdown de Selección de Movimiento Bancario Colectivo */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
-          {candidateMovements.length === 0 ? (
-            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', background: 'rgba(255, 255, 255, 0.01)', border: '1px dashed var(--border-light)', borderRadius: '20px' }}>
-              <AlertTriangle size={32} style={{ margin: '0 auto 12px', opacity: 0.5, color: 'var(--accent)' }} />
-              <p style={{ fontWeight: 600, fontSize: '14px', margin: '0 0 8px 0', color: 'var(--text-primary)' }}>No hay transacciones colectivas pendientes</p>
-              <p style={{ fontSize: '12.5px', margin: 0 }}>
-                Primero debes cargar y procesar un extracto bancario en la pestaña <strong>"Nueva Conciliación"</strong> que contenga movimientos de crédito (ingresos) pendientes.
-              </p>
+          <div className="glass-panel-sub" style={{ padding: '16px 20px', borderRadius: '16px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-light)', display: 'flex', gap: '20px', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '100%', maxWidth: '650px' }}>
+              <label style={{ fontSize: '11px', fontWeight: '800', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                1. Seleccionar Movimiento Bancario Colectivo a Conciliar (Extracto Banco)
+              </label>
+              <select
+                className="premium-input"
+                style={{ padding: '8px 12px', height: '42px', fontSize: '13px', borderRadius: '10px' }}
+                value={loteModal.row?.id !== undefined ? String(loteModal.row.id) : ''}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (!val) {
+                    setLoteModal(prev => ({ ...prev, row: null }));
+                    return;
+                  }
+                  const foundRow = candidateMovements.find(m => String(m.id) === val);
+                  setLoteModal(prev => ({
+                    ...prev,
+                    row: foundRow || null
+                  }));
+                }}
+              >
+                <option value="">-- Seleccionar movimiento del extracto bancario --</option>
+                {candidateMovements.map(m => (
+                  <option key={String(m.id)} value={String(m.id)}>
+                    {m.isRecaudacion ? '⭐ ' : ''}{m.fecha} - {m.concepto} ({m.banco}) [+${Number(m.netoReal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}]
+                  </option>
+                ))}
+              </select>
             </div>
-          ) : (
-            <div className="glass-panel-sub" style={{ padding: '16px 20px', borderRadius: '16px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-light)', display: 'flex', gap: '20px', flexDirection: 'column' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '100%', maxWidth: '500px' }}>
-                <label style={{ fontSize: '11px', fontWeight: '800', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  1. Seleccionar Movimiento Bancario Colectivo a Conciliar
-                </label>
-                <select
-                  className="premium-input"
-                  style={{ padding: '8px 12px', height: '40px', fontSize: '13.5px', borderRadius: '10px' }}
-                  value={loteModal.row?.id !== undefined ? loteModal.row.id : ''}
-                  onChange={(e) => {
-                    const selectedId = parseInt(e.target.value, 10);
-                    const foundRow = candidateMovements.find(m => m.id === selectedId);
-                    setLoteModal(prev => {
-                      const nextModal = {
-                        ...prev,
-                        row: foundRow || null
-                      };
-                      return nextModal;
-                    });
-                  }}
-                >
-                  <option value="">-- Seleccionar movimiento del extracto bancario --</option>
-                  {candidateMovements.map(m => (
-                    <option key={m.id} value={m.id}>
-                      {m.fecha} - {m.concepto} ({m.banco}) [+${Number(m.netoReal).toLocaleString('es-AR')}]
-                    </option>
-                  ))}
-                </select>
+
+            {loteModal.row && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', padding: '12px 16px', borderRadius: '12px', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.2)' }}>
+                <div>
+                  <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', fontWeight: 700 }}>Movimiento Seleccionado</span>
+                  <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '2px' }}>
+                    {loteModal.row.concepto} — {loteModal.row.banco} ({loteModal.row.fecha})
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', fontWeight: 700 }}>Importe en Banco</span>
+                  <div style={{ fontSize: '18px', fontWeight: 900, color: '#10b981', marginTop: '2px' }}>
+                    +${Number(loteModal.row.netoReal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Input Area (Subir Archivo Excel o Pegar Tabla) */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {loteModal.excelRows.length === 0 ? (
+            <div 
+              className="glass-panel-sub"
+              style={{
+                borderRadius: '20px',
+                padding: '24px',
+                background: 'rgba(255,255,255,0.01)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '16px',
+                border: '1px solid var(--border-light)'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <FileSpreadsheet size={20} color="var(--accent)" />
+                  <h4 style={{ fontSize: '15px', fontWeight: 800, margin: 0 }}>2. Cargar Detalle de Débitos (Excel o Tabla)</h4>
+                </div>
+                
+                {/* Selector de modo: Archivo vs Pegar */}
+                <div style={{ display: 'flex', background: 'var(--surface)', padding: '3px', borderRadius: '10px', border: '1px solid var(--border-light)' }}>
+                  <button
+                    onClick={() => setInputMethod('file')}
+                    style={{
+                      padding: '6px 14px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      borderRadius: '8px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      background: inputMethod === 'file' ? 'var(--accent)' : 'transparent',
+                      color: inputMethod === 'file' ? '#ffffff' : 'var(--text-secondary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <Upload size={14} /> Subir Archivo Excel / CSV
+                  </button>
+                  <button
+                    onClick={() => setInputMethod('paste')}
+                    style={{
+                      padding: '6px 14px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      borderRadius: '8px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      background: inputMethod === 'paste' ? 'var(--accent)' : 'transparent',
+                      color: inputMethod === 'paste' ? '#ffffff' : 'var(--text-secondary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <ClipboardPaste size={14} /> Pegar Tabla de Texto
+                  </button>
+                </div>
               </div>
 
-              {loteModal.row && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', padding: '12px 16px', borderRadius: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)' }}>
-                  <div>
-                    <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', fontWeight: 700 }}>Movimiento Seleccionado</span>
-                    <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '2px' }}>
-                      {loteModal.row.concepto} — {loteModal.row.banco} ({loteModal.row.fecha})
+              {inputMethod === 'file' ? (
+                /* Subida directa de archivo Excel / CSV */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <label
+                    htmlFor="debitos-file-upload-input"
+                    className="hover-lift"
+                    style={{
+                      border: '2px dashed var(--accent)',
+                      borderRadius: '16px',
+                      padding: '36px 24px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '12px',
+                      cursor: 'pointer',
+                      background: 'rgba(34, 197, 94, 0.03)',
+                      textAlign: 'center',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    <div style={{ width: '52px', height: '52px', borderRadius: '14px', background: 'var(--accent-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)' }}>
+                      {loteModal.loading ? <Loader2 className="animate-spin" size={26} /> : <Upload size={26} />}
                     </div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', fontWeight: 700 }}>Importe en Banco</span>
-                    <div style={{ fontSize: '18px', fontWeight: 900, color: '#10b981', marginTop: '2px' }}>
-                      +${loteModal.row.netoReal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    <div>
+                      <span style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                        {loteModal.loading ? 'Leyendo archivo Excel...' : 'Seleccionar o arrastrar archivo de Débitos (.xlsx, .xls, .csv)'}
+                      </span>
+                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', margin: 0 }}>
+                        Podés subir <strong>VC DEBITOS.xlsx</strong> o cualquier archivo exportado con CBU, importes y socios/grupos.
+                      </p>
                     </div>
+                  </label>
+                  <input
+                    id="debitos-file-upload-input"
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    style={{ display: 'none' }}
+                    onChange={handleExcelUpload}
+                  />
+                </div>
+              ) : (
+                /* Pegar Texto Area */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', margin: 0 }}>
+                    Copiá la tabla desde Excel (incluyendo los encabezados) y pegala aquí abajo. El sistema detectará las columnas automáticamente.
+                  </p>
+                  <textarea
+                    value={pasteText}
+                    onChange={(e) => setPasteText(e.target.value)}
+                    placeholder={`Pegar datos aquí...\n\nEjemplo:\nGRUPO NRO\tRESULT\tEXPLICACIÓN\tSOCIO\tIMPORTE $\tCBU EN 22 OK\n5037\tR10\tFalta de fondos\tRafti, Juan Ignacio\t$ 57,888.46\t02900537...`}
+                    style={{
+                      width: '100%',
+                      height: '180px',
+                      background: 'rgba(255, 255, 255, 0.02)',
+                      border: '1px solid var(--border-light)',
+                      borderRadius: '12px',
+                      padding: '12px 16px',
+                      color: 'var(--text-primary)',
+                      fontFamily: 'monospace',
+                      fontSize: '12px',
+                      lineHeight: '1.5',
+                      resize: 'vertical',
+                      outline: 'none'
+                    }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                      onClick={() => handleTextPaste(pasteText)}
+                      className="action-button"
+                      style={{ padding: '0 24px', height: '38px', fontSize: '13px' }}
+                      disabled={!pasteText.trim()}
+                    >
+                      Procesar Texto Pegado
+                    </button>
                   </div>
                 </div>
               )}
             </div>
-          )}
-        </div>
-
-        {/* Paste Area (Solo si hay un movimiento bancario seleccionado) */}
-        {loteModal.row && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            {loteModal.excelRows.length === 0 ? (
-              /* Paste Text Area */
-              <div 
-                className="glass-panel-sub"
-                style={{
-                  borderRadius: '20px',
-                  padding: '24px',
-                  background: 'rgba(255,255,255,0.01)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '16px',
-                  border: '1px solid var(--border-light)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <ClipboardPaste size={20} color="var(--accent)" />
-                  <h4 style={{ fontSize: '15px', fontWeight: 800, margin: 0 }}>Pegar Tabla de Débitos</h4>
+          ) : (
+            /* Excel Data Loaded - Mappings & Preview */
+            <>
+              {/* Barra de archivo cargado con opción de cambiar */}
+              <div style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                background: 'rgba(16, 185, 129, 0.08)', 
+                padding: '12px 18px', 
+                borderRadius: '14px', 
+                border: '1px solid rgba(16, 185, 129, 0.2)',
+                flexWrap: 'wrap',
+                gap: '12px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <FileSpreadsheet size={20} color="#10b981" />
+                  <div>
+                    <span style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                      {loteModal.fileName || 'Archivo de Débitos Cargado'}
+                    </span>
+                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginLeft: '8px' }}>
+                      ({loteModal.excelRows.length} registros cargados)
+                    </span>
+                  </div>
                 </div>
-                <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', margin: 0 }}>
-                  Copia la tabla desde Excel (incluyendo los encabezados) y pégala aquí abajo. El sistema detectará las columnas automáticamente.
-                </p>
-                <textarea
-                  value={pasteText}
-                  onChange={(e) => setPasteText(e.target.value)}
-                  placeholder={`Pegar datos aquí...\n\nEjemplo:\nGRUPO NRO\tRESULT\tEXPLICACIÓN\tSOCIO\tIMPORTE $\tCBU EN 22 OK\n5037\tR10\tFalta de fondos\tRafti, Juan Ignacio\t$ 57,888.46\t02900537...`}
-                  style={{
-                    width: '100%',
-                    height: '200px',
-                    background: 'rgba(255, 255, 255, 0.02)',
-                    border: '1px solid var(--border-light)',
-                    borderRadius: '12px',
-                    padding: '12px 16px',
-                    color: 'var(--text-primary)',
-                    fontFamily: 'monospace',
-                    fontSize: '12px',
-                    lineHeight: '1.5',
-                    resize: 'vertical',
-                    outline: 'none'
-                  }}
-                />
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                  <button
-                    onClick={() => handleTextPaste(pasteText)}
-                    className="action-button"
-                    style={{ padding: '0 24px', height: '38px', fontSize: '13px' }}
-                    disabled={!pasteText.trim()}
+                
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <label
+                    htmlFor="debitos-file-change-input"
+                    className="btn-ghost hover-lift"
+                    style={{
+                      cursor: 'pointer',
+                      padding: '6px 14px',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      background: 'var(--surface)',
+                      border: '1px solid var(--border-light)',
+                      color: 'var(--text-primary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
                   >
-                    Procesar Texto Pegado
-                  </button>
+                    <Upload size={14} /> Cambiar Archivo / Cargar Otro
+                  </label>
+                  <input
+                    id="debitos-file-change-input"
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    style={{ display: 'none' }}
+                    onChange={handleExcelUpload}
+                  />
                 </div>
               </div>
-            ) : (
-              /* Excel Data Loaded - Mappings & Preview */
-              <>
-                {/* Panel de Configuración de Columnas */}
-                <div className="glass-panel-sub" style={{ 
-                   padding: '16px 20px', 
-                   borderRadius: '16px', 
-                   background: 'rgba(255,255,255,0.01)',
-                   border: '1px solid var(--border-light)',
-                   display: 'flex',
-                   flexDirection: 'column',
-                   gap: '12px'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+
+              {/* Panel de Configuración de Columnas */}
+              <div className="glass-panel-sub" style={{ 
+                 padding: '16px 20px', 
+                 borderRadius: '16px', 
+                 background: 'rgba(255,255,255,0.01)',
+                 border: '1px solid var(--border-light)',
+                 display: 'flex',
+                 flexDirection: 'column',
+                 gap: '12px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'space-between', flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <Database size={16} color="var(--accent)" />
                       <span style={{ fontSize: '12.5px', fontWeight: 800 }}>Mapeo de Columnas de Excel ({loteModal.fileName})</span>
@@ -1085,7 +1220,6 @@ export default function DebitosAutomaticosTab({
               </>
             )}
           </div>
-        )}
 
       </div>
     </div>
