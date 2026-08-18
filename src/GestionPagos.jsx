@@ -20,6 +20,7 @@ import AuditLineRow from './components/GestionPagos/AuditLineRow';
 import DescuentoModal from './components/CargaManual/DescuentoModal';
 import { useToast } from './components/ui/ToastProvider';
 import { useConfirm } from './components/ui/ConfirmProvider';
+import useBodyScrollLock from './hooks/useBodyScrollLock';
 
 export default function GestionPagos() {
   const { addToast } = useToast();
@@ -214,16 +215,7 @@ export default function GestionPagos() {
     }
   }, [selectedPeriodo, selectedProveedor]);
 
-  useEffect(() => {
-    if (isEditModalOpen || isBatchModalOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [isEditModalOpen, isBatchModalOpen]);
+  useBodyScrollLock(isEditModalOpen || isBatchModalOpen);
 
   function getPreviousPeriod(periodStr) {
     if (!periodStr) return '';

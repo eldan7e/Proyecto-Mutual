@@ -375,23 +375,33 @@ const GridRow = React.memo(function GridRow({ row, selectedProvider, dbLines, al
         {row.montoFactura === 0 && <div style={{ fontSize: '9px', color: '#10b981', fontWeight: 800 }}>(Fac: $0,00)</div>}
       </td>
       <td style={{ textAlign: 'center' }}>
-        {row.auditStatus === 'WARN' ? (
-          <div style={{ fontSize: '11px', fontWeight: 800, color: '#ef4444' }}>
-            ❌ NOT OK
-          </div>
-        ) : prevPrice > 0 ? (
-          <div style={{ 
-            fontSize: '11px', 
-            fontWeight: 800, 
-            color: diffPct > 1 ? '#ef4444' : '#10b981' 
-          }}>
-            {Math.abs(diffPct) < 1 ? '✔ OK' : (
-              <span>{diffPct > 0 ? '↑' : '↓'} {Math.abs(diffPct).toFixed(1)}% {diffPct > 0 ? 'AUMENTO' : 'BAJA'}</span>
-            )}
-          </div>
-        ) : (
-          <div style={{ fontSize: '10px', color: '#94a3b8' }}>Sin datos previos</div>
-        )}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
+          {row.auditStatus === 'WARN' ? (
+            <div style={{ fontSize: '11px', fontWeight: 800, color: '#ef4444' }}>
+              ❌ NOT OK
+            </div>
+          ) : (
+            <div style={{ fontSize: '11px', fontWeight: 800, color: '#10b981' }}>
+              ✔ OK
+            </div>
+          )}
+
+          {prevPrice > 0 ? (
+            <div style={{ 
+              fontSize: '10px', 
+              fontWeight: 800, 
+              color: diffPct > 1 ? '#ef4444' : diffPct < -1 ? '#3b82f6' : '#10b981' 
+            }}>
+              {Math.abs(diffPct) < 0.1 ? (
+                <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>0% (Sin var.)</span>
+              ) : (
+                <span>{diffPct > 0 ? '↑' : '↓'} {Math.abs(diffPct).toFixed(1)}% {diffPct > 0 ? 'AUMENTO' : 'BAJA'}</span>
+              )}
+            </div>
+          ) : (
+            <div style={{ fontSize: '9px', color: '#94a3b8' }}>Sin datos previos</div>
+          )}
+        </div>
       </td>
       <td style={{ textAlign: 'center' }}>
         <button

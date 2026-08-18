@@ -343,25 +343,117 @@ export default function CargaManual() {
     }));
   }, [allSocios]);
 
+  /**
+   * Determina el precio de lista promedio del plan objetivo.
+   * Prioridades:
+   * 1. Promedio de precios de lista de otras líneas en `fileData` que tengan este plan (plan o planOficial equivalente).
+   * 2. Precio de lista del período en `periodPrices` (precios_auditoria_periodo).
+   * 3. Precio del plan en catálogo `planes_abonos.precio` (dbPlanObj o coincidencia en dbPlanes).
+   * 4. Precio oficial en el caché en memoria `dbLines`.
+   * 5. Fallback al precio base provisto.
+   */
+  const getPlanAverageListPrice = useCallback(({
+    planName,
+    planId,
+    fileDataList = fileData,
+    periodPricesMap = periodPrices,
+    dbPlanObj,
+    dbLinesMap = dbLines,
+    fallbackPrice = 0
+  }) => {
+    if (!planName && !planId) return Number(fallbackPrice) || 0;
+
+    // 1. Buscar en fileData líneas que tengan el plan objetivo con precio de lista genuino para este plan
+    if (Array.isArray(fileDataList) && fileDataList.length > 0) {
+      const matchingRows = fileDataList.filter(r => {
+        const hasInvoiceListPrice = Number(r.precioListaOriginal) > 0 && r.plan && arePlansEquivalent(r.plan, planName);
+        const hasOfficialDbListPrice = Number(r.precioOficial) > 0 && r.planOficial && arePlansEquivalent(r.planOficial, planName);
+        return hasInvoiceListPrice || hasOfficialDbListPrice;
+      });
+
+      if (matchingRows.length > 0) {
+        let sum = 0;
+        matchingRows.forEach(r => {
+          const hasInvoiceList = Number(r.precioListaOriginal) > 0 && r.plan && arePlansEquivalent(r.plan, planName);
+          const p = hasInvoiceList ? Number(r.precioListaOriginal) : Number(r.precioOficial || 0);
+          sum += p;
+        });
+        const avg = sum / matchingRows.length;
+        if (avg > 0) return Math.round(avg * 100) / 100;
+      }
+    }
+
+    // 2. Buscar en la matriz de precios del período actual
+    if (planId && periodPricesMap && periodPricesMap.has(planId)) {
+      const pPrice = Number(periodPricesMap.get(planId));
+      if (pPrice > 0) return pPrice;
+    }
+
+    // 3. Buscar en el objeto de planes_abonos de DB
+    if (dbPlanObj && Number(dbPlanObj.precio) > 0) {
+      return Number(dbPlanObj.precio);
+    }
+
+    // 4. Buscar en el caché en memoria de dbLines
+    if (dbLinesMap && planId) {
+      for (const line of dbLinesMap.values()) {
+        if (line.plan_id === planId && Number(line.precio_oficial) > 0) {
+          return Number(line.precio_oficial);
+        }
+      }
+    }
+
+    return Number(fallbackPrice) || 0;
+  }, [fileData, periodPrices, dbLines]);
+
   const handleAssignLinea = useCallback((sueltaId, nuevaLinea) => {
     setFileData(prev => prev.map(row => {
       if (row.linea === sueltaId) {
         const normPhone = normalizePhone(nuevaLinea);
         const dbInfo = dbLines.get(normPhone);
+        
+        const parseNum = getParserByProvider(selectedProvider);
+        const itemForAudit = {
+          telefono: nuevaLinea,
+          montoStr: String(row.montoFactura ?? row.monto ?? 0),
+          excedenteStr: String(row.excedentes ?? 0),
+          plan: row.plan,
+          precioListaStr: (selectedProvider === 'claro' || selectedProvider === 'personal') && Number(row.precioListaOriginal) > 0 
+            ? String(row.precioListaOriginal) 
+            : '',
+          descuentoStr: String(row.descuentoOriginal ?? ''),
+          montoComprobante: row.montoFactura,
+          montoCalculadoIVA: row.montoFactura,
+          ivaMismatch: false
+        };
+
+        const auditData = dbInfo ? auditLineItem(itemForAudit, dbInfo, {
+          selectedProvider,
+          periodPrices,
+          prevConsumosData,
+          parseNum,
+          periodo
+        }) : null;
+
         return {
           ...row,
           linea: nuevaLinea,
+          proveedorIdDb: dbInfo?.proveedor_id,
           socioNombre: dbInfo?.nombre || 'Socio no identificado',
           socioId: dbInfo?.socio_id,
           numeroGrupo: dbInfo?.numero_grupo,
           isValid: !!dbInfo,
           planOficial: dbInfo?.plan_db || 'No registrado',
+          gbOficial: dbInfo?.gb_db,
+          precioOficial: auditData?.precioLista || dbInfo?.precio_oficial || row.precioOficial,
+          auditStatus: auditData?.auditStatus || row.auditStatus,
+          alertas: auditData?.alertas || row.alertas,
           isManuallyAssigned: true
         };
       }
       return row;
     }));
-  }, [dbLines]);
+  }, [dbLines, selectedProvider, periodPrices, prevConsumosData, periodo]);
 
   const handleUpdateLineaPlan = useCallback(async (lineaNum, planName, planPrice) => {
     const provMap = { 'claro': 1, 'movistar': 2, 'personal': 3 };
@@ -371,7 +463,7 @@ export default function CargaManual() {
       // 1. Buscar si el plan ya existe en la base de datos
       let { data: planData, error: planFetchErr } = await supabase
         .from('planes_abonos')
-        .select('plan_id, nombre_plan')
+        .select('*')
         .eq('proveedor_id', currentProvId)
         .ilike('nombre_plan', planName)
         .maybeSingle();
@@ -379,6 +471,7 @@ export default function CargaManual() {
       if (planFetchErr) throw planFetchErr;
 
       let targetPlanId = planData?.plan_id;
+      let targetPlanObj = planData;
 
       if (!targetPlanId) {
         // Confirmar creación con modal premium
@@ -403,6 +496,7 @@ export default function CargaManual() {
 
         if (insertErr) throw insertErr;
         targetPlanId = newPlan.plan_id;
+        targetPlanObj = newPlan;
         addToast('Plan creado correctamente', 'success');
       }
 
@@ -414,40 +508,97 @@ export default function CargaManual() {
 
       if (lineUpdateErr) throw lineUpdateErr;
 
-      // 3. Actualizar la grilla local para quitar la alerta y actualizar planOficial
+      // 3. Calcular el precio de lista promedio del plan
+      const targetListPrice = getPlanAverageListPrice({
+        planName,
+        planId: targetPlanId,
+        fileDataList: fileData,
+        periodPricesMap: periodPrices,
+        dbPlanObj: targetPlanObj,
+        dbLinesMap: dbLines,
+        fallbackPrice: planPrice
+      });
+
+      // 4. Actualizar el caché de líneas en memoria para evitar desfases
+      const norm = normalizePhone(lineaNum);
+      const cached = dbLines.get(norm) || {};
+      const updatedDbInfo = {
+        ...cached,
+        proveedor_id: currentProvId,
+        plan_id: targetPlanId,
+        plan_db: planName,
+        precio_oficial: targetListPrice,
+        gb_db: targetPlanObj?.gb_incluidos ?? cached.gb_db,
+        descuento_operadora_pct: targetPlanObj?.descuento_operadora_pct ?? cached.descuento_operadora_pct ?? 80,
+        descuento_esperado: targetPlanObj?.descuento_operadora_pct ?? cached.descuento_esperado ?? 80
+      };
+
+      setDbLines(prev => {
+        const next = new Map(prev);
+        next.set(norm, updatedDbInfo);
+        return next;
+      });
+
+      // 5. Si el precio de lista para el período no estaba en periodPrices, agregarlo
+      if (targetPlanId && targetListPrice > 0 && (!periodPrices.has(targetPlanId) || periodPrices.get(targetPlanId) === 0)) {
+        setPeriodPrices(prev => new Map(prev).set(targetPlanId, targetListPrice));
+      }
+
+      // 6. Re-auditar la línea y actualizar la grilla local
+      const parseNum = getParserByProvider(selectedProvider);
+      const currentRow = fileData.find(r => r.linea === lineaNum);
+      
+      const periodPricesForAudit = new Map(periodPrices);
+      if (targetPlanId && targetListPrice > 0) {
+        periodPricesForAudit.set(targetPlanId, targetListPrice);
+      }
+
+      let auditData = null;
+      if (currentRow) {
+        const itemForAudit = {
+          telefono: lineaNum,
+          montoStr: String(currentRow.montoFactura ?? currentRow.monto ?? 0),
+          excedenteStr: String(currentRow.excedentes ?? 0),
+          plan: currentRow.plan,
+          precioListaStr: (selectedProvider === 'claro' || selectedProvider === 'personal') && Number(currentRow.precioListaOriginal) > 0
+            ? String(currentRow.precioListaOriginal)
+            : '',
+          descuentoStr: String(currentRow.descuentoOriginal ?? ''),
+          montoComprobante: currentRow.montoFactura,
+          montoCalculadoIVA: currentRow.montoFactura,
+          ivaMismatch: false
+        };
+
+        auditData = auditLineItem(itemForAudit, updatedDbInfo, {
+          selectedProvider,
+          periodPrices: periodPricesForAudit,
+          prevConsumosData,
+          parseNum,
+          periodo
+        });
+      }
+
       setFileData(prev => prev.map(row => {
         if (row.linea === lineaNum) {
           return {
             ...row,
             planOficial: planName,
-            alertas: row.alertas?.filter(a => !a.msg.includes('PLAN') && !a.msg.includes('DESVÍO'))
+            precioOficial: targetListPrice || auditData?.precioLista || row.precioOficial,
+            gbOficial: targetPlanObj?.gb_incluidos ?? row.gbOficial,
+            auditStatus: auditData?.auditStatus || 'OK',
+            alertas: auditData?.alertas ? auditData.alertas.filter(a => !a.msg.includes('PLAN') && !a.msg.includes('DESVÍO') && !a.msg.includes('DESVIO')) : row.alertas?.filter(a => !a.msg.includes('PLAN') && !a.msg.includes('DESVÍO') && !a.msg.includes('DESVIO')),
+            descuentoEsperado: updatedDbInfo.descuento_operadora_pct || 80
           };
         }
         return row;
       }));
-
-      // 4. Actualizar el caché de líneas en memoria para evitar desfases
-      setDbLines(prev => {
-        const next = new Map(prev);
-        const norm = normalizePhone(lineaNum);
-        const cached = next.get(norm);
-        if (cached) {
-          next.set(norm, {
-            ...cached,
-            plan_id: targetPlanId,
-            plan_db: planName,
-            precio_oficial: planPrice || cached.precio_oficial
-          });
-        }
-        return next;
-      });
 
       addToast(`Plan de línea ${lineaNum} actualizado a "${planName}" exitosamente`, 'success');
     } catch (err) {
       console.error("Error updating plan for line:", err);
       addToast('Error al actualizar el plan: ' + err.message, 'error');
     }
-  }, [selectedProvider, confirm, addToast, dbLines]);
+  }, [selectedProvider, confirm, addToast, dbLines, fileData, periodPrices, prevConsumosData, periodo, getPlanAverageListPrice]);
 
   const handleUpdateAllLineasPlanes = async () => {
     const provMap = { 'claro': 1, 'movistar': 2, 'personal': 3 };
@@ -479,6 +630,7 @@ export default function CargaManual() {
 
       const updatedRowMap = new Map();
       const lineasPayload = [];
+      const newPeriodPrices = new Map(periodPrices);
 
       // 2. Identificar o crear plan para cada línea
       for (const row of linesToUpdate) {
@@ -509,10 +661,27 @@ export default function CargaManual() {
           plan_id: existingPlan.plan_id
         });
 
+        const targetListPrice = getPlanAverageListPrice({
+          planName: targetPlanName,
+          planId: existingPlan.plan_id,
+          fileDataList: fileData,
+          periodPricesMap: newPeriodPrices,
+          dbPlanObj: existingPlan,
+          dbLinesMap: dbLines,
+          fallbackPrice: row.precioListaOriginal || row.precioOficial || existingPlan.precio || 0
+        });
+
+        if (targetListPrice > 0 && !newPeriodPrices.has(existingPlan.plan_id)) {
+          newPeriodPrices.set(existingPlan.plan_id, targetListPrice);
+        }
+
         updatedRowMap.set(row.linea, {
           targetPlanId: existingPlan.plan_id,
           planName: existingPlan.nombre_plan,
-          planPrice: existingPlan.precio
+          planPrice: targetListPrice,
+          gbIncluidos: existingPlan.gb_incluidos,
+          descuentoOperadoraPct: existingPlan.descuento_operadora_pct || 80,
+          rawRow: row
         });
       }
 
@@ -526,14 +695,54 @@ export default function CargaManual() {
         if (lineUpdErr) throw lineUpdErr;
       }
 
-      // 4. Actualizar la grilla local
+      // 4. Re-auditar cada línea y actualizar la grilla local
+      const parseNum = getParserByProvider(selectedProvider);
       setFileData(prev => prev.map(row => {
         const info = updatedRowMap.get(row.linea);
         if (info) {
+          const norm = normalizePhone(row.linea);
+          const cached = dbLines.get(norm) || {};
+          const updatedDbInfo = {
+            ...cached,
+            proveedor_id: currentProvId,
+            plan_id: info.targetPlanId,
+            plan_db: info.planName,
+            precio_oficial: info.planPrice,
+            gb_db: info.gbIncluidos ?? cached.gb_db,
+            descuento_operadora_pct: info.descuentoOperadoraPct,
+            descuento_esperado: info.descuentoOperadoraPct
+          };
+
+          const itemForAudit = {
+            telefono: row.linea,
+            montoStr: String(row.montoFactura ?? row.monto ?? 0),
+            excedenteStr: String(row.excedentes ?? 0),
+            plan: row.plan,
+            precioListaStr: (selectedProvider === 'claro' || selectedProvider === 'personal') && Number(row.precioListaOriginal) > 0
+              ? String(row.precioListaOriginal)
+              : '',
+            descuentoStr: String(row.descuentoOriginal ?? ''),
+            montoComprobante: row.montoFactura,
+            montoCalculadoIVA: row.montoFactura,
+            ivaMismatch: false
+          };
+
+          const auditData = auditLineItem(itemForAudit, updatedDbInfo, {
+            selectedProvider,
+            periodPrices: newPeriodPrices,
+            prevConsumosData,
+            parseNum,
+            periodo
+          });
+
           return {
             ...row,
             planOficial: info.planName,
-            alertas: row.alertas?.filter(a => !a.msg.includes('PLAN') && !a.msg.includes('DESVÍO') && !a.msg.includes('DESVIO'))
+            precioOficial: info.planPrice || auditData.precioLista || row.precioOficial,
+            gbOficial: info.gbIncluidos ?? row.gbOficial,
+            auditStatus: auditData.auditStatus || 'OK',
+            alertas: auditData.alertas ? auditData.alertas.filter(a => !a.msg.includes('PLAN') && !a.msg.includes('DESVÍO') && !a.msg.includes('DESVIO')) : row.alertas?.filter(a => !a.msg.includes('PLAN') && !a.msg.includes('DESVÍO') && !a.msg.includes('DESVIO')),
+            descuentoEsperado: info.descuentoOperadoraPct
           };
         }
         return row;
@@ -550,12 +759,17 @@ export default function CargaManual() {
               ...cached,
               plan_id: info.targetPlanId,
               plan_db: info.planName,
-              precio_oficial: info.planPrice || cached.precio_oficial
+              precio_oficial: info.planPrice || cached.precio_oficial,
+              gb_db: info.gbIncluidos ?? cached.gb_db,
+              descuento_operadora_pct: info.descuentoOperadoraPct,
+              descuento_esperado: info.descuentoOperadoraPct
             });
           }
         });
         return next;
       });
+
+      setPeriodPrices(newPeriodPrices);
 
       addToast(`¡Se actualizaron ${linesToUpdate.length} línea(s) con sus nuevos planes en DB exitosamente!`, 'success');
     } catch (err) {
