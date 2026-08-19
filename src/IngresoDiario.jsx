@@ -3,11 +3,13 @@ import { supabase } from './supabaseClient';
 import {
   Search, Plus, Calendar, DollarSign, TrendingUp, ClipboardPaste,
   Loader2, RefreshCw, Trash2, CheckCircle2, AlertTriangle, Banknote,
-  CreditCard, ArrowRightLeft, ChevronDown, Users, X, Save, FileText
+  CreditCard, ArrowRightLeft, ChevronDown, Users, X, Save, FileText,
+  Layers, Check
 } from 'lucide-react';
 import Modal from './components/Modal';
 import { useToast } from './components/ui/ToastProvider';
 import { useConfirm } from './components/ui/ConfirmProvider';
+import { registrarCobroCuenta } from './services/cuentaCorrienteService';
 
 const MEDIOS_PAGO = [
   { value: 'TRANSFERENCIA', label: 'Transferencia', icon: ArrowRightLeft, color: '#6366f1' },
@@ -28,6 +30,28 @@ function todayISO() {
 }
 
 const fmt = (n) => (n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function parseArgentineOrUSNumber(str) {
+  if (!str) return 0;
+  let s = String(str).replace('$', '').replace(/\s/g, '').replace(/^-/, '');
+  
+  if (s.includes('.') && s.includes(',')) {
+    if (s.indexOf('.') < s.indexOf(',')) {
+      // 16.657,85 -> formato argentino
+      s = s.replace(/\./g, '').replace(',', '.');
+    } else {
+      // 16,657.85 -> formato US
+      s = s.replace(/,/g, '');
+    }
+  } else if (s.includes(',')) {
+    if (s.length - s.lastIndexOf(',') === 3) {
+      s = s.replace(',', '.');
+    } else {
+      s = s.replace(',', '');
+    }
+  }
+  return parseFloat(s) || 0;
+}
 
 export default function IngresoDiario() {
   const { addToast } = useToast();
@@ -68,6 +92,14 @@ export default function IngresoDiario() {
     recibo: '',
     observaciones: '',
   });
+
+  // Efectivo Lote state
+  const [efectivoSubTab, setEfectivoSubTab] = useState('lote'); // 'lote' or 'individual'
+  const [efectivoLoteText, setEfectivoLoteText] = useState('');
+  const [efectivoLoteRows, setEfectivoLoteRows] = useState([]);
+  const [efectivoPeriodoTarget, setEfectivoPeriodoTarget] = useState('2026-01');
+  const [efectivoFechaMetodo, setEfectivoFechaMetodo] = useState('detect'); // 'detect' or 'force'
+  const [efectivoFechaRef, setEfectivoFechaRef] = useState(todayISO());
 
   useEffect(() => {
     fetchData();
@@ -244,7 +276,7 @@ export default function IngresoDiario() {
     }
   }
 
-  // EFECTIVO PAYMENT
+  // EFECTIVO PAYMENT (INDIVIDUAL)
   async function handleSaveEfectivo() {
     const grupo = getGrupo(efectivoData.numero_grupo);
     if (!efectivoData.numero_grupo || !efectivoData.monto || parseFloat(efectivoData.monto) <= 0) {
@@ -255,26 +287,39 @@ export default function IngresoDiario() {
     setSaving(true);
     try {
       const monto = parseFloat(efectivoData.monto);
-      const periodo = efectivoData.fecha.substring(0, 7);
+      const periodo = efectivoPeriodoTarget || efectivoData.fecha.substring(0, 7);
+      const titularLabel = grupo?.titular || `Grupo ${efectivoData.numero_grupo}`;
 
       const record = {
         fecha_movimiento: efectivoData.fecha,
-        concepto: grupo ? `Pago en efectivo - ${grupo.titular}` : `Pago en efectivo - Grupo ${efectivoData.numero_grupo}`,
+        concepto: `Pago en efectivo - ${titularLabel}`,
         monto,
+        ingreso_bruto: monto,
+        impuestos: 0,
         banco: 'EFECTIVO',
         tipo_movimiento: 'INGRESO',
         origen: 'DIARIO',
-        numero_grupo: parseInt(efectivoData.numero_grupo),
-        nombre_socio: grupo?.titular || '',
+        numero_grupo: parseInt(efectivoData.numero_grupo, 10),
+        nombre_socio: titularLabel,
         medio_pago: 'EFECTIVO',
         comprobante: efectivoData.recibo || '',
-        observaciones: efectivoData.observaciones,
+        observaciones: efectivoData.observaciones || 'Pago presencial en la mutual',
         periodo,
         socio_id: grupo?.socio_id || null,
       };
 
       const { data, error } = await supabase.from('movimientos_bancarios').insert(record).select().single();
       if (error) throw error;
+
+      // Registrar en cuenta corriente
+      await registrarCobroCuenta({
+        numero_grupo: parseInt(efectivoData.numero_grupo, 10),
+        nombre: titularLabel,
+        importe: monto,
+        medio_pago: 'EFECTIVO',
+        observaciones: `Cobro Efectivo (Presencial) - ${efectivoData.observaciones || efectivoData.recibo || ''}`,
+        fecha: efectivoData.fecha
+      });
 
       await linkPaymentToDebt(data.movimiento_id, efectivoData.numero_grupo, monto);
 
@@ -291,6 +336,238 @@ export default function IngresoDiario() {
       await fetchLiquidaciones();
     } catch (err) {
       addToast(`Error: ${err.message}`, 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // PARSE EFECTIVO LOTE (EXCEL / TEXT BLOCK)
+  function handleParseEfectivoLote() {
+    if (!efectivoLoteText.trim()) {
+      addToast('Pegá el bloque de cobros en efectivo primero', 'warning');
+      return;
+    }
+
+    const lines = efectivoLoteText.trim().split('\n');
+    const parsed = [];
+    const defaultRef = efectivoFechaRef || todayISO();
+
+    for (let i = 0; i < lines.length; i++) {
+      const rawLine = lines[i].trim();
+      if (!rawLine) continue;
+
+      const parts = rawLine.split(/\t+/).length > 2
+        ? rawLine.split(/\t+/).map(p => p.trim())
+        : rawLine.split(/\s{2,}/).map(p => p.trim());
+
+      let fecha = '';
+      let grupo = '';
+      let titular = '';
+      let empresa = '';
+      let monto = 0;
+      let linea = '';
+      let observaciones = '';
+
+      // 1. Fecha
+      if (efectivoFechaMetodo === 'force') {
+        fecha = efectivoFechaRef;
+      } else {
+        for (const p of parts) {
+          const dm = p.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+          if (dm) {
+            const d = dm[1].padStart(2, '0');
+            const m = dm[2].padStart(2, '0');
+            const y = dm[3].length === 2 ? '20' + dm[3] : dm[3];
+            fecha = `${y}-${m}-${d}`;
+            break;
+          }
+        }
+        if (!fecha) fecha = defaultRef;
+      }
+
+      // 2. Monto
+      for (const p of parts) {
+        if (p.includes('$') || (/[.,]\d{2}/.test(p) && !p.includes('/') && !p.includes(':') && !/GPO/i.test(p))) {
+          const num = parseArgentineOrUSNumber(p);
+          if (num > 0 && !/^\d{10}$/.test(p.replace(/[$.]/g, ''))) {
+            monto = num;
+            break;
+          }
+        }
+      }
+      if (!monto) {
+        for (const p of parts) {
+          if (/^-?\s*[\d.,]+$/.test(p) && !/^\d{1,6}$/.test(p)) {
+            const num = parseArgentineOrUSNumber(p);
+            if (num > 0) { monto = num; break; }
+          }
+        }
+      }
+
+      // 3. Grupo
+      for (const p of parts) {
+        const gpoMatch = p.match(/GPO:\s*(\d+)/i) || p.match(/^GRUPO\s*(\d+)$/i);
+        if (gpoMatch) {
+          grupo = gpoMatch[1];
+          break;
+        }
+      }
+      if (!grupo) {
+        for (let idx = 0; idx < parts.length; idx++) {
+          const p = parts[idx];
+          if (/^\d{1,6}$/.test(p)) {
+            const val = parseInt(p, 10);
+            if (val > 0 && val !== 2025 && val !== 2026 && val !== 2027 && val !== Math.round(monto)) {
+              grupo = p;
+              break;
+            }
+          }
+        }
+      }
+
+      // 4. Titular
+      for (const p of parts) {
+        if (p.includes(',') && !p.includes('$') && isNaN(parseFloat(p.replace(/,/g, '')))) {
+          titular = p;
+          break;
+        }
+      }
+
+      // 5. Empresa / Operadora
+      for (const p of parts) {
+        if (/CLARO|PERSONAL|MOVISTAR/i.test(p) && !p.includes('GPO:')) {
+          empresa = p;
+          break;
+        }
+      }
+
+      // 6. Línea y Observaciones
+      for (const p of parts) {
+        const phoneMatch = p.match(/\b(11\d{8}|221\d{7}|\d{10})\b/);
+        if (phoneMatch) {
+          linea = phoneMatch[1];
+        }
+        if (p.includes('GPO:') || p.includes('COBRO') || p.includes('EXCD')) {
+          observaciones = p;
+        }
+      }
+
+      const gNum = parseInt(grupo, 10);
+      const grupoObj = !isNaN(gNum) ? getGrupo(gNum) : null;
+      const finalTitular = titular || grupoObj?.titular || '';
+
+      if (monto > 0 && !isNaN(gNum)) {
+        parsed.push({
+          id: Math.random().toString(36).substr(2, 9),
+          fecha,
+          numero_grupo: gNum,
+          titular: finalTitular,
+          empresa: empresa || 'GENERAL',
+          monto,
+          linea,
+          observaciones: observaciones || (linea ? `Línea: ${linea}` : 'Cobro Efectivo'),
+          include: true
+        });
+      }
+    }
+
+    if (parsed.length === 0) {
+      addToast('No se pudieron detectar pagos válidos en el texto pegado', 'warning');
+      return;
+    }
+
+    setEfectivoLoteRows(parsed);
+    addToast(`${parsed.length} pagos en efectivo detectados correctamente`, 'success');
+  }
+
+  // SAVE EFECTIVO LOTE
+  async function handleSaveEfectivoLote() {
+    const toSave = efectivoLoteRows.filter(r => r.include && r.monto > 0);
+    if (toSave.length === 0) {
+      addToast('No hay pagos seleccionados para guardar', 'warning');
+      return;
+    }
+
+    const totalMonto = toSave.reduce((s, r) => s + r.monto, 0);
+    const accepted = await confirm({
+      title: 'Confirmar Lote de Cobros en Efectivo',
+      message: `¿Deseas registrar e imputar ${toSave.length} pagos en efectivo por un total de $${fmt(totalMonto)}?\n\n📌 Período a imputar deuda: ${efectivoPeriodoTarget}\n\nEsto registrará los pagos en movimientos bancarios (Caja Efectivo), actualizará la cuenta corriente y cancelará las facturas correspondientes.`,
+      confirmText: 'Confirmar e Imputar',
+      cancelText: 'Cancelar'
+    });
+    if (!accepted) return;
+
+    setSaving(true);
+    try {
+      let saved = 0;
+
+      for (const row of toSave) {
+        const grupo = getGrupo(row.numero_grupo);
+        const titularLabel = row.titular || grupo?.titular || `Grupo ${row.numero_grupo}`;
+
+        // 1. Insert in movimientos_bancarios (Caja Efectivo)
+        const record = {
+          fecha_movimiento: row.fecha,
+          concepto: `Cobro Efectivo - ${row.empresa} (${titularLabel})`,
+          monto: row.monto,
+          ingreso_bruto: row.monto,
+          impuestos: 0,
+          banco: 'EFECTIVO',
+          tipo_movimiento: 'INGRESO',
+          origen: 'DIARIO',
+          numero_grupo: row.numero_grupo,
+          nombre_socio: titularLabel,
+          medio_pago: 'EFECTIVO',
+          comprobante: row.linea || '',
+          observaciones: row.observaciones,
+          periodo: efectivoPeriodoTarget,
+          socio_id: grupo?.socio_id || null,
+        };
+
+        const { data: bncData, error: bncErr } = await supabase
+          .from('movimientos_bancarios')
+          .insert(record)
+          .select()
+          .single();
+
+        if (bncErr) {
+          console.error(bncErr);
+          continue;
+        }
+
+        // 2. Registrar cobro en cuenta corriente (cuentaCorrienteService con proteccion anti-duplicados)
+        await registrarCobroCuenta({
+          numero_grupo: row.numero_grupo,
+          nombre: titularLabel,
+          importe: row.monto,
+          medio_pago: 'EFECTIVO',
+          observaciones: `Cobro Efectivo (${row.empresa}) - ${row.observaciones}`,
+          fecha: row.fecha
+        });
+
+        // 3. Vincular con liquidacion de deuda del periodo destino
+        if (bncData?.movimiento_id) {
+          await linkPaymentToDebt(bncData.movimiento_id, row.numero_grupo, row.monto);
+        }
+
+        saved++;
+      }
+
+      await supabase.from('audit_log').insert({
+        tipo_evento: 'INGRESO_EFECTIVO_LOTE',
+        descripcion: `Lote Efectivo: ${saved} cobros imputados a período ${efectivoPeriodoTarget}`,
+        monto: totalMonto,
+        usuario: 'dante@admin.com'
+      });
+
+      addToast(`✓ ${saved} pagos en efectivo registrados e imputados a ${efectivoPeriodoTarget}`, 'success');
+      setEfectivoLoteText('');
+      setEfectivoLoteRows([]);
+      await fetchMovimientos();
+      await fetchLiquidaciones();
+    } catch (err) {
+      console.error(err);
+      addToast(`Error al guardar lote: ${err.message}`, 'error');
     } finally {
       setSaving(false);
     }
@@ -613,10 +890,20 @@ export default function IngresoDiario() {
           )}
 
           {activeTab === 'efectivo' && (
-            <EfectivoForm data={efectivoData} setData={setEfectivoData}
+            <EfectivoForm
+              subTab={efectivoSubTab} setSubTab={setEfectivoSubTab}
+              data={efectivoData} setData={setEfectivoData}
+              onSaveIndividual={handleSaveEfectivo}
+              efectivoLoteText={efectivoLoteText} setEfectivoLoteText={setEfectivoLoteText}
+              efectivoLoteRows={efectivoLoteRows} setEfectivoLoteRows={setEfectivoLoteRows}
+              efectivoPeriodoTarget={efectivoPeriodoTarget} setEfectivoPeriodoTarget={setEfectivoPeriodoTarget}
+              efectivoFechaMetodo={efectivoFechaMetodo} setEfectivoFechaMetodo={setEfectivoFechaMetodo}
+              efectivoFechaRef={efectivoFechaRef} setEfectivoFechaRef={setEfectivoFechaRef}
+              onParseLote={handleParseEfectivoLote} onSaveLote={handleSaveEfectivoLote}
               grupos={grupos} getGrupo={getGrupo} grupoSuggestions={grupoSuggestions}
-              onSave={handleSaveEfectivo} saving={saving}
-              inputStyle={inputStyle} labelStyle={labelStyle} />
+              liquidaciones={liquidaciones}
+              saving={saving} inputStyle={inputStyle} labelStyle={labelStyle} fmt={fmt}
+            />
           )}
         </div>
       </div>
@@ -820,45 +1107,353 @@ function ManualForm({ formData, setFormData, grupos, getGrupo, grupoSuggestions,
   );
 }
 
-function EfectivoForm({ data, setData, grupos, getGrupo, grupoSuggestions, onSave, saving, inputStyle, labelStyle }) {
-  const update = (field, val) => setData(prev => ({ ...prev, [field]: val }));
+function EfectivoForm({
+  subTab, setSubTab,
+  data, setData, onSaveIndividual,
+  efectivoLoteText, setEfectivoLoteText,
+  efectivoLoteRows, setEfectivoLoteRows,
+  efectivoPeriodoTarget, setEfectivoPeriodoTarget,
+  efectivoFechaMetodo, setEfectivoFechaMetodo,
+  efectivoFechaRef, setEfectivoFechaRef,
+  onParseLote, onSaveLote,
+  grupos, getGrupo, grupoSuggestions, liquidaciones,
+  saving, inputStyle, labelStyle, fmt
+}) {
+  const updateIndividual = (field, val) => setData(prev => ({ ...prev, [field]: val }));
+  
+  const updateLoteRow = (id, field, val) => {
+    setEfectivoLoteRows(prev => prev.map(r => r.id === id ? { ...r, [field]: val } : r));
+  };
+
+  const handleToggleSelectAll = (checked) => {
+    setEfectivoLoteRows(prev => prev.map(r => ({ ...r, include: checked })));
+  };
+
+  const totalSelectedMonto = efectivoLoteRows.filter(r => r.include).reduce((a, r) => a + r.monto, 0);
+  const countSelected = efectivoLoteRows.filter(r => r.include).length;
 
   return (
-    <div style={{ maxWidth: '600px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px', padding: '12px 16px', background: 'rgba(16,185,129,0.08)', borderRadius: '14px', border: '1px solid rgba(16,185,129,0.2)' }}>
-        <Banknote size={18} style={{ color: '#10b981' }} />
-        <span style={{ fontSize: '13px', fontWeight: 700, color: '#10b981' }}>Pago presencial en la mutual</span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {/* Sub-tabs Selector */}
+      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-light)', paddingBottom: '14px' }}>
+        <button
+          onClick={() => setSubTab('lote')}
+          style={{
+            padding: '8px 16px',
+            borderRadius: '10px',
+            fontSize: '13px',
+            fontWeight: 800,
+            border: 'none',
+            cursor: 'pointer',
+            background: subTab === 'lote' ? '#10b981' : 'var(--surface)',
+            color: subTab === 'lote' ? 'white' : 'var(--text-secondary)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}
+        >
+          <ClipboardPaste size={15} /> Pegar Lote de Efectivo (Excel / Bloque)
+        </button>
+        <button
+          onClick={() => setSubTab('individual')}
+          style={{
+            padding: '8px 16px',
+            borderRadius: '10px',
+            fontSize: '13px',
+            fontWeight: 800,
+            border: 'none',
+            cursor: 'pointer',
+            background: subTab === 'individual' ? '#10b981' : 'var(--surface)',
+            color: subTab === 'individual' ? 'white' : 'var(--text-secondary)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}
+        >
+          <Banknote size={15} /> Pago Individual Presencial
+        </button>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-        <div>
-          <label style={labelStyle}>Fecha</label>
-          <input type="date" value={data.fecha} onChange={(e) => update('fecha', e.target.value)} style={inputStyle} />
+
+      {/* ========================================================= */}
+      {/* MODO 1: PEGAR LOTE DE EFECTIVO (EXCEL / BLOQUE DE TEXTO) */}
+      {/* ========================================================= */}
+      {subTab === 'lote' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Configuración de Período y Fechas */}
+          <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap', background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '16px', border: '1px solid var(--border-light)' }}>
+            <div>
+              <label style={labelStyle}>
+                📌 Período a Imputar (Facturas a Cancelar)
+              </label>
+              <select
+                value={efectivoPeriodoTarget}
+                onChange={(e) => setEfectivoPeriodoTarget(e.target.value)}
+                style={{ ...inputStyle, width: '220px', fontWeight: 800, color: '#10b981' }}
+              >
+                <option value="2026-01">2026-01 (Enero 2026)</option>
+                <option value="2026-02">2026-02 (Febrero 2026)</option>
+                <option value="2026-03">2026-03 (Marzo 2026)</option>
+                <option value="2026-04">2026-04 (Abril 2026)</option>
+                <option value="2026-05">2026-05 (Mayo 2026)</option>
+                <option value="2026-06">2026-06 (Junio 2026)</option>
+                <option value="2026-07">2026-07 (Julio 2026)</option>
+                <option value="2026-08">2026-08 (Agosto 2026)</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Asignación de Fecha</label>
+              <select
+                value={efectivoFechaMetodo}
+                onChange={(e) => setEfectivoFechaMetodo(e.target.value)}
+                style={{ ...inputStyle, width: '260px' }}
+              >
+                <option value="detect">Detectar de cada fila (ej: 05/02/2026)</option>
+                <option value="force">Forzar fecha fija para todos</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Fecha de Referencia / Fallback</label>
+              <input
+                type="date"
+                value={efectivoFechaRef}
+                onChange={(e) => setEfectivoFechaRef(e.target.value)}
+                style={{ ...inputStyle, width: '160px' }}
+              />
+            </div>
+          </div>
+
+          {/* Textarea para pegar el bloque de Excel */}
+          <div>
+            <label style={labelStyle}>
+              Pegá el bloque de cobros en efectivo (copiá las celdas directamente desde Excel)
+            </label>
+            <textarea
+              value={efectivoLoteText}
+              onChange={(e) => setEfectivoLoteText(e.target.value)}
+              placeholder={"Pegá acá las filas de tu Excel de Efectivo...\n\nFormato soportado (copiado directo de Excel):\nPAGO\t05/02/2026\t128\tAguirre, Omar\tCLARO CO\t-$ 16,657.85\tEFECTIVO\t12/01 2215426597 GPO: 128\nPAGO\t05/02/2026\t123\tVillalba, Lucila\tCLARO CO\t-$ 26,458.00\tEFECTIVO\t12/01 2215700021 GPO: 123"}
+              style={{
+                ...inputStyle,
+                minHeight: '160px',
+                fontFamily: 'monospace',
+                fontSize: '12px',
+                resize: 'vertical',
+                lineHeight: '1.4'
+              }}
+            />
+          </div>
+
+          {/* Botones de acción de parseo */}
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <button
+              onClick={onParseLote}
+              style={{
+                padding: '10px 22px',
+                borderRadius: '12px',
+                border: 'none',
+                background: '#10b981',
+                color: 'white',
+                fontSize: '13px',
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}
+            >
+              <ClipboardPaste size={16} /> Analizar Lote de Efectivo
+            </button>
+            {efectivoLoteRows.length > 0 && (
+              <button
+                onClick={() => { setEfectivoLoteRows([]); setEfectivoLoteText(''); }}
+                style={{
+                  padding: '10px 18px',
+                  borderRadius: '12px',
+                  border: '1px solid var(--border-light)',
+                  background: 'transparent',
+                  color: 'var(--text-secondary)',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
+              >
+                Limpiar
+              </button>
+            )}
+          </div>
+
+          {/* Tabla de Vista Previa y Confirmación */}
+          {efectivoLoteRows.length > 0 && (
+            <div style={{ marginTop: '12px', border: '1px solid var(--border-light)', borderRadius: '16px', overflow: 'hidden' }}>
+              <div style={{ padding: '14px 18px', background: 'rgba(16,185,129,0.06)', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                    {countSelected} de {efectivoLoteRows.length} pagos seleccionados
+                  </span>
+                  <span style={{ opacity: 0.5 }}>|</span>
+                  <span style={{ fontSize: '14px', fontWeight: 900, color: '#10b981' }}>
+                    Total: ${fmt(totalSelectedMonto)}
+                  </span>
+                  <span style={{ opacity: 0.5 }}>|</span>
+                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    Imputando a Período: <strong style={{ color: 'var(--text-primary)' }}>{efectivoPeriodoTarget}</strong>
+                  </span>
+                </div>
+
+                <button
+                  onClick={onSaveLote}
+                  disabled={saving || countSelected === 0}
+                  style={{
+                    padding: '9px 20px',
+                    borderRadius: '10px',
+                    border: 'none',
+                    background: '#10b981',
+                    color: 'white',
+                    fontSize: '13px',
+                    fontWeight: 800,
+                    cursor: countSelected === 0 ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    opacity: (saving || countSelected === 0) ? 0.6 : 1
+                  }}
+                >
+                  {saving ? <Loader2 className="animate-spin" size={16} /> : <><Save size={16} /> Confirmar e Imputar Lote ({countSelected})</>}
+                </button>
+              </div>
+
+              <div style={{ maxHeight: '420px', overflowY: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border-light)', position: 'sticky', top: 0, zIndex: 5 }}>
+                      <th style={{ padding: '10px 12px', textAlign: 'center', width: '40px' }}>
+                        <input
+                          type="checkbox"
+                          checked={efectivoLoteRows.length > 0 && efectivoLoteRows.every(r => r.include)}
+                          onChange={(e) => handleToggleSelectAll(e.target.checked)}
+                          style={{ cursor: 'pointer' }}
+                        />
+                      </th>
+                      <th style={{ padding: '10px 12px', width: '40px', textAlign: 'center' }}>#</th>
+                      <th style={{ padding: '10px 12px', width: '120px' }}>Fecha</th>
+                      <th style={{ padding: '10px 12px', width: '90px', textAlign: 'center' }}>Grupo</th>
+                      <th style={{ padding: '10px 12px', minWidth: '180px' }}>Integrante / Titular</th>
+                      <th style={{ padding: '10px 12px', width: '150px' }}>Operadora</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'right', width: '110px' }}>Monto ($)</th>
+                      <th style={{ padding: '10px 12px' }}>Línea / Observaciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {efectivoLoteRows.map((row, idx) => {
+                      const grupoObj = getGrupo(row.numero_grupo);
+                      return (
+                        <tr key={row.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', opacity: row.include ? 1 : 0.4 }}>
+                          <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                            <input
+                              type="checkbox"
+                              checked={row.include}
+                              onChange={(e) => updateLoteRow(row.id, 'include', e.target.checked)}
+                              style={{ cursor: 'pointer' }}
+                            />
+                          </td>
+                          <td style={{ padding: '8px 12px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                            {idx + 1}
+                          </td>
+                          <td style={{ padding: '8px 12px' }}>
+                            <input
+                              type="date"
+                              value={row.fecha}
+                              onChange={(e) => updateLoteRow(row.id, 'fecha', e.target.value)}
+                              style={{ ...inputStyle, padding: '4px 8px', fontSize: '11.5px', width: '125px' }}
+                            />
+                          </td>
+                          <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                            <input
+                              type="number"
+                              value={row.numero_grupo}
+                              onChange={(e) => updateLoteRow(row.id, 'numero_grupo', parseInt(e.target.value, 10) || '')}
+                              style={{ width: '65px', textAlign: 'center', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-light)', background: 'var(--surface)', color: 'var(--text-primary)', fontSize: '12px', fontWeight: 800 }}
+                            />
+                          </td>
+                          <td style={{ padding: '8px 12px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                                {row.titular || <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>Sin titular</span>}
+                              </span>
+                              {grupoObj && (
+                                <span style={{ fontSize: '10.5px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                  ✓ Grupo {row.numero_grupo}: {grupoObj.titular}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ padding: '8px 12px', fontSize: '11.5px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                            {row.empresa}
+                          </td>
+                          <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 800, color: '#10b981', fontSize: '13px' }}>
+                            ${fmt(row.monto)}
+                          </td>
+                          <td style={{ padding: '8px 12px', fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+                            <input
+                              type="text"
+                              value={row.observaciones}
+                              onChange={(e) => updateLoteRow(row.id, 'observaciones', e.target.value)}
+                              style={{ ...inputStyle, padding: '4px 8px', fontSize: '11.5px' }}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
-        <GrupoInput value={data.numero_grupo} onChange={(v) => update('numero_grupo', v)}
-          grupos={grupos} getGrupo={getGrupo} grupoSuggestions={grupoSuggestions}
-          inputStyle={inputStyle} labelStyle={labelStyle} />
-        <div>
-          <label style={labelStyle}>Monto ($)</label>
-          <input type="number" value={data.monto} onChange={(e) => update('monto', e.target.value)}
-            placeholder="0.00" step="0.01" style={inputStyle} />
+      )}
+
+      {/* ========================================================= */}
+      {/* MODO 2: PAGO INDIVIDUAL PRESENCIAL */}
+      {/* ========================================================= */}
+      {subTab === 'individual' && (
+        <div style={{ maxWidth: '600px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px', padding: '12px 16px', background: 'rgba(16,185,129,0.08)', borderRadius: '14px', border: '1px solid rgba(16,185,129,0.2)' }}>
+            <Banknote size={18} style={{ color: '#10b981' }} />
+            <span style={{ fontSize: '13px', fontWeight: 700, color: '#10b981' }}>Pago presencial en la mutual (1 por 1)</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div>
+              <label style={labelStyle}>Fecha</label>
+              <input type="date" value={data.fecha} onChange={(e) => updateIndividual('fecha', e.target.value)} style={inputStyle} />
+            </div>
+            <GrupoInput value={data.numero_grupo} onChange={(v) => updateIndividual('numero_grupo', v)}
+              grupos={grupos} getGrupo={getGrupo} grupoSuggestions={grupoSuggestions}
+              inputStyle={inputStyle} labelStyle={labelStyle} />
+            <div>
+              <label style={labelStyle}>Monto ($)</label>
+              <input type="number" value={data.monto} onChange={(e) => updateIndividual('monto', e.target.value)}
+                placeholder="0.00" step="0.01" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>Nro. Recibo</label>
+              <input type="text" value={data.recibo} onChange={(e) => updateIndividual('recibo', e.target.value)}
+                placeholder="Opcional" style={inputStyle} />
+            </div>
+            <div style={{ gridColumn: 'span 2' }}>
+              <label style={labelStyle}>Observaciones</label>
+              <input type="text" value={data.observaciones} onChange={(e) => updateIndividual('observaciones', e.target.value)}
+                placeholder="Opcional..." style={inputStyle} />
+            </div>
+            <div style={{ gridColumn: 'span 2' }}>
+              <button onClick={onSaveIndividual} disabled={saving}
+                style={{ width: '100%', padding: '12px', borderRadius: '14px', border: 'none', background: '#10b981', color: 'white', fontSize: '14px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', opacity: saving ? 0.7 : 1 }}>
+                {saving ? <Loader2 className="animate-spin" size={16} /> : <><Banknote size={16} /> Registrar Efectivo</>}
+              </button>
+            </div>
+          </div>
         </div>
-        <div>
-          <label style={labelStyle}>Nro. Recibo</label>
-          <input type="text" value={data.recibo} onChange={(e) => update('recibo', e.target.value)}
-            placeholder="Opcional" style={inputStyle} />
-        </div>
-        <div style={{ gridColumn: 'span 2' }}>
-          <label style={labelStyle}>Observaciones</label>
-          <input type="text" value={data.observaciones} onChange={(e) => update('observaciones', e.target.value)}
-            placeholder="Opcional..." style={inputStyle} />
-        </div>
-        <div style={{ gridColumn: 'span 2' }}>
-          <button onClick={onSave} disabled={saving}
-            style={{ width: '100%', padding: '12px', borderRadius: '14px', border: 'none', background: '#10b981', color: 'white', fontSize: '14px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', opacity: saving ? 0.7 : 1 }}>
-            {saving ? <Loader2 className="animate-spin" size={16} /> : <><Banknote size={16} /> Registrar Efectivo</>}
-          </button>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
