@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import { supabase } from '../../supabaseClient';
 import { registrarCobroCuenta } from '../../services/cuentaCorrienteService';
 import { registrarAprendizajeHistorico } from '../../services/conciliacionService';
+import { useConfirm } from '../../components/ui/ConfirmProvider';
 
 export default function NuevaConciliacionTab({
   selectedPeriod,
@@ -39,6 +40,7 @@ export default function NuevaConciliacionTab({
   conciliacionHistorica = []
 }) {
   // Local states to isolate typing and filter re-renders from parent
+  const confirm = useConfirm();
   const [banco, setBanco] = useState('NACION'); // 'NACION', 'CREDICOOP'
   const [filtroTipoNueva, setFiltroTipoNueva] = useState('TODOS');
   const [filtroBancoNueva, setFiltroBancoNueva] = useState('TODOS');
@@ -559,10 +561,14 @@ export default function NuevaConciliacionTab({
     if (excelParsedData.length === 0) return;
 
     const periodoTarget = periodoImputacionExcel || selectedPeriod || '2026-01';
+    const bancoLabel = banco === 'NACION' ? 'Banco Nación' : 'Banco Credicoop';
 
-    const confirmed = window.confirm(
-      `¿Confirmas la importación de ${excelParsedData.length} cobros auditados por un total de $${(excelSummary?.totalMonto || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}?\n\n📌 Período a Imputar (Facturas a cancelar): ${periodoTarget}\n\nEsto registrará los pagos en movimientos bancarios, actualizará las deudas de ${periodoTarget} y generará los asientos contables.`
-    );
+    const confirmed = await confirm({
+      title: 'Confirmar Importación Auditada',
+      message: `¿Confirmas la importación de ${excelParsedData.length} cobros auditados por un total de $${(excelSummary?.totalMonto || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}?\n\n🏦 Banco: ${bancoLabel}\n📌 Período a Imputar (Facturas a cancelar): ${periodoTarget}\n\nEsto registrará los pagos en movimientos bancarios, actualizará las deudas de ${periodoTarget} y generará los asientos contables.`,
+      confirmText: 'Importar y Aplicar',
+      cancelText: 'Cancelar'
+    });
     if (!confirmed) return;
 
     setLoadingExcel(true);

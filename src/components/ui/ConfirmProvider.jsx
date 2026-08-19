@@ -43,21 +43,22 @@ export const ConfirmProvider = ({ children }) => {
     <ConfirmContext.Provider value={confirm}>
       {children}
       {confirmState.isOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000, overscrollBehavior: 'contain' }}>
-          <div className="air-card animate-fade" style={{ width: '400px', padding: '32px', textAlign: 'center' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000, overscrollBehavior: 'contain', padding: '20px' }}>
+          <div className="glass-panel animate-scale-up" style={{ width: '100%', maxWidth: '460px', padding: '32px', textAlign: 'center', borderRadius: '24px', background: 'var(--surface)', border: '1px solid var(--border-light)', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)' }}>
             <div style={{ 
               width: '64px', height: '64px', borderRadius: '50%', margin: '0 auto 20px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: confirmState.isDanger ? '#fee2e2' : '#f0fdf4',
-              color: confirmState.isDanger ? '#dc2626' : '#16a34a'
+              background: confirmState.isDanger ? 'rgba(239, 68, 68, 0.12)' : 'rgba(16, 185, 129, 0.12)',
+              color: confirmState.isDanger ? '#ef4444' : '#10b981',
+              border: `1px solid ${confirmState.isDanger ? 'rgba(239, 68, 68, 0.25)' : 'rgba(16, 185, 129, 0.25)'}`
             }}>
               {confirmState.isDanger ? <AlertTriangle size={32} /> : <CheckCircle2 size={32} />}
             </div>
             
-            <h3 style={{ fontSize: '20px', fontWeight: 900, marginBottom: '12px', color: 'var(--text-primary)' }}>
+            <h3 style={{ fontSize: '20px', fontWeight: 900, marginBottom: '14px', color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
               {confirmState.title}
             </h3>
             
-            <p style={{ fontSize: '15px', color: 'var(--text-secondary)', marginBottom: '32px', lineHeight: 1.5, fontWeight: 500 }}>
+            <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '28px', lineHeight: 1.6, fontWeight: 500, whiteSpace: 'pre-line' }}>
               {confirmState.message}
             </p>
 
@@ -65,14 +66,14 @@ export const ConfirmProvider = ({ children }) => {
               <button 
                 onClick={confirmState.onCancel}
                 className="air-btn"
-                style={{ flex: 1, background: 'var(--surface)', color: 'var(--text-primary)', border: '1px solid var(--border-light)' }}
+                style={{ flex: 1, background: 'var(--surface)', color: 'var(--text-primary)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '12px 16px', fontSize: '13.5px', fontWeight: 700 }}
               >
                 {confirmState.cancelText}
               </button>
               <button 
                 onClick={confirmState.onConfirm}
-                className="air-btn"
-                style={{ flex: 1, background: confirmState.isDanger ? '#dc2626' : 'var(--accent)', color: 'white', border: 'none' }}
+                className="air-btn-primary"
+                style={{ flex: 1, background: confirmState.isDanger ? '#dc2626' : 'var(--accent)', color: 'white', border: 'none', borderRadius: '12px', padding: '12px 16px', fontSize: '13.5px', fontWeight: 800 }}
               >
                 {confirmState.confirmText}
               </button>
