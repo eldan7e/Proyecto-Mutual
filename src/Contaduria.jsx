@@ -733,14 +733,6 @@ export default function Contaduria() {
 
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
           <button 
-            onClick={() => setIsTnaModalOpen(true)}
-            className="air-btn"
-            style={{ background: 'var(--surface)', border: '1px solid var(--border-light)', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px', borderRadius: '12px', fontSize: '13px', fontWeight: 700 }}
-          >
-            <Settings size={16} /> TNA Mora: {tna}%
-          </button>
-
-          <button 
             onClick={() => {
               if (selectedGrupo) setAjusteModalOpen(true);
               else addToast('Seleccione un grupo primero para aplicar un ajuste', 'warning');
@@ -805,16 +797,16 @@ export default function Contaduria() {
           </div>
         </div>
 
-        <div className="bento-card" style={{ padding: '20px', borderLeft: '4px solid #f59e0b' }}>
+        <div className="bento-card" style={{ padding: '20px', borderLeft: '4px solid #3b82f6' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>INTERESES MORA TNA</span>
-            <TrendingUp size={18} color="#f59e0b" />
+            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SALDOS A FAVOR / EXCEDENTES</span>
+            <DollarSign size={18} color="#3b82f6" />
           </div>
-          <div style={{ fontSize: '22px', fontWeight: 900, color: '#f59e0b' }}>
-            {formatMoney(statsGlobales.totalIntereses)}
+          <div style={{ fontSize: '22px', fontWeight: 900, color: '#3b82f6' }}>
+            {formatMoney(statsGlobales.totalSaldosAFavor)}
           </div>
           <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 600 }}>
-            Tasa Nominal Anual ({tna}%)
+            Pagos adelantados / excedentes
           </div>
         </div>
       </div>

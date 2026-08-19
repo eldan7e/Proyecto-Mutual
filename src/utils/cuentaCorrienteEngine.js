@@ -14,9 +14,8 @@
  * 9. Saldo Final      = SaldoCapital + IntPendFinal
  */
 
-// TASA ANUAL DEFAULT: 120% (en la celda del Excel almacena 1.20 como decimal)
-// TASA DIARIA: 1.20 / 365 = 0.0032876712328767123
-export const DEFAULT_TNA = 120.0;
+// TASA ANUAL DEFAULT: 0% (sin cálculo de intereses por mora para períodos históricos)
+export const DEFAULT_TNA = 0;
 export const DIA_TOPE_PAGO = 15;
 
 /**
