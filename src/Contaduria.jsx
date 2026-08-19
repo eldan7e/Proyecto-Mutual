@@ -783,16 +783,16 @@ export default function Contaduria() {
 
         <div className="bento-card" style={{ padding: '20px', borderLeft: '4px solid #ef4444' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SALDO IMPAGO PENDIENTE</span>
+            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SALDO IMPAGO NETO</span>
             <AlertCircle size={18} color="#ef4444" />
           </div>
           <div style={{ fontSize: '22px', fontWeight: 900, color: '#ef4444' }}>
-            {formatMoney(statsGlobales.totalPendiente)}
+            {formatMoney(statsGlobales.saldoNetoReal)}
           </div>
           <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 600 }}>
             <span style={{ color: '#ef4444', fontWeight: 700 }}>{statsGlobales.comprobantesImpagosCount} facturas pendientes</span>
             {statsGlobales.totalSaldosAFavor > 0 && (
-              <span style={{ marginLeft: '4px', color: '#10b981', fontWeight: 700 }}>· Neto Real: {formatMoney(statsGlobales.saldoNetoReal)}</span>
+              <span style={{ marginLeft: '4px', color: 'var(--text-secondary)' }}>· Deuda bruta: {formatMoney(statsGlobales.totalPendiente)}</span>
             )}
           </div>
         </div>
