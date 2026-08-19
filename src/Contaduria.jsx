@@ -39,6 +39,7 @@ export default function Contaduria() {
   const [liquidacionesAll, setLiquidacionesAll] = useState([]);
   const [liquidacionesGrupo, setLiquidacionesGrupo] = useState([]);
   const [lineasGrupo, setLineasGrupo] = useState([]);
+  const [lineasPeriodoFiltro, setLineasPeriodoFiltro] = useState('2026-01');
   const [periodosDisponiblesState, setPeriodosDisponiblesState] = useState([]);
 
   // Loaders
@@ -104,14 +105,14 @@ export default function Contaduria() {
     loadTodasLiquidaciones();
   }, []);
 
-  // Cargar detalles cuando cambia el grupo seleccionado
+  // Cargar detalles cuando cambia el grupo seleccionado o el período de líneas
   useEffect(() => {
     if (selectedGrupo !== null) {
       loadMovimientos(selectedGrupo);
       loadLiquidaciones(selectedGrupo);
-      loadLineasGrupo(selectedGrupo);
+      loadLineasGrupo(selectedGrupo, lineasPeriodoFiltro);
     }
-  }, [selectedGrupo]);
+  }, [selectedGrupo, lineasPeriodoFiltro]);
 
   // Suscripción Realtime para actualizar movimientos en vivo
   useEffect(() => {
@@ -277,7 +278,7 @@ export default function Contaduria() {
     }
   }
 
-  async function loadLineasGrupo(numeroGrupo) {
+  async function loadLineasGrupo(numeroGrupo, periodo = lineasPeriodoFiltro) {
     if (!numeroGrupo) {
       setLineasGrupo([]);
       return;
@@ -298,13 +299,47 @@ export default function Contaduria() {
         orConds.push(`socio_id.in.(${socioIds.join(',')})`);
       }
 
-      const { data, error } = await supabase
+      const { data: rawLineas, error } = await supabase
         .from('lineas')
         .select('*, proveedores:proveedor_id(nombre), socios:socio_id(nombre_completo), planes_abonos:plan_id(nombre_plan, precio)')
         .or(orConds.join(','));
 
       if (error) throw error;
-      setLineasGrupo(data || []);
+
+      // FILTRAR SOLO LÍNEAS ACTIVAS (las líneas dadas de baja no aparecen en la pestaña activa)
+      const activas = (rawLineas || []).filter(l => (l.estado || 'ACTIVA').toUpperCase() !== 'BAJA');
+      const lineNums = activas.map(l => l.numero_linea).filter(Boolean);
+
+      // 3. Traer la facturación real de cada línea para el período seleccionado
+      let billingMap = {};
+      if (lineNums.length > 0 && periodo) {
+        const { data: billingData } = await supabase
+          .from('v_historial_facturacion_socio')
+          .select('*')
+          .eq('periodo', periodo)
+          .in('numero_linea', lineNums);
+
+        if (billingData) {
+          billingData.forEach(b => {
+            billingMap[b.numero_linea] = b;
+          });
+        }
+      }
+
+      // Enriquecer líneas activas con su facturación real
+      const enriched = activas.map(l => {
+        const b = billingMap[l.numero_linea];
+        return {
+          ...l,
+          facturado_periodo: b ? parseFloat(b.total_linea) : (parseFloat(l.planes_abonos?.precio) || 0),
+          costo_abono_real: b ? parseFloat(b.costo_abono_real) : (parseFloat(l.planes_abonos?.precio) || 0),
+          excedentes: b ? parseFloat(b.excedentes) : 0,
+          bonificaciones: b ? parseFloat(b.bonificaciones) : 0,
+          plan_facturado: b?.nombre_plan || l.planes_abonos?.nombre_plan || 'Plan Estándar'
+        };
+      });
+
+      setLineasGrupo(enriched);
     } catch (err) {
       console.error('Error al cargar líneas del grupo:', err);
       setLineasGrupo([]);
@@ -1347,74 +1382,113 @@ export default function Contaduria() {
       {/* PESTAÑA 4: LÍNEAS TELEFÓNICAS ASOCIADAS AL GRUPO */}
       {activeTab === 'lineas' && (
         <div className="bento-card" style={{ padding: '24px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
             <div>
-              <h3 style={{ fontSize: '18px', fontWeight: 900, margin: 0 }}>
-                Líneas Telefónicas Registradas (Grupo #{selectedGrupo})
+              <h3 style={{ fontSize: '16px', fontWeight: 900, margin: '0 0 4px 0' }}>
+                Líneas Activas y Facturación ({selectedGrupo ? `Grupo #${selectedGrupo}` : 'Seleccione Grupo'})
               </h3>
               <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>
-                Administración de planes y asignación de socios para el grupo activo.
+                Desglose de lo facturado a cada línea activa del grupo para el período seleccionado.
               </p>
             </div>
 
-            <select 
-              value={selectedGrupo || ''}
-              onChange={(e) => setSelectedGrupo(Number(e.target.value))}
-              className="premium-input"
-              style={{ fontSize: '14px', fontWeight: 800, padding: '8px 16px' }}
-            >
-              {gruposList.map(g => (
-                <option key={g.numero_grupo} value={g.numero_grupo}>
-                  Grupo #{g.numero_grupo} - {g.nombre}
-                </option>
-              ))}
-            </select>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+              {/* SELECTOR DE PERÍODO */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Período:</span>
+                <select 
+                  value={lineasPeriodoFiltro}
+                  onChange={(e) => setLineasPeriodoFiltro(e.target.value)}
+                  className="form-input"
+                  style={{ fontSize: '13px', fontWeight: 800, padding: '6px 12px', width: 'auto' }}
+                >
+                  {(periodosDisponiblesState.length > 0 ? periodosDisponiblesState : ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08']).map(p => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* SELECTOR DE GRUPO */}
+              <select 
+                value={selectedGrupo || ''}
+                onChange={(e) => setSelectedGrupo(Number(e.target.value))}
+                className="premium-input"
+                style={{ fontSize: '13px', fontWeight: 800, padding: '8px 14px' }}
+              >
+                {gruposList.map(g => (
+                  <option key={g.numero_grupo} value={g.numero_grupo}>
+                    Grupo #{g.numero_grupo} - {g.nombre}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="table-responsive" style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '13px' }}>
+            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '12.5px' }}>
               <thead>
                 <tr style={{ background: 'rgba(0,0,0,0.02)', textAlign: 'left' }}>
-                  <th style={{ padding: '12px 16px' }}>LÍNEA TELEFÓNICA</th>
-                  <th style={{ padding: '12px 16px' }}>SOCIO RESPONSABLE</th>
-                  <th style={{ padding: '12px 16px' }}>OPERADORA</th>
-                  <th style={{ padding: '12px 16px' }}>PLAN CONTRATADO</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>VALOR OFICIAL</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'center' }}>ESTADO LÍNEA</th>
+                  <th style={{ padding: '12px 14px' }}>LÍNEA TELEFÓNICA</th>
+                  <th style={{ padding: '12px 14px' }}>SOCIO RESPONSABLE</th>
+                  <th style={{ padding: '12px 14px' }}>OPERADORA</th>
+                  <th style={{ padding: '12px 14px' }}>PLAN CONTRATADO</th>
+                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>VALOR ABONO</th>
+                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>EXCEDENTES</th>
+                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>FACTURADO ({lineasPeriodoFiltro})</th>
+                  <th style={{ padding: '12px 14px', textAlign: 'center' }}>ESTADO</th>
                 </tr>
               </thead>
               <tbody>
                 {loadingLineas ? (
                   <tr>
-                    <td colSpan="6" style={{ textAlign: 'center', padding: '30px' }}>
+                    <td colSpan="8" style={{ textAlign: 'center', padding: '30px' }}>
                       <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto', color: 'var(--accent)' }} />
                     </td>
                   </tr>
                 ) : lineasGrupo.length === 0 ? (
                   <tr>
-                    <td colSpan="6" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary)' }}>
-                      No hay líneas móviles asignadas a este grupo actualmente.
+                    <td colSpan="8" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary)' }}>
+                      No hay líneas móviles activas asignadas a este grupo.
                     </td>
                   </tr>
                 ) : (
-                  lineasGrupo.map(l => (
-                    <tr key={l.numero_linea} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                      <td style={{ padding: '12px 16px', fontWeight: 900 }}>{l.numero_linea}</td>
-                      <td style={{ padding: '12px 16px', fontWeight: 700 }}>{l.socios?.nombre_completo || 'Sin socio asignado'}</td>
-                      <td style={{ padding: '12px 16px', fontWeight: 700 }}>{l.proveedores?.nombre || 'N/D'}</td>
-                      <td style={{ padding: '12px 16px' }}>{l.planes_abonos?.nombre_plan || 'Plan Estándar'}</td>
-                      <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 800 }}>{formatMoney(l.planes_abonos?.precio || 0)}</td>
-                      <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                        <span style={{
-                          background: l.estado === 'ACTIVA' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                          color: l.estado === 'ACTIVA' ? '#10b981' : '#ef4444',
-                          padding: '4px 10px', borderRadius: '8px', fontWeight: 900, fontSize: '11px'
-                        }}>
-                          {l.estado || 'ACTIVA'}
-                        </span>
+                  <>
+                    {lineasGrupo.map(l => (
+                      <tr key={l.numero_linea} style={{ borderBottom: '1px solid var(--border-light)' }}>
+                        <td style={{ padding: '12px 14px', fontWeight: 900, color: 'var(--accent)' }}>{l.numero_linea}</td>
+                        <td style={{ padding: '12px 14px', fontWeight: 700 }}>{l.socios?.nombre_completo || 'Sin socio asignado'}</td>
+                        <td style={{ padding: '12px 14px', fontWeight: 700 }}>{l.proveedores?.nombre || 'N/D'}</td>
+                        <td style={{ padding: '12px 14px' }}>{l.plan_facturado || l.planes_abonos?.nombre_plan || 'Plan Estándar'}</td>
+                        <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700 }}>
+                          {formatMoney(l.costo_abono_real || l.planes_abonos?.precio || 0)}
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'right', color: (l.excedentes || 0) > 0 ? '#f59e0b' : 'var(--text-secondary)', fontWeight: (l.excedentes || 0) > 0 ? 800 : 500 }}>
+                          {formatMoney(l.excedentes || 0)}
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 900, fontSize: '13px', color: 'var(--text-primary)' }}>
+                          {formatMoney(l.facturado_periodo || 0)}
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                          <span style={{
+                            background: 'rgba(16, 185, 129, 0.1)',
+                            color: '#10b981',
+                            padding: '4px 10px', borderRadius: '8px', fontWeight: 900, fontSize: '11px'
+                          }}>
+                            ACTIVA
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    <tr style={{ background: 'rgba(0,0,0,0.02)', fontWeight: 900 }}>
+                      <td colSpan="6" style={{ padding: '14px', textAlign: 'right', textTransform: 'uppercase', fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+                        TOTAL FACTURADO LÍNEAS ACTIVAS ({lineasPeriodoFiltro}):
                       </td>
+                      <td style={{ padding: '14px', textAlign: 'right', fontSize: '14px', color: 'var(--accent)' }}>
+                        {formatMoney(lineasGrupo.reduce((s, l) => s + (l.facturado_periodo || 0), 0))}
+                      </td>
+                      <td></td>
                     </tr>
-                  ))
+                  </>
                 )}
               </tbody>
             </table>
