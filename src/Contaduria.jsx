@@ -678,10 +678,15 @@ export default function Contaduria() {
       }
     });
 
+    const saldoNetoReal = totalFacturado - totalCobrado;
+    const totalSaldosAFavor = Math.max(0, totalPendiente - saldoNetoReal);
+
     return {
       totalFacturado,
       totalCobrado,
       totalPendiente,
+      saldoNetoReal,
+      totalSaldosAFavor,
       comprobantesImpagosCount,
       totalIntereses,
       totalComprobantes: liquidacionesBaseKPIs.length
@@ -792,8 +797,11 @@ export default function Contaduria() {
           <div style={{ fontSize: '22px', fontWeight: 900, color: '#ef4444' }}>
             {formatMoney(statsGlobales.totalPendiente)}
           </div>
-          <div style={{ fontSize: '11px', color: '#ef4444', marginTop: '4px', fontWeight: 700 }}>
-            {statsGlobales.comprobantesImpagosCount} facturas pendientes
+          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 600 }}>
+            <span style={{ color: '#ef4444', fontWeight: 700 }}>{statsGlobales.comprobantesImpagosCount} facturas pendientes</span>
+            {statsGlobales.totalSaldosAFavor > 0 && (
+              <span style={{ marginLeft: '4px', color: '#10b981', fontWeight: 700 }}>· Neto Real: {formatMoney(statsGlobales.saldoNetoReal)}</span>
+            )}
           </div>
         </div>
 
