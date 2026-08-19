@@ -310,7 +310,17 @@ export default function Contaduria() {
       const activas = (rawLineas || []).filter(l => (l.estado || 'ACTIVA').toUpperCase() !== 'BAJA');
       const lineNums = activas.map(l => l.numero_linea).filter(Boolean);
 
-      // 3. Traer la facturación real de cada línea para el período seleccionado
+      // 3. Traer la liquidación oficial del grupo para el período seleccionado (la que figura en Factura / Libro Mayor)
+      const { data: liqGrupo } = await supabase
+        .from('liquidaciones_grupos')
+        .select('monto_total_facturado, costo_operadora_neto, beneficio_aunar')
+        .eq('numero_grupo', numeroGrupo)
+        .eq('periodo', periodo)
+        .maybeSingle();
+
+      const grupoMontoFacturado = liqGrupo ? parseFloat(liqGrupo.monto_total_facturado) : 0;
+
+      // 4. Traer los consumos de cada línea en ese período
       let billingMap = {};
       if (lineNums.length > 0 && periodo) {
         const { data: billingData } = await supabase
@@ -326,12 +336,38 @@ export default function Contaduria() {
         }
       }
 
-      // Enriquecer líneas activas con su facturación real
-      const enriched = activas.map(l => {
+      // Calcular suma de consumos brutos de las líneas del grupo
+      const rawSum = activas.reduce((acc, l) => {
         const b = billingMap[l.numero_linea];
+        const val = b ? parseFloat(b.total_linea) : (parseFloat(l.planes_abonos?.precio) || 0);
+        return acc + val;
+      }, 0);
+
+      // Factor de ajuste para que coincida exactamente con la Factura de Contaduría / Liquidación Oficial
+      const factorAjuste = (grupoMontoFacturado > 0 && rawSum > 0) ? (grupoMontoFacturado / rawSum) : 1;
+
+      // Enriquecer líneas activas con su facturación real sincronizada con la factura del grupo
+      let acumulado = 0;
+      const enriched = activas.map((l, index) => {
+        const b = billingMap[l.numero_linea];
+        const rawLineVal = b ? parseFloat(b.total_linea) : (parseFloat(l.planes_abonos?.precio) || 0);
+        
+        let facturadoFinal = 0;
+        if (grupoMontoFacturado > 0) {
+          if (index === activas.length - 1) {
+            // Última línea ajusta el redondeo de centavos
+            facturadoFinal = Math.max(0, Math.round((grupoMontoFacturado - acumulado) * 100) / 100);
+          } else {
+            facturadoFinal = Math.round((rawLineVal * factorAjuste) * 100) / 100;
+            acumulado += facturadoFinal;
+          }
+        } else {
+          facturadoFinal = rawLineVal;
+        }
+
         return {
           ...l,
-          facturado_periodo: b ? parseFloat(b.total_linea) : (parseFloat(l.planes_abonos?.precio) || 0),
+          facturado_periodo: facturadoFinal,
           costo_abono_real: b ? parseFloat(b.costo_abono_real) : (parseFloat(l.planes_abonos?.precio) || 0),
           excedentes: b ? parseFloat(b.excedentes) : 0,
           bonificaciones: b ? parseFloat(b.bonificaciones) : 0,
