@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Calculator, Search, DollarSign, TrendingUp, AlertTriangle, 
-  Loader2, RefreshCw, Plus, CheckCircle2, ChevronRight, ShieldCheck, 
+  Loader2, RefreshCw, Plus, CheckCircle2, ChevronRight, ChevronDown, ShieldCheck, 
   Download, ArrowUpRight, ArrowDownLeft, Settings, Building, Calendar, 
   FileText, Users, Eye, Edit3, X, Receipt, Filter, Clock, Sparkles,
   FileCheck, AlertCircle, Phone, ArrowRight, CornerDownRight, Percent, Sliders
@@ -31,6 +31,7 @@ export default function Contaduria() {
   const [activeTab, setActiveTab] = useState('facturas'); // 'facturas' | 'saldos' | 'extracto' | 'lineas'
   const [estadoFilter, setEstadoFilter] = useState('TODAS'); // 'TODAS' | 'IMPAGAS' | 'PARCIALES' | 'COBRADAS'
   const [operadoraFilter, setOperadoraFilter] = useState('TODAS'); // 'TODAS' | 'CLARO' | 'MOVISTAR' | 'PERSONAL'
+  const [expandedGruposFacturas, setExpandedGruposFacturas] = useState(new Set());
   
   // Listas de Datos
   const [gruposList, setGruposList] = useState([]);
@@ -694,12 +695,65 @@ export default function Contaduria() {
     });
   }, [liquidacionesBaseKPIs, estadoFilter]);
 
-  const totalPagesFacturas = Math.ceil(facturasFiltradas.length / pageSizeFacturas) || 1;
+  // --- AGRUPACIÓN DE FACTURAS POR GRUPO Y PERÍODO CON DETALLE MULTI-PROVEEDOR ---
+  const facturasAgrupadas = useMemo(() => {
+    const map = new Map();
+
+    facturasFiltradas.forEach(liq => {
+      const groupKey = `${liq.periodo}-${liq.numero_grupo}`;
+      if (!map.has(groupKey)) {
+        map.set(groupKey, {
+          key: groupKey,
+          periodo: liq.periodo,
+          numero_grupo: liq.numero_grupo,
+          socio: liq.socios,
+          socio_id: liq.socio_id,
+          total_lineas: 0,
+          monto_total_facturado: 0,
+          monto_abonado: 0,
+          saldo_impago: 0,
+          items: []
+        });
+      }
+
+      const g = map.get(groupKey);
+      const totalFact = Number(liq.monto_total_facturado || 0);
+      const abonado = Number(liq.monto_abonado || 0);
+      const pendiente = Math.max(0, totalFact - abonado);
+
+      g.total_lineas += (liq.total_lineas_lote || 1);
+      g.monto_total_facturado += totalFact;
+      g.monto_abonado += abonado;
+      g.saldo_impago += pendiente;
+      g.items.push(liq);
+    });
+
+    return Array.from(map.values()).map(g => {
+      const isCobrada = g.saldo_impago <= 1;
+      const isParcial = !isCobrada && g.monto_abonado > 0;
+      return {
+        ...g,
+        estado_consolidado: isCobrada ? 'ABONADO' : isParcial ? 'PARCIAL' : 'PENDIENTE',
+        isMultiProvider: g.items.length > 1
+      };
+    });
+  }, [facturasFiltradas]);
+
+  const toggleExpandGrupo = (key) => {
+    setExpandedGruposFacturas(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const totalPagesFacturas = Math.ceil(facturasAgrupadas.length / pageSizeFacturas) || 1;
 
   const facturasPaginadas = useMemo(() => {
     const start = (currentPageFacturas - 1) * pageSizeFacturas;
-    return facturasFiltradas.slice(start, start + pageSizeFacturas);
-  }, [facturasFiltradas, currentPageFacturas]);
+    return facturasAgrupadas.slice(start, start + pageSizeFacturas);
+  }, [facturasAgrupadas, currentPageFacturas]);
 
   // --- FILTRADO DE SALDOS / CUENTAS CORRIENTES ---
   const saldosFiltrados = useMemo(() => {
@@ -889,7 +943,7 @@ export default function Contaduria() {
           className={`nav-pill ${activeTab === 'facturas' ? 'active' : ''}`}
           style={{ border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontWeight: 700 }}
         >
-          <Receipt size={16} /> Facturas y Comprobantes ({facturasFiltradas.length})
+          <Receipt size={16} /> Facturas y Comprobantes ({facturasAgrupadas.length})
         </button>
         <button
           onClick={() => setActiveTab('saldos')}
@@ -1022,93 +1076,211 @@ export default function Contaduria() {
                       <div style={{ marginTop: '8px', color: 'var(--text-secondary)' }}>Cargando comprobantes y facturas contables...</div>
                     </td>
                   </tr>
-                ) : facturasFiltradas.length === 0 ? (
+                ) : facturasAgrupadas.length === 0 ? (
                   <tr>
                     <td colSpan="8" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
                       No se encontraron comprobantes o facturas para los filtros seleccionados.
                     </td>
                   </tr>
                 ) : (
-                  facturasPaginadas.map((liq) => {
-                    const totalFact = Number(liq.monto_total_facturado || 0);
-                    const abonado = Number(liq.monto_abonado || 0);
-                    const pendiente = Math.max(0, totalFact - abonado);
-
-                    const isCobrada = liq.estado_pago === 'ABONADO' || pendiente <= 1;
-                    const isParcial = liq.estado_pago === 'PARCIAL' || (abonado > 0 && pendiente > 1);
+                  facturasPaginadas.map((group) => {
+                    const isExpanded = expandedGruposFacturas.has(group.key);
+                    const isCobrada = group.estado_consolidado === 'ABONADO';
+                    const isParcial = group.estado_consolidado === 'PARCIAL';
 
                     return (
-                      <tr 
-                        key={liq.liquidacion_id}
-                        style={{ borderBottom: '1px solid var(--border-light)', background: selectedGrupo === liq.numero_grupo ? 'rgba(16,185,129,0.03)' : 'transparent' }}
-                      >
-                        <td style={{ padding: '12px 14px', fontWeight: 900 }}>
-                          <div>{liq.periodo}</div>
-                          <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                            #LIQ-{liq.liquidacion_id}
-                          </div>
-                        </td>
-                        <td style={{ padding: '12px 14px' }}>
-                          <div style={{ fontWeight: 800 }}>
-                            {liq.socios?.nombre_completo || `Grupo ${liq.numero_grupo}`}
-                          </div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                            Grupo #{liq.numero_grupo} ({liq.total_lineas_lote || 1} líneas)
-                          </div>
-                        </td>
-                        <td style={{ padding: '12px 14px', fontWeight: 700 }}>
-                          <span style={{
-                            padding: '3px 8px', borderRadius: '6px', fontSize: '11px',
-                            background: liq.proveedores?.nombre === 'CLARO' ? 'rgba(227,6,19,0.1)' : liq.proveedores?.nombre === 'MOVISTAR' ? 'rgba(91,197,0,0.1)' : 'rgba(0,102,255,0.1)',
-                            color: liq.proveedores?.nombre === 'CLARO' ? '#e30613' : liq.proveedores?.nombre === 'MOVISTAR' ? '#5bc500' : '#0066ff'
-                          }}>
-                            {liq.proveedores?.nombre || 'OPERADORA'}
-                          </span>
-                        </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800 }}>
-                          {formatMoney(totalFact)}
-                        </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, color: '#10b981' }}>
-                          {formatMoney(abonado)}
-                        </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 900, color: pendiente > 5 ? '#ef4444' : 'var(--text-primary)' }}>
-                          {formatMoney(pendiente)}
-                        </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                          <span style={{
-                            background: isCobrada ? 'rgba(16, 185, 129, 0.1)' : isParcial ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                            color: isCobrada ? '#10b981' : isParcial ? '#f59e0b' : '#ef4444',
-                            padding: '4px 10px', borderRadius: '8px', fontWeight: 900, fontSize: '11px'
-                          }}>
-                            {isCobrada ? 'COBRADA' : isParcial ? 'PARCIAL' : 'IMPAGA'}
-                          </span>
-                        </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
-                            {!isCobrada && (
+                      <React.Fragment key={group.key}>
+                        {/* FILA PRINCIPAL CONSOLIDADA POR GRUPO */}
+                        <tr 
+                          onClick={() => group.isMultiProvider && toggleExpandGrupo(group.key)}
+                          style={{ 
+                            borderBottom: isExpanded ? 'none' : '1px solid var(--border-light)', 
+                            background: selectedGrupo === group.numero_grupo ? 'rgba(16,185,129,0.04)' : isExpanded ? 'rgba(255,255,255,0.02)' : 'transparent',
+                            cursor: group.isMultiProvider ? 'pointer' : 'default',
+                            transition: 'background 0.2s'
+                          }}
+                        >
+                          <td style={{ padding: '12px 14px', fontWeight: 900 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              {group.isMultiProvider && (
+                                <span style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center' }}>
+                                  {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                </span>
+                              )}
+                              <div>
+                                <div>{group.periodo}</div>
+                                <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                                  {group.isMultiProvider ? `${group.items.length} proveedores` : `#LIQ-${group.items[0]?.liquidacion_id}`}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+
+                          <td style={{ padding: '12px 14px' }}>
+                            <div style={{ fontWeight: 800 }}>
+                              {group.socio?.nombre_completo || `Grupo ${group.numero_grupo}`}
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>Grupo #{group.numero_grupo} ({group.total_lineas} líneas)</span>
+                              {group.isMultiProvider && (
+                                <span style={{ 
+                                  color: 'var(--accent)', 
+                                  fontWeight: 700, 
+                                  background: 'rgba(16, 185, 129, 0.1)', 
+                                  padding: '1px 6px', 
+                                  borderRadius: '6px',
+                                  fontSize: '10px'
+                                }}>
+                                  {group.items.length} operadoras · {isExpanded ? 'Ocultar ▲' : 'Ver detalle ▾'}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          <td style={{ padding: '12px 14px', fontWeight: 700 }}>
+                            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                              {group.items.map(item => {
+                                const opName = item.proveedores?.nombre || 'OPERADORA';
+                                return (
+                                  <span key={item.liquidacion_id} style={{
+                                    padding: '3px 7px', borderRadius: '6px', fontSize: '10.5px', fontWeight: 800,
+                                    background: opName === 'CLARO' ? 'rgba(227,6,19,0.1)' : opName === 'MOVISTAR' ? 'rgba(91,197,0,0.1)' : 'rgba(0,102,255,0.1)',
+                                    color: opName === 'CLARO' ? '#e30613' : opName === 'MOVISTAR' ? '#5bc500' : '#0066ff'
+                                  }}>
+                                    {opName}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </td>
+
+                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800 }}>
+                            {formatMoney(group.monto_total_facturado)}
+                          </td>
+
+                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, color: '#10b981' }}>
+                            {formatMoney(group.monto_abonado)}
+                          </td>
+
+                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 900, color: group.saldo_impago > 5 ? '#ef4444' : 'var(--text-primary)' }}>
+                            {formatMoney(group.saldo_impago)}
+                          </td>
+
+                          <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                            <span style={{
+                              background: isCobrada ? 'rgba(16, 185, 129, 0.1)' : isParcial ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                              color: isCobrada ? '#10b981' : isParcial ? '#f59e0b' : '#ef4444',
+                              padding: '4px 10px', borderRadius: '8px', fontWeight: 900, fontSize: '11px'
+                            }}>
+                              {isCobrada ? 'COBRADA' : isParcial ? 'PARCIAL' : 'IMPAGA'}
+                            </span>
+                          </td>
+
+                          <td style={{ padding: '12px 14px', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                              {!isCobrada && (
+                                <button
+                                  onClick={() => handleOpenCobroModal(group.items[0], group.numero_grupo)}
+                                  className="air-btn-primary"
+                                  style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', fontWeight: 800 }}
+                                  title="Imputar cobro a este grupo"
+                                >
+                                  Imputar
+                                </button>
+                              )}
                               <button
-                                onClick={() => handleOpenCobroModal(liq)}
-                                className="air-btn-primary"
-                                style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', fontWeight: 800 }}
-                                title="Imputar pago a esta factura"
+                                onClick={() => {
+                                  setSelectedGrupo(group.numero_grupo);
+                                  setActiveTab('extracto');
+                                }}
+                                className="air-btn"
+                                style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', fontWeight: 700 }}
+                                title="Ver extracto de la cuenta"
                               >
-                                Imputar
+                                Extracto
                               </button>
-                            )}
-                            <button
-                              onClick={() => {
-                                setSelectedGrupo(liq.numero_grupo);
-                                setActiveTab('extracto');
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* SUB-FILAS DESPLEGADAS POR PROVEEDOR SI TIENE MULTI-PROVEEDOR */}
+                        {isExpanded && group.items.map((subLiq) => {
+                          const subFact = Number(subLiq.monto_total_facturado || 0);
+                          const subAbonado = Number(subLiq.monto_abonado || 0);
+                          const subPendiente = Math.max(0, subFact - subAbonado);
+                          const subIsCobrada = subLiq.estado_pago === 'ABONADO' || subPendiente <= 1;
+                          const subIsParcial = subLiq.estado_pago === 'PARCIAL' || (subAbonado > 0 && subPendiente > 1);
+                          const subOp = subLiq.proveedores?.nombre || 'OPERADORA';
+
+                          return (
+                            <tr 
+                              key={subLiq.liquidacion_id}
+                              style={{ 
+                                background: 'rgba(255, 255, 255, 0.03)', 
+                                borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+                                fontSize: '12px'
                               }}
-                              className="air-btn"
-                              style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', fontWeight: 700 }}
-                              title="Ver extracto de la cuenta"
                             >
-                              Extracto
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
+                              <td style={{ padding: '8px 14px 8px 30px', color: 'var(--text-secondary)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <CornerDownRight size={13} color="var(--accent)" />
+                                  <span style={{ fontWeight: 700 }}>#LIQ-{subLiq.liquidacion_id}</span>
+                                </div>
+                              </td>
+
+                              <td style={{ padding: '8px 14px', color: 'var(--text-secondary)' }}>
+                                <span style={{ fontWeight: 600 }}>Deuda por {subOp}</span>
+                                <span style={{ marginLeft: '6px', fontSize: '11px' }}>({subLiq.total_lineas_lote || 1} líneas)</span>
+                              </td>
+
+                              <td style={{ padding: '8px 14px' }}>
+                                <span style={{
+                                  padding: '2px 8px', borderRadius: '6px', fontSize: '10.5px', fontWeight: 800,
+                                  background: subOp === 'CLARO' ? 'rgba(227,6,19,0.1)' : subOp === 'MOVISTAR' ? 'rgba(91,197,0,0.1)' : 'rgba(0,102,255,0.1)',
+                                  color: subOp === 'CLARO' ? '#e30613' : subOp === 'MOVISTAR' ? '#5bc500' : '#0066ff'
+                                }}>
+                                  {subOp}
+                                </span>
+                              </td>
+
+                              <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: 700 }}>
+                                {formatMoney(subFact)}
+                              </td>
+
+                              <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: 700, color: '#10b981' }}>
+                                {formatMoney(subAbonado)}
+                              </td>
+
+                              <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: 800, color: subPendiente > 5 ? '#ef4444' : 'var(--text-primary)' }}>
+                                {formatMoney(subPendiente)}
+                              </td>
+
+                              <td style={{ padding: '8px 14px', textAlign: 'center' }}>
+                                <span style={{
+                                  background: subIsCobrada ? 'rgba(16, 185, 129, 0.1)' : subIsParcial ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                                  color: subIsCobrada ? '#10b981' : subIsParcial ? '#f59e0b' : '#ef4444',
+                                  padding: '3px 8px', borderRadius: '6px', fontWeight: 800, fontSize: '10px'
+                                }}>
+                                  {subIsCobrada ? 'COBRADA' : subIsParcial ? 'PARCIAL' : 'IMPAGA'}
+                                </span>
+                              </td>
+
+                              <td style={{ padding: '8px 14px', textAlign: 'center' }}>
+                                {!subIsCobrada && (
+                                  <button
+                                    onClick={() => handleOpenCobroModal(subLiq, group.numero_grupo)}
+                                    className="air-btn"
+                                    style={{ padding: '4px 8px', fontSize: '10.5px', borderRadius: '6px', fontWeight: 700, borderColor: 'var(--border-light)' }}
+                                    title={`Imputar cobro específico a ${subOp}`}
+                                  >
+                                    Imputar a {subOp}
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
                     );
                   })
                 )}
@@ -1117,7 +1289,7 @@ export default function Contaduria() {
           </div>
 
           {/* CONTROLES DE PAGINACIÓN */}
-          {facturasFiltradas.length > pageSizeFacturas && (
+          {facturasAgrupadas.length > pageSizeFacturas && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--border-light)', flexWrap: 'wrap', gap: '12px' }}>
               <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
                 Mostrando {((currentPageFacturas - 1) * pageSizeFacturas) + 1} - {Math.min(currentPageFacturas * pageSizeFacturas, facturasFiltradas.length)} de {facturasFiltradas.length} comprobantes
