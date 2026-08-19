@@ -685,41 +685,66 @@ export default function NuevaConciliacionTab({
     let alreadyImportedCount = 0;
 
     // Fetch existing records to prevent duplicate payments if the user re-imports the file
-    const { data: existingBncMovs } = await supabase
-      .from('movimientos_bancarios')
-      .select('fecha_movimiento, monto, concepto, comprobante, socio_id, liquidacion_id')
-      .eq('banco', banco);
+    // 1. Query cuenta corriente for the date range of the file with high range limit
+    const datesList = excelParsedData.map(p => p.fecha).filter(Boolean);
+    const minDate = datesList.length > 0 ? datesList.reduce((min, d) => d < min ? d : min, datesList[0]) : '2020-01-01';
+    const maxDate = datesList.length > 0 ? datesList.reduce((max, d) => d > max ? d : max, datesList[0]) : '2030-12-31';
 
-    const { data: existingCcMovs } = await supabase
+    const { data: existingBncMovsData } = await supabase
+      .from('movimientos_bancarios')
+      .select('fecha_movimiento, monto, concepto, comprobante, socio_id, liquidacion_id, banco')
+      .gte('fecha_movimiento', minDate)
+      .lte('fecha_movimiento', maxDate)
+      .range(0, 50000);
+
+    const { data: existingCcMovsData } = await supabase
       .from('movimientos_cuenta')
-      .select('numero_grupo, fecha, importe, observaciones')
-      .eq('medio_pago', banco);
+      .select('numero_grupo, fecha, importe, observaciones, medio_pago, tipo')
+      .eq('tipo', 'PAGO')
+      .gte('fecha', minDate)
+      .lte('fecha', maxDate)
+      .range(0, 50000);
+
+    const existingBncMovs = existingBncMovsData || [];
+    const existingCcMovs = existingCcMovsData || [];
 
     const normalize = (str) => (str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
 
     const isAlreadyImported = (payment, gNum) => {
       const cpbte = String(payment.comprobante || '').trim();
-      const pMonto = Math.abs(payment.monto);
+      const pMonto = Math.abs(Number(payment.monto || 0));
       const pFecha = payment.fecha;
       const pConc = normalize(payment.concepto);
 
-      // 1. Check in cuenta corriente by group and comprobante/amount
-      if (cpbte && (existingCcMovs || []).some(c => 
-        c.numero_grupo === gNum && 
-        String(c.observaciones || '').includes(cpbte) && 
-        Math.abs(Math.abs(Number(c.importe || 0)) - pMonto) < 0.05
-      )) {
-        return true;
-      }
+      // 1. Check in cuenta corriente by group and comprobante/amount OR (group + date + amount)
+      const ccMatch = existingCcMovs.some(c => {
+        if (c.tipo && c.tipo !== 'PAGO') return false;
+        if (c.numero_grupo !== gNum) return false;
+        const cMonto = Math.abs(Number(c.importe || 0));
+        if (Math.abs(cMonto - pMonto) > 0.05) return false;
+
+        // If matching comprobante
+        if (cpbte && String(c.observaciones || '').includes(cpbte)) return true;
+        // If same date and exact amount for this group
+        if (c.fecha === pFecha) return true;
+        return false;
+      });
+
+      if (ccMatch) return true;
 
       // 2. Check in movimientos_bancarios by exact date, amount and concept/cpbte
-      if ((existingBncMovs || []).some(m => 
-        m.fecha_movimiento === pFecha &&
-        Math.abs(Number(m.monto || 0) - pMonto) < 0.05 &&
-        (normalize(m.concepto) === pConc || (cpbte && String(m.concepto || '').includes(cpbte)))
-      )) {
-        return true;
-      }
+      const bncMatch = existingBncMovs.some(m => {
+        const mMonto = Math.abs(Number(m.monto || 0));
+        if (Math.abs(mMonto - pMonto) > 0.05) return false;
+        if (m.fecha_movimiento !== pFecha) return false;
+
+        if (cpbte && String(m.comprobante || m.concepto || '').includes(cpbte)) return true;
+        const mConc = normalize(m.concepto);
+        if (pConc && (mConc === pConc || mConc.includes(pConc) || pConc.includes(mConc))) return true;
+        return false;
+      });
+
+      if (bncMatch) return true;
 
       return false;
     };
@@ -798,6 +823,21 @@ export default function NuevaConciliacionTab({
             fecha: payment.fecha
           });
 
+          // Update local cache to prevent any subsequent identical rows in the same batch
+          existingCcMovs.push({
+            numero_grupo: gNum,
+            fecha: payment.fecha,
+            importe: -payment.monto,
+            observaciones: `Importación Excel Auditado - Cpbte: ${payment.comprobante}`,
+            tipo: 'PAGO'
+          });
+          existingBncMovs.push({
+            fecha_movimiento: payment.fecha,
+            monto: payment.monto,
+            concepto: payment.concepto,
+            comprobante: payment.comprobante
+          });
+
           // 3. Registrar aprendizaje histórico (confianza máxima 98%)
           if (payment.cuit || payment.cbu) {
             await registrarAprendizajeHistorico({
@@ -869,6 +909,20 @@ export default function NuevaConciliacionTab({
                 medio_pago: banco,
                 observaciones: `Importación Excel Auditado - Pago compartido (${payment.grupoStr}) - Cpbte: ${payment.comprobante}`,
                 fecha: payment.fecha
+              });
+
+              existingCcMovs.push({
+                numero_grupo: gNum,
+                fecha: payment.fecha,
+                importe: -cuotaParte,
+                observaciones: `Importación Excel Auditado - Pago compartido (${payment.grupoStr}) - Cpbte: ${payment.comprobante}`,
+                tipo: 'PAGO'
+              });
+              existingBncMovs.push({
+                fecha_movimiento: payment.fecha,
+                monto: cuotaParte,
+                concepto: `${payment.concepto} - Cuota parte Grupo ${gNum}`,
+                comprobante: payment.comprobante
               });
 
               if (payment.cuit || payment.cbu) {

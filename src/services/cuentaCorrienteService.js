@@ -276,6 +276,39 @@ export async function registrarCobroCuenta({
   const monto = parseFloat(importe);
   if (isNaN(monto) || monto <= 0) throw new Error('El importe ingresado es inválido.');
 
+  // 0. Protección Anti-Duplicados: Verificar si ya existe exactamente este mismo pago
+  const { data: existingDup } = await supabase
+    .from('movimientos_cuenta')
+    .select('id, numero_grupo, fecha, importe, observaciones')
+    .eq('numero_grupo', numero_grupo)
+    .eq('fecha', fecha)
+    .eq('tipo', 'PAGO')
+    .limit(10);
+
+  if (existingDup && existingDup.length > 0) {
+    const isDup = existingDup.some(d => {
+      const matchAmount = Math.abs(Math.abs(Number(d.importe || 0)) - monto) < 0.05;
+      if (!matchAmount) return false;
+      
+      const obsNew = String(observaciones || '').trim();
+      const obsOld = String(d.observaciones || '').trim();
+      if (!obsNew && !obsOld) return true;
+      if (obsNew && obsOld) {
+        if (obsNew === obsOld) return true;
+        // Extraer comprobante si existe (ej: "Cpbte: 667001")
+        const cNew = obsNew.match(/Cpbte:\s*([A-Za-z0-9_-]+)/i)?.[1];
+        const cOld = obsOld.match(/Cpbte:\s*([A-Za-z0-9_-]+)/i)?.[1];
+        if (cNew && cOld && cNew === cOld) return true;
+      }
+      return false;
+    });
+
+    if (isDup) {
+      console.warn(`[cuentaCorrienteService] Pago duplicado omitido para Grupo ${numero_grupo}, Fecha ${fecha}, Monto ${monto}`);
+      return existingDup[0];
+    }
+  }
+
   // 1. Obtener el último movimiento del grupo para calcular saldo capital anterior
   const { data: ultimos, error: ultErr } = await supabase
     .from('movimientos_cuenta')
