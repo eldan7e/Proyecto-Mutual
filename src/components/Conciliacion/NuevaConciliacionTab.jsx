@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Landmark, Loader2, ArrowRightLeft, Search, HelpCircle, Save, CheckCircle2, AlertCircle, Check, Settings, Sparkles, FileSpreadsheet, Upload, CheckCircle, XCircle } from 'lucide-react';
+import { Landmark, Loader2, ArrowRightLeft, Search, HelpCircle, Save, CheckCircle2, AlertCircle, Check, Settings, Sparkles, FileSpreadsheet, Upload, CheckCircle, XCircle, Download, Copy, ExternalLink, Filter, X, ArrowUpRight, FileText, AlertTriangle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../supabaseClient';
 import { registrarCobroCuenta } from '../../services/cuentaCorrienteService';
 import { registrarAprendizajeHistorico } from '../../services/conciliacionService';
 import { useConfirm } from '../../components/ui/ConfirmProvider';
+import Modal from '../Modal';
 
 export default function NuevaConciliacionTab({
   selectedPeriod,
@@ -37,6 +38,8 @@ export default function NuevaConciliacionTab({
   checkIsAmountMatch,
   fetchMasterData,
   fetchPeriodSummary,
+  fetchDbMovementsForPeriod,
+  setActiveTab,
   conciliacionHistorica = []
 }) {
   // Local states to isolate typing and filter re-renders from parent
@@ -62,11 +65,19 @@ export default function NuevaConciliacionTab({
   // Excel Audit Import States
   const [excelFile, setExcelFile] = useState(null);
   const [excelParsedData, setExcelParsedData] = useState([]);
+  const [excelCollectiveDebits, setExcelCollectiveDebits] = useState([]);
   const [excelSummary, setExcelSummary] = useState(null);
   const [periodoImputacionExcel, setPeriodoImputacionExcel] = useState('');
   const [loadingExcel, setLoadingExcel] = useState(false);
   const [excelProgress, setExcelProgress] = useState({ current: 0, total: 0 });
   const [excelResults, setExcelResults] = useState([]);
+  
+  // Detailed Report Modal States
+  const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [detailedReport, setDetailedReport] = useState(null);
+  const [reportFilter, setReportFilter] = useState('ALL'); // 'ALL', 'APPLIED', 'SKIPPED', 'DEBIT_BATCH', 'ERROR'
+  const [reportSearch, setReportSearch] = useState('');
+  const [reportPage, setReportPage] = useState(1);
 
   // Reset page when filters change
   useEffect(() => {
@@ -366,15 +377,20 @@ export default function NuevaConciliacionTab({
     if (!file) return;
     setExcelFile(file);
     setExcelParsedData([]);
+    setExcelCollectiveDebits([]);
     setExcelSummary(null);
     setExcelResults([]);
+    setDetailedReport(null);
 
     try {
       // Auto-detect bank from file name
       const fileNameUpper = String(file.name || '').toUpperCase();
+      let detectedBanco = 'CREDICOOP';
       if (fileNameUpper.includes('BN') || fileNameUpper.includes('NACION')) {
+        detectedBanco = 'NACION';
         setBanco('NACION');
-      } else if (fileNameUpper.includes('CREDICOOP') || fileNameUpper.includes('CABAL')) {
+      } else if (fileNameUpper.includes('CREDICOOP') || fileNameUpper.includes('CABAL') || fileNameUpper.includes('BC')) {
+        detectedBanco = 'CREDICOOP';
         setBanco('CREDICOOP');
       }
 
@@ -529,6 +545,88 @@ export default function NuevaConciliacionTab({
         });
       }
 
+      // Scan all sheets for collective debit movements
+      const detectedDebits = [];
+      const isCollectiveConcept = (conc) => {
+        const u = String(conc || '').toUpperCase().trim();
+        if (
+          u.includes('CUIT') || 
+          u.includes('CUIL') || 
+          u.includes('DIST.TITULAR') || 
+          u.includes('TRANSF.INT') || 
+          u.includes('TRANSF') || 
+          u.includes('VAR-') || 
+          u.includes('FAC-') || 
+          u.includes('SPOT') || 
+          u.includes('DEBIN') || 
+          u.includes('S/CRED') ||
+          u.includes('IMPUESTO') ||
+          u.includes('LEY 25') ||
+          u.includes('COMISION') ||
+          u.includes('IVA')
+        ) return false;
+        return (
+          u.includes('RECAUDACION') || 
+          u.includes('RECAUDACIONES') || 
+          u.includes('DEBITO DIRECTO') || 
+          u.includes('LOTE DEBITO') || 
+          u.includes('COBRANZA CBU') || 
+          u.includes('DEBITO AUTOMATICO')
+        );
+      };
+
+      workbook.SheetNames.forEach(sn => {
+        try {
+          const sh = workbook.Sheets[sn];
+          const rws = XLSX.utils.sheet_to_json(sh, { header: 1 });
+          if (!rws || rws.length < 2) return;
+          const hR = rws[0] || [];
+          let fI = hR.findIndex(h => String(h).toUpperCase().includes('FECHA'));
+          let cI = hR.findIndex(h => String(h).toUpperCase().includes('CONCEPTO') || String(h).toUpperCase().includes('MOVIMIENTO'));
+          let cpI = hR.findIndex(h => String(h).toUpperCase().includes('CPBTE') || String(h).toUpperCase().includes('COMPROB'));
+          let crI = hR.findIndex(h => isCredCol(String(h).toUpperCase().trim()));
+
+          if (fI === -1) fI = 1;
+          if (cI === -1) cI = 2;
+          if (crI === -1) crI = 4;
+
+          rws.slice(1).forEach(r => {
+            const conc = String(r[cI] || '').trim();
+            const cred = cleanNum(r[crI]);
+            const cp = String(r[cpI] || '').trim();
+            const sf = r[fI];
+
+            if (isCollectiveConcept(conc) && cred > 0) {
+              let fISO = '';
+              if (typeof sf === 'number' || /^\d{5}$/.test(String(sf).trim())) {
+                const serial = parseInt(sf, 10);
+                const utcDays = Math.floor(serial - 25569);
+                fISO = new Date(utcDays * 86400 * 1000).toISOString().slice(0, 10);
+              } else if (typeof sf === 'string') {
+                const parts = sf.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+                if (parts) {
+                  const y = parts[3].length === 2 ? '20' + parts[3] : parts[3];
+                  fISO = `${y}-${parts[2].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
+                }
+              }
+              if (!fISO) fISO = new Date().toISOString().slice(0, 10);
+
+              const alreadyFound = detectedDebits.some(d => d.concepto === conc && Math.abs(d.monto - cred) < 0.05);
+              if (!alreadyFound) {
+                detectedDebits.push({
+                  fecha: fISO,
+                  concepto: conc,
+                  comprobante: cp,
+                  monto: cred,
+                  banco: detectedBanco
+                });
+              }
+            }
+          });
+        } catch (e) {}
+      });
+
+      setExcelCollectiveDebits(detectedDebits);
       setExcelParsedData(parsedPayments);
 
       // Calcular automáticamente el período de deuda anterior (ej: extracto de Febrero 2026-02 paga Enero 2026-01)
@@ -549,6 +647,7 @@ export default function NuevaConciliacionTab({
         multiGrupoCount,
         sheetName,
         bankMonth,
+        collectiveDebits: detectedDebits,
         targetDebtPeriod: defaultTargetPeriod || selectedPeriod || '2026-01'
       });
     } catch (err) {
@@ -563,9 +662,13 @@ export default function NuevaConciliacionTab({
     const periodoTarget = periodoImputacionExcel || selectedPeriod || '2026-01';
     const bancoLabel = banco === 'NACION' ? 'Banco Nación' : 'Banco Credicoop';
 
+    const debitsSummaryText = excelCollectiveDebits.length > 0 
+      ? `\n⭐ Se registrará ${excelCollectiveDebits.length} lote de Débito Automático colectivo ($${excelCollectiveDebits.reduce((s, d) => s + d.monto, 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}) listo para desglosar.` 
+      : '';
+
     const confirmed = await confirm({
       title: 'Confirmar Importación Auditada',
-      message: `¿Confirmas la importación de ${excelParsedData.length} cobros auditados por un total de $${(excelSummary?.totalMonto || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}?\n\n🏦 Banco: ${bancoLabel}\n📌 Período a Imputar (Facturas a cancelar): ${periodoTarget}\n\nEsto registrará los pagos en movimientos bancarios, actualizará las deudas de ${periodoTarget} y generará los asientos contables.`,
+      message: `¿Confirmas la importación de ${excelParsedData.length} cobros auditados por un total de $${(excelSummary?.totalMonto || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}?\n\n🏦 Banco: ${bancoLabel}\n📌 Período a Imputar (Facturas a cancelar): ${periodoTarget}${debitsSummaryText}\n\nEsto registrará los pagos en movimientos bancarios, actualizará las deudas de ${periodoTarget} y generará los asientos contables.`,
       confirmText: 'Importar y Aplicar',
       cancelText: 'Cancelar'
     });
@@ -576,8 +679,10 @@ export default function NuevaConciliacionTab({
     setExcelResults([]);
 
     const results = [];
+    const reportItems = [];
     let successCount = 0;
     let errorCount = 0;
+    let alreadyImportedCount = 0;
 
     // Fetch existing records to prevent duplicate payments if the user re-imports the file
     const { data: existingBncMovs } = await supabase
@@ -619,7 +724,25 @@ export default function NuevaConciliacionTab({
       return false;
     };
 
-    let alreadyImportedCount = 0;
+    // Fetch liquidaciones for the period to resolve grupo -> liquidacion_id mapping
+    const { data: liqsData } = await supabase
+      .from('liquidaciones_grupos')
+      .select('liquidacion_id, numero_grupo, monto_total_facturado, monto_abonado, estado_pago, socio_id')
+      .eq('periodo', periodoTarget);
+
+    const liqsByGrupo = {};
+    (liqsData || []).forEach(l => {
+      liqsByGrupo[l.numero_grupo] = l;
+    });
+
+    // Fetch socios for name resolution
+    const { data: sociosData } = await supabase
+      .from('socios')
+      .select('socio_id, nombre_completo, nro_socio')
+      .in('socio_id', [...new Set((liqsData || []).map(l => l.socio_id).filter(Boolean))]);
+
+    const sociosMap = {};
+    (sociosData || []).forEach(s => { sociosMap[s.socio_id] = s; });
 
     for (let i = 0; i < excelParsedData.length; i++) {
       const payment = excelParsedData[i];
@@ -639,6 +762,15 @@ export default function NuevaConciliacionTab({
             results.push({
               status: 'skipped',
               html: `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:12.5px;color:#0369a1;background:rgba(14,165,233,0.08);border-radius:8px;"><span style="font-weight:700;">ℹ️ Grupo ${gNum}</span> <span style="opacity:0.7;">|</span> <span>$${payment.monto.toLocaleString('es-AR', {minimumFractionDigits:2})}</span> <span style="opacity:0.7;">|</span> <span style="font-weight:600;">Ya registrado previamente (omitido para evitar duplicados)</span></div>`
+            });
+            reportItems.push({
+              grupo: gNum,
+              titular: socioLabel,
+              comprobante: payment.comprobante || '-',
+              fecha: payment.fecha,
+              monto: payment.monto,
+              status: 'SKIPPED',
+              detail: 'Ya asentado previamente en cuenta corriente/banco'
             });
             continue;
           }
@@ -687,9 +819,20 @@ export default function NuevaConciliacionTab({
             status: 'ok',
             html: `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:12.5px;color:#065f46;background:rgba(16,185,129,0.08);border-radius:8px;"><span style="font-weight:700;">✓ Grupo ${gNum}</span> <span style="opacity:0.7;">|</span> <span>$${payment.monto.toLocaleString('es-AR', {minimumFractionDigits:2})}</span> <span style="opacity:0.7;">|</span> <span style="opacity:0.7;">${socioLabel}</span></div>`
           });
+          reportItems.push({
+            grupo: gNum,
+            titular: socioLabel,
+            comprobante: payment.comprobante || '-',
+            fecha: payment.fecha,
+            monto: payment.monto,
+            status: 'APPLIED',
+            detail: `Imputado a deuda Período ${periodoTarget}`
+          });
         } else {
           // Multi-group payment: split proportionally by debt
           let remanente = payment.monto;
+          let multiGroupAnyApplied = false;
+
           for (let g = 0; g < payment.grupos.length; g++) {
             const gNum = payment.grupos[g];
             const liq = liqsByGrupo[gNum];
@@ -742,14 +885,27 @@ export default function NuevaConciliacionTab({
                   confianza: 98
                 });
               }
+
+              multiGroupAnyApplied = true;
             }
           }
 
-          successCount++;
-          results.push({
-            status: 'ok',
-            html: `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:12.5px;color:#92400e;background:rgba(245,158,11,0.08);border-radius:8px;"><span style="font-weight:700;">✓ Grupos ${payment.grupoStr}</span> <span style="opacity:0.7;">|</span> <span>$${payment.monto.toLocaleString('es-AR', {minimumFractionDigits:2})}</span> <span style="opacity:0.7;">| Pago dividido</span></div>`
-          });
+          if (multiGroupAnyApplied) {
+            successCount++;
+            results.push({
+              status: 'ok',
+              html: `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:12.5px;color:#92400e;background:rgba(245,158,11,0.08);border-radius:8px;"><span style="font-weight:700;">✓ Grupos ${payment.grupoStr}</span> <span style="opacity:0.7;">|</span> <span>$${payment.monto.toLocaleString('es-AR', {minimumFractionDigits:2})}</span> <span style="opacity:0.7;">| Pago dividido</span></div>`
+            });
+            reportItems.push({
+              grupo: payment.grupoStr,
+              titular: payment.titular || 'Pago Compartido',
+              comprobante: payment.comprobante || '-',
+              fecha: payment.fecha,
+              monto: payment.monto,
+              status: 'APPLIED',
+              detail: `Pago compartido dividido entre grupos ${payment.grupoStr}`
+            });
+          }
         }
       } catch (err) {
         errorCount++;
@@ -757,24 +913,148 @@ export default function NuevaConciliacionTab({
           status: 'error',
           html: `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:12.5px;color:#991b1b;background:rgba(239,68,68,0.08);border-radius:8px;"><span style="font-weight:700;">✗ Grupo ${payment.grupoStr}</span> <span style="opacity:0.7;">|</span> <span>${err.message}</span></div>`
         });
+        reportItems.push({
+          grupo: payment.grupoStr,
+          titular: payment.titular || '-',
+          comprobante: payment.comprobante || '-',
+          fecha: payment.fecha,
+          monto: payment.monto,
+          status: 'ERROR',
+          detail: err.message
+        });
       }
 
       setExcelResults([...results]);
     }
 
+    // Process collective debit movements
+    let debitsInsertedCount = 0;
+    for (const deb of excelCollectiveDebits) {
+      try {
+        const { data: existingDeb } = await supabase
+          .from('movimientos_bancarios')
+          .select('movimiento_id')
+          .eq('fecha_movimiento', deb.fecha)
+          .eq('banco', deb.banco || banco)
+          .gte('monto', (deb.monto - 0.05).toString())
+          .lte('monto', (deb.monto + 0.05).toString())
+          .ilike('concepto', `%${deb.concepto.slice(0, 15)}%`);
+
+        if (!existingDeb || existingDeb.length === 0) {
+          await supabase.from('movimientos_bancarios').insert({
+            fecha_movimiento: deb.fecha,
+            concepto: deb.concepto,
+            monto: deb.monto,
+            ingreso_bruto: deb.monto,
+            impuestos: 0,
+            banco: deb.banco || banco,
+            socio_id: null,
+            liquidacion_id: null,
+            tipo_movimiento: 'DEBITO_AUTOMATICO',
+            comprobante: deb.comprobante || null,
+            periodo: periodoTarget
+          });
+          debitsInsertedCount++;
+        }
+
+        reportItems.push({
+          grupo: 'LOTE COLECTIVO',
+          titular: deb.concepto,
+          comprobante: deb.comprobante || '-',
+          fecha: deb.fecha,
+          monto: deb.monto,
+          status: 'DEBIT_BATCH',
+          detail: `Movimiento bancario colectivo ($${deb.monto.toLocaleString('es-AR', {minimumFractionDigits:2})}) listo para conciliar en la pestaña Débitos Automáticos.`
+        });
+      } catch (dErr) {
+        console.error('Error inserting collective debit movement:', dErr);
+      }
+    }
+
     // Write audit log
     await supabase.from('audit_log').insert({
       tipo_evento: 'IMPORTACION_EXCEL_AUDITADO',
-      descripcion: `Importación Excel auditado: ${successCount} cobros exitosos, ${errorCount} errores, total $${(excelSummary?.totalMonto || 0).toLocaleString('es-AR')}`,
+      descripcion: `Importación Excel auditado: ${successCount} cobros asentados, ${alreadyImportedCount} omitidos, ${errorCount} errores, ${debitsInsertedCount} débitos colectivos registrados`,
       monto: excelSummary?.totalMonto || 0,
       usuario: 'admin@aunar.com'
     });
 
     setLoadingExcel(false);
 
-    // Refresh parent data
-    if (typeof fetchMasterData === 'function') fetchMasterData();
-    if (typeof fetchPeriodSummary === 'function') fetchPeriodSummary(selectedPeriod);
+    // Refresh master data and bank movements
+    if (typeof fetchDbMovementsForPeriod === 'function') await fetchDbMovementsForPeriod(periodoTarget);
+    if (typeof fetchMasterData === 'function') await fetchMasterData();
+    if (typeof fetchPeriodSummary === 'function') await fetchPeriodSummary(periodoTarget);
+
+    // Open detailed report modal
+    setDetailedReport({
+      periodoTarget,
+      banco: bancoLabel,
+      fileName: excelFile?.name || 'Archivo Excel',
+      totalCobros: excelParsedData.length,
+      totalMonto: excelSummary?.totalMonto || 0,
+      successCount,
+      alreadyImportedCount,
+      errorCount,
+      debitsInsertedCount,
+      collectiveDebits: excelCollectiveDebits,
+      items: reportItems
+    });
+    setReportModalOpen(true);
+  };
+
+  const handleDownloadExcelReport = () => {
+    if (!detailedReport) return;
+    const summaryRows = [
+      { Parametro: 'Período Imputado', Valor: detailedReport.periodoTarget },
+      { Parametro: 'Entidad Bancaria', Valor: detailedReport.banco },
+      { Parametro: 'Archivo de Origen', Valor: detailedReport.fileName },
+      { Parametro: 'Total Cobros Procesados', Valor: detailedReport.totalCobros },
+      { Parametro: 'Cobros Nuevos Asentados', Valor: detailedReport.successCount },
+      { Parametro: 'Cobros Omitidos (Ya Registrados)', Valor: detailedReport.alreadyImportedCount },
+      { Parametro: 'Débitos Colectivos Pendientes', Valor: detailedReport.collectiveDebits?.length || 0 },
+      { Parametro: 'Errores', Valor: detailedReport.errorCount },
+      { Parametro: 'Total Monto Facturas Canceladas', Valor: `$${detailedReport.totalMonto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` },
+      { Parametro: 'Fecha y Hora de Proceso', Valor: new Date().toLocaleString('es-AR') }
+    ];
+
+    const detailRows = (detailedReport.items || []).map((item, idx) => ({
+      '#': idx + 1,
+      'Grupo': item.grupo,
+      'Socio / Titular': item.titular,
+      'Nro. Comprobante': item.comprobante || '-',
+      'Fecha': item.fecha,
+      'Importe': item.monto,
+      'Estado': item.status === 'APPLIED' ? 'Asentado Exitoso' : item.status === 'SKIPPED' ? 'Omitido (Ya Registrado)' : item.status === 'DEBIT_BATCH' ? 'Débito Colectivo Pendiente' : 'Error',
+      'Detalle Imputación': item.detail
+    }));
+
+    const wb = XLSX.utils.book_new();
+    const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+    const wsDetail = XLSX.utils.json_to_sheet(detailRows);
+
+    XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumen');
+    XLSX.utils.book_append_sheet(wb, wsDetail, 'Detalle Cobros');
+
+    XLSX.writeFile(wb, `Informe_Conciliacion_${(detailedReport.banco || 'BANCO').replace(/\s+/g, '_')}_${detailedReport.periodoTarget}.xlsx`);
+  };
+
+  const handleCopyReportSummary = () => {
+    if (!detailedReport) return;
+    const text = `📋 INFORME DE CONCILIACIÓN E IMPORTACIÓN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🏦 Banco: ${detailedReport.banco}
+📌 Período Imputado: ${detailedReport.periodoTarget}
+📁 Archivo: ${detailedReport.fileName}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ Cobros Asentados: ${detailedReport.successCount}
+ℹ️ Omitidos (Ya Registrados): ${detailedReport.alreadyImportedCount}
+❌ Errores: ${detailedReport.errorCount}
+💰 Total Cobros: $${detailedReport.totalMonto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detailedReport.collectiveDebits[0].concepto} ($${detailedReport.collectiveDebits[0].monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })})` : ''}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+    navigator.clipboard.writeText(text);
+    alert('Resumen copiado al portapapeles');
   };
 
   const onSubmitProcesar = () => {
@@ -1078,6 +1358,125 @@ export default function NuevaConciliacionTab({
               </div>
             )}
 
+            {/* Banner de Débitos Automáticos Colectivos detectados */}
+            {excelCollectiveDebits.length > 0 && (
+              <div style={{
+                marginTop: '16px',
+                padding: '14px 18px',
+                background: 'linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(139,92,246,0.08) 100%)',
+                border: '1px solid rgba(99, 102, 241, 0.25)',
+                borderRadius: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+                flexWrap: 'wrap'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'rgba(99,102,241,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366f1' }}>
+                    <Sparkles size={20} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                      ⭐ Débito Automático Colectivo Detectado: {excelCollectiveDebits[0].concepto} (${excelCollectiveDebits[0].monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })})
+                    </div>
+                    <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      Comprobante: {excelCollectiveDebits[0].comprobante || 'S/N'} — Se registra en el banco para conciliar con el archivo de débitos en la pestaña "Débitos Automáticos".
+                    </div>
+                  </div>
+                </div>
+                {setActiveTab && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('debitos')}
+                    className="air-btn"
+                    style={{
+                      background: 'var(--surface)',
+                      color: '#6366f1',
+                      border: '1px solid rgba(99, 102, 241, 0.35)',
+                      fontWeight: 800,
+                      fontSize: '12px',
+                      padding: '8px 14px',
+                      borderRadius: '10px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Ir a Débitos Automáticos <ArrowUpRight size={15} />
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Acciones de Informe post-importación */}
+            {detailedReport && (
+              <div style={{ marginTop: '16px', display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={() => setReportModalOpen(true)}
+                  className="air-btn-primary"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '10px 18px',
+                    fontSize: '13px',
+                    fontWeight: 800,
+                    borderRadius: '10px',
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    color: 'white',
+                    border: 'none',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 12px rgba(16, 185, 129, 0.25)'
+                  }}
+                >
+                  <FileText size={16} /> Ver Informe Completo de Importación
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadExcelReport}
+                  className="air-btn"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '10px 16px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    borderRadius: '10px',
+                    background: 'var(--surface)',
+                    border: '1px solid var(--border-light)',
+                    color: 'var(--text-primary)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <Download size={15} /> Descargar Informe (.xlsx)
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyReportSummary}
+                  className="air-btn"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '10px 16px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    borderRadius: '10px',
+                    background: 'var(--surface)',
+                    border: '1px solid var(--border-light)',
+                    color: 'var(--text-primary)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <Copy size={15} /> Copiar Resumen
+                </button>
+              </div>
+            )}
+
             {/* Preview table */}
             {excelParsedData.length > 0 && !loadingExcel && excelResults.length === 0 && (
               <div style={{ marginTop: '16px', maxHeight: '300px', overflowY: 'auto', borderRadius: '12px', border: '1px solid var(--border-light)' }} className="premium-scrollbar">
@@ -1144,8 +1543,8 @@ export default function NuevaConciliacionTab({
               </div>
             )}
 
-            {/* Results after import */}
-            {excelResults.length > 0 && (
+            {/* Results preview after import */}
+            {excelResults.length > 0 && !detailedReport && (
               <div style={{ marginTop: '16px', maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }} className="premium-scrollbar">
                 {excelResults.map((res, i) => (
                   <div key={`excel-res-${i}`} dangerouslySetInnerHTML={{ __html: res.html }} />
@@ -2281,6 +2680,346 @@ export default function NuevaConciliacionTab({
           </div>
         </>
       )}
+
+      {/* ──── MODAL DE INFORME DE IMPORTACIÓN AUDITADA ──── */}
+      <Modal
+        isOpen={reportModalOpen}
+        onClose={() => setReportModalOpen(false)}
+        title={`📋 Informe de Conciliación e Importación - Período ${detailedReport?.periodoTarget || selectedPeriod}`}
+        maxWidth="1000px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Header Info */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border-light)' }}>
+            <div>
+              <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                Archivo: <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{detailedReport?.fileName}</span> | Banco: <span style={{ fontWeight: 700, color: 'var(--accent)' }}>{detailedReport?.banco}</span>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={handleDownloadExcelReport}
+                className="air-btn"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 14px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  borderRadius: '8px',
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border-light)',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer'
+                }}
+              >
+                <Download size={14} /> Exportar Excel (.xlsx)
+              </button>
+              <button
+                type="button"
+                onClick={handleCopyReportSummary}
+                className="air-btn"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 14px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  borderRadius: '8px',
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border-light)',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer'
+                }}
+              >
+                <Copy size={14} /> Copiar Resumen
+              </button>
+            </div>
+          </div>
+
+          {/* Metric Cards Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+            <div style={{ background: 'var(--surface)', borderRadius: '12px', padding: '16px', textAlign: 'center', border: '1px solid var(--border-light)' }}>
+              <div style={{ fontSize: '24px', fontWeight: 900, color: '#10b981' }}>{detailedReport?.successCount || 0}</div>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginTop: '4px' }}>Cobros Asentados</div>
+            </div>
+
+            <div style={{ background: 'var(--surface)', borderRadius: '12px', padding: '16px', textAlign: 'center', border: '1px solid var(--border-light)' }}>
+              <div style={{ fontSize: '24px', fontWeight: 900, color: '#0369a1' }}>{detailedReport?.alreadyImportedCount || 0}</div>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginTop: '4px' }}>Omitidos (Ya Asentados)</div>
+            </div>
+
+            <div style={{ background: 'var(--surface)', borderRadius: '12px', padding: '16px', textAlign: 'center', border: '1px solid var(--border-light)' }}>
+              <div style={{ fontSize: '24px', fontWeight: 900, color: '#6366f1' }}>
+                ${(detailedReport?.totalMonto || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+              </div>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginTop: '4px' }}>Total Facturas Canceladas</div>
+            </div>
+
+            <div style={{ background: 'var(--surface)', borderRadius: '12px', padding: '16px', textAlign: 'center', border: '1px solid var(--border-light)' }}>
+              <div style={{ fontSize: '24px', fontWeight: 900, color: detailedReport?.collectiveDebits?.length > 0 ? '#f59e0b' : 'var(--text-secondary)' }}>
+                {detailedReport?.collectiveDebits?.length > 0 ? `$${detailedReport.collectiveDebits[0].monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : '$0,00'}
+              </div>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginTop: '4px' }}>Débito Colectivo Pendiente</div>
+            </div>
+          </div>
+
+          {/* Débito Automático CTA Alert (if present) */}
+          {detailedReport?.collectiveDebits?.length > 0 && (
+            <div style={{
+              padding: '14px 18px',
+              background: 'linear-gradient(135deg, rgba(245,158,11,0.08) 0%, rgba(217,119,6,0.08) 100%)',
+              border: '1px solid rgba(245,158,11,0.3)',
+              borderRadius: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              flexWrap: 'wrap'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Sparkles size={18} color="#f59e0b" />
+                <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Se registró el lote bancario de <strong>{detailedReport.collectiveDebits[0].concepto}</strong> por <strong>${detailedReport.collectiveDebits[0].monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong> listo para desglosar con el archivo de débitos.
+                </span>
+              </div>
+              {setActiveTab && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReportModalOpen(false);
+                    setActiveTab('debitos');
+                  }}
+                  className="air-btn"
+                  style={{
+                    background: '#f59e0b',
+                    color: 'white',
+                    border: 'none',
+                    fontWeight: 800,
+                    fontSize: '12px',
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Ir a Débitos Automáticos <ArrowUpRight size={14} />
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Filters & Search Controls */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setReportFilter('ALL')}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: reportFilter === 'ALL' ? 'var(--accent)' : 'var(--surface)',
+                  color: reportFilter === 'ALL' ? 'white' : 'var(--text-secondary)'
+                }}
+              >
+                Todos ({detailedReport?.items?.length || 0})
+              </button>
+              <button
+                type="button"
+                onClick={() => setReportFilter('APPLIED')}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: reportFilter === 'APPLIED' ? '#10b981' : 'var(--surface)',
+                  color: reportFilter === 'APPLIED' ? 'white' : '#10b981'
+                }}
+              >
+                ✓ Asentados ({detailedReport?.items?.filter(i => i.status === 'APPLIED').length || 0})
+              </button>
+              <button
+                type="button"
+                onClick={() => setReportFilter('SKIPPED')}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: reportFilter === 'SKIPPED' ? '#0369a1' : 'var(--surface)',
+                  color: reportFilter === 'SKIPPED' ? 'white' : '#0369a1'
+                }}
+              >
+                ℹ️ Omitidos ({detailedReport?.items?.filter(i => i.status === 'SKIPPED').length || 0})
+              </button>
+              {detailedReport?.items?.some(i => i.status === 'DEBIT_BATCH') && (
+                <button
+                  type="button"
+                  onClick={() => setReportFilter('DEBIT_BATCH')}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    border: 'none',
+                    cursor: 'pointer',
+                    background: reportFilter === 'DEBIT_BATCH' ? '#f59e0b' : 'var(--surface)',
+                    color: reportFilter === 'DEBIT_BATCH' ? 'white' : '#f59e0b'
+                  }}
+                >
+                  💳 Débitos ({detailedReport?.items?.filter(i => i.status === 'DEBIT_BATCH').length || 0})
+                </button>
+              )}
+            </div>
+
+            <div style={{ position: 'relative', minWidth: '220px' }}>
+              <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+              <input
+                type="text"
+                value={reportSearch}
+                onChange={e => setReportSearch(e.target.value)}
+                placeholder="Buscar grupo, socio o cpbte..."
+                className="premium-input"
+                style={{ width: '100%', paddingLeft: '32px', height: '34px', fontSize: '12px' }}
+              />
+            </div>
+          </div>
+
+          {/* Table */}
+          <div style={{ maxHeight: '350px', overflowY: 'auto', borderRadius: '12px', border: '1px solid var(--border-light)' }} className="premium-scrollbar">
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+              <thead>
+                <tr style={{ background: 'var(--surface)', position: 'sticky', top: 0, zIndex: 1 }}>
+                  <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, fontSize: '11px', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-light)' }}>Grupo</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, fontSize: '11px', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-light)' }}>Socio / Titular</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, fontSize: '11px', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-light)' }}>Cpbte</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, fontSize: '11px', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-light)' }}>Fecha</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, fontSize: '11px', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-light)' }}>Importe</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 800, fontSize: '11px', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-light)' }}>Estado</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, fontSize: '11px', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-light)' }}>Detalle</th>
+                </tr>
+              </thead>
+              <tbody>
+                {detailedReport?.items?.filter(item => {
+                  if (reportFilter === 'APPLIED' && item.status !== 'APPLIED') return false;
+                  if (reportFilter === 'SKIPPED' && item.status !== 'SKIPPED') return false;
+                  if (reportFilter === 'DEBIT_BATCH' && item.status !== 'DEBIT_BATCH') return false;
+                  if (reportFilter === 'ERROR' && item.status !== 'ERROR') return false;
+                  if (reportSearch) {
+                    const q = reportSearch.toLowerCase().trim();
+                    const gStr = String(item.grupo || '').toLowerCase();
+                    const tStr = String(item.titular || '').toLowerCase();
+                    const cStr = String(item.comprobante || '').toLowerCase();
+                    const dStr = String(item.detail || '').toLowerCase();
+                    if (!gStr.includes(q) && !tStr.includes(q) && !cStr.includes(q) && !dStr.includes(q)) return false;
+                  }
+                  return true;
+                }).length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '13px' }}>
+                      No se encontraron movimientos con los filtros aplicados.
+                    </td>
+                  </tr>
+                ) : (
+                  detailedReport?.items?.filter(item => {
+                    if (reportFilter === 'APPLIED' && item.status !== 'APPLIED') return false;
+                    if (reportFilter === 'SKIPPED' && item.status !== 'SKIPPED') return false;
+                    if (reportFilter === 'DEBIT_BATCH' && item.status !== 'DEBIT_BATCH') return false;
+                    if (reportFilter === 'ERROR' && item.status !== 'ERROR') return false;
+                    if (reportSearch) {
+                      const q = reportSearch.toLowerCase().trim();
+                      const gStr = String(item.grupo || '').toLowerCase();
+                      const tStr = String(item.titular || '').toLowerCase();
+                      const cStr = String(item.comprobante || '').toLowerCase();
+                      const dStr = String(item.detail || '').toLowerCase();
+                      if (!gStr.includes(q) && !tStr.includes(q) && !cStr.includes(q) && !dStr.includes(q)) return false;
+                    }
+                    return true;
+                  }).map((item, idx) => (
+                    <tr key={`rep-${idx}`} style={{ borderBottom: '1px solid var(--border-light)' }}>
+                      <td style={{ padding: '8px 12px', fontWeight: 800 }}>
+                        <span style={{
+                          display: 'inline-block',
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          fontWeight: 800,
+                          fontSize: '11px',
+                          background: item.status === 'DEBIT_BATCH' ? 'rgba(245,158,11,0.15)' : 'rgba(99,102,241,0.1)',
+                          color: item.status === 'DEBIT_BATCH' ? '#d97706' : '#6366f1'
+                        }}>
+                          {item.grupo}
+                        </span>
+                      </td>
+                      <td style={{ padding: '8px 12px', fontWeight: 600, color: 'var(--text-primary)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {item.titular}
+                      </td>
+                      <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        {item.comprobante}
+                      </td>
+                      <td style={{ padding: '8px 12px', whiteSpace: 'nowrap', fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+                        {item.fecha}
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 800, color: item.status === 'APPLIED' ? '#10b981' : item.status === 'DEBIT_BATCH' ? '#f59e0b' : 'var(--text-primary)' }}>
+                        ${item.monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                        {item.status === 'APPLIED' && (
+                          <span style={{ display: 'inline-block', padding: '3px 8px', borderRadius: '6px', fontSize: '10.5px', fontWeight: 800, background: 'rgba(16,185,129,0.12)', color: '#10b981' }}>
+                            ✓ Asentado
+                          </span>
+                        )}
+                        {item.status === 'SKIPPED' && (
+                          <span style={{ display: 'inline-block', padding: '3px 8px', borderRadius: '6px', fontSize: '10.5px', fontWeight: 800, background: 'rgba(14,165,233,0.12)', color: '#0369a1' }}>
+                            ℹ️ Ya Asentado
+                          </span>
+                        )}
+                        {item.status === 'DEBIT_BATCH' && (
+                          <span style={{ display: 'inline-block', padding: '3px 8px', borderRadius: '6px', fontSize: '10.5px', fontWeight: 800, background: 'rgba(245,158,11,0.15)', color: '#d97706' }}>
+                            ⭐ Débito Lote
+                          </span>
+                        )}
+                        {item.status === 'ERROR' && (
+                          <span style={{ display: 'inline-block', padding: '3px 8px', borderRadius: '6px', fontSize: '10.5px', fontWeight: 800, background: 'rgba(239,68,68,0.12)', color: '#ef4444' }}>
+                            ✗ Error
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: '8px 12px', fontSize: '11px', color: 'var(--text-secondary)', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {item.detail}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Footer Actions */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '12px', borderTop: '1px solid var(--border-light)' }}>
+            <button
+              type="button"
+              onClick={() => setReportModalOpen(false)}
+              className="air-btn"
+              style={{ padding: '10px 20px', borderRadius: '10px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

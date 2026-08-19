@@ -319,7 +319,7 @@ export default function ConciliacionBancaria() {
           comprobante,
           periodo
         `)
-        .or(`periodo.eq.${period},and(fecha_movimiento.gte.${startDate},fecha_movimiento.lte.${endDate})`)
+        .or(`periodo.eq.${period},and(fecha_movimiento.gte.${startDate},fecha_movimiento.lte.${endDate}),and(socio_id.is.null,liquidacion_id.is.null,tipo_movimiento.eq.DEBITO_AUTOMATICO)`)
         .gt('monto', 0)
         .order('fecha_movimiento', { ascending: false });
 
@@ -3389,6 +3389,8 @@ export default function ConciliacionBancaria() {
           checkIsAmountMatch={checkIsAmountMatch}
           fetchMasterData={fetchMasterData}
           fetchPeriodSummary={fetchPeriodSummary}
+          fetchDbMovementsForPeriod={fetchDbMovementsForPeriod}
+          setActiveTab={setActiveTab}
           conciliacionHistorica={conciliacionHistorica}
         />
       )}
