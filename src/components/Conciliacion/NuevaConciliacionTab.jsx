@@ -579,25 +579,47 @@ export default function NuevaConciliacionTab({
     let successCount = 0;
     let errorCount = 0;
 
-    // Fetch liquidaciones for the period to resolve grupo -> liquidacion_id mapping
-    const { data: liqsData } = await supabase
-      .from('liquidaciones_grupos')
-      .select('liquidacion_id, numero_grupo, monto_total_facturado, monto_abonado, estado_pago, socio_id')
-      .eq('periodo', periodoTarget);
+    // Fetch existing records to prevent duplicate payments if the user re-imports the file
+    const { data: existingBncMovs } = await supabase
+      .from('movimientos_bancarios')
+      .select('fecha_movimiento, monto, concepto, comprobante, socio_id, liquidacion_id')
+      .eq('banco', banco);
 
-    const liqsByGrupo = {};
-    (liqsData || []).forEach(l => {
-      liqsByGrupo[l.numero_grupo] = l;
-    });
+    const { data: existingCcMovs } = await supabase
+      .from('movimientos_cuenta')
+      .select('numero_grupo, fecha, importe, observaciones')
+      .eq('medio_pago', banco);
 
-    // Fetch socios for name resolution
-    const { data: sociosData } = await supabase
-      .from('socios')
-      .select('socio_id, nombre_completo, nro_socio')
-      .in('socio_id', [...new Set((liqsData || []).map(l => l.socio_id).filter(Boolean))]);
+    const normalize = (str) => (str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
 
-    const sociosMap = {};
-    (sociosData || []).forEach(s => { sociosMap[s.socio_id] = s; });
+    const isAlreadyImported = (payment, gNum) => {
+      const cpbte = String(payment.comprobante || '').trim();
+      const pMonto = Math.abs(payment.monto);
+      const pFecha = payment.fecha;
+      const pConc = normalize(payment.concepto);
+
+      // 1. Check in cuenta corriente by group and comprobante/amount
+      if (cpbte && (existingCcMovs || []).some(c => 
+        c.numero_grupo === gNum && 
+        String(c.observaciones || '').includes(cpbte) && 
+        Math.abs(Math.abs(Number(c.importe || 0)) - pMonto) < 0.05
+      )) {
+        return true;
+      }
+
+      // 2. Check in movimientos_bancarios by exact date, amount and concept/cpbte
+      if ((existingBncMovs || []).some(m => 
+        m.fecha_movimiento === pFecha &&
+        Math.abs(Number(m.monto || 0) - pMonto) < 0.05 &&
+        (normalize(m.concepto) === pConc || (cpbte && String(m.concepto || '').includes(cpbte)))
+      )) {
+        return true;
+      }
+
+      return false;
+    };
+
+    let alreadyImportedCount = 0;
 
     for (let i = 0; i < excelParsedData.length; i++) {
       const payment = excelParsedData[i];
@@ -610,6 +632,16 @@ export default function NuevaConciliacionTab({
           const liq = liqsByGrupo[gNum];
           const socio = liq ? sociosMap[liq.socio_id] : null;
           const socioLabel = socio ? `${socio.nombre_completo} (Socio ${socio.nro_socio || ''})` : `Grupo ${gNum}`;
+
+          // Check if already registered
+          if (isAlreadyImported(payment, gNum)) {
+            alreadyImportedCount++;
+            results.push({
+              status: 'skipped',
+              html: `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:12.5px;color:#0369a1;background:rgba(14,165,233,0.08);border-radius:8px;"><span style="font-weight:700;">ℹ️ Grupo ${gNum}</span> <span style="opacity:0.7;">|</span> <span>$${payment.monto.toLocaleString('es-AR', {minimumFractionDigits:2})}</span> <span style="opacity:0.7;">|</span> <span style="font-weight:600;">Ya registrado previamente (omitido para evitar duplicados)</span></div>`
+            });
+            continue;
+          }
 
           // 1. Insert movimiento_bancario
           await supabase.from('movimientos_bancarios').insert({
@@ -670,6 +702,11 @@ export default function NuevaConciliacionTab({
             remanente = Math.round((remanente - cuotaParte) * 100) / 100;
 
             if (cuotaParte > 0) {
+              if (isAlreadyImported({ ...payment, monto: cuotaParte }, gNum)) {
+                alreadyImportedCount++;
+                continue;
+              }
+
               await supabase.from('movimientos_bancarios').insert({
                 fecha_movimiento: payment.fecha,
                 concepto: `${payment.concepto} - Cuota parte Grupo ${gNum}`,
