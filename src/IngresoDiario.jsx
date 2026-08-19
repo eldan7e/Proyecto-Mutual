@@ -155,24 +155,24 @@ export default function IngresoDiario() {
     return grupos.find(g => g.numero_grupo === n);
   }, [grupos]);
 
-  // Auto-link payment to a pending liquidación
-  async function linkPaymentToDebt(movimientoId, grupoNum, monto) {
-    const numGrupo = parseInt(grupoNum);
-    if (isNaN(numGrupo)) return;
+  // Auto-link payment to a pending liquidación in DB
+  async function linkPaymentToDebt(movimientoId, grupoNum, monto, targetPeriod = selectedPeriod) {
+    const numGrupo = parseInt(grupoNum, 10);
+    if (isNaN(numGrupo) || !monto || monto <= 0) return;
 
-    // Find pending liquidaciones for this grupo in this period
-    const pendientes = liquidaciones
-      .filter(l => l.numero_grupo === numGrupo && l.estado_pago !== 'ABONADO')
-      .sort((a, b) => {
-        // Prioritize the one closest to being fully paid
-        const aRemaining = parseFloat(a.monto_total_facturado) - parseFloat(a.monto_abonado);
-        const bRemaining = parseFloat(b.monto_total_facturado) - parseFloat(b.monto_abonado);
-        return aRemaining - bRemaining;
-      });
+    // Buscar liquidaciones pendientes directamente de la DB para este grupo y período
+    const { data: dbLiqs } = await supabase
+      .from('liquidaciones_grupos')
+      .select('*')
+      .eq('numero_grupo', numGrupo)
+      .eq('periodo', targetPeriod)
+      .order('monto_total_facturado', { ascending: false });
+
+    if (!dbLiqs || dbLiqs.length === 0) return;
 
     let remaining = monto;
 
-    for (const liq of pendientes) {
+    for (const liq of dbLiqs) {
       if (remaining <= 0) break;
 
       const facturado = parseFloat(liq.monto_total_facturado) || 0;
@@ -183,9 +183,9 @@ export default function IngresoDiario() {
 
       const aplicar = Math.min(remaining, deuda);
       const nuevoAbonado = abonadoActual + aplicar;
-      const nuevoEstado = nuevoAbonado >= facturado - 0.05 ? 'ABONADO' : 'PENDIENTE';
+      const nuevoEstado = nuevoAbonado >= facturado - 0.05 ? 'ABONADO' : 'PARCIAL';
 
-      // Update liquidación
+      // Update liquidación en DB
       await supabase
         .from('liquidaciones_grupos')
         .update({
@@ -196,12 +196,14 @@ export default function IngresoDiario() {
         .eq('liquidacion_id', liq.liquidacion_id);
 
       // Link movimiento to this liquidación
-      await supabase
-        .from('movimientos_bancarios')
-        .update({ liquidacion_id: liq.liquidacion_id })
-        .eq('movimiento_id', movimientoId);
+      if (movimientoId) {
+        await supabase
+          .from('movimientos_bancarios')
+          .update({ liquidacion_id: liq.liquidacion_id })
+          .eq('movimiento_id', movimientoId);
+      }
 
-      // Update local state
+      // Update local state if matches
       setLiquidaciones(prev => prev.map(l =>
         l.liquidacion_id === liq.liquidacion_id
           ? { ...l, monto_abonado: nuevoAbonado, estado_pago: nuevoEstado }
@@ -505,10 +507,14 @@ export default function IngresoDiario() {
         const grupo = getGrupo(row.numero_grupo);
         const titularLabel = row.titular || grupo?.titular || `Grupo ${row.numero_grupo}`;
 
-        // 1. Insert in movimientos_bancarios (Caja Efectivo)
+        // 1. Insert in movimientos_bancarios (Caja Efectivo con concepto único por línea)
+        const conceptoUnico = row.linea
+          ? `Cobro Efectivo - ${row.empresa} (${titularLabel} - Línea ${row.linea})`
+          : `Cobro Efectivo - ${row.empresa} (${titularLabel})`;
+
         const record = {
           fecha_movimiento: row.fecha,
-          concepto: `Cobro Efectivo - ${row.empresa} (${titularLabel})`,
+          concepto: conceptoUnico,
           monto: row.monto,
           ingreso_bruto: row.monto,
           impuestos: 0,
@@ -545,9 +551,9 @@ export default function IngresoDiario() {
           fecha: row.fecha
         });
 
-        // 3. Vincular con liquidacion de deuda del periodo destino
+        // 3. Vincular directamente con la liquidación de deuda del período destino
         if (bncData?.movimiento_id) {
-          await linkPaymentToDebt(bncData.movimiento_id, row.numero_grupo, row.monto);
+          await linkPaymentToDebt(bncData.movimiento_id, row.numero_grupo, row.monto, efectivoPeriodoTarget);
         }
 
         saved++;
