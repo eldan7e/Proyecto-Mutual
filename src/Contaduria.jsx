@@ -252,7 +252,7 @@ export default function Contaduria() {
     setLoading(true);
     try {
       const rawMovs = await fetchMovimientosGrupo(numeroGrupo);
-      const procesados = recalcularSaldosGrupo(rawMovs, tna);
+      const procesados = recalcularSaldosGrupo(rawMovs, 0);
       setMovimientos(procesados);
     } catch (err) {
       console.error('Error al cargar movimientos:', err);
@@ -1275,36 +1275,32 @@ export default function Contaduria() {
                 Extracto / Libro Mayor de Cuenta (Grupo #{selectedGrupo})
               </h3>
               <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                Interés TNA {tna}% | Regla FIFO a capital e intereses
+                Historial contable de Facturación y Cobros
               </span>
             </div>
 
             <div className="table-responsive" style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '12px' }}>
+              <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '12.5px' }}>
                 <thead>
                   <tr style={{ background: 'rgba(0,0,0,0.02)', textAlign: 'left' }}>
-                    <th style={{ padding: '10px 12px' }}>FECHA</th>
-                    <th style={{ padding: '10px 12px' }}>TIPO</th>
-                    <th style={{ padding: '10px 12px' }}>OPERADORA / CONCEPTO</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>IMPORTE</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center' }}>PLAZO DÍAS</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>INT. MORA</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>PAGO INT.</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>PAGO CAP.</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>SALDO CAPITAL</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>SALDO FINAL</th>
+                    <th style={{ padding: '12px 14px' }}>FECHA</th>
+                    <th style={{ padding: '12px 14px' }}>TIPO</th>
+                    <th style={{ padding: '12px 14px' }}>PERÍODO</th>
+                    <th style={{ padding: '12px 14px' }}>OPERADORA / CONCEPTO</th>
+                    <th style={{ padding: '12px 14px', textAlign: 'right' }}>IMPORTE</th>
+                    <th style={{ padding: '12px 14px', textAlign: 'right' }}>SALDO ACUMULADO</th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan="10" style={{ textAlign: 'center', padding: '30px' }}>
+                      <td colSpan="6" style={{ textAlign: 'center', padding: '30px' }}>
                         <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto', color: 'var(--accent)' }} />
                       </td>
                     </tr>
                   ) : movimientos.length === 0 ? (
                     <tr>
-                      <td colSpan="10" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary)' }}>
+                      <td colSpan="6" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary)' }}>
                         Este grupo no registra movimientos de cuenta corriente aún.
                       </td>
                     </tr>
@@ -1314,40 +1310,28 @@ export default function Contaduria() {
                       const isNC = m.tipo === 'NOTA_CREDITO';
                       return (
                         <tr key={m.id} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                          <td style={{ padding: '10px 12px', fontWeight: 700 }}>{m.fecha}</td>
-                          <td style={{ padding: '10px 12px' }}>
+                          <td style={{ padding: '12px 14px', fontWeight: 700 }}>{m.fecha}</td>
+                          <td style={{ padding: '12px 14px' }}>
                             <span style={{
                               background: isPago || isNC ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
                               color: isPago || isNC ? '#10b981' : '#ef4444',
-                              padding: '3px 8px', borderRadius: '6px', fontWeight: 800, fontSize: '10px'
+                              padding: '4px 10px', borderRadius: '6px', fontWeight: 800, fontSize: '11px'
                             }}>
                               {m.tipo}
                             </span>
                           </td>
-                          <td style={{ padding: '10px 12px' }}>
-                            <div style={{ fontWeight: 700 }}>{m.empresa || 'GENERAL'}</div>
-                            <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{m.observaciones || ''}</div>
+                          <td style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '12px' }}>
+                            {m.periodo || '—'}
                           </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: isPago || isNC ? '#10b981' : 'var(--text-primary)' }}>
+                          <td style={{ padding: '12px 14px' }}>
+                            <div style={{ fontWeight: 700 }}>{m.empresa || 'GENERAL'}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>{m.observaciones || ''}</div>
+                          </td>
+                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, fontSize: '13px', color: isPago || isNC ? '#10b981' : 'var(--text-primary)' }}>
                             {formatMoney(m.importe)}
                           </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                            {m.plazo_dias || 0}
-                          </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'right', color: '#f59e0b', fontWeight: 700 }}>
-                            {formatMoney(m.interes_mora || 0)}
-                          </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'right', color: '#10b981' }}>
-                            {formatMoney(m.pago_aplicado_interes || 0)}
-                          </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'right', color: '#10b981' }}>
-                            {formatMoney(m.pago_aplicado_capital || 0)}
-                          </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700 }}>
+                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 900, fontSize: '13.5px', color: m.saldo_capital > 5 ? '#ef4444' : 'var(--accent)' }}>
                             {formatMoney(m.saldo_capital)}
-                          </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 900, color: m.saldo_final > 5 ? '#ef4444' : 'var(--accent)' }}>
-                            {formatMoney(m.saldo_final)}
                           </td>
                         </tr>
                       );
