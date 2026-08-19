@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Calculator, Search, DollarSign, TrendingUp, AlertTriangle, 
-  Loader2, RefreshCw, Plus, CheckCircle2, ChevronRight, ChevronDown, ShieldCheck, 
+  Loader2, RefreshCw, Plus, CheckCircle2, ChevronRight, ChevronDown, ChevronUp, ShieldCheck, 
   Download, ArrowUpRight, ArrowDownLeft, Settings, Building, Calendar, 
   FileText, Users, Eye, Edit3, X, Receipt, Filter, Clock, Sparkles,
   FileCheck, AlertCircle, Phone, ArrowRight, CornerDownRight, Percent, Sliders
@@ -1090,99 +1090,120 @@ export default function Contaduria() {
 
                     return (
                       <React.Fragment key={group.key}>
-                        {/* FILA PRINCIPAL CONSOLIDADA POR GRUPO */}
+                        {/* FILA PRINCIPAL CONSOLIDADA */}
                         <tr 
                           onClick={() => group.isMultiProvider && toggleExpandGrupo(group.key)}
                           style={{ 
                             borderBottom: isExpanded ? 'none' : '1px solid var(--border-light)', 
-                            background: selectedGrupo === group.numero_grupo ? 'rgba(16,185,129,0.04)' : isExpanded ? 'rgba(255,255,255,0.02)' : 'transparent',
+                            background: selectedGrupo === group.numero_grupo ? 'rgba(16,185,129,0.03)' : isExpanded ? 'rgba(255,255,255,0.015)' : 'transparent',
                             cursor: group.isMultiProvider ? 'pointer' : 'default',
-                            transition: 'background 0.2s'
+                            transition: 'all 0.15s ease'
                           }}
                         >
-                          <td style={{ padding: '12px 14px', fontWeight: 900 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              {group.isMultiProvider && (
-                                <span style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center' }}>
-                                  {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                                </span>
-                              )}
-                              <div>
-                                <div>{group.periodo}</div>
-                                <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                                  {group.isMultiProvider ? `${group.items.length} proveedores` : `#LIQ-${group.items[0]?.liquidacion_id}`}
-                                </div>
-                              </div>
+                          {/* 1. PERÍODO / ID */}
+                          <td style={{ padding: '14px 16px', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                            <div style={{ color: 'var(--text-primary)', fontSize: '13px' }}>{group.periodo}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 500, marginTop: '2px' }}>
+                              {group.isMultiProvider ? `${group.items.length} liquidaciones` : `#LIQ-${group.items[0]?.liquidacion_id}`}
                             </div>
                           </td>
 
-                          <td style={{ padding: '12px 14px' }}>
-                            <div style={{ fontWeight: 800 }}>
+                          {/* 2. GRUPO / SOCIO */}
+                          <td style={{ padding: '14px 16px' }}>
+                            <div style={{ fontWeight: 800, fontSize: '13.5px', color: 'var(--text-primary)' }}>
                               {group.socio?.nombre_completo || `Grupo ${group.numero_grupo}`}
                             </div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <span>Grupo #{group.numero_grupo} ({group.total_lineas} líneas)</span>
+                            <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span>Grupo #{group.numero_grupo} · {group.total_lineas} {group.total_lineas === 1 ? 'línea' : 'líneas'}</span>
                               {group.isMultiProvider && (
-                                <span style={{ 
-                                  color: 'var(--accent)', 
-                                  fontWeight: 700, 
-                                  background: 'rgba(16, 185, 129, 0.1)', 
-                                  padding: '1px 6px', 
-                                  borderRadius: '6px',
-                                  fontSize: '10px'
-                                }}>
-                                  {group.items.length} operadoras · {isExpanded ? 'Ocultar ▲' : 'Ver detalle ▾'}
-                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleExpandGrupo(group.key);
+                                  }}
+                                  style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: 'var(--accent)',
+                                    cursor: 'pointer',
+                                    fontSize: '11.5px',
+                                    fontWeight: 700,
+                                    padding: '0',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px'
+                                  }}
+                                >
+                                  {isExpanded ? 'Ocultar' : 'Ver desglose'}
+                                  {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                                </button>
                               )}
                             </div>
                           </td>
 
-                          <td style={{ padding: '12px 14px', fontWeight: 700 }}>
-                            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                          {/* 3. OPERADORAS */}
+                          <td style={{ padding: '14px 16px' }}>
+                            <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', alignItems: 'center' }}>
                               {group.items.map(item => {
-                                const opName = item.proveedores?.nombre || 'OPERADORA';
+                                const op = item.proveedores?.nombre || 'OPERADORA';
+                                const isClaro = op === 'CLARO';
+                                const isMovistar = op === 'MOVISTAR';
                                 return (
-                                  <span key={item.liquidacion_id} style={{
-                                    padding: '3px 7px', borderRadius: '6px', fontSize: '10.5px', fontWeight: 800,
-                                    background: opName === 'CLARO' ? 'rgba(227,6,19,0.1)' : opName === 'MOVISTAR' ? 'rgba(91,197,0,0.1)' : 'rgba(0,102,255,0.1)',
-                                    color: opName === 'CLARO' ? '#e30613' : opName === 'MOVISTAR' ? '#5bc500' : '#0066ff'
-                                  }}>
-                                    {opName}
+                                  <span 
+                                    key={item.liquidacion_id} 
+                                    style={{
+                                      padding: '2px 8px',
+                                      borderRadius: '6px',
+                                      fontSize: '10px',
+                                      fontWeight: 800,
+                                      letterSpacing: '0.3px',
+                                      background: isClaro ? 'rgba(239, 68, 68, 0.1)' : isMovistar ? 'rgba(16, 185, 129, 0.1)' : 'rgba(59, 130, 246, 0.1)',
+                                      color: isClaro ? '#f87171' : isMovistar ? '#34d399' : '#60a5fa',
+                                      border: isClaro ? '1px solid rgba(239, 68, 68, 0.2)' : isMovistar ? '1px solid rgba(16, 185, 129, 0.2)' : '1px solid rgba(59, 130, 246, 0.2)'
+                                    }}
+                                  >
+                                    {op}
                                   </span>
                                 );
                               })}
                             </div>
                           </td>
 
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800 }}>
+                          {/* 4. TOTAL FACTURADO */}
+                          <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 800, fontSize: '13.5px' }}>
                             {formatMoney(group.monto_total_facturado)}
                           </td>
 
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, color: '#10b981' }}>
+                          {/* 5. ABONADO */}
+                          <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 800, color: '#10b981', fontSize: '13.5px' }}>
                             {formatMoney(group.monto_abonado)}
                           </td>
 
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 900, color: group.saldo_impago > 5 ? '#ef4444' : 'var(--text-primary)' }}>
+                          {/* 6. SALDO IMPAGO */}
+                          <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 900, fontSize: '13.5px', color: group.saldo_impago > 5 ? '#ef4444' : 'var(--text-primary)' }}>
                             {formatMoney(group.saldo_impago)}
                           </td>
 
-                          <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                          {/* 7. ESTADO */}
+                          <td style={{ padding: '14px 16px', textAlign: 'center' }}>
                             <span style={{
                               background: isCobrada ? 'rgba(16, 185, 129, 0.1)' : isParcial ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)',
                               color: isCobrada ? '#10b981' : isParcial ? '#f59e0b' : '#ef4444',
-                              padding: '4px 10px', borderRadius: '8px', fontWeight: 900, fontSize: '11px'
+                              padding: '4px 10px', borderRadius: '8px', fontWeight: 800, fontSize: '11px'
                             }}>
                               {isCobrada ? 'COBRADA' : isParcial ? 'PARCIAL' : 'IMPAGA'}
                             </span>
                           </td>
 
-                          <td style={{ padding: '12px 14px', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                          {/* 8. ACCIONES */}
+                          <td style={{ padding: '14px 16px', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
                             <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
                               {!isCobrada && (
                                 <button
                                   onClick={() => handleOpenCobroModal(group.items[0], group.numero_grupo)}
                                   className="air-btn-primary"
-                                  style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', fontWeight: 800 }}
+                                  style={{ padding: '5px 12px', fontSize: '11px', borderRadius: '8px', fontWeight: 800 }}
                                   title="Imputar cobro a este grupo"
                                 >
                                   Imputar
@@ -1194,7 +1215,7 @@ export default function Contaduria() {
                                   setActiveTab('extracto');
                                 }}
                                 className="air-btn"
-                                style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', fontWeight: 700 }}
+                                style={{ padding: '5px 12px', fontSize: '11px', borderRadius: '8px', fontWeight: 700 }}
                                 title="Ver extracto de la cuenta"
                               >
                                 Extracto
@@ -1203,83 +1224,123 @@ export default function Contaduria() {
                           </td>
                         </tr>
 
-                        {/* SUB-FILAS DESPLEGADAS POR PROVEEDOR SI TIENE MULTI-PROVEEDOR */}
-                        {isExpanded && group.items.map((subLiq) => {
-                          const subFact = Number(subLiq.monto_total_facturado || 0);
-                          const subAbonado = Number(subLiq.monto_abonado || 0);
-                          const subPendiente = Math.max(0, subFact - subAbonado);
-                          const subIsCobrada = subLiq.estado_pago === 'ABONADO' || subPendiente <= 1;
-                          const subIsParcial = subLiq.estado_pago === 'PARCIAL' || (subAbonado > 0 && subPendiente > 1);
-                          const subOp = subLiq.proveedores?.nombre || 'OPERADORA';
-
-                          return (
-                            <tr 
-                              key={subLiq.liquidacion_id}
-                              style={{ 
-                                background: 'rgba(255, 255, 255, 0.03)', 
-                                borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
-                                fontSize: '12px'
-                              }}
-                            >
-                              <td style={{ padding: '8px 14px 8px 30px', color: 'var(--text-secondary)' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                  <CornerDownRight size={13} color="var(--accent)" />
-                                  <span style={{ fontWeight: 700 }}>#LIQ-{subLiq.liquidacion_id}</span>
+                        {/* PANEL DESPLEGABLE ELEGANTE POR PROVEEDOR */}
+                        {isExpanded && (
+                          <tr style={{ background: 'transparent' }}>
+                            <td colSpan="8" style={{ padding: '0 16px 14px 16px', borderBottom: '1px solid var(--border-light)' }}>
+                              <div style={{
+                                background: 'rgba(0, 0, 0, 0.25)',
+                                borderRadius: '12px',
+                                border: '1px solid rgba(255, 255, 255, 0.08)',
+                                padding: '14px 18px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '10px'
+                              }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255, 255, 255, 0.05)', paddingBottom: '8px' }}>
+                                  <span style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.4px' }}>
+                                    Desglose por Operadora · Grupo #{group.numero_grupo} ({group.periodo})
+                                  </span>
+                                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                    {group.items.length} operadoras en este período
+                                  </span>
                                 </div>
-                              </td>
 
-                              <td style={{ padding: '8px 14px', color: 'var(--text-secondary)' }}>
-                                <span style={{ fontWeight: 600 }}>Deuda por {subOp}</span>
-                                <span style={{ marginLeft: '6px', fontSize: '11px' }}>({subLiq.total_lineas_lote || 1} líneas)</span>
-                              </td>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                  {group.items.map(subLiq => {
+                                    const subFact = Number(subLiq.monto_total_facturado || 0);
+                                    const subAbonado = Number(subLiq.monto_abonado || 0);
+                                    const subPendiente = Math.max(0, subFact - subAbonado);
+                                    const subIsCobrada = subLiq.estado_pago === 'ABONADO' || subPendiente <= 1;
+                                    const subIsParcial = subLiq.estado_pago === 'PARCIAL' || (subAbonado > 0 && subPendiente > 1);
+                                    const subOp = subLiq.proveedores?.nombre || 'OPERADORA';
+                                    const isClaro = subOp === 'CLARO';
+                                    const isMovistar = subOp === 'MOVISTAR';
 
-                              <td style={{ padding: '8px 14px' }}>
-                                <span style={{
-                                  padding: '2px 8px', borderRadius: '6px', fontSize: '10.5px', fontWeight: 800,
-                                  background: subOp === 'CLARO' ? 'rgba(227,6,19,0.1)' : subOp === 'MOVISTAR' ? 'rgba(91,197,0,0.1)' : 'rgba(0,102,255,0.1)',
-                                  color: subOp === 'CLARO' ? '#e30613' : subOp === 'MOVISTAR' ? '#5bc500' : '#0066ff'
-                                }}>
-                                  {subOp}
-                                </span>
-                              </td>
+                                    return (
+                                      <div 
+                                        key={subLiq.liquidacion_id}
+                                        style={{
+                                          display: 'flex',
+                                          justifyContent: 'space-between',
+                                          alignItems: 'center',
+                                          padding: '10px 14px',
+                                          background: 'rgba(255, 255, 255, 0.02)',
+                                          borderRadius: '8px',
+                                          border: '1px solid rgba(255, 255, 255, 0.04)',
+                                          flexWrap: 'wrap',
+                                          gap: '12px'
+                                        }}
+                                      >
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                          <span 
+                                            style={{
+                                              padding: '3px 9px',
+                                              borderRadius: '6px',
+                                              fontSize: '11px',
+                                              fontWeight: 900,
+                                              background: isClaro ? 'rgba(239, 68, 68, 0.15)' : isMovistar ? 'rgba(16, 185, 129, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+                                              color: isClaro ? '#f87171' : isMovistar ? '#34d399' : '#60a5fa',
+                                              border: isClaro ? '1px solid rgba(239, 68, 68, 0.3)' : isMovistar ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(59, 130, 246, 0.3)'
+                                            }}
+                                          >
+                                            {subOp}
+                                          </span>
+                                          <div>
+                                            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                              {subLiq.total_lineas_lote || 1} {subLiq.total_lineas_lote === 1 ? 'línea' : 'líneas'} asignadas
+                                            </div>
+                                            <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>
+                                              Liquidación #LIQ-{subLiq.liquidacion_id}
+                                            </div>
+                                          </div>
+                                        </div>
 
-                              <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: 700 }}>
-                                {formatMoney(subFact)}
-                              </td>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                                          <div style={{ textAlign: 'right' }}>
+                                            <div style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Facturado</div>
+                                            <div style={{ fontSize: '13px', fontWeight: 800 }}>{formatMoney(subFact)}</div>
+                                          </div>
 
-                              <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: 700, color: '#10b981' }}>
-                                {formatMoney(subAbonado)}
-                              </td>
+                                          <div style={{ textAlign: 'right' }}>
+                                            <div style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Abonado</div>
+                                            <div style={{ fontSize: '13px', fontWeight: 800, color: '#10b981' }}>{formatMoney(subAbonado)}</div>
+                                          </div>
 
-                              <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: 800, color: subPendiente > 5 ? '#ef4444' : 'var(--text-primary)' }}>
-                                {formatMoney(subPendiente)}
-                              </td>
+                                          <div style={{ textAlign: 'right', minWidth: '90px' }}>
+                                            <div style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Saldo</div>
+                                            <div style={{ fontSize: '13px', fontWeight: 900, color: subPendiente > 5 ? '#ef4444' : 'var(--text-primary)' }}>
+                                              {formatMoney(subPendiente)}
+                                            </div>
+                                          </div>
 
-                              <td style={{ padding: '8px 14px', textAlign: 'center' }}>
-                                <span style={{
-                                  background: subIsCobrada ? 'rgba(16, 185, 129, 0.1)' : subIsParcial ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                                  color: subIsCobrada ? '#10b981' : subIsParcial ? '#f59e0b' : '#ef4444',
-                                  padding: '3px 8px', borderRadius: '6px', fontWeight: 800, fontSize: '10px'
-                                }}>
-                                  {subIsCobrada ? 'COBRADA' : subIsParcial ? 'PARCIAL' : 'IMPAGA'}
-                                </span>
-                              </td>
+                                          <span style={{
+                                            background: subIsCobrada ? 'rgba(16, 185, 129, 0.1)' : subIsParcial ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                                            color: subIsCobrada ? '#10b981' : subIsParcial ? '#f59e0b' : '#ef4444',
+                                            padding: '3px 8px', borderRadius: '6px', fontWeight: 800, fontSize: '10px'
+                                          }}>
+                                            {subIsCobrada ? 'COBRADA' : subIsParcial ? 'PARCIAL' : 'IMPAGA'}
+                                          </span>
 
-                              <td style={{ padding: '8px 14px', textAlign: 'center' }}>
-                                {!subIsCobrada && (
-                                  <button
-                                    onClick={() => handleOpenCobroModal(subLiq, group.numero_grupo)}
-                                    className="air-btn"
-                                    style={{ padding: '4px 8px', fontSize: '10.5px', borderRadius: '6px', fontWeight: 700, borderColor: 'var(--border-light)' }}
-                                    title={`Imputar cobro específico a ${subOp}`}
-                                  >
-                                    Imputar a {subOp}
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
+                                          {!subIsCobrada && (
+                                            <button
+                                              onClick={() => handleOpenCobroModal(subLiq, group.numero_grupo)}
+                                              className="air-btn"
+                                              style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '6px', fontWeight: 700, borderColor: 'rgba(255,255,255,0.1)' }}
+                                              title={`Imputar a ${subOp}`}
+                                            >
+                                              Imputar a {subOp}
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
                       </React.Fragment>
                     );
                   })
