@@ -323,7 +323,7 @@ export default function ConciliacionBancaria() {
           socios:socio_id(nombre_completo, nro_socio),
           liquidaciones_grupos:liquidacion_id(numero_grupo, periodo, monto_total_facturado)
         `)
-        .or(`periodo.eq.${period},and(fecha_movimiento.gte.${startDate},fecha_movimiento.lte.${endDate})`)
+        .eq('periodo', period)
         .order('fecha_movimiento', { ascending: false });
 
       if (!error && data) {

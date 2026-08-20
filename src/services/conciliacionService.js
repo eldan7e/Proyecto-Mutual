@@ -172,6 +172,10 @@ export const fetchHistorial = async (selectedPeriod) => {
     `)
     .order('fecha_movimiento', { ascending: false });
 
+  if (selectedPeriod) {
+    query = query.eq('periodo', selectedPeriod);
+  }
+
   const { data, error } = await query;
   if (error) throw error;
   return data || [];

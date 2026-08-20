@@ -269,12 +269,12 @@ export default function HistorialMovimientosTab({
                         {mov.liquidaciones_grupos ? (
                           <div style={{ marginTop: '2px', display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
                             <span style={{ 
-                              fontSize: '10px', fontWeight: 800, padding: '2px 6px', borderRadius: '6px',
-                              background: 'rgba(46, 125, 50, 0.08)', color: 'var(--accent)', display: 'inline-block'
+                              fontSize: '10.5px', fontWeight: 800, padding: '2px 8px', borderRadius: '6px',
+                              background: 'rgba(16, 185, 129, 0.12)', color: '#10b981', display: 'inline-flex', alignItems: 'center', gap: '4px'
                             }}>
-                              Vinc: {mov.liquidaciones_grupos.periodo} - Gpo {mov.liquidaciones_grupos.numero_grupo}
+                              📌 Imputado a Factura: {mov.liquidaciones_grupos.periodo} (Gpo #{mov.liquidaciones_grupos.numero_grupo})
                             </span>
-                            {mov.liquidacion_id && (
+                            {mov.liquidacion_id && openBreakdownModal && (
                               <button
                                 onClick={() => openBreakdownModal(mov.liquidacion_id)}
                                 style={{
@@ -293,6 +293,15 @@ export default function HistorialMovimientosTab({
                                 Ver desglose del grupo
                               </button>
                             )}
+                          </div>
+                        ) : mov.periodo ? (
+                          <div style={{ marginTop: '2px' }}>
+                            <span style={{ 
+                              fontSize: '10.5px', fontWeight: 800, padding: '2px 8px', borderRadius: '6px',
+                              background: 'rgba(99, 102, 241, 0.12)', color: '#6366f1', display: 'inline-flex', alignItems: 'center', gap: '4px'
+                            }}>
+                              📌 Período Imputado: {mov.periodo}
+                            </span>
                           </div>
                         ) : (
                           !(mov.tipo_movimiento === 'IMPUESTO' || mov.tipo_movimiento === 'COMISION' || mov.tipo_movimiento === 'SUSCRIPCION' || mov.tipo_movimiento === 'PAGO_VEP' || mov.tipo_movimiento === 'PAGO_SERVICIO' || mov.tipo_movimiento === 'PAGO_ARCA') && (
