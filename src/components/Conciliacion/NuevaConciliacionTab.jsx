@@ -66,6 +66,7 @@ export default function NuevaConciliacionTab({
   const [excelFile, setExcelFile] = useState(null);
   const [excelParsedData, setExcelParsedData] = useState([]);
   const [excelCollectiveDebits, setExcelCollectiveDebits] = useState([]);
+  const [dismissedCollectiveBanner, setDismissedCollectiveBanner] = useState(false);
   const [excelSummary, setExcelSummary] = useState(null);
   const [periodoImputacionExcel, setPeriodoImputacionExcel] = useState('');
   const [loadingExcel, setLoadingExcel] = useState(false);
@@ -627,6 +628,7 @@ export default function NuevaConciliacionTab({
       });
 
       setExcelCollectiveDebits(detectedDebits);
+      setDismissedCollectiveBanner(false);
       setExcelParsedData(parsedPayments);
 
       // Calcular automáticamente el período de deuda anterior (ej: extracto de Febrero 2026-02 paga Enero 2026-01)
@@ -1413,7 +1415,7 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
             )}
 
             {/* Banner de Débitos Automáticos Colectivos detectados */}
-            {excelCollectiveDebits.length > 0 && (
+            {excelCollectiveDebits.length > 0 && !dismissedCollectiveBanner && (
               <div style={{
                 marginTop: '16px',
                 padding: '14px 18px',
@@ -1439,28 +1441,49 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                     </div>
                   </div>
                 </div>
-                {setActiveTab && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {setActiveTab && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('debitos')}
+                      className="air-btn"
+                      style={{
+                        background: 'var(--surface)',
+                        color: '#6366f1',
+                        border: '1px solid rgba(99, 102, 241, 0.35)',
+                        fontWeight: 800,
+                        fontSize: '12px',
+                        padding: '8px 14px',
+                        borderRadius: '10px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Ir a Débitos Automáticos <ArrowUpRight size={15} />
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => setActiveTab('debitos')}
-                    className="air-btn"
+                    onClick={() => setDismissedCollectiveBanner(true)}
                     style={{
-                      background: 'var(--surface)',
-                      color: '#6366f1',
-                      border: '1px solid rgba(99, 102, 241, 0.35)',
-                      fontWeight: 800,
-                      fontSize: '12px',
-                      padding: '8px 14px',
-                      borderRadius: '10px',
-                      display: 'inline-flex',
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      padding: '6px',
+                      borderRadius: '8px',
+                      display: 'flex',
                       alignItems: 'center',
-                      gap: '6px',
-                      cursor: 'pointer'
+                      justifyContent: 'center',
+                      transition: 'color 0.2s'
                     }}
+                    title="Ocultar aviso"
                   >
-                    Ir a Débitos Automáticos <ArrowUpRight size={15} />
+                    <X size={16} />
                   </button>
-                )}
+                </div>
               </div>
             )}
 

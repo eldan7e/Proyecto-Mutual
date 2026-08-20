@@ -3192,8 +3192,19 @@ export default function ConciliacionBancaria() {
     });
 
     // 2. De los movimientos registrados en la base de datos para este período (solo NO conciliados y estrictamente colectivos)
+    // Identificar fechas/bancos donde ya existen cobros individuales desglosados de débito
+    const datesWithBreakdowns = new Set();
+    (dbBankMovements || []).forEach(dbMov => {
+      const u = String(dbMov.concepto || '').toUpperCase();
+      if (dbMov.socio_id || dbMov.liquidacion_id || u.includes('RECAUDACIÓN DÉBITO CBU') || u.includes('RECAUDACION DEBITO CBU')) {
+        datesWithBreakdowns.add(`${dbMov.fecha_movimiento}-${dbMov.banco}`);
+      }
+    });
+
     (dbBankMovements || []).forEach(dbMov => {
       if (dbMov.socio_id || dbMov.liquidacion_id) return;
+      // Si en esta misma fecha y banco ya existen cobros individuales desglosados, este lote ya fue conciliado
+      if (datesWithBreakdowns.has(`${dbMov.fecha_movimiento}-${dbMov.banco}`)) return;
 
       const montoNum = Number(dbMov.monto || 0);
       if (montoNum > 0 && isCollectiveRecaudacion(dbMov.concepto)) {
