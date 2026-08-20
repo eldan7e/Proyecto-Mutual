@@ -156,7 +156,7 @@ export default function IngresoDiario() {
   }, [grupos]);
 
   // Auto-link payment to a pending liquidación in DB
-  async function linkPaymentToDebt(movimientoId, grupoNum, monto, targetPeriod = selectedPeriod) {
+  async function linkPaymentToDebt(movimientoId, grupoNum, monto, targetPeriod = selectedPeriod, updateState = true) {
     const numGrupo = parseInt(grupoNum, 10);
     if (isNaN(numGrupo) || !monto || monto <= 0) return;
 
@@ -203,12 +203,14 @@ export default function IngresoDiario() {
           .eq('movimiento_id', movimientoId);
       }
 
-      // Update local state if matches
-      setLiquidaciones(prev => prev.map(l =>
-        l.liquidacion_id === liq.liquidacion_id
-          ? { ...l, monto_abonado: nuevoAbonado, estado_pago: nuevoEstado }
-          : l
-      ));
+      // Update local state if needed
+      if (updateState) {
+        setLiquidaciones(prev => prev.map(l =>
+          l.liquidacion_id === liq.liquidacion_id
+            ? { ...l, monto_abonado: nuevoAbonado, estado_pago: nuevoEstado }
+            : l
+        ));
+      }
 
       remaining -= aplicar;
     }
@@ -509,7 +511,7 @@ export default function IngresoDiario() {
         .eq('periodo', efectivoPeriodoTarget)
         .eq('banco', 'EFECTIVO');
 
-      for (const row of toSave) {
+      const processRow = async (row) => {
         // Control estricto anti-duplicados antes de insertar
         const isAlreadyInDb = (currentCashMovs || []).some(e => {
           if (Number(e.numero_grupo) !== row.numero_grupo) return false;
@@ -520,8 +522,7 @@ export default function IngresoDiario() {
         });
 
         if (isAlreadyInDb) {
-          skipped++;
-          continue;
+          return { status: 'skipped' };
         }
 
         const grupo = getGrupo(row.numero_grupo);
@@ -558,26 +559,34 @@ export default function IngresoDiario() {
 
         if (bncErr) {
           console.error(bncErr);
-          continue;
+          return { status: 'error', error: bncErr };
         }
 
         // 2. Registrar cobro en cuenta corriente (cuentaCorrienteService con proteccion anti-duplicados)
-        await registrarCobroCuenta({
-          numero_grupo: row.numero_grupo,
-          nombre: titularLabel,
-          importe: row.monto,
-          medio_pago: 'EFECTIVO',
-          observaciones: `Cobro Efectivo (${row.empresa}) - ${row.observaciones}`,
-          fecha: row.fecha
-        });
+        try {
+          await registrarCobroCuenta({
+            numero_grupo: row.numero_grupo,
+            nombre: titularLabel,
+            importe: row.monto,
+            medio_pago: 'EFECTIVO',
+            observaciones: `Cobro Efectivo (${row.empresa}) - ${row.observaciones}`,
+            fecha: row.fecha
+          });
+        } catch (ccErr) {
+          console.warn('Aviso CC:', ccErr);
+        }
 
         // 3. Vincular directamente con la liquidación de deuda del período destino
         if (bncData?.movimiento_id) {
-          await linkPaymentToDebt(bncData.movimiento_id, row.numero_grupo, row.monto, efectivoPeriodoTarget);
+          await linkPaymentToDebt(bncData.movimiento_id, row.numero_grupo, row.monto, efectivoPeriodoTarget, false);
         }
 
-        saved++;
-      }
+        return { status: 'saved' };
+      };
+
+      const results = await Promise.all(toSave.map(processRow));
+      saved = results.filter(r => r.status === 'saved').length;
+      skipped = results.filter(r => r.status === 'skipped').length;
 
       await supabase.from('audit_log').insert({
         tipo_evento: 'INGRESO_EFECTIVO_LOTE',
