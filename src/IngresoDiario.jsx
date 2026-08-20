@@ -391,7 +391,7 @@ export default function IngresoDiario() {
       // 2. Monto
       for (const p of parts) {
         if (p.includes('$') || /^\d+[\.,]\d{2}$/.test(p)) {
-          const num = parseMoney(p);
+          const num = parseArgentineOrUSNumber(p);
           if (num > 0 && monto === 0) {
             monto = num;
           }
@@ -405,6 +405,33 @@ export default function IngresoDiario() {
           if (n > 0 && n < 100000 && !grupo) {
             grupo = p;
           }
+        }
+      }
+
+      // 4. Titular
+      for (const p of parts) {
+        if (p.includes(',') && !p.includes('$') && isNaN(parseFloat(p.replace(/,/g, '')))) {
+          titular = p;
+          break;
+        }
+      }
+
+      // 5. Empresa / Operadora
+      for (const p of parts) {
+        if (/CLARO|PERSONAL|MOVISTAR/i.test(p) && !p.includes('GPO:')) {
+          empresa = p;
+          break;
+        }
+      }
+
+      // 6. Línea y Observaciones
+      for (const p of parts) {
+        const phoneMatch = p.match(/\b(11\d{8}|221\d{7}|\d{10})\b/);
+        if (phoneMatch) {
+          linea = phoneMatch[1];
+        }
+        if (p.includes('GPO:') || p.includes('COBRO') || p.includes('EXCD')) {
+          observaciones = p;
         }
       }
 
