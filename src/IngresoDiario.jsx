@@ -344,25 +344,31 @@ export default function IngresoDiario() {
   }
 
   // PARSE EFECTIVO LOTE (EXCEL / TEXT BLOCK)
-  function handleParseEfectivoLote() {
+  async function handleParseEfectivoLote() {
     if (!efectivoLoteText.trim()) {
       addToast('Pegá el bloque de cobros en efectivo primero', 'warning');
       return;
     }
 
+    // Consultar movimientos en efectivo ya cargados para este período para evitar duplicados
+    const { data: existingCashMovs } = await supabase
+      .from('movimientos_bancarios')
+      .select('movimiento_id, fecha_movimiento, monto, numero_grupo, concepto, comprobante')
+      .eq('periodo', efectivoPeriodoTarget)
+      .eq('banco', 'EFECTIVO');
+
     const lines = efectivoLoteText.trim().split('\n');
     const parsed = [];
-    const defaultRef = efectivoFechaRef || todayISO();
+    let duplicateCount = 0;
 
     for (let i = 0; i < lines.length; i++) {
-      const rawLine = lines[i].trim();
-      if (!rawLine) continue;
+      const line = lines[i].trim();
+      if (!line) continue;
 
-      const parts = rawLine.split(/\t+/).length > 2
-        ? rawLine.split(/\t+/).map(p => p.trim())
-        : rawLine.split(/\s{2,}/).map(p => p.trim());
+      const parts = line.split('\t').map(p => p.trim()).filter(Boolean);
+      if (parts.length < 2) continue;
 
-      let fecha = '';
+      let fecha = todayISO();
       let grupo = '';
       let titular = '';
       let empresa = '';
@@ -371,86 +377,34 @@ export default function IngresoDiario() {
       let observaciones = '';
 
       // 1. Fecha
-      if (efectivoFechaMetodo === 'force') {
-        fecha = efectivoFechaRef;
-      } else {
-        for (const p of parts) {
-          const dm = p.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
-          if (dm) {
-            const d = dm[1].padStart(2, '0');
-            const m = dm[2].padStart(2, '0');
-            const y = dm[3].length === 2 ? '20' + dm[3] : dm[3];
-            fecha = `${y}-${m}-${d}`;
-            break;
-          }
+      for (const p of parts) {
+        const dMatch = p.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+        if (dMatch) {
+          const day = dMatch[1].padStart(2, '0');
+          const month = dMatch[2].padStart(2, '0');
+          const year = dMatch[3].length === 2 ? '20' + dMatch[3] : dMatch[3];
+          fecha = `${year}-${month}-${day}`;
+          break;
         }
-        if (!fecha) fecha = defaultRef;
       }
 
       // 2. Monto
       for (const p of parts) {
-        if (p.includes('$') || (/[.,]\d{2}/.test(p) && !p.includes('/') && !p.includes(':') && !/GPO/i.test(p))) {
-          const num = parseArgentineOrUSNumber(p);
-          if (num > 0 && !/^\d{10}$/.test(p.replace(/[$.]/g, ''))) {
+        if (p.includes('$') || /^\d+[\.,]\d{2}$/.test(p)) {
+          const num = parseMoney(p);
+          if (num > 0 && monto === 0) {
             monto = num;
-            break;
-          }
-        }
-      }
-      if (!monto) {
-        for (const p of parts) {
-          if (/^-?\s*[\d.,]+$/.test(p) && !/^\d{1,6}$/.test(p)) {
-            const num = parseArgentineOrUSNumber(p);
-            if (num > 0) { monto = num; break; }
           }
         }
       }
 
       // 3. Grupo
       for (const p of parts) {
-        const gpoMatch = p.match(/GPO:\s*(\d+)/i) || p.match(/^GRUPO\s*(\d+)$/i);
-        if (gpoMatch) {
-          grupo = gpoMatch[1];
-          break;
-        }
-      }
-      if (!grupo) {
-        for (let idx = 0; idx < parts.length; idx++) {
-          const p = parts[idx];
-          if (/^\d{1,6}$/.test(p)) {
-            const val = parseInt(p, 10);
-            if (val > 0 && val !== 2025 && val !== 2026 && val !== 2027 && val !== Math.round(monto)) {
-              grupo = p;
-              break;
-            }
+        if (/^\d{1,5}$/.test(p) && !p.includes('$')) {
+          const n = parseInt(p, 10);
+          if (n > 0 && n < 100000 && !grupo) {
+            grupo = p;
           }
-        }
-      }
-
-      // 4. Titular
-      for (const p of parts) {
-        if (p.includes(',') && !p.includes('$') && isNaN(parseFloat(p.replace(/,/g, '')))) {
-          titular = p;
-          break;
-        }
-      }
-
-      // 5. Empresa / Operadora
-      for (const p of parts) {
-        if (/CLARO|PERSONAL|MOVISTAR/i.test(p) && !p.includes('GPO:')) {
-          empresa = p;
-          break;
-        }
-      }
-
-      // 6. Línea y Observaciones
-      for (const p of parts) {
-        const phoneMatch = p.match(/\b(11\d{8}|221\d{7}|\d{10})\b/);
-        if (phoneMatch) {
-          linea = phoneMatch[1];
-        }
-        if (p.includes('GPO:') || p.includes('COBRO') || p.includes('EXCD')) {
-          observaciones = p;
         }
       }
 
@@ -459,6 +413,18 @@ export default function IngresoDiario() {
       const finalTitular = titular || grupoObj?.titular || '';
 
       if (monto > 0 && !isNaN(gNum)) {
+        const isDuplicate = (existingCashMovs || []).some(e => {
+          if (Number(e.numero_grupo) !== gNum) return false;
+          if (Math.abs(Number(e.monto || 0) - monto) > 0.05) return false;
+          if (e.fecha_movimiento !== fecha) return false;
+          if (linea && String(e.comprobante || e.concepto || '').includes(linea)) return true;
+          return true;
+        });
+
+        if (isDuplicate) {
+          duplicateCount++;
+        }
+
         parsed.push({
           id: Math.random().toString(36).substr(2, 9),
           fecha,
@@ -468,7 +434,8 @@ export default function IngresoDiario() {
           monto,
           linea,
           observaciones: observaciones || (linea ? `Línea: ${linea}` : 'Cobro Efectivo'),
-          include: true
+          alreadyRegistered: isDuplicate,
+          include: !isDuplicate
         });
       }
     }
@@ -479,7 +446,11 @@ export default function IngresoDiario() {
     }
 
     setEfectivoLoteRows(parsed);
-    addToast(`${parsed.length} pagos en efectivo detectados correctamente`, 'success');
+    if (duplicateCount > 0) {
+      addToast(`${parsed.length} pagos detectados (${duplicateCount} omitidos por ya estar registrados en DB)`, 'info');
+    } else {
+      addToast(`${parsed.length} pagos en efectivo detectados y listos para imputar`, 'success');
+    }
   }
 
   // SAVE EFECTIVO LOTE
@@ -502,8 +473,30 @@ export default function IngresoDiario() {
     setSaving(true);
     try {
       let saved = 0;
+      let skipped = 0;
+
+      // Re-consultar DB para garantizar cero duplicados en concurrencia
+      const { data: currentCashMovs } = await supabase
+        .from('movimientos_bancarios')
+        .select('movimiento_id, fecha_movimiento, monto, numero_grupo, concepto, comprobante')
+        .eq('periodo', efectivoPeriodoTarget)
+        .eq('banco', 'EFECTIVO');
 
       for (const row of toSave) {
+        // Control estricto anti-duplicados antes de insertar
+        const isAlreadyInDb = (currentCashMovs || []).some(e => {
+          if (Number(e.numero_grupo) !== row.numero_grupo) return false;
+          if (Math.abs(Number(e.monto || 0) - row.monto) > 0.05) return false;
+          if (e.fecha_movimiento !== row.fecha) return false;
+          if (row.linea && String(e.comprobante || e.concepto || '').includes(row.linea)) return true;
+          return true;
+        });
+
+        if (isAlreadyInDb) {
+          skipped++;
+          continue;
+        }
+
         const grupo = getGrupo(row.numero_grupo);
         const titularLabel = row.titular || grupo?.titular || `Grupo ${row.numero_grupo}`;
 
@@ -561,12 +554,16 @@ export default function IngresoDiario() {
 
       await supabase.from('audit_log').insert({
         tipo_evento: 'INGRESO_EFECTIVO_LOTE',
-        descripcion: `Lote Efectivo: ${saved} cobros imputados a período ${efectivoPeriodoTarget}`,
+        descripcion: `Lote Efectivo: ${saved} cobros imputados a período ${efectivoPeriodoTarget}${skipped > 0 ? ` (${skipped} omitidos por duplicados)` : ''}`,
         monto: totalMonto,
         usuario: 'dante@admin.com'
       });
 
-      addToast(`✓ ${saved} pagos en efectivo registrados e imputados a ${efectivoPeriodoTarget}`, 'success');
+      if (skipped > 0) {
+        addToast(`✓ ${saved} pagos guardados (${skipped} omitidos para evitar duplicados)`, 'success');
+      } else {
+        addToast(`✓ ${saved} pagos en efectivo registrados e imputados a ${efectivoPeriodoTarget}`, 'success');
+      }
       setEfectivoLoteText('');
       setEfectivoLoteRows([]);
       await fetchMovimientos();
@@ -1390,6 +1387,11 @@ function EfectivoForm({
                               {grupoObj && (
                                 <span style={{ fontSize: '10.5px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '3px' }}>
                                   ✓ Grupo {row.numero_grupo}: {grupoObj.titular}
+                                </span>
+                              )}
+                              {row.alreadyRegistered && (
+                                <span style={{ fontSize: '10px', color: '#0284c7', background: 'rgba(2,132,199,0.1)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700, width: 'fit-content', marginTop: '2px' }}>
+                                  ℹ️ Ya registrado previamente en DB (desmarcado)
                                 </span>
                               )}
                             </div>
