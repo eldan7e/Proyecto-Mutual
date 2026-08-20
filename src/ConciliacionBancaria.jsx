@@ -1929,7 +1929,8 @@ export default function ConciliacionBancaria() {
         banco: bankRow.banco || 'CREDICOOP',
         socio_id: null,
         liquidacion_id: null,
-        tipo_movimiento: 'OTRO_INGRESO'
+        tipo_movimiento: 'DEBITO_AUTOMATICO',
+        periodo: selectedPeriod || '2026-02'
       };
       
       const indivMovs = [];
@@ -1967,7 +1968,8 @@ export default function ConciliacionBancaria() {
                 banco: bankRow.banco,
                 socio_id: parseInt(r.socioId, 10),
                 liquidacion_id: parseInt(liq.liquidacion_id, 10),
-                tipo_movimiento: 'TRANSFERENCIA_RECIBIDA'
+                tipo_movimiento: 'TRANSFERENCIA_RECIBIDA',
+                periodo: liq.periodo || selectedPeriod || '2026-02'
               });
               
               const liqId = parseInt(liq.liquidacion_id, 10);
@@ -1986,6 +1988,8 @@ export default function ConciliacionBancaria() {
             ? r.selectedLiquidations[0]
             : (r.selectedLiquidationId ? r.selectedLiquidationId : null);
 
+          const matchedLiq = r.pendingList?.find(l => String(l.liquidacion_id) === String(singleLiqId));
+
           indivMovs.push({
             fecha_movimiento: bankDateISO,
             concepto: finalConcept,
@@ -1995,7 +1999,8 @@ export default function ConciliacionBancaria() {
             banco: bankRow.banco,
             socio_id: parseInt(r.socioId, 10),
             liquidacion_id: singleLiqId ? parseInt(singleLiqId, 10) : null,
-            tipo_movimiento: 'TRANSFERENCIA_RECIBIDA'
+            tipo_movimiento: 'TRANSFERENCIA_RECIBIDA',
+            periodo: matchedLiq?.periodo || selectedPeriod || '2026-02'
           });
           
           if (singleLiqId) {
@@ -2242,7 +2247,8 @@ export default function ConciliacionBancaria() {
               banco: row.banco,
               socio_id: row.selectedSocioId ? parseInt(row.selectedSocioId, 10) : null,
               liquidacion_id: parseInt(liq.liquidacion_id, 10),
-              tipo_movimiento: 'TRANSFERENCIA_RECIBIDA'
+              tipo_movimiento: 'TRANSFERENCIA_RECIBIDA',
+              periodo: liq.periodo || selectedPeriod || '2026-02'
             });
             
             const liqId = parseInt(liq.liquidacion_id, 10);
@@ -2260,7 +2266,8 @@ export default function ConciliacionBancaria() {
           banco: row.banco,
           socio_id: row.selectedSocioId ? parseInt(row.selectedSocioId, 10) : null,
           liquidacion_id: null,
-          tipo_movimiento: 'CONCILIACION_GRUPO_MASTER'
+          tipo_movimiento: 'CONCILIACION_GRUPO_MASTER',
+          periodo: selectedPeriod || '2026-02'
         };
 
         // Insert master + individual splits together
@@ -2315,6 +2322,8 @@ export default function ConciliacionBancaria() {
           ? row.selectedLiquidations[0] 
           : (row.selectedLiquidationId ? row.selectedLiquidationId : null);
 
+        const matchedLiq = row.pendingList?.find(l => String(l.liquidacion_id) === String(singleLiqId));
+
         const { data: movData, error: movError } = await supabase
           .from('movimientos_bancarios')
           .insert({
@@ -2326,7 +2335,8 @@ export default function ConciliacionBancaria() {
             banco: row.banco,
             socio_id: row.selectedSocioId ? parseInt(row.selectedSocioId, 10) : null,
             liquidacion_id: singleLiqId ? parseInt(singleLiqId, 10) : null,
-            tipo_movimiento: row.tipo_movimiento
+            tipo_movimiento: row.tipo_movimiento,
+            periodo: matchedLiq?.periodo || selectedPeriod || '2026-02'
           })
           .select();
 
