@@ -1384,20 +1384,27 @@ export default function ConciliacionBancaria() {
         
         const cleanSocioCbu = matchedSocio.cbu ? matchedSocio.cbu.replace(/\D/g, '') : '';
         if (cleanSocioCbu) {
-          sharingSocios = socios.filter(s => {
+          const allSharing = socios.filter(s => {
             const c = s.cbu ? s.cbu.replace(/\D/g, '') : '';
             return c && c === cleanSocioCbu;
           });
           
           const gNums = new Set();
-          sharingSocios.forEach(s => {
+          allSharing.forEach(s => {
             s.grupo_socio?.forEach(g => {
               if (g && g.numero_grupo) gNums.add(g.numero_grupo);
             });
           });
           socioGroups = Array.from(gNums);
+
+          // Solo alertar como CBU compartido si pertenece a DISTINTOS grupos no familiares
+          if (socioGroups.length > 1) {
+            sharingSocios = allSharing;
+          } else {
+            sharingSocios = [];
+          }
         } else {
-          sharingSocios = [matchedSocio];
+          sharingSocios = [];
           socioGroups = matchedSocio.grupo_socio?.filter(g => g).map(g => g.numero_grupo) || [];
         }
         
@@ -2377,10 +2384,10 @@ export default function ConciliacionBancaria() {
           });
       }
 
-      // Auto-save CBU to socio if available
+      // Auto-save CBU to socio if available and socio has none
       try {
         const cbuMatch = row.cbu || row.concepto?.match(/\b\d{22}\b/)?.[0];
-        if (cbuMatch && row.selectedSocioId) {
+        if (cbuMatch && row.selectedSocioId && row.cuitMatch) {
           const socioIdInt = parseInt(row.selectedSocioId, 10);
           const { data: socioData, error: fetchSocioError } = await supabase
             .from('socios')
@@ -2388,16 +2395,15 @@ export default function ConciliacionBancaria() {
             .eq('socio_id', socioIdInt)
             .maybeSingle();
 
-          if (!fetchSocioError && socioData && socioData.cbu !== cbuMatch) {
+          if (!fetchSocioError && socioData && (!socioData.cbu || socioData.cbu === '0.0')) {
             await supabase
               .from('socios')
               .update({ cbu: cbuMatch })
               .eq('socio_id', socioIdInt);
-            // CBU guardada automáticamente
           }
         }
       } catch (cbuErr) {
-        console.error("Error al guardar CBU automáticamente:", cbuErr);
+        console.error("Error al guardar CBU:", cbuErr);
       }
 
       // Auto-registrar aprendizaje en conciliacion_historica
