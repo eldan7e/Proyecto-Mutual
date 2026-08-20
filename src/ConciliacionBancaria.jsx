@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from './supabaseClient';
-import { Calendar, Loader2 } from 'lucide-react';
+import { Calendar, Loader2, FileText } from 'lucide-react';
 import { parsearMovimientos } from './utils/bankParser';
 import { useToast } from './components/ui/ToastProvider';
 import { useConfirm } from './components/ui/ConfirmProvider';
@@ -297,6 +297,7 @@ export default function ConciliacionBancaria() {
 
   const fetchDbMovementsForPeriod = async (period) => {
     if (!period) return;
+    setLoadingHistorial(true);
     try {
       const [year, month] = period.split('-').map(Number);
       const startDate = `${period}-01`;
@@ -314,13 +315,15 @@ export default function ConciliacionBancaria() {
           impuestos,
           banco,
           socio_id,
+          numero_grupo,
           liquidacion_id,
           tipo_movimiento,
           comprobante,
-          periodo
+          periodo,
+          socios:socio_id(nombre_completo, nro_socio),
+          liquidaciones_grupos:liquidacion_id(numero_grupo, periodo, monto_total_facturado)
         `)
-        .or(`periodo.eq.${period},and(fecha_movimiento.gte.${startDate},fecha_movimiento.lte.${endDate}),and(socio_id.is.null,liquidacion_id.is.null,tipo_movimiento.eq.DEBITO_AUTOMATICO)`)
-        .gt('monto', 0)
+        .or(`periodo.eq.${period},and(fecha_movimiento.gte.${startDate},fecha_movimiento.lte.${endDate})`)
         .order('fecha_movimiento', { ascending: false });
 
       if (!error && data) {
@@ -328,6 +331,8 @@ export default function ConciliacionBancaria() {
       }
     } catch (err) {
       console.error("Error fetching db bank movements for period:", err);
+    } finally {
+      setLoadingHistorial(false);
     }
   };
 
@@ -3365,10 +3370,31 @@ export default function ConciliacionBancaria() {
         >
           Débitos Automáticos
         </button>
+        <button
+          onClick={() => setActiveTab('historial')}
+          className={`nav-pill ${activeTab === 'historial' ? 'active' : ''}`}
+          style={{ 
+            border: 'none', 
+            background: activeTab === 'historial' ? 'var(--accent)' : 'transparent',
+            color: activeTab === 'historial' ? 'white' : 'var(--text-secondary)',
+            cursor: 'pointer', 
+            padding: '10px 20px', 
+            fontWeight: 700, 
+            borderRadius: '10px', 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '8px',
+            fontSize: '14px',
+            boxShadow: activeTab === 'historial' ? '0 8px 18px -4px var(--accent-shadow)' : 'none',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          <FileText size={16} /> Movimientos Conciliados ({dbBankMovements.length})
+        </button>
       </div>
 
       {/* Contenidos de Pestañas */}
-      {(activeTab === 'nueva' || activeTab !== 'debitos') && (
+      {activeTab === 'nueva' && (
         <NuevaConciliacionTab
           selectedPeriod={selectedPeriod}
           parsedMovements={parsedMovements}
@@ -3423,6 +3449,22 @@ export default function ConciliacionBancaria() {
           handleTextPaste={handleTextPaste}
           periodConsumos={periodConsumos}
           handleToggleLineSelection={handleLoteRowToggleLineSelection}
+        />
+      )}
+
+      {activeTab === 'historial' && (
+        <HistorialMovimientosTab
+          historial={dbBankMovements}
+          loadingHistorial={loadingHistorial}
+          fetchHistorial={() => fetchDbMovementsForPeriod(selectedPeriod)}
+          handleDeshacerConciliacion={handleDeshacerConciliacion}
+          handleResetearPeriodo={handleResetearPeriodo}
+          selectedPeriod={selectedPeriod}
+          openBreakdownModal={openBreakdownModal}
+          formatISODateToAR={formatISODateToAR}
+          getTipoMovimientoLabel={getTipoMovimientoLabel}
+          renderTipoMovimientoBadge={renderTipoMovimientoBadge}
+          openEditConciliacionModal={openEditConciliacionModal}
         />
       )}
 

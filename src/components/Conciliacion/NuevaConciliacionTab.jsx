@@ -80,6 +80,21 @@ export default function NuevaConciliacionTab({
   const [reportSearch, setReportSearch] = useState('');
   const [reportPage, setReportPage] = useState(1);
 
+  // Cargar último informe guardado en localStorage para este período
+  useEffect(() => {
+    try {
+      const key = `cb_last_audit_report_${selectedPeriod || '2026-01'}`;
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        setDetailedReport(JSON.parse(saved));
+      } else {
+        setDetailedReport(null);
+      }
+    } catch (e) {
+      console.error('Error cargando informe guardado:', e);
+    }
+  }, [selectedPeriod]);
+
   // Reset page when filters change
   useEffect(() => {
     setCurrentPageNueva(1);
@@ -1042,8 +1057,8 @@ export default function NuevaConciliacionTab({
     if (typeof fetchMasterData === 'function') await fetchMasterData();
     if (typeof fetchPeriodSummary === 'function') await fetchPeriodSummary(periodoTarget);
 
-    // Open detailed report modal
-    setDetailedReport({
+    // Open detailed report modal and save to localStorage
+    const reportData = {
       periodoTarget,
       banco: bancoLabel,
       fileName: excelFile?.name || 'Archivo Excel',
@@ -1055,7 +1070,16 @@ export default function NuevaConciliacionTab({
       debitsInsertedCount,
       collectiveDebits: excelCollectiveDebits,
       items: reportItems
-    });
+    };
+    setDetailedReport(reportData);
+    try {
+      localStorage.setItem(`cb_last_audit_report_${periodoTarget}`, JSON.stringify(reportData));
+      if (selectedPeriod && selectedPeriod !== periodoTarget) {
+        localStorage.setItem(`cb_last_audit_report_${selectedPeriod}`, JSON.stringify(reportData));
+      }
+    } catch (e) {
+      console.error('Error guardando reporte en localStorage:', e);
+    }
     setReportModalOpen(true);
   };
 
@@ -1322,6 +1346,29 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                   }
                 }}
               />
+
+              {detailedReport && excelParsedData.length === 0 && (
+                <button
+                  type="button"
+                  onClick={() => setReportModalOpen(true)}
+                  className="air-btn"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '10px 16px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    borderRadius: '10px',
+                    background: 'rgba(16, 185, 129, 0.12)',
+                    border: '1px solid rgba(16, 185, 129, 0.35)',
+                    color: '#10b981',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <FileText size={16} /> Ver Último Informe de Conciliación ({detailedReport.totalCobros} cobros)
+                </button>
+              )}
 
               {excelParsedData.length > 0 && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
