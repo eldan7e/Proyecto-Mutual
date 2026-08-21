@@ -771,9 +771,13 @@ export default function IngresoDiario() {
                 }
               }
 
+              // Calculate similarity score normalized by word count (penalize extra unmatched words in name)
+              const maxWords = Math.max(socioWords.length, normTransferWords.length);
+              const score = matchCount + (matchCount / maxWords);
+
               // Require at least 2 matching words (e.g. surname + first name) or exact match on long unique name
-              if (matchCount >= 2 && matchCount > bestScore) {
-                bestScore = matchCount;
+              if (matchCount >= 2 && score > bestScore) {
+                bestScore = score;
                 bestG = g.numero_grupo;
                 socioMatch = s;
               }
