@@ -793,21 +793,56 @@ export default function ConciliacionBancaria() {
       if (socio) return { socio, reason: `Nº Socio ${socioNum}` };
     }
 
-    // 4. Coincidencia Inteligente por Nombre y Apellido con resolución de empates por deudas
+    // 4. Coincidencia Inteligente por Nombre y Apellido con resolución de empates
+    let rawNameForMatch = normConcept;
+    const tagMatch = normConcept.match(/(?:var|fac|cuo|hon)[- ]+([a-z\s,.'´]+?)(?:\s+cbu|\s*$)/i);
+    if (tagMatch) {
+      rawNameForMatch = tagMatch[1];
+    }
+
+    const transferNameWords = rawNameForMatch
+      .split(/[^a-z0-9]+/)
+      .filter(w => w.length >= 3 && !GENERIC_KEYWORDS.has(w) && !['transf', 'dist', 'titular', 'inmediata', 'ctas', 'credito', 'debin', 'origen', 'banco', 'cuit', 'cuil'].includes(w));
+
+    const wordsToCompare = transferNameWords.length > 0 ? transferNameWords : conceptWords;
+
     let bestSocio = null;
     let bestScore = 0;
     let candidates = [];
 
     sociosList.forEach(s => {
-      const socioWords = s.nombre_completo.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/[^a-z0-9]+/).filter(w => w.length > 2);
+      const socioWords = s.nombre_completo
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .split(/[^a-z0-9]+/)
+        .filter(w => w.length >= 3);
+
       let matchCount = 0;
-      
-      socioWords.forEach(sw => {
-        if (conceptWords.some(cw => isSimilarWord(cw, sw))) {
-          matchCount++;
+      let hasExactSurnameMatch = false;
+      let hasFirstNameMatch = false;
+
+      // First word of socio is usually surname (or "Apellido, Nombre")
+      const socioSurname = socioWords[0];
+      const socioOtherWords = socioWords.slice(1);
+
+      wordsToCompare.forEach(cw => {
+        if (socioSurname && isSimilarWord(cw, socioSurname)) {
+          hasExactSurnameMatch = true;
+          matchCount += 2; // Extra weight for surname
+        } else if (socioOtherWords.some(sw => isSimilarWord(cw, sw))) {
+          hasFirstNameMatch = true;
+          matchCount += 1.5; // Weight for first name
+        } else if (socioWords.some(sw => isSimilarWord(cw, sw))) {
+          matchCount += 1;
         }
       });
-      
+
+      // Bonus if both surname and first name matched
+      if (hasExactSurnameMatch && hasFirstNameMatch) {
+        matchCount += 3;
+      }
+
       if (matchCount > bestScore) {
         bestScore = matchCount;
         bestSocio = s;
@@ -817,11 +852,12 @@ export default function ConciliacionBancaria() {
       }
     });
 
-    if (bestScore >= 2) {
+    // Require at least score >= 3.5 (which guarantees surname + first name or multiple strong matches)
+    if (bestScore >= 3.5) {
       if (candidates.length === 1) {
         return { socio: candidates[0], reason: 'Nombre/Fuzzy' };
       } else if (candidates.length > 1) {
-        // En caso de empate, preferir al que tiene deudas pendientes
+        // En caso de empate, preferir al que tiene deudas pendientes en el período
         const candidatesWithDebt = candidates.filter(s => {
           const sGroups = s.grupo_socio?.map(g => g?.numero_grupo) || [];
           return pendingLiquidaciones.some(liq => liq && sGroups.includes(liq.numero_grupo));
@@ -829,7 +865,6 @@ export default function ConciliacionBancaria() {
         if (candidatesWithDebt.length === 1) {
           return { socio: candidatesWithDebt[0], reason: 'Nombre/Fuzzy (Con Deuda)' };
         }
-        // Si no hay o hay varios, retornar el mejor candidato inicial
         return { socio: bestSocio, reason: 'Nombre/Fuzzy' };
       }
     }

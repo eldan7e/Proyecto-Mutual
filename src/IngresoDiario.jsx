@@ -129,15 +129,36 @@ export default function IngresoDiario() {
     if (grupos.length > 0) return; // cached
     const { data, error } = await supabase
       .from('grupo_socio')
-      .select('numero_grupo, socio_id, socios:socio_id(nombre_completo, socio_id)')
-      .eq('es_titular', true)
+      .select('numero_grupo, socio_id, es_titular, socios:socio_id(nombre_completo, socio_id, cuit, dni)')
       .order('numero_grupo');
     if (error) { console.error(error); return; }
-    setGrupos((data || []).map(g => ({
-      numero_grupo: g.numero_grupo,
-      titular: g.socios?.nombre_completo || 'Sin titular',
-      socio_id: g.socios?.socio_id || g.socio_id,
-    })));
+
+    const grupoMap = {};
+    (data || []).forEach(g => {
+      const gNum = g.numero_grupo;
+      if (!grupoMap[gNum]) {
+        grupoMap[gNum] = {
+          numero_grupo: gNum,
+          titular: 'Sin titular',
+          socio_id: g.socio_id,
+          socios: []
+        };
+      }
+      if (g.es_titular && g.socios?.nombre_completo) {
+        grupoMap[gNum].titular = g.socios.nombre_completo;
+        grupoMap[gNum].socio_id = g.socios.socio_id || g.socio_id;
+      }
+      if (g.socios) {
+        grupoMap[gNum].socios.push({
+          socio_id: g.socios.socio_id || g.socio_id,
+          nombre_completo: g.socios.nombre_completo || '',
+          cuit: g.socios.cuit ? String(g.socios.cuit).replace(/\D/g, '') : '',
+          dni: g.socios.dni ? String(g.socios.dni).replace(/\D/g, '') : '',
+          es_titular: g.es_titular
+        });
+      }
+    });
+    setGrupos(Object.values(grupoMap));
   }
 
   async function fetchLiquidaciones() {
@@ -665,20 +686,108 @@ export default function IngresoDiario() {
 
       if (monto === 0) continue;
 
-      // Try to extract grupo from concepto
+      // 1. Try to extract explicit grupo number from concepto
       let grupoMatch = null;
-      // Look for grupo number patterns in the concept
-      const grupoPattern = concepto.match(/(?:grupo|gr)\s*(\d+)/i);
-      if (grupoPattern) grupoMatch = parseInt(grupoPattern[1]);
+      let socioMatch = null;
 
-      // Try to match by name
-      if (!grupoMatch && concepto) {
-        const found = grupos.find(g => {
-          const lastName = g.titular.split(',')[0].toUpperCase().trim();
-          return lastName.length > 3 && concepto.toUpperCase().includes(lastName);
-        });
-        if (found) grupoMatch = found.numero_grupo;
+      const normConcepto = concepto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const grupoPattern = normConcepto.match(/\b(?:grupo|gpo|g)[- _#]*(\d{1,6})\b/i);
+      if (grupoPattern) {
+        const gNum = parseInt(grupoPattern[1], 10);
+        if (grupos.some(g => g.numero_grupo === gNum)) {
+          grupoMatch = gNum;
+        }
       }
+
+      // 2. Try to match by CUIT (11 digits) from concepto
+      if (!grupoMatch) {
+        const cuitMatch = normConcepto.match(/\b(20|23|24|27|30|33)\d{8}\d?\b/);
+        if (cuitMatch) {
+          const rawCuit = cuitMatch[0];
+          for (const g of grupos) {
+            const foundSocio = (g.socios || []).find(s => s.cuit === rawCuit);
+            if (foundSocio) {
+              grupoMatch = g.numero_grupo;
+              socioMatch = foundSocio;
+              break;
+            }
+          }
+        }
+      }
+
+      // 3. Try to match by DNI (7-8 digits)
+      if (!grupoMatch) {
+        const dniMatch = normConcepto.match(/\b\d{7,8}\b/);
+        if (dniMatch) {
+          const rawDni = dniMatch[0];
+          for (const g of grupos) {
+            const foundSocio = (g.socios || []).find(s => s.dni === rawDni || s.cuit?.includes(rawDni));
+            if (foundSocio) {
+              grupoMatch = g.numero_grupo;
+              socioMatch = foundSocio;
+              break;
+            }
+          }
+        }
+      }
+
+      // 4. Try smart Name & Surname matching (requires surname AND first name match)
+      if (!grupoMatch && concepto) {
+        // Extract transferor name from typical bank formats (VAR-APELLIDO, NOMBRE, etc.)
+        let rawName = concepto;
+        const tagMatch = concepto.match(/(?:VAR|FAC|CUO|HON)[- ]+([A-Za-z\s,.'´]+?)(?:\s+CBU|\s*$)/i);
+        if (tagMatch) {
+          rawName = tagMatch[1];
+        }
+
+        const normTransferWords = rawName
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .split(/[^a-z0-9]+/)
+          .filter(w => w.length >= 3 && !['transf', 'dist', 'titular', 'inmediata', 'ctas', 'credito', 'debin', 'origen', 'banco', 'var', 'fac', 'cuo'].includes(w));
+
+        if (normTransferWords.length > 0) {
+          let bestG = null;
+          let bestScore = 0;
+
+          for (const g of grupos) {
+            const candidates = g.socios && g.socios.length > 0 
+              ? g.socios 
+              : [{ socio_id: g.socio_id, nombre_completo: g.titular }];
+
+            for (const s of candidates) {
+              const socioWords = (s.nombre_completo || '')
+                .toLowerCase()
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "")
+                .split(/[^a-z0-9]+/)
+                .filter(w => w.length >= 3);
+
+              let matchCount = 0;
+              for (const tw of normTransferWords) {
+                if (socioWords.some(sw => sw === tw || (sw.length > 4 && tw.length > 4 && (sw.includes(tw) || tw.includes(sw))))) {
+                  matchCount++;
+                }
+              }
+
+              // Require at least 2 matching words (e.g. surname + first name) or exact match on long unique name
+              if (matchCount >= 2 && matchCount > bestScore) {
+                bestScore = matchCount;
+                bestG = g.numero_grupo;
+                socioMatch = s;
+              }
+            }
+          }
+
+          if (bestG) {
+            grupoMatch = bestG;
+          }
+        }
+      }
+
+      const matchedGrupoObj = grupoMatch ? getGrupo(grupoMatch) : null;
+      const matchedTitular = socioMatch?.nombre_completo || matchedGrupoObj?.titular || '';
 
       parsed.push({
         id: Math.random().toString(36).substr(2, 9),
@@ -687,7 +796,8 @@ export default function IngresoDiario() {
         monto,
         comprobante,
         numero_grupo: grupoMatch || '',
-        nombre_socio: grupoMatch ? (getGrupo(grupoMatch)?.titular || '') : '',
+        nombre_socio: matchedTitular,
+        socio_id: socioMatch?.socio_id || matchedGrupoObj?.socio_id || null,
         include: true,
       });
     }

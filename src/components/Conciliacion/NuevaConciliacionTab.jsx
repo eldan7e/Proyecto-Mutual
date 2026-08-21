@@ -419,19 +419,23 @@ export default function NuevaConciliacionTab({
         'compara con cobros los positivo',
         'compara con cobros los positivos',
         'compara positivos',
-        'compara con cobros'
+        'compara con cobros',
+        'nacion',
+        'credicoop',
+        'hoja1',
+        'sheet1'
       ];
       let sheetName = workbook.SheetNames.find(s => {
         const lower = s.toLowerCase().trim();
         return targetSheetNames.some(t => lower === t || lower.includes(t));
       });
       if (!sheetName) {
-        // Fallback: try any sheet that has a GRUPO column
+        // Fallback: try any sheet that has data with a group number in col 0 or header GRUPO
         for (const sn of workbook.SheetNames) {
           const testData = XLSX.utils.sheet_to_json(workbook.Sheets[sn], { header: 1 });
           if (testData.length > 0) {
-            const header = testData[0];
-            if (header && header.some(h => String(h).toUpperCase().includes('GRUPO'))) {
+            const firstRow = testData[0] || [];
+            if (firstRow.some(h => String(h).toUpperCase().includes('GRUPO')) || /^\d{1,6}$/.test(String(firstRow[0] || '').trim())) {
               sheetName = sn;
               break;
             }
@@ -439,15 +443,25 @@ export default function NuevaConciliacionTab({
         }
       }
       if (!sheetName) {
-        alert('No se encontró la hoja "compara" ni una hoja con columna GRUPO en el Excel.');
-        return;
+        sheetName = workbook.SheetNames[0];
       }
 
       const sheet = workbook.Sheets[sheetName];
       const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
-      // Find column indices from header row
-      const headerRow = rawRows[0] || [];
+      if (!rawRows || rawRows.length === 0) {
+        alert('La hoja seleccionada está vacía.');
+        return;
+      }
+
+      // Detect if row 0 is a header or data
+      const firstRow = rawRows[0] || [];
+      const hasHeader = firstRow.some(h => {
+        const s = String(h).toUpperCase();
+        return s.includes('GRUPO') || s.includes('FECHA') || s.includes('CONCEPTO') || s.includes('CREDITO') || s.includes('IMPORTE');
+      });
+
+      const headerRow = hasHeader ? firstRow : [];
       const isDebCol = (h) => (h === 'DEBITO' || h === 'DEBITOS' || h === 'DÉBITO' || h === 'DÉBITOS') && !h.includes('UNIDOS') && !h.includes('TOTAL');
       const isCredCol = (h) => (h === 'CREDITO' || h === 'CREDITOS' || h === 'CRÉDITO' || h === 'CRÉDITOS' || h === 'IMPORTE' || h === 'MONTO') && !h.includes('UNIDOS') && !h.includes('TOTAL');
 
@@ -461,12 +475,22 @@ export default function NuevaConciliacionTab({
         return u.includes('APELLIDO') || u.includes('NOMBRE') || u.includes('SOCIO') || u.includes('CLIENTE') || u.includes('INTEGRANTE');
       });
 
-      // Fallback to known column positions if headers not found
-      if (grupoColIdx === -1) grupoColIdx = 7;
-      if (fechaColIdx === -1) fechaColIdx = 1;
-      if (conceptoColIdx === -1) conceptoColIdx = 3;
-      if (cpbteColIdx === -1) cpbteColIdx = 2;
-      if (creditoColIdx === -1) creditoColIdx = 4;
+      // Smart Fallbacks based on detected bank structure
+      if (detectedBanco === 'CREDICOOP') {
+        if (grupoColIdx === -1) grupoColIdx = 0; // Col 0 is Grupo in Credicoop
+        if (fechaColIdx === -1) fechaColIdx = 1;
+        if (conceptoColIdx === -1) conceptoColIdx = 2; // Col 2 is Concepto
+        if (cpbteColIdx === -1) cpbteColIdx = 3;
+        if (creditoColIdx === -1) creditoColIdx = 5; // Col 5 is Credito/Monto in Credicoop
+      } else {
+        // NACION
+        if (grupoColIdx === -1) grupoColIdx = 0; // Col 0 is Grupo in Nacion
+        if (fechaColIdx === -1) fechaColIdx = 1;
+        if (cpbteColIdx === -1) cpbteColIdx = 2;
+        if (conceptoColIdx === -1) conceptoColIdx = 3; // Col 3 is Concepto in Nacion
+        if (creditoColIdx === -1) creditoColIdx = 4; // Col 4 is Monto in Nacion
+        if (nombreColIdx === -1) nombreColIdx = 6; // Col 6 is Titular in Nacion
+      }
 
       const cleanNum = (val) => {
         if (val === undefined || val === null || val === '') return 0;
@@ -484,7 +508,7 @@ export default function NuevaConciliacionTab({
         return Math.abs(parseFloat(s)) || 0;
       };
 
-      const dataRows = rawRows.slice(1);
+      const dataRows = hasHeader ? rawRows.slice(1) : rawRows;
       const parsedPayments = [];
       let totalMonto = 0;
       let multiGrupoCount = 0;
