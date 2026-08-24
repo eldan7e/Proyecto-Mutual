@@ -415,13 +415,15 @@ export default function NuevaConciliacionTab({
 
       // Try to find the sheet with audited payments
       const targetSheetNames = [
+        'control',
         'compara',
         'compara con cobros los positivo',
         'compara con cobros los positivos',
         'compara positivos',
         'compara con cobros',
-        'nacion',
         'credicoop',
+        'nacion',
+        'filtrado',
         'hoja1',
         'sheet1'
       ];
@@ -458,7 +460,7 @@ export default function NuevaConciliacionTab({
       const firstRow = rawRows[0] || [];
       const hasHeader = firstRow.some(h => {
         const s = String(h).toUpperCase();
-        return s.includes('GRUPO') || s.includes('FECHA') || s.includes('CONCEPTO') || s.includes('CREDITO') || s.includes('IMPORTE');
+        return s.includes('GRUPO') || s.includes('FECHA') || s.includes('CONCEPTO') || s.includes('CREDITO') || s.includes('IMPORTE') || s.includes('TIPO');
       });
 
       const headerRow = hasHeader ? firstRow : [];
@@ -467,7 +469,10 @@ export default function NuevaConciliacionTab({
 
       let grupoColIdx = headerRow.findIndex(h => String(h).toUpperCase().includes('GRUPO'));
       let fechaColIdx = headerRow.findIndex(h => String(h).toUpperCase().includes('FECHA'));
-      let conceptoColIdx = headerRow.findIndex(h => String(h).toUpperCase().includes('CONCEPTO') || String(h).toUpperCase().includes('MOVIMIENTO') || String(h).toUpperCase().includes('DETALLE'));
+      let conceptoColIdx = headerRow.findIndex(h => {
+        const u = String(h).toUpperCase();
+        return u.includes('CONCEPTO') || u.includes('MOVIMIENTO') || u.includes('DETALLE') || u.includes('OBSERVACION');
+      });
       let cpbteColIdx = headerRow.findIndex(h => String(h).toUpperCase().includes('CPBTE') || String(h).toUpperCase().includes('COMPROB') || String(h).toUpperCase().includes('TICKET'));
       let creditoColIdx = headerRow.findIndex(h => isCredCol(String(h).toUpperCase().trim()));
       let nombreColIdx = headerRow.findIndex(h => {
