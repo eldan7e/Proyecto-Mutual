@@ -262,7 +262,8 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
 }
 
 /**
- * Registra un cobro PAGO en movimientos_cuenta y recalcula el saldo acumulado
+ * Registra un cobro PAGO en movimientos_cuenta y recalcula el saldo acumulado.
+ * @param {string} periodo - Período de la deuda a cancelar (ej: '2026-01'). OBLIGATORIO para imputación correcta.
  */
 export async function registrarCobroCuenta({
   numero_grupo,
@@ -271,6 +272,7 @@ export async function registrarCobroCuenta({
   medio_pago,
   observaciones,
   fecha = new Date().toISOString().slice(0, 10),
+  periodo = null,
   imputaciones = []
 }) {
   const monto = parseFloat(importe);
@@ -342,6 +344,7 @@ export async function registrarCobroCuenta({
     medio_pago,
     observaciones: observaciones || `Pago registrado vía web - Ref: ${medio_pago}`,
     origen: 'REGISTRO_WEB_CUENTA_CORRIENTE',
+    periodo: periodo || null,
     pago_aplicado_interes: Math.round(pagoAplicadoInteres * 100) / 100,
     pago_aplicado_capital: Math.round(pagoAplicadoCapital * 100) / 100,
     saldo_capital_anterior: Math.round(saldoCapitalAnterior * 100) / 100,
@@ -358,13 +361,21 @@ export async function registrarCobroCuenta({
   if (error) throw error;
 
   // 2. Sincronizar automáticamente liquidaciones_grupos asociadas al grupo
+  //    Si se pasa un período específico, imputar SOLO a ese período.
+  //    Si no se pasa período, hacer FIFO global (fallback para pagos desde frontend).
   try {
-    const { data: liqsPendientes } = await supabase
+    let query = supabase
       .from('liquidaciones_grupos')
-      .select('liquidacion_id, monto_total_facturado, monto_abonado, estado_pago')
+      .select('liquidacion_id, periodo, monto_total_facturado, monto_abonado, estado_pago')
       .eq('numero_grupo', numero_grupo)
-      .neq('estado_pago', 'ABONADO')
-      .order('periodo', { ascending: true });
+      .neq('estado_pago', 'ABONADO');
+
+    if (periodo) {
+      // Imputar SOLO al período indicado
+      query = query.eq('periodo', periodo);
+    }
+
+    const { data: liqsPendientes } = await query.order('periodo', { ascending: true });
 
     if (liqsPendientes && liqsPendientes.length > 0) {
       let remanenteCobro = monto;
@@ -401,7 +412,7 @@ export async function registrarCobroCuenta({
   try {
     await supabase.from('audit_log').insert({
       tipo_evento: 'REGISTRO_PAGO_CUENTA_CORRIENTE',
-      descripcion: `Cobro PAGO registrado: Grupo ${numero_grupo} por $${monto} (${medio_pago})`,
+      descripcion: `Cobro PAGO registrado: Grupo ${numero_grupo} por $${monto} (${medio_pago}) - Período ${periodo || 'N/A'}`,
       monto: monto,
       usuario: 'admin@aunar.com'
     });

@@ -472,6 +472,7 @@ export default function Contaduria() {
         medio_pago: medioPago,
         observaciones: observacionesCobro || `Cobro registrado en Contaduría - ${medioPago}`,
         fecha: fechaCobro,
+        periodo: targetFactura?.periodo || null,
         imputaciones: resultadoFifo?.desgloses || []
       });
 

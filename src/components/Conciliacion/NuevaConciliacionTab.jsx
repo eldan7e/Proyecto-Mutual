@@ -849,19 +849,23 @@ export default function NuevaConciliacionTab({
             ingreso_bruto: payment.monto,
             impuestos: 0,
             banco: banco,
+            numero_grupo: gNum,
+            nombre_socio: socioLabel,
             socio_id: liq?.socio_id || null,
             liquidacion_id: liq?.liquidacion_id || null,
-            tipo_movimiento: 'TRANSFERENCIA_RECIBIDA'
+            tipo_movimiento: 'TRANSFERENCIA_RECIBIDA',
+            periodo: periodoTarget
           });
 
-          // 2. Register cobro in cuenta corriente (this also updates liquidaciones_grupos via FIFO)
+          // 2. Register cobro in cuenta corriente (imputar SOLO al período target)
           await registrarCobroCuenta({
             numero_grupo: gNum,
             nombre: socioLabel,
             importe: payment.monto,
             medio_pago: banco,
             observaciones: `Importación Excel Auditado - Cpbte: ${payment.comprobante}`,
-            fecha: payment.fecha
+            fecha: payment.fecha,
+            periodo: periodoTarget
           });
 
           // Update local cache to prevent any subsequent identical rows in the same batch
@@ -938,9 +942,12 @@ export default function NuevaConciliacionTab({
                 ingreso_bruto: cuotaParte,
                 impuestos: 0,
                 banco: banco,
+                numero_grupo: gNum,
+                nombre_socio: socioLabel,
                 socio_id: liq?.socio_id || null,
                 liquidacion_id: liq?.liquidacion_id || null,
-                tipo_movimiento: 'TRANSFERENCIA_RECIBIDA'
+                tipo_movimiento: 'TRANSFERENCIA_RECIBIDA',
+                periodo: periodoTarget
               });
 
               await registrarCobroCuenta({
@@ -949,7 +956,8 @@ export default function NuevaConciliacionTab({
                 importe: cuotaParte,
                 medio_pago: banco,
                 observaciones: `Importación Excel Auditado - Pago compartido (${payment.grupoStr}) - Cpbte: ${payment.comprobante}`,
-                fecha: payment.fecha
+                fecha: payment.fecha,
+                periodo: periodoTarget
               });
 
               existingCcMovs.push({

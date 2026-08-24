@@ -2411,7 +2411,8 @@ export default function ConciliacionBancaria() {
               nombre: row.selectedSocioLabel || `Grupo ${groupNum}`,
               importe: Number(row.netoReal),
               medio_pago: row.banco || 'TRANSFERENCIA',
-              observaciones: `Conciliación Bancaria - ${row.concepto}`
+              observaciones: `Conciliación Bancaria - ${row.concepto}`,
+              periodo: selectedPeriod || null
             });
           } catch (errCuenta) {
             console.warn("Aviso al registrar cobro en cuenta corriente:", errCuenta);
