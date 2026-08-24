@@ -3264,7 +3264,7 @@ export default function ConciliacionBancaria() {
       if (datesWithBreakdowns.has(`${dbMov.fecha_movimiento}-${dbMov.banco}`)) return;
 
       const montoNum = Number(dbMov.monto || 0);
-      if (montoNum > 0 && isCollectiveRecaudacion(dbMov.concepto)) {
+      if (montoNum > 0 && (isCollectiveRecaudacion(dbMov.concepto) || dbMov.tipo_movimiento === 'DEBITO_AUTOMATICO')) {
         const key = `db-${dbMov.movimiento_id}`;
         if (!seen.has(key)) {
           seen.add(key);
