@@ -4,7 +4,7 @@ import { registrarAuditoria } from './utils/auditLogger';
 import { 
   Search, Edit2, Plus, Database, Smartphone, 
   Globe, Save, X, Filter, TrendingDown, TrendingUp, 
-  ShieldCheck, Loader2, RefreshCw, Hash, Phone, Link2, Unlink, PlusCircle
+  ShieldCheck, Loader2, RefreshCw, Hash, Phone, Link2, Unlink, PlusCircle, Trash2
 } from 'lucide-react';
 import Modal from './components/Modal';
 
@@ -479,6 +479,60 @@ export default function Planes({ hideHeader = false }) {
     }
   };
 
+  const handleDeletePlan = async (plan) => {
+    const lineasAsignadas = counts[plan.plan_id] || 0;
+    const confirmMsg = lineasAsignadas > 0
+      ? `¿Estás seguro de eliminar el plan "${plan.nombre_plan}"?\n\n⚠️ ATENCIÓN: Hay ${lineasAsignadas} línea(s) asignada(s) a este plan. Si lo eliminas, esas líneas quedarán sin plan asignado.`
+      : `¿Estás seguro de eliminar el plan "${plan.nombre_plan}"?`;
+      
+    if (!confirm(confirmMsg)) return;
+
+    setLoading(true);
+    try {
+      if (lineasAsignadas > 0) {
+        const { error: lineErr } = await supabase
+          .from('lineas')
+          .update({ plan_id: null })
+          .eq('plan_id', plan.plan_id);
+        if (lineErr) throw lineErr;
+      }
+
+      // Eliminar de precios históricos del plan
+      const { error: histErr } = await supabase
+        .from('precios_auditoria_periodo')
+        .delete()
+        .eq('plan_id', plan.plan_id);
+      if (histErr) throw histErr;
+
+      // Si otros planes tenían este plan como subplan_linea_fija, desvincular
+      await supabase
+        .from('planes_abonos')
+        .update({ subplan_linea_fija_id: null })
+        .eq('subplan_linea_fija_id', plan.plan_id);
+
+      // Eliminar el plan del catálogo
+      const { error: planErr } = await supabase
+        .from('planes_abonos')
+        .delete()
+        .eq('plan_id', plan.plan_id);
+      if (planErr) throw planErr;
+
+      await registrarAuditoria({
+        tipo_evento: 'ELIMINAR_PLAN',
+        descripcion: `Plan eliminado: "${plan.nombre_plan}" (ID ${plan.plan_id}) de ${plan.proveedores?.nombre || 'proveedor'}`,
+        monto: plan.precio
+      });
+
+      alert(`Plan "${plan.nombre_plan}" eliminado correctamente.`);
+      fetchPlanes();
+    } catch (err) {
+      console.error('Error al eliminar plan:', err);
+      alert('Error al eliminar plan: ' + (err.message || err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const filteredPlanes = planes
     .filter(p => {
       const matchSearch = p.nombre_plan.toLowerCase().includes(search.toLowerCase()) ||
@@ -874,7 +928,20 @@ export default function Planes({ hideHeader = false }) {
                             <Phone size={15} />
                           </button>
 
-                          <button className="icon-button-edit" onClick={() => { setEditingPlan(plan); setIsModalOpen(true); }}><Edit2 size={16} /></button>
+                          <button className="icon-button-edit" title="Editar Plan" onClick={() => { setEditingPlan(plan); setIsModalOpen(true); }}><Edit2 size={16} /></button>
+
+                          <button 
+                            className="icon-button-edit" 
+                            title="Eliminar Plan" 
+                            onClick={() => handleDeletePlan(plan)}
+                            style={{
+                              background: 'rgba(239, 68, 68, 0.12)',
+                              color: '#ef4444',
+                              border: '1px solid rgba(239, 68, 68, 0.25)'
+                            }}
+                          >
+                            <Trash2 size={16} />
+                          </button>
                         </div>
                       </td>
                     </tr>
