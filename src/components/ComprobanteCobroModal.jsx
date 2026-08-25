@@ -1,7 +1,7 @@
 import React from 'react';
 import Modal from './Modal';
 import { Printer, Send, ShieldCheck, User, Calendar, CreditCard, DollarSign, Building } from 'lucide-react';
-import { formatMoney } from '../utils/cuentaCorrienteEngine';
+import { formatMoney, formatFecha } from '../utils/cuentaCorrienteEngine';
 
 export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
   if (!cobroData) return null;
@@ -25,7 +25,7 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
   function handleEnviarWhatsApp() {
     let text = `*MUTUAL AUNAR — COMPROBANTE OFICIAL DE COBRO*\n`;
     text += `📄 *Recibo N°:* ${reciboNumero}\n`;
-    text += `📅 *Fecha de Cobro:* ${fecha}\n`;
+    text += `📅 *Fecha de Cobro:* ${formatFecha(fecha)}\n`;
     text += `👤 *Grupo Pagador:* Grupo ${numero_grupo} — ${nombre_titular || 'Socio'}\n`;
     text += `💰 *Monto Total Cobrado:* ${formatMoney(monto_cobrado)}\n`;
     text += `💳 *Medio / Forma de Pago:* ${medio_pago}\n`;
@@ -148,7 +148,7 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
                 {reciboNumero}
               </span>
               <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)' }}>
-                Fecha: {fecha}
+                Fecha: {formatFecha(fecha)}
               </span>
             </div>
 

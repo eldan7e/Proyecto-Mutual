@@ -34,6 +34,12 @@ export default function Planes({ hideHeader = false }) {
   const [newSubplanTarifaAunar, setNewSubplanTarifaAunar] = useState('');
   const [subplanSaving, setSubplanSaving] = useState(false);
 
+  // Estado para modal de Bonificación Esperada por Operadora
+  const [isBonifModalOpen, setIsBonifModalOpen] = useState(false);
+  const [proveedoresConfig, setProveedoresConfig] = useState([]);
+  const [savingBonif, setSavingBonif] = useState(false);
+
+
   function getCurrentPeriod() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -177,6 +183,40 @@ export default function Planes({ hideHeader = false }) {
     setCounts(countsMap);
     setPlanAverages(averagesMap);
     setLoading(false);
+  }
+
+  async function openBonifModal() {
+    const { data, error } = await supabase
+      .from('proveedores')
+      .select('proveedor_id, nombre, descuento_operadora_pct')
+      .order('proveedor_id');
+    if (!error) setProveedoresConfig(data || []);
+    setIsBonifModalOpen(true);
+  }
+
+  async function handleSaveBonif() {
+    setSavingBonif(true);
+    try {
+      for (const prov of proveedoresConfig) {
+        const pct = parseFloat(prov.descuento_operadora_pct) || 80;
+        // 1. Actualizar tabla proveedores
+        await supabase
+          .from('proveedores')
+          .update({ descuento_operadora_pct: pct })
+          .eq('proveedor_id', prov.proveedor_id);
+        // 2. Actualizar todos los planes de ese proveedor en masa
+        await supabase
+          .from('planes_abonos')
+          .update({ descuento_operadora_pct: pct })
+          .eq('proveedor_id', prov.proveedor_id);
+      }
+      setIsBonifModalOpen(false);
+      await fetchPlanes();
+    } catch (err) {
+      console.error('Error al guardar bonificación esperada:', err);
+    } finally {
+      setSavingBonif(false);
+    }
   }
 
   function openSubplanModal(plan) {
@@ -542,19 +582,24 @@ export default function Planes({ hideHeader = false }) {
             <span>Vincular Línea Fija (A100E / 3MC26)</span>
           </button>
           <button 
-            onClick={() => handleMassIncrease(4.5)} 
+            onClick={openBonifModal} 
             disabled={loading}
             className="action-button" 
             style={{ 
-              background: 'var(--accent-light)', 
-              color: 'var(--accent)', 
-              border: '1px solid var(--accent)', 
+              background: 'rgba(168, 85, 247, 0.1)', 
+              color: '#a855f7', 
+              border: '1px solid #a855f7', 
               borderRadius: '16px',
+              padding: '12px 20px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontWeight: 700,
               opacity: loading ? 0.6 : 1,
               cursor: loading ? 'not-allowed' : 'pointer'
             }}
           >
-            Aumento 4.5%
+            <ShieldCheck size={18} /> Bonif. Esperada
           </button>
           <button className="action-button" style={{ borderRadius: '16px', padding: '12px 24px' }} onClick={() => { setEditingPlan(null); setIsModalOpen(true); }}>
             <Plus size={18} style={{ marginRight: '8px' }} /> Nuevo Plan
@@ -562,6 +607,7 @@ export default function Planes({ hideHeader = false }) {
         </div>
       </div>
       )}
+
 
       {/* KPI Dashboard */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginBottom: '32px' }}>
@@ -672,21 +718,24 @@ export default function Planes({ hideHeader = false }) {
                   <span>Vincular Línea Fija</span>
                 </button>
                 <button 
-                  onClick={() => handleMassIncrease(4.5)} 
+                  onClick={openBonifModal}
                   disabled={loading}
                   className="action-button" 
                   style={{ 
-                    background: 'var(--accent-light)', 
-                    color: 'var(--accent)', 
-                    border: '1px solid var(--accent)', 
+                    background: 'rgba(168, 85, 247, 0.1)', 
+                    color: '#a855f7', 
+                    border: '1px solid #a855f7', 
                     borderRadius: '12px',
                     padding: '8px 16px',
                     fontSize: '13px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
                     opacity: loading ? 0.6 : 1,
                     cursor: loading ? 'not-allowed' : 'pointer'
                   }}
                 >
-                  Aumento 4.5%
+                  <ShieldCheck size={14} /> Bonif. Esperada
                 </button>
                 <button 
                   className="action-button" 
@@ -697,6 +746,7 @@ export default function Planes({ hideHeader = false }) {
                 </button>
               </div>
             )}
+
           </div>
 
           <div style={{ overflowX: 'auto' }}>
@@ -1129,6 +1179,103 @@ export default function Planes({ hideHeader = false }) {
             </div>
           </form>
         )}
+      </Modal>
+
+      {/* Modal: Bonificación Esperada por Operadora */}
+      <Modal
+        isOpen={isBonifModalOpen}
+        onClose={() => setIsBonifModalOpen(false)}
+        title="Bonificación Esperada por Operadora"
+      >
+        <div style={{ padding: '8px 0' }}>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '24px', lineHeight: 1.6 }}>
+            Configurá el porcentaje de descuento que la operadora aplica sobre el precio de lista para cada proveedor.
+            Este valor se aplica a <strong>todos los planes del proveedor</strong> y se usa en la auditoría de facturas.
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '28px' }}>
+            {proveedoresConfig.map((prov, idx) => {
+              const colorMap = { 1: '#ef4444', 2: '#3b82f6', 3: '#10b981' };
+              const color = colorMap[prov.proveedor_id] || '#a855f7';
+              return (
+                <div key={prov.proveedor_id} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  background: 'var(--surface)',
+                  border: `1px solid ${color}33`,
+                  borderRadius: '16px',
+                  padding: '16px 20px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{
+                      width: '10px', height: '10px', borderRadius: '50%',
+                      background: color, flexShrink: 0
+                    }} />
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: '15px' }}>{prov.nombre}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Descuento operadora sobre precio lista</div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.5"
+                      value={prov.descuento_operadora_pct ?? 80}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setProveedoresConfig(prev => prev.map((p, i) =>
+                          i === idx ? { ...p, descuento_operadora_pct: val } : p
+                        ));
+                      }}
+                      style={{
+                        width: '80px',
+                        textAlign: 'center',
+                        fontWeight: 900,
+                        fontSize: '20px',
+                        background: 'var(--background)',
+                        border: `2px solid ${color}`,
+                        borderRadius: '12px',
+                        padding: '8px 10px',
+                        color: color,
+                        outline: 'none'
+                      }}
+                    />
+                    <span style={{ fontWeight: 700, fontSize: '18px', color: color }}>%</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <button
+              onClick={() => setIsBonifModalOpen(false)}
+              className="action-button"
+              style={{
+                flex: 1, padding: '14px', borderRadius: '16px',
+                background: 'var(--surface)', color: 'var(--text-secondary)',
+                border: '1px solid var(--border-light)', fontWeight: 700
+              }}
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleSaveBonif}
+              disabled={savingBonif}
+              className="action-button"
+              style={{
+                flex: 2, padding: '14px', borderRadius: '16px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
+              }}
+            >
+              {savingBonif ? <Loader2 className="animate-spin" size={18} /> : <ShieldCheck size={18} />}
+              <span>Guardar Bonificaciones</span>
+            </button>
+          </div>
+        </div>
       </Modal>
 
     </div>

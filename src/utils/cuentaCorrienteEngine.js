@@ -19,13 +19,26 @@ export const DEFAULT_TNA = 0;
 export const DIA_TOPE_PAGO = 15;
 
 /**
+ * Formatea fechas ISO (YYYY-MM-DD) a formato día-mes-año (DD/MM/YYYY)
+ */
+export function formatFecha(isoDate) {
+  if (!isoDate) return '—';
+  const str = String(isoDate).trim().split('T')[0];
+  const parts = str.split('-');
+  if (parts.length === 3 && parts[0].length === 4) {
+    const [year, month, day] = parts;
+    return `${day}/${month}/${year}`;
+  }
+  return isoDate;
+}
+
+/**
  * Recalcula los saldos de un grupo EXACTAMENTE como lo hace el Excel AUNAR.
- * Procesa los movimientos de UN grupo en orden cronológico y produce las 9 columnas
- * calculadas del Excel: plazo_dias, interes_pct, interes_mora, interes_pend_acumulado,
- * pago_aplicado_interes, pago_aplicado_capital, saldo_capital, interes_pend_final, saldo_final.
+ * Procesa los movimientos de UN grupo en orden cronológico (FACTURA antes que PAGO en la misma fecha)
+ * y produce las 9 columnas calculadas del Excel.
  * 
- * @param {Array} movimientos - Movimientos de UN grupo, deben estar ordenados por fecha ASC
- * @param {number} [tnaPct=120] - Tasa nominal anual en PORCENTAJE (ej: 120 para 120%)
+ * @param {Array} movimientos - Movimientos de UN grupo
+ * @param {number} [tnaPct=0] - Tasa nominal anual en PORCENTAJE
  * @returns {Array} Movimientos enriquecidos con las columnas de cálculo del Excel
  */
 export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA) {
@@ -37,7 +50,17 @@ export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA) {
   let intPendAnt = 0;
   let fechaAnt = null;
 
-  return movimientos.map((m) => {
+  // Ordenar cronológicamente: fecha ASC, luego FACTURA (1) antes que PAGO (4), luego ID ASC
+  const sortedMovs = [...(movimientos || [])].sort((a, b) => {
+    if (a.fecha !== b.fecha) return (a.fecha || '').localeCompare(b.fecha || '');
+    const orderA = a.tipo === 'FACTURA' ? 1 : a.tipo === 'NOTA_DEBITO' ? 2 : a.tipo === 'NOTA_CREDITO' ? 3 : 4;
+    const orderB = b.tipo === 'FACTURA' ? 1 : b.tipo === 'NOTA_DEBITO' ? 2 : b.tipo === 'NOTA_CREDITO' ? 3 : 4;
+    if (orderA !== orderB) return orderA - orderB;
+    return (a.id || 0) - (b.id || 0);
+  });
+
+  return sortedMovs.map((m) => {
+
     // Determinar tipo de movimiento
     const isPago = m.tipo === 'PAGO';
     // Importe: positivo para facturas, negativo para pagos (tal cual viene del Excel)

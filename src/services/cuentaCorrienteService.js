@@ -121,6 +121,7 @@ export async function fetchMovimientosGrupo(numeroGrupo) {
     .select('*')
     .eq('numero_grupo', numeroGrupo)
     .order('fecha', { ascending: true })
+    .order('tipo', { ascending: true })
     .order('id', { ascending: true });
 
   if (error) throw error;

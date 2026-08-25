@@ -17,7 +17,7 @@ import {
 } from './services/cuentaCorrienteService';
 import { fetchPeriods } from './services/conciliacionService';
 import { 
-  recalcularSaldosGrupo, imputarCobroFIFO, formatMoney, 
+  recalcularSaldosGrupo, imputarCobroFIFO, formatMoney, formatFecha,
   calcularDiasMora, calcularInteresMora, DEFAULT_TNA 
 } from './utils/cuentaCorrienteEngine';
 
@@ -1615,7 +1615,7 @@ export default function Contaduria() {
                       const isNC = m.tipo === 'NOTA_CREDITO';
                       return (
                         <tr key={m.id} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                          <td style={{ padding: '12px 14px', fontWeight: 700 }}>{m.fecha}</td>
+                          <td style={{ padding: '12px 14px', fontWeight: 700 }}>{formatFecha(m.fecha)}</td>
                           <td style={{ padding: '12px 14px' }}>
                             <span style={{
                               background: isPago || isNC ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',

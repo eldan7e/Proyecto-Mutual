@@ -632,67 +632,96 @@ export default function CargaManual() {
       const lineasPayload = [];
       const newPeriodPrices = new Map(periodPrices);
 
-      // 2. Identificar o crear plan para cada línea
+      // 2. Identificar y crear planes faltantes de forma masiva
+      const missingPlans = new Map();
       for (const row of linesToUpdate) {
         const targetPlanName = row.plan.trim();
         const normName = targetPlanName.toLowerCase();
-        let existingPlan = planMap.get(normName);
-
-        if (!existingPlan) {
+        if (!planMap.has(normName) && !missingPlans.has(normName)) {
           const planPrice = row.abono || row.precioListaOriginal || 0;
-          const { data: newPlan, error: createErr } = await supabase
-            .from('planes_abonos')
-            .insert({
-              nombre_plan: targetPlanName,
-              proveedor_id: currentProvId,
-              precio: planPrice,
-              es_plan_internet: targetPlanName.toLowerCase().includes('internet')
-            })
-            .select()
-            .single();
-
-          if (createErr) throw createErr;
-          existingPlan = newPlan;
-          planMap.set(normName, newPlan);
+          missingPlans.set(normName, {
+            nombre_plan: targetPlanName,
+            proveedor_id: currentProvId,
+            precio: planPrice,
+            es_plan_internet: targetPlanName.toLowerCase().includes('internet')
+          });
         }
+      }
 
-        lineasPayload.push({
-          numero_linea: row.linea,
-          plan_id: existingPlan.plan_id
-        });
+      if (missingPlans.size > 0) {
+        const { data: createdPlanes, error: createErr } = await supabase
+          .from('planes_abonos')
+          .insert(Array.from(missingPlans.values()))
+          .select();
 
-        const targetListPrice = getPlanAverageListPrice({
-          planName: targetPlanName,
-          planId: existingPlan.plan_id,
-          fileDataList: fileData,
-          periodPricesMap: newPeriodPrices,
-          dbPlanObj: existingPlan,
-          dbLinesMap: dbLines,
-          fallbackPrice: row.precioListaOriginal || row.precioOficial || existingPlan.precio || 0
-        });
-
-        if (targetListPrice > 0 && !newPeriodPrices.has(existingPlan.plan_id)) {
-          newPeriodPrices.set(existingPlan.plan_id, targetListPrice);
-        }
-
-        updatedRowMap.set(row.linea, {
-          targetPlanId: existingPlan.plan_id,
-          planName: existingPlan.nombre_plan,
-          planPrice: targetListPrice,
-          gbIncluidos: existingPlan.gb_incluidos,
-          descuentoOperadoraPct: existingPlan.descuento_operadora_pct || 80,
-          rawRow: row
+        if (createErr) throw createErr;
+        (createdPlanes || []).forEach(p => {
+          if (p.nombre_plan) planMap.set(p.nombre_plan.toLowerCase().trim(), p);
         });
       }
 
-      // 3. Actualizar la tabla lineas en DB
-      for (const item of lineasPayload) {
-        const { error: lineUpdErr } = await supabase
-          .from('lineas')
-          .update({ plan_id: item.plan_id })
-          .eq('numero_linea', item.numero_linea);
+      for (const row of linesToUpdate) {
+        const targetPlanName = row.plan.trim();
+        const normName = targetPlanName.toLowerCase();
+        const existingPlan = planMap.get(normName);
 
-        if (lineUpdErr) throw lineUpdErr;
+        if (existingPlan) {
+          lineasPayload.push({
+            numero_linea: row.linea,
+            plan_id: existingPlan.plan_id
+          });
+
+          const targetListPrice = getPlanAverageListPrice({
+            planName: targetPlanName,
+            planId: existingPlan.plan_id,
+            fileDataList: fileData,
+            periodPricesMap: newPeriodPrices,
+            dbPlanObj: existingPlan,
+            dbLinesMap: dbLines,
+            fallbackPrice: row.precioListaOriginal || row.precioOficial || existingPlan.precio || 0
+          });
+
+          if (targetListPrice > 0 && !newPeriodPrices.has(existingPlan.plan_id)) {
+            newPeriodPrices.set(existingPlan.plan_id, targetListPrice);
+          }
+
+          updatedRowMap.set(row.linea, {
+            targetPlanId: existingPlan.plan_id,
+            planName: existingPlan.nombre_plan,
+            planPrice: targetListPrice,
+            gbIncluidos: existingPlan.gb_incluidos,
+            descuentoOperadoraPct: existingPlan.descuento_operadora_pct || 80,
+            rawRow: row
+          });
+        }
+      }
+
+      // 3. Actualizar la tabla lineas en DB en bloques agrupados por plan_id (Súper Rápido)
+      const linesByPlanId = new Map();
+      for (const item of lineasPayload) {
+        if (!linesByPlanId.has(item.plan_id)) {
+          linesByPlanId.set(item.plan_id, []);
+        }
+        linesByPlanId.get(item.plan_id).push(item.numero_linea);
+      }
+
+      const updatePromises = [];
+      for (const [planId, lineNumbers] of linesByPlanId.entries()) {
+        const chunkSize = 100;
+        for (let i = 0; i < lineNumbers.length; i += chunkSize) {
+          const chunk = lineNumbers.slice(i, i + chunkSize);
+          updatePromises.push(
+            supabase
+              .from('lineas')
+              .update({ plan_id: planId })
+              .in('numero_linea', chunk)
+          );
+        }
+      }
+
+      const updateResults = await Promise.all(updatePromises);
+      for (const res of updateResults) {
+        if (res.error) throw res.error;
       }
 
       // 4. Re-auditar cada línea y actualizar la grilla local
