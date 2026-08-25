@@ -1,5 +1,5 @@
 import { supabase } from '../supabaseClient';
-import { recalcularSaldosGrupo, DEFAULT_TNA } from '../utils/cuentaCorrienteEngine';
+import { recalcularSaldosGrupo, sortMovimientosCuenta, DEFAULT_TNA } from '../utils/cuentaCorrienteEngine';
 
 /**
  * Obtiene la configuración de parámetros de la cuenta corriente (TNA, día tope, etc)
@@ -120,13 +120,15 @@ export async function fetchMovimientosGrupo(numeroGrupo) {
     .from('movimientos_cuenta')
     .select('*')
     .eq('numero_grupo', numeroGrupo)
-    .order('fecha', { ascending: true })
+    .order('periodo', { ascending: true })
     .order('tipo', { ascending: true })
+    .order('fecha', { ascending: true })
     .order('id', { ascending: true });
 
   if (error) throw error;
-  return data || [];
+  return (data || []).sort(sortMovimientosCuenta);
 }
+
 
 /**
  * Obtiene la lista resumida de todos los grupos con sus saldos actuales

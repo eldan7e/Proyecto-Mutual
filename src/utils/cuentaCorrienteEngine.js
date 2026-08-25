@@ -33,8 +33,31 @@ export function formatFecha(isoDate) {
 }
 
 /**
+ * Función de ordenamiento canónico de movimientos de cuenta corriente:
+ * 1° Por PERÍODO contable ascendente (2026-01, 2026-02...)
+ * 2° FACTURAS antes que PAGOS (las facturas del período generan la deuda y los pagos la cancelan)
+ * 3° Por FECHA ascendente dentro del mismo tipo
+ * 4° Por ID ascendente
+ */
+export function sortMovimientosCuenta(a, b) {
+  const pA = a.periodo || (a.fecha ? a.fecha.slice(0, 7) : '9999-99');
+  const pB = b.periodo || (b.fecha ? b.fecha.slice(0, 7) : '9999-99');
+  if (pA !== pB) return pA.localeCompare(pB);
+
+  const orderA = a.tipo === 'FACTURA' ? 1 : a.tipo === 'NOTA_DEBITO' ? 2 : a.tipo === 'NOTA_CREDITO' ? 3 : 4;
+  const orderB = b.tipo === 'FACTURA' ? 1 : b.tipo === 'NOTA_DEBITO' ? 2 : b.tipo === 'NOTA_CREDITO' ? 3 : 4;
+  if (orderA !== orderB) return orderA - orderB;
+
+  const fA = a.fecha || '';
+  const fB = b.fecha || '';
+  if (fA !== fB) return fA.localeCompare(fB);
+
+  return (a.id || 0) - (b.id || 0);
+}
+
+/**
  * Recalcula los saldos de un grupo EXACTAMENTE como lo hace el Excel AUNAR.
- * Procesa los movimientos de UN grupo en orden cronológico (FACTURA antes que PAGO en la misma fecha)
+ * Procesa los movimientos de UN grupo en orden contable canónico (por período, FACTURA antes que PAGO)
  * y produce las 9 columnas calculadas del Excel.
  * 
  * @param {Array} movimientos - Movimientos de UN grupo
@@ -50,16 +73,11 @@ export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA) {
   let intPendAnt = 0;
   let fechaAnt = null;
 
-  // Ordenar cronológicamente: fecha ASC, luego FACTURA (1) antes que PAGO (4), luego ID ASC
-  const sortedMovs = [...(movimientos || [])].sort((a, b) => {
-    if (a.fecha !== b.fecha) return (a.fecha || '').localeCompare(b.fecha || '');
-    const orderA = a.tipo === 'FACTURA' ? 1 : a.tipo === 'NOTA_DEBITO' ? 2 : a.tipo === 'NOTA_CREDITO' ? 3 : 4;
-    const orderB = b.tipo === 'FACTURA' ? 1 : b.tipo === 'NOTA_DEBITO' ? 2 : b.tipo === 'NOTA_CREDITO' ? 3 : 4;
-    if (orderA !== orderB) return orderA - orderB;
-    return (a.id || 0) - (b.id || 0);
-  });
+  // Ordenar canónicamente por período, tipo (FACTURA antes que PAGO) y fecha
+  const sortedMovs = [...(movimientos || [])].sort(sortMovimientosCuenta);
 
   return sortedMovs.map((m) => {
+
 
     // Determinar tipo de movimiento
     const isPago = m.tipo === 'PAGO';
