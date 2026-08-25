@@ -357,13 +357,30 @@ export default function GestionPagos() {
           if (updateErr) throw updateErr;
         }
       }
+      // 3. Actualizar también el catálogo base planes_abonos para mantenerlo sincronizado
+      for (const plan of plansToApply) {
+        const updateCatalog = {};
+        if (plan.precio !== undefined && plan.precio !== '' && Number(plan.precio) > 0) {
+          updateCatalog.precio = Number(plan.precio);
+        }
+        if (plan.tarifa !== undefined && plan.tarifa !== '' && Number(plan.tarifa) > 0) {
+          updateCatalog.tarifa_aunar = Number(plan.tarifa);
+        }
+        if (Object.keys(updateCatalog).length > 0) {
+          await supabase
+            .from('planes_abonos')
+            .update(updateCatalog)
+            .eq('plan_id', plan.id);
+        }
+      }
+
       const sanitizedPlans = plansToApply.map(p => ({
         ...p,
         precio: p.precio === '' ? 0 : Number(p.precio),
         tarifa: p.tarifa === '' ? 0 : Number(p.tarifa)
       }));
       setBatchPlans(sanitizedPlans);
-      addToast('¡Unificado! Se aplicaron los precios a todas las líneas.', 'success');
+      addToast('¡Unificado! Se aplicaron los precios a todas las líneas y al catálogo.', 'success');
       setIsBatchModalOpen(false);
       fetchLineas();
     } catch (e) {

@@ -342,12 +342,12 @@ const GridRow = React.memo(function GridRow({ row, selectedProvider, dbLines, al
               (() => {
                 const pLista = (Number(row.precioListaOriginal) > 0) ? Number(row.precioListaOriginal) : (Number(row.precioOficial) || 0);
                 const descPct = pLista > 0 ? ((pLista - row.abono) / pLista) * 100 : 0;
-                const expectedPct = selectedProvider === 'personal' ? 80 : (row.descuentoEsperado || 80);
+                const expectedPct = row.descuentoEsperado || (selectedProvider === 'claro' ? 85 : 80);
                 const meets80 = descPct >= (expectedPct - 2.5);
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                     <span style={{ color: meets80 ? '#10b981' : '#ef4444', fontWeight: 800 }}>
-                      {descPct > 0 ? `${descPct.toFixed(1)}%` : '0%'}
+                      {descPct > 0 ? `${descPct.toFixed(2)}%` : '0%'}
                     </span>
                     <span style={{ fontSize: '9px', color: meets80 ? '#059669' : '#dc2626' }}>
                       (Esp: {expectedPct}%)
@@ -376,16 +376,6 @@ const GridRow = React.memo(function GridRow({ row, selectedProvider, dbLines, al
       </td>
       <td style={{ textAlign: 'center' }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
-          {row.auditStatus === 'WARN' ? (
-            <div style={{ fontSize: '11px', fontWeight: 800, color: '#ef4444' }}>
-              ❌ NOT OK
-            </div>
-          ) : (
-            <div style={{ fontSize: '11px', fontWeight: 800, color: '#10b981' }}>
-              ✔ OK
-            </div>
-          )}
-
           {prevPrice > 0 ? (
             <div style={{ 
               fontSize: '10px', 
@@ -538,8 +528,8 @@ export function PaginatedEditableGrid({
           } else {
             const discA = a.precioOficial > 0 ? Math.abs(((a.precioOficial - a.abono) / a.precioOficial) * 100) : 0;
             const discB = b.precioOficial > 0 ? Math.abs(((b.precioOficial - b.abono) / b.precioOficial) * 100) : 0;
-            const expectedA = selectedProvider === 'claro' ? 90 : (a.descuentoEsperado || 80);
-            const expectedB = selectedProvider === 'claro' ? 90 : (b.descuentoEsperado || 80);
+            const expectedA = a.descuentoEsperado || (selectedProvider === 'claro' ? 85 : 80);
+            const expectedB = b.descuentoEsperado || (selectedProvider === 'claro' ? 85 : 80);
             const devA = expectedA - discA;
             const devB = expectedB - discB;
             return devB - devA;
@@ -776,7 +766,7 @@ export function PaginatedEditableGrid({
               <th style={{ textAlign: 'center' }}>Mes Actual</th>
               <th style={{ textAlign: 'center' }}>Excedentes</th>
               <th style={{ textAlign: 'center' }}>Total</th>
-              <th style={{ textAlign: 'center' }}>Audit. Variación</th>
+              <th style={{ textAlign: 'center' }}>Variación</th>
               <th style={{ textAlign: 'center' }}>Acciones</th>
             </tr>
         </thead>

@@ -52,6 +52,7 @@ export default function CargaManual() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
   const [periodPrices, setPeriodPrices] = useState(new Map());
+  const [providerDiscounts, setProviderDiscounts] = useState({ claro: 85, movistar: 80, personal: 80, 1: 85, 2: 80, 3: 80 });
   
   const [isDbLinesLoading, setIsDbLinesLoading] = useState(true);
   const [isPeriodPricesLoading, setIsPeriodPricesLoading] = useState(true);
@@ -169,6 +170,20 @@ export default function CargaManual() {
         if (sociosError) throw sociosError;
 
         setAllSocios(sData || []);
+
+        const { data: provData, error: provError } = await supabase
+          .from('proveedores')
+          .select('proveedor_id, nombre, descuento_operadora_pct');
+        if (!provError && provData) {
+          const pDiscounts = { claro: 85, movistar: 80, personal: 80, 1: 85, 2: 80, 3: 80 };
+          provData.forEach(p => {
+            const pct = Number(p.descuento_operadora_pct) || (p.proveedor_id === 1 ? 85 : 80);
+            const key = p.proveedor_id === 1 ? 'claro' : p.proveedor_id === 2 ? 'movistar' : 'personal';
+            pDiscounts[key] = pct;
+            pDiscounts[p.proveedor_id] = pct;
+          });
+          setProviderDiscounts(pDiscounts);
+        }
       } catch (err) {
         console.error("Error fetching db lines or socios:", err);
         addToast('Error al conectar con la base de datos: ' + err.message, 'error');
@@ -285,8 +300,16 @@ export default function CargaManual() {
             periodPrices,
             prevConsumosData,
             parseNum,
-            periodo
+            periodo,
+            providerDiscounts
           });
+
+          const defaultDiscount = providerDiscounts[selectedProvider] || (selectedProvider === 'claro' ? 85 : 80);
+          const expectedDiscount = (dbInfo?.descuento_esperado !== undefined && dbInfo?.descuento_esperado !== null && Number(dbInfo.descuento_esperado) > 0)
+            ? Number(dbInfo.descuento_esperado)
+            : ((dbInfo?.descuento_operadora_pct !== undefined && dbInfo?.descuento_operadora_pct !== null && Number(dbInfo.descuento_operadora_pct) > 0)
+                ? Number(dbInfo.descuento_operadora_pct)
+                : defaultDiscount);
 
           return {
             linea: normPhone,
@@ -308,7 +331,8 @@ export default function CargaManual() {
             isManuallyAssigned: false,
             precioListaOriginal: item.precioListaStr,
             descuentoOriginal: item.descuentoStr,
-            prevAbonoBase: auditData.prevAbonoBase
+            prevAbonoBase: auditData.prevAbonoBase,
+            descuentoEsperado: expectedDiscount
           };
         });
 
@@ -432,8 +456,16 @@ export default function CargaManual() {
           periodPrices,
           prevConsumosData,
           parseNum,
-          periodo
+          periodo,
+          providerDiscounts
         }) : null;
+
+        const defaultDiscount = providerDiscounts[selectedProvider] || (selectedProvider === 'claro' ? 85 : 80);
+        const expectedDiscount = (dbInfo?.descuento_esperado !== undefined && dbInfo?.descuento_esperado !== null && Number(dbInfo.descuento_esperado) > 0)
+          ? Number(dbInfo.descuento_esperado)
+          : ((dbInfo?.descuento_operadora_pct !== undefined && dbInfo?.descuento_operadora_pct !== null && Number(dbInfo.descuento_operadora_pct) > 0)
+              ? Number(dbInfo.descuento_operadora_pct)
+              : defaultDiscount);
 
         return {
           ...row,
@@ -448,12 +480,13 @@ export default function CargaManual() {
           precioOficial: auditData?.precioLista || dbInfo?.precio_oficial || row.precioOficial,
           auditStatus: auditData?.auditStatus || row.auditStatus,
           alertas: auditData?.alertas || row.alertas,
-          isManuallyAssigned: true
+          isManuallyAssigned: true,
+          descuentoEsperado: expectedDiscount
         };
       }
       return row;
     }));
-  }, [dbLines, selectedProvider, periodPrices, prevConsumosData, periodo]);
+  }, [dbLines, selectedProvider, periodPrices, prevConsumosData, periodo, providerDiscounts]);
 
   const handleUpdateLineaPlan = useCallback(async (lineaNum, planName, planPrice) => {
     const provMap = { 'claro': 1, 'movistar': 2, 'personal': 3 };
@@ -574,9 +607,17 @@ export default function CargaManual() {
           periodPrices: periodPricesForAudit,
           prevConsumosData,
           parseNum,
-          periodo
+          periodo,
+          providerDiscounts
         });
       }
+
+      const defaultDiscount = providerDiscounts[selectedProvider] || (selectedProvider === 'claro' ? 85 : 80);
+      const expectedDiscount = (updatedDbInfo?.descuento_esperado !== undefined && updatedDbInfo?.descuento_esperado !== null && Number(updatedDbInfo.descuento_esperado) > 0)
+        ? Number(updatedDbInfo.descuento_esperado)
+        : ((updatedDbInfo?.descuento_operadora_pct !== undefined && updatedDbInfo?.descuento_operadora_pct !== null && Number(updatedDbInfo.descuento_operadora_pct) > 0)
+            ? Number(updatedDbInfo.descuento_operadora_pct)
+            : defaultDiscount);
 
       setFileData(prev => prev.map(row => {
         if (row.linea === lineaNum) {
@@ -587,7 +628,7 @@ export default function CargaManual() {
             gbOficial: targetPlanObj?.gb_incluidos ?? row.gbOficial,
             auditStatus: auditData?.auditStatus || 'OK',
             alertas: auditData?.alertas ? auditData.alertas.filter(a => !a.msg.includes('PLAN') && !a.msg.includes('DESVÍO') && !a.msg.includes('DESVIO')) : row.alertas?.filter(a => !a.msg.includes('PLAN') && !a.msg.includes('DESVÍO') && !a.msg.includes('DESVIO')),
-            descuentoEsperado: updatedDbInfo.descuento_operadora_pct || 80
+            descuentoEsperado: expectedDiscount
           };
         }
         return row;
@@ -761,8 +802,12 @@ export default function CargaManual() {
             periodPrices: newPeriodPrices,
             prevConsumosData,
             parseNum,
-            periodo
+            periodo,
+            providerDiscounts
           });
+
+          const defaultDiscount = providerDiscounts[selectedProvider] || (selectedProvider === 'claro' ? 85 : 80);
+          const expectedDiscount = info.descuentoOperadoraPct || updatedDbInfo.descuento_esperado || defaultDiscount;
 
           return {
             ...row,
@@ -771,7 +816,7 @@ export default function CargaManual() {
             gbOficial: info.gbIncluidos ?? row.gbOficial,
             auditStatus: auditData.auditStatus || 'OK',
             alertas: auditData.alertas ? auditData.alertas.filter(a => !a.msg.includes('PLAN') && !a.msg.includes('DESVÍO') && !a.msg.includes('DESVIO')) : row.alertas?.filter(a => !a.msg.includes('PLAN') && !a.msg.includes('DESVÍO') && !a.msg.includes('DESVIO')),
-            descuentoEsperado: info.descuentoOperadoraPct
+            descuentoEsperado: expectedDiscount
           };
         }
         return row;
@@ -1041,9 +1086,12 @@ export default function CargaManual() {
         break;
       }
     }
+    if (curTarifa === 0) {
+      curTarifa = currentProvId === 3 ? 8335 : (currentProvId === 1 ? 7630 : 7600);
+    }
     // Redondear sugerido a múltiplos de $5 para alinearse a las tarifas comerciales usuales
     const sugTarifaRaw = curTarifa * (1 + weightedAvgPct / 100);
-    const sugTarifa = Math.round(sugTarifaRaw / 5) * 5;
+    const sugTarifa = Math.abs(weightedAvgPct) > 0.01 ? (Math.round(sugTarifaRaw / 5) * 5) : curTarifa;
 
     const getShortMonthName = (pStr) => {
       if (!pStr) return '';

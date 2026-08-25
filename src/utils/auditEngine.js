@@ -99,10 +99,13 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       let abonoBaseClaro = costoAbonoReal;
 
       if (!esPlanFijoOInternet) {
-        if (precioOficialClaro > 0) {
-          abonoBaseClaro = precioOficialClaro * 0.10;
-        } else if (costoAbonoReal > 0) {
+        if (costoAbonoReal > 0) {
           abonoBaseClaro = costoAbonoReal;
+        } else if (precioOficialClaro > 0) {
+          const claroDescPct = (lineInfo?.descuento_esperado !== undefined && lineInfo?.descuento_esperado !== null && Number(lineInfo.descuento_esperado) > 0)
+            ? Number(lineInfo.descuento_esperado)
+            : ((dbInfo && dbInfo.descuento_operadora_pct > 0) ? Number(dbInfo.descuento_operadora_pct) : 85);
+          abonoBaseClaro = precioOficialClaro * (1 - claroDescPct / 100);
         }
       }
       
@@ -311,18 +314,19 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       totalCobrar = (subtotalConCargos - bonifSocio) + otrosCargosOp - bonifManual;
     }
 
-    // Auditoría específica de Movistar — Descuento base del 80% esperado
+    // Auditoría de Descuento por Operadora
     const precioLista = Number(consumo.precio_lista_audit || config.historicalPrice?.precio_lista || dbInfo?.precio || 0);
     let movistarAudit = null;
     let operatorAudit = null;
-    if ((parseInt(providerId) === 2 || parseInt(providerId) === 3) && precioLista > 0) {
+    if ((parseInt(providerId) === 1 || parseInt(providerId) === 2 || parseInt(providerId) === 3) && precioLista > 0) {
       const gbIncluidos = Number(dbInfo?.gb_incluidos || 0);
-      const isPersonalProv = parseInt(providerId) === 3;
-      const expectedPct = isPersonalProv
-        ? (lineInfo?.descuento_esperado !== undefined && lineInfo?.descuento_esperado !== null && Number(lineInfo.descuento_esperado) > 0 ? Number(lineInfo.descuento_esperado) : 80)
+      const isClaroProv = parseInt(providerId) === 1;
+      const defaultPct = isClaroProv ? 85 : 80;
+      const expectedPct = (lineInfo?.descuento_esperado !== undefined && lineInfo?.descuento_esperado !== null && Number(lineInfo.descuento_esperado) > 0)
+        ? Number(lineInfo.descuento_esperado)
         : ((dbInfo && dbInfo.descuento_operadora_pct > 0) 
             ? Number(dbInfo.descuento_operadora_pct) 
-            : (lineInfo?.descuento_esperado !== undefined && lineInfo?.descuento_esperado !== null ? Number(lineInfo.descuento_esperado) : 80));
+            : defaultPct);
       const tolerancePct = expectedPct - 2.5; // margen de tolerancia ~2.5%
       const actualDiscountPct = Math.round(((precioLista - costoAbonoReal) / precioLista) * 1000) / 10;
       const meetsAgreement = actualDiscountPct >= tolerancePct;
@@ -538,52 +542,33 @@ export function auditLineItem(item, dbInfo, context) {
   const realAbono = montoFacturado - excMonto;
   const montoTotalSocio = montoFacturado;
 
-  // --- AUDITORÍA DE BONIFICACIÓN (CLARO) ---
-  if (selectedProvider === 'claro' && precioLista > 0) {
+  // --- AUDITORÍA DE BONIFICACIÓN POR OPERADORA ---
+  if (precioLista > 0) {
     const descuentoReal = ((precioLista - realAbono) / precioLista) * 100;
-    const descuentoEsperado = 90;
-    const diffPct = descuentoReal - descuentoEsperado;
+    const defaultProvPct = selectedProvider === 'claro' ? 85 : 80;
+    const provConfigPct = (context.providerDiscounts && context.providerDiscounts[selectedProvider] !== undefined)
+      ? Number(context.providerDiscounts[selectedProvider])
+      : (dbInfo?.proveedor_descuento_pct ? Number(dbInfo.proveedor_descuento_pct) : defaultProvPct);
 
-    if (Math.abs(diffPct) > 2.0) { 
-      auditStatus = 'WARN';
-      if (diffPct < -2.0) {
-        alertas.push({ 
-          tipo: 'CRITICAL', 
-          msg: `BONIF INSUF: ${descuentoReal.toFixed(2)}% (Esperado ${descuentoEsperado}%)`,
-          diff: realAbono - (precioLista * (1 - descuentoEsperado/100))
-        });
-      } else {
-        alertas.push({ 
-          tipo: 'CRITICAL', 
-          msg: `BONIF EXTRA: ${descuentoReal.toFixed(2)}% (Esperado ${descuentoEsperado}%)`,
-          diff: (precioLista * (1 - descuentoEsperado/100)) - realAbono
-        });
-      }
-    } else {
-      alertas.push({ tipo: 'STABLE', msg: `Bonif. OK (${descuentoReal.toFixed(2)}%)` });
-    }
-  }
-
-  // --- AUDITORÍA DE BONIFICACIÓN (MOVISTAR / PERSONAL) ---
-  if ((selectedProvider === 'movistar' || selectedProvider === 'personal') && precioLista > 0) {
-    const descuentoReal = ((precioLista - realAbono) / precioLista) * 100;
-    const descuentoEsperado = (dbInfo && dbInfo.descuento_operadora_pct > 0) 
-      ? Number(dbInfo.descuento_operadora_pct) 
-      : 80;
+    const descuentoEsperado = (dbInfo?.descuento_esperado !== undefined && dbInfo?.descuento_esperado !== null && Number(dbInfo.descuento_esperado) > 0)
+      ? Number(dbInfo.descuento_esperado)
+      : ((dbInfo?.descuento_operadora_pct !== undefined && dbInfo?.descuento_operadora_pct !== null && Number(dbInfo.descuento_operadora_pct) > 0)
+          ? Number(dbInfo.descuento_operadora_pct)
+          : provConfigPct);
 
     const tolerance = 2.0;
+    const diffPct = descuentoReal - descuentoEsperado;
 
-    if (descuentoReal < (descuentoEsperado - tolerance)) {
-      auditStatus = 'WARN';
-      alertas.push({
-        tipo: 'CRITICAL',
-        msg: `BONIF INSUF: ${descuentoReal.toFixed(2)}% (Mínimo requerido ${descuentoEsperado.toFixed(2)}%)`,
-        diff: realAbono - (precioLista * (1 - descuentoEsperado / 100))
-      });
-    } else if (descuentoReal > (descuentoEsperado + tolerance)) {
+    if (diffPct < -tolerance) {
       auditStatus = 'WARN';
       alertas.push({ 
         tipo: 'CRITICAL', 
+        msg: `BONIF INSUF: ${descuentoReal.toFixed(2)}% (Esperado ${descuentoEsperado}%)`,
+        diff: realAbono - (precioLista * (1 - descuentoEsperado / 100))
+      });
+    } else if (diffPct > tolerance) {
+      alertas.push({ 
+        tipo: 'INFO', 
         msg: `BONIF EXTRA: ${descuentoReal.toFixed(2)}% (Esperado ${descuentoEsperado}%)`,
         diff: (precioLista * (1 - descuentoEsperado / 100)) - realAbono
       });

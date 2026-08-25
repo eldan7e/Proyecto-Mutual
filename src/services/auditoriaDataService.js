@@ -219,26 +219,28 @@ export async function fetchLineas(periodo, proveedorId) {
     .eq('proveedor_id', proveedorId);
 
   let batchPlans = [];
-  let defaultTarifaAunar = proveedorId === 3 ? 7585 : 6500;
+  const defaultTarifaProv = proveedorId === 3 ? 8335 : (proveedorId === 1 ? 7630 : 7600);
+  let defaultTarifaAunar = defaultTarifaProv;
 
   if (officialPlans) {
     batchPlans = officialPlans.map((p) => {
       const hist = histMap[p.plan_id];
+      const precio = (hist?.precio_lista !== undefined && hist?.precio_lista !== null && Number(hist.precio_lista) > 0)
+        ? Number(hist.precio_lista)
+        : Number(p.precio || 0);
+      const tarifa = (hist?.tarifa_aunar !== undefined && hist?.tarifa_aunar !== null && Number(hist.tarifa_aunar) > 0)
+        ? Number(hist.tarifa_aunar)
+        : (Number(p.tarifa_aunar || 0) > 0 ? Number(p.tarifa_aunar) : defaultTarifaProv);
       return {
         id: p.plan_id,
         nombre: p.nombre_plan,
-        precio:
-          hist?.precio_lista !== undefined && hist?.precio_lista !== null
-            ? Number(hist.precio_lista)
-            : Number(p.precio || 0),
-        tarifa:
-          hist?.tarifa_aunar !== undefined && hist?.tarifa_aunar !== null
-            ? Number(hist.tarifa_aunar)
-            : Number(p.tarifa_aunar || 0),
+        precio,
+        tarifa,
       };
     });
     if (batchPlans.length > 0) {
-      defaultTarifaAunar = batchPlans[0].tarifa;
+      const nonZero = batchPlans.map(b => b.tarifa).filter(t => t > 0);
+      defaultTarifaAunar = nonZero.length > 0 ? nonZero[0] : defaultTarifaProv;
     }
   }
 

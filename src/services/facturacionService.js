@@ -217,6 +217,11 @@ export async function saveFacturacion({
   // Step 3b — Insert new consumos in parallel chunks of 50
   progress(0, fileData.length, 'Guardando consumos...');
 
+  const defaultTarifaProv = proveedorId === 3 ? 8335 : (proveedorId === 1 ? 7630 : 7600);
+  const effectiveTarifaAunar = (sugTarifa && Number(sugTarifa) > 0)
+    ? Number(sugTarifa)
+    : (dbPlanes && dbPlanes[0]?.tarifa_aunar > 0 ? Number(dbPlanes[0].tarifa_aunar) : defaultTarifaProv);
+
   // Re-fetch period prices for audit columns
   const consumosPayload = fileData.map((row) => {
     const num = row.linea?.toString().replace(/\D/g, '');
@@ -232,7 +237,6 @@ export async function saveFacturacion({
       planPrice = dbPlan?.precio ?? 0;
     }
 
-    const tarifaAunar = dbPlan?.tarifa_aunar ?? 0;
     const planMargin = dbPlan?.mutual_margen_pct ?? 0;
 
     return {
@@ -245,7 +249,7 @@ export async function saveFacturacion({
       total_linea: (row.abono || 0) + (row.excedentes || 0),
       estado_pago: 'PENDIENTE',
       precio_lista_audit: planPrice,
-      tarifa_aunar_aplicada: tarifaAunar,
+      tarifa_aunar_aplicada: effectiveTarifaAunar,
       mutual_margen_aplicado: planMargin,
       precio_lista_factura: (proveedorId === 1 && row.precioOficial) 
         ? row.precioOficial 
@@ -268,98 +272,67 @@ export async function saveFacturacion({
     )
   );
 
+  progress(fileData.length, fileData.length, 'Sincronizando matriz histórica y catálogo de planes...');
 
-  if (planIncreases && planIncreases.length > 0 && proveedorId !== 1) {
-    progress(fileData.length, fileData.length, 'Sincronizando precios de planes...');
+  // 1. Actualizar Tarifa Aunar en el catálogo planes_abonos para TODOS los planes del proveedor
+  if (effectiveTarifaAunar > 0) {
+    await supabase
+      .from('planes_abonos')
+      .update({ tarifa_aunar: effectiveTarifaAunar })
+      .eq('proveedor_id', proveedorId);
+  }
+
+  // 2. Extraer precios de lista detectados en el archivo o aumentos
+  const detectedListPrices = {};
+  fileData.forEach(row => {
+    const num = row.linea?.toString().replace(/\D/g, '');
+    const lineaObj = lineasPayload.find((l) => l.numero_linea === num);
+    const planId = lineaObj?.plan_id;
+    if (planId && (row.precioOficial > 0 || Number(row.precioListaOriginal) > 0)) {
+      detectedListPrices[planId] = Number(row.precioOficial || row.precioListaOriginal);
+    }
+  });
+
+  if (planIncreases && planIncreases.length > 0) {
     for (const p of planIncreases) {
-      if (p.plan && p.plan !== 'No registrado' && p.avgCurrAbono > 0) {
-        const dbPlan = (dbPlanes || []).find(dp => dp.nombre_plan?.toLowerCase() === p.plan?.toLowerCase());
-        if (dbPlan) {
-          const avgPrice = Math.round(p.avgCurrAbono * 100) / 100;
-          
-          if (proveedorId !== 2) {
-            // 1. Actualizar catálogo de planes (solo si no es Movistar ni Claro)
-            const { error: errPlan } = await supabase
-              .from('planes_abonos')
-              .update({ precio: avgPrice })
-              .eq('plan_id', dbPlan.plan_id);
-            if (errPlan) console.error(`Error al actualizar plan ${p.plan} en catálogo:`, errPlan);
-          }
-
-          // 2. Persistir en tabla precios_auditoria_periodo
-          // Para Movistar (proveedorId === 2), usamos el precio de lista oficial de su catálogo
-          const precioListaAGuardar = proveedorId === 2 ? (dbPlan.precio || 0) : avgPrice;
-
-          const { error: errAuditoria } = await supabase
-            .from('precios_auditoria_periodo')
-            .upsert({
-              periodo,
-              plan_id: dbPlan.plan_id,
-              precio_lista: precioListaAGuardar,
-              tarifa_aunar: dbPlan.tarifa_aunar || 0
-            }, { onConflict: 'periodo,plan_id' });
-          if (errAuditoria) console.error(`Error al actualizar histórico de ${p.plan}:`, errAuditoria);
+      if (p.plan && p.plan !== 'No registrado') {
+        const norm = p.plan.toLowerCase().replace(/\s+/g, '');
+        const matched = (dbPlanes || []).find(dp => dp.nombre_plan?.toLowerCase().replace(/\s+/g, '') === norm);
+        if (matched && !detectedListPrices[matched.plan_id]) {
+          const listP = p.currListPrice || (p.avgCurrAbono > 0 ? Math.round(p.avgCurrAbono * 100) / 100 : 0);
+          if (listP > 0) detectedListPrices[matched.plan_id] = listP;
         }
       }
     }
   }
 
-  if (proveedorId === 1) {
-    progress(fileData.length, fileData.length, 'Actualizando catálogo e histórico de precios de Claro...');
-    
-    // Mapas para consolidar por plan_id los precios de lista y abonos finales con bonificación
-    const planListPrices = {};
-    const planAbonoSums = {};
-    const planAbonoCounts = {};
+  // 3. Sincronizar catálogo e insertar matriz histórica para TODOS los planes del proveedor
+  const matrixUpserts = [];
+  for (const dbPlan of (dbPlanes || [])) {
+    const detectedPrice = detectedListPrices[dbPlan.plan_id];
+    const finalPrice = (detectedPrice && detectedPrice > 0) ? detectedPrice : Number(dbPlan.precio || 0);
 
-    fileData.forEach(row => {
-      const num = row.linea?.toString().replace(/\D/g, '');
-      const lineaObj = lineasPayload.find((l) => l.numero_linea === num);
-      const planId = lineaObj?.plan_id;
-      const dbPlan = (dbPlanes || []).find(p => p.plan_id === planId);
-      
-      // Saltar planes puramente de internet o consola fija sin abono variable
-      if (dbPlan?.es_plan_internet) return;
-      
-      if (planId) {
-        if (row.precioOficial > 0) {
-          planListPrices[planId] = row.precioOficial;
-        }
-        if (row.abono > 0) {
-          planAbonoSums[planId] = (planAbonoSums[planId] || 0) + Number(row.abono);
-          planAbonoCounts[planId] = (planAbonoCounts[planId] || 0) + 1;
-        }
-      }
-    });
-
-    for (const [planIdStr, listPrice] of Object.entries(planListPrices)) {
-      const pId = parseInt(planIdStr, 10);
-      const avgAbonoBonificado = planAbonoCounts[pId] > 0 
-        ? Math.round((planAbonoSums[pId] / planAbonoCounts[pId]) * 100) / 100 
-        : null;
-
-      // 1. Actualizar el catálogo de planes en la tabla planes_abonos (Precio de Lista / Proveedor)
-      const updateData = { precio: listPrice };
-      const { error: errPlanCatalog } = await supabase
+    // Actualizar precio de lista en catálogo si es mayor que 0
+    if (detectedPrice && detectedPrice > 0 && detectedPrice !== Number(dbPlan.precio)) {
+      await supabase
         .from('planes_abonos')
-        .update(updateData)
-        .eq('plan_id', pId);
-
-      if (errPlanCatalog) console.error(`Error al actualizar catálogo de Claro para plan_id ${pId}:`, errPlanCatalog);
-
-      // 2. Persistir en la tabla precios_auditoria_periodo (Histórico del período)
-      const dbPlan = (dbPlanes || []).find(p => p.plan_id === pId);
-      const { error: errAuditoria } = await supabase
-        .from('precios_auditoria_periodo')
-        .upsert({
-          periodo,
-          plan_id: pId,
-          precio_lista: listPrice,
-          tarifa_aunar: dbPlan?.tarifa_aunar || 0
-        }, { onConflict: 'periodo,plan_id' });
-        
-      if (errAuditoria) console.error(`Error al actualizar histórico de Claro para plan_id ${pId}:`, errAuditoria);
+        .update({ precio: detectedPrice })
+        .eq('plan_id', dbPlan.plan_id);
     }
+
+    matrixUpserts.push({
+      periodo,
+      plan_id: dbPlan.plan_id,
+      precio_lista: finalPrice,
+      tarifa_aunar: effectiveTarifaAunar
+    });
+  }
+
+  if (matrixUpserts.length > 0) {
+    const { error: errMatrix } = await supabase
+      .from('precios_auditoria_periodo')
+      .upsert(matrixUpserts, { onConflict: 'periodo,plan_id' });
+    if (errMatrix) console.error('Error al guardar matriz histórica:', errMatrix);
   }
 
   // Step 4 — Audit log entry
