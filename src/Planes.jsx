@@ -209,6 +209,11 @@ export default function Planes({ hideHeader = false }) {
           .from('planes_abonos')
           .update({ descuento_operadora_pct: pct })
           .eq('proveedor_id', prov.proveedor_id);
+        // 3. Limpiar overrides individuales en líneas para que hereden el porcentaje general
+        await supabase
+          .from('lineas')
+          .update({ descuento_esperado: null })
+          .eq('proveedor_id', prov.proveedor_id);
       }
       setIsBonifModalOpen(false);
       await fetchPlanes();
