@@ -677,6 +677,20 @@ export function consolidateFixedServices(resultados, selectedProvider) {
 
         const combinedMontoTotal = Math.round((combinedCostoAbono + combinedExcedentes) * 100) / 100;
 
+        // Combinar abonos del mes anterior para comparar aumento real del combo completo
+        const fijaPrevAbono = Number(fija.prevAbonoBase || 0);
+        const internetPrevAbono = Number(matchInternet.prevAbonoBase || 0);
+        if (fijaPrevAbono > 0 || internetPrevAbono > 0) {
+          fija.prevAbonoBase = Math.round((fijaPrevAbono + internetPrevAbono) * 100) / 100;
+        }
+
+        // Combinar precio de lista si corresponde
+        const fijaPrecioLista = Number(fija.precioOficial || fija.precioListaOriginal || 0);
+        const internetPrecioLista = Number(matchInternet.precioOficial || matchInternet.precioListaOriginal || 0);
+        if (internetPrecioLista > 0) {
+          fija.precioOficial = Math.round((fijaPrecioLista + internetPrecioLista) * 100) / 100;
+        }
+
         fija.costo_abono_real = combinedCostoAbono;
         fija.abono = combinedCostoAbono;
         fija.excedentes = combinedExcedentes;

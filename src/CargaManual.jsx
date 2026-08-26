@@ -986,24 +986,13 @@ export default function CargaManual() {
       if (cleanLines.length === 0) {
         cleanLines = lines; // Fallback a líneas con excedentes
       }
-      
-      const sample = cleanLines.slice(0, 4); // Tomar hasta 4 líneas
-      let avgPct = 0;
-      if (sample.length > 0) {
-        let totalPct = 0;
-        sample.forEach(l => {
-          const pct = ((l.abono - l.prevAbonoBase) / l.prevAbonoBase) * 100;
-          totalPct += pct;
-        });
-        avgPct = totalPct / sample.length;
-      }
 
-      // Calcular promedio real de abono base del mes anterior y actual para este plan
+      // Calcular promedio real de abono base del mes anterior y actual para este plan sobre líneas limpias
       let totalPrev = 0;
       let totalCurr = 0;
       let countVal = 0;
-      lines.forEach(l => {
-        if (l.prevAbonoBase > 0) {
+      cleanLines.forEach(l => {
+        if (l.prevAbonoBase > 0 && l.abono > 0) {
           totalPrev += l.prevAbonoBase;
           totalCurr += l.abono;
           countVal++;
@@ -1011,6 +1000,12 @@ export default function CargaManual() {
       });
       const avgPrev = countVal > 0 ? (totalPrev / countVal) : 0;
       const avgCurr = countVal > 0 ? (totalCurr / countVal) : 0;
+
+      // Calcular porcentaje de aumento real del plan
+      let avgPct = 0;
+      if (avgPrev > 0 && avgCurr > 0) {
+        avgPct = ((avgCurr - avgPrev) / avgPrev) * 100;
+      }
 
       // Buscar plan_id en dbLines para obtener los precios de lista del mes anterior y actual
       let dbPlanInfo = null;
@@ -1059,15 +1054,15 @@ export default function CargaManual() {
     // Ordenar los de mayor aumento primero
     planIncreases.sort((a, b) => b.increase - a.increase);
 
-    // Calcular aumento sugerido a la Tarifa Aunar basado en el aumento puro de los planes más bajos sin excedentes
-    let candidateRows = fileData.filter(row => row.prevAbonoBase > 0 && (row.excedentes || 0) === 0);
-    // Filtrar aumentos distorsionados (> 10%) causados por pérdida de bonificaciones de operadora
-    const pureLines = candidateRows.filter(row => {
+    // Calcular aumento sugerido a la Tarifa Aunar basado en el aumento puro de líneas sin excedentes
+    let candidateRows = fileData.filter(row => row.prevAbonoBase > 0 && row.abono > 0 && (row.excedentes || 0) === 0);
+    // Filtrar aumentos distorsionados anómalos (> 100% o < -50%) causados por altas/bajas de bonificaciones individuales
+    const validRows = candidateRows.filter(row => {
       const pct = ((row.abono - row.prevAbonoBase) / row.prevAbonoBase) * 100;
-      return pct <= 10.0;
+      return pct >= -50.0 && pct <= 100.0;
     });
 
-    const targetRows = pureLines.length > 0 ? pureLines : (candidateRows.length > 0 ? candidateRows : fileData.filter(row => row.prevAbonoBase > 0));
+    const targetRows = validRows.length > 0 ? validRows : (candidateRows.length > 0 ? candidateRows : fileData.filter(row => row.prevAbonoBase > 0));
 
     let totalLinesWithPrev = 0;
     let sumPct = 0;
@@ -1077,6 +1072,7 @@ export default function CargaManual() {
       totalLinesWithPrev++;
     });
     const weightedAvgPct = totalLinesWithPrev > 0 ? (sumPct / totalLinesWithPrev) : 0;
+
 
     // Buscar la tarifa Aunar actual de este proveedor
     let curTarifa = 0;
