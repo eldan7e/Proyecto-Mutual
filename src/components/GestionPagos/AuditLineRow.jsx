@@ -40,7 +40,7 @@ export default function AuditLineRow({ d, isPeriodoLiquidado, adicionalesData, o
               letterSpacing: '-0.01em'
             }}>
               {d.calculado.movistarAudit.meetsAgreement 
-                ? `🟢 OK ${d.calculado.movistarAudit.expectedPct}% Mov` 
+                ? `🟢 OK ${d.calculado.movistarAudit.expectedPct}%` 
                 : `⚠️ NO CUMPLE ${d.calculado.movistarAudit.expectedPct}% (${d.calculado.movistarAudit.actualDiscountPct}%)`}
               {!d.calculado.movistarAudit.meetsAgreement && ` [+$${d.calculado.movistarAudit.diferencia.toLocaleString('es-AR', { minimumFractionDigits: 2 })}]`}
             </span>
