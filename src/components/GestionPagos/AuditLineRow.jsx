@@ -200,9 +200,11 @@ export default function AuditLineRow({ d, isPeriodoLiquidado, adicionalesData, o
               {adicionalesData[d.numero_linea]?.filter(ad => (ad.tipo === 'DESCUENTO' || ad.tipo === 'CARGO_PCT' || ad.tipo === 'CARGO') && ad.total_cuotas > 1).map(ad => {
                 const isDesc = ad.tipo === 'DESCUENTO';
                 const remaining = Math.max(0, (ad.total_cuotas || 1) - (ad.cta_numero || 1));
-                const now = new Date();
-                const endMonth = ((now.getMonth() + remaining) % 12);
-                const endYear = now.getFullYear() + Math.floor((now.getMonth() + remaining) / 12);
+                const [pYear, pMonth] = (d.periodo || '').split('-').map(Number);
+                const baseMonth = (pMonth && !isNaN(pMonth)) ? pMonth - 1 : new Date().getMonth();
+                const baseYear = (pYear && !isNaN(pYear)) ? pYear : new Date().getFullYear();
+                const endMonth = (baseMonth + remaining) % 12;
+                const endYear = baseYear + Math.floor((baseMonth + remaining) / 12);
                 const shortMonths = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
                 const endStr = `${shortMonths[endMonth]} ${endYear}`;
                 return (
