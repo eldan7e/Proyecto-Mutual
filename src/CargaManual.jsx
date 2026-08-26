@@ -65,6 +65,7 @@ export default function CargaManual() {
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [confirmStats, setConfirmStats] = useState(null);
   const [forceSave, setForceSave] = useState(false);
+  const [applySuggestedTarifa, setApplySuggestedTarifa] = useState(false);
   const [sortByAnomalies, setSortByAnomalies] = useState(false);
   const [selectedRows, setSelectedRows] = useState(new Set());
   const [isUpdatingPlanes, setIsUpdatingPlanes] = useState(false);
@@ -1126,6 +1127,7 @@ export default function CargaManual() {
     });
     
     setForceSave(false);
+    setApplySuggestedTarifa(false);
     setIsConfirmModalOpen(true);
   };
 
@@ -1140,9 +1142,10 @@ export default function CargaManual() {
         proveedorId: currentProviderId,
         proveedorName: selectedProvider,
         fileData,
-        sugTarifa: confirmStats?.sugTarifa,
+        sugTarifa: applySuggestedTarifa ? confirmStats?.sugTarifa : null,
         planIncreases: confirmStats?.planIncreases
       });
+
 
       setStep(3);
     } catch (error) {
@@ -1617,26 +1620,73 @@ export default function CargaManual() {
                     );
                   })}
                   {confirmStats?.weightedAvgPct !== undefined && confirmStats?.curTarifa > 0 && (
-                    <div style={{ padding: '16px', background: 'rgba(59, 130, 246, 0.08)', borderTop: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      <div style={{ fontSize: '11px', fontWeight: 800, color: '#3b82f6', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tarifa Aunar Sugerida (Proveedor)</div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap', fontSize: '13px', fontWeight: 900, color: 'var(--text-primary)' }}>
-                          <span>Tarifa Actual:</span>
-                          <span style={{ textDecoration: 'line-through', color: 'var(--text-secondary)', fontWeight: 600 }}>${confirmStats.curTarifa.toLocaleString('es-AR')}</span>
-                          <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>→ Sugerida:</span>
-                          <span style={{ color: 'var(--accent)', fontSize: '18px', fontWeight: 900 }}>${confirmStats.sugTarifa.toLocaleString('es-AR')}</span>
+                    <div style={{ 
+                      padding: '16px', 
+                      background: applySuggestedTarifa ? 'rgba(16, 185, 129, 0.08)' : 'rgba(59, 130, 246, 0.08)', 
+                      borderTop: '1px solid var(--border-light)', 
+                      border: applySuggestedTarifa ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(59, 130, 246, 0.2)',
+                      borderRadius: '12px',
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      gap: '10px'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 800, color: applySuggestedTarifa ? '#10b981' : '#3b82f6', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                          {applySuggestedTarifa ? 'Tarifa Aunar Aumentada (Seleccionado)' : 'Tarifa Aunar Sugerida (Opcional)'}
                         </div>
-                        <span style={{ fontSize: '11px', fontWeight: 800, background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6', padding: '3px 10px', borderRadius: '100px', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 800, background: applySuggestedTarifa ? 'rgba(16, 185, 129, 0.15)' : 'rgba(59, 130, 246, 0.15)', color: applySuggestedTarifa ? '#10b981' : '#3b82f6', padding: '3px 10px', borderRadius: '100px', whiteSpace: 'nowrap' }}>
                           {confirmStats.weightedAvgPct >= 0 ? '+' : ''}{confirmStats.weightedAvgPct.toFixed(1)}% {selectedProvider === 'movistar' ? '(Planes Base)' : 'Ponderado'}
                         </span>
                       </div>
-                      <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 500 }}>
-                        {selectedProvider === 'movistar' 
-                          ? 'Aumento sugerido basado en el incremento puro (~2%) de los planes base sin excedentes.' 
-                          : 'Aumento calculado ponderando la variación real de las líneas activas.'}
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap', fontSize: '13px', fontWeight: 900, color: 'var(--text-primary)' }}>
+                          <span>Tarifa Actual:</span>
+                          <span style={{ textDecoration: applySuggestedTarifa ? 'line-through' : 'none', color: applySuggestedTarifa ? 'var(--text-secondary)' : 'var(--text-primary)', fontWeight: applySuggestedTarifa ? 600 : 900 }}>
+                            ${confirmStats.curTarifa.toLocaleString('es-AR')}
+                          </span>
+                          {applySuggestedTarifa && (
+                            <>
+                              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>→ Nueva:</span>
+                              <span style={{ color: '#10b981', fontSize: '18px', fontWeight: 900 }}>${confirmStats.sugTarifa.toLocaleString('es-AR')}</span>
+                            </>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setApplySuggestedTarifa(!applySuggestedTarifa)}
+                          className="air-btn"
+                          style={{
+                            padding: '8px 14px',
+                            fontSize: '12px',
+                            fontWeight: 800,
+                            borderRadius: '10px',
+                            background: applySuggestedTarifa ? 'rgba(239, 68, 68, 0.1)' : 'var(--accent)',
+                            color: applySuggestedTarifa ? '#ef4444' : '#fff',
+                            border: applySuggestedTarifa ? '1px solid rgba(239, 68, 68, 0.3)' : 'none',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {applySuggestedTarifa ? (
+                            <>Mantener Tarifa Actual (${confirmStats.curTarifa.toLocaleString('es-AR')})</>
+                          ) : (
+                            <>Aplicar Aumento Sugerido (${confirmStats.sugTarifa.toLocaleString('es-AR')})</>
+                          )}
+                        </button>
+                      </div>
+
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                        {applySuggestedTarifa 
+                          ? `✅ Se guardará la liquidación con la nueva Tarifa Aunar ($${confirmStats.sugTarifa.toLocaleString('es-AR')}) para ${selectedProvider?.toUpperCase()}.`
+                          : 'ℹ️ Es una sugerencia calculada según la variación real. Hacé clic en "Aplicar Aumento Sugerido" si deseás actualizar la tarifa del socio.'}
                       </div>
                     </div>
                   )}
+
                 </div>
               </div>
             )}

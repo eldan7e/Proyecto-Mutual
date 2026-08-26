@@ -218,9 +218,19 @@ export async function saveFacturacion({
   progress(0, fileData.length, 'Guardando consumos...');
 
   const defaultTarifaProv = proveedorId === 3 ? 8335 : (proveedorId === 1 ? 7630 : 7600);
+  const currentDbTarifa = dbPlanes && dbPlanes[0]?.tarifa_aunar > 0 ? Number(dbPlanes[0].tarifa_aunar) : defaultTarifaProv;
   const effectiveTarifaAunar = (sugTarifa && Number(sugTarifa) > 0)
     ? Number(sugTarifa)
-    : (dbPlanes && dbPlanes[0]?.tarifa_aunar > 0 ? Number(dbPlanes[0].tarifa_aunar) : defaultTarifaProv);
+    : currentDbTarifa;
+
+  // Si el usuario aplicó expresamente la nueva tarifa sugerida, actualizarla en el catálogo planes_abonos
+  if (sugTarifa && Number(sugTarifa) > 0) {
+    const { error: errTarifa } = await supabase
+      .from('planes_abonos')
+      .update({ tarifa_aunar: Number(sugTarifa) })
+      .eq('proveedor_id', proveedorId);
+    if (errTarifa) console.error('Error al actualizar tarifa_aunar en catálogo:', errTarifa);
+  }
 
   // Re-fetch period prices for audit columns
   const consumosPayload = fileData.map((row) => {
