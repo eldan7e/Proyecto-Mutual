@@ -99,13 +99,10 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       let abonoBaseClaro = costoAbonoReal;
 
       if (!esPlanFijoOInternet) {
-        if (costoAbonoReal > 0) {
+        if (precioOficialClaro > 0) {
+          abonoBaseClaro = precioOficialClaro * 0.10;
+        } else if (costoAbonoReal > 0) {
           abonoBaseClaro = costoAbonoReal;
-        } else if (precioOficialClaro > 0) {
-          const claroDescPct = (lineInfo?.descuento_esperado !== undefined && lineInfo?.descuento_esperado !== null && Number(lineInfo.descuento_esperado) > 0)
-            ? Number(lineInfo.descuento_esperado)
-            : ((dbInfo && dbInfo.descuento_operadora_pct > 0) ? Number(dbInfo.descuento_operadora_pct) : 85);
-          abonoBaseClaro = precioOficialClaro * (1 - claroDescPct / 100);
         }
       }
       
@@ -682,13 +679,6 @@ export function consolidateFixedServices(resultados, selectedProvider) {
         const internetPrevAbono = Number(matchInternet.prevAbonoBase || 0);
         if (fijaPrevAbono > 0 || internetPrevAbono > 0) {
           fija.prevAbonoBase = Math.round((fijaPrevAbono + internetPrevAbono) * 100) / 100;
-        }
-
-        // Combinar precio de lista si corresponde
-        const fijaPrecioLista = Number(fija.precioOficial || fija.precioListaOriginal || 0);
-        const internetPrecioLista = Number(matchInternet.precioOficial || matchInternet.precioListaOriginal || 0);
-        if (internetPrecioLista > 0) {
-          fija.precioOficial = Math.round((fijaPrecioLista + internetPrecioLista) * 100) / 100;
         }
 
         fija.costo_abono_real = combinedCostoAbono;

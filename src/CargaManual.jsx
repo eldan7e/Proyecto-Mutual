@@ -52,7 +52,7 @@ export default function CargaManual() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
   const [periodPrices, setPeriodPrices] = useState(new Map());
-  const [providerDiscounts, setProviderDiscounts] = useState({ claro: 85, movistar: 80, personal: 80, 1: 85, 2: 80, 3: 80 });
+  const [providerDiscounts, setProviderDiscounts] = useState({ claro: 90, movistar: 80, personal: 80, 1: 90, 2: 80, 3: 80 });
   
   const [isDbLinesLoading, setIsDbLinesLoading] = useState(true);
   const [isPeriodPricesLoading, setIsPeriodPricesLoading] = useState(true);
