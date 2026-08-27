@@ -404,26 +404,40 @@ export const procesarPersonal = (textLines) => {
         }
       }
 
-      // Extras / Excedentes (Roaming, Gigas, WiFi Pass, etc)
-      const isSkippedDetail = u.includes('PLAN') || u.includes('DESCUENTO') ||
-        u.includes('SERVICIOBASICO') || u.includes('PLANESYSERVICIOS') ||
-        u.includes('OTROSCARGOS') || u.includes('IMPUESTOS') ||
-        u.includes('IVA') || u.includes('PERCEP') || u.includes('INTERNOS') ||
-        u.includes('DESCUENTOSADICIONALES') || u.includes('DESCUENTOCONEXION') ||
-        u.startsWith('INTERNET');
+      // Extras / Excedentes (Roaming, Larga Distancia, SMS, Gigas, WiFi Pass, etc.)
+      const isExtraHeader = (
+        u.includes('ROAMING') || u.includes('LARGADISTANCIA') ||
+        u.includes('SMS') || u.includes('WIFIPASS') || u.includes('50OFF') || u.includes('PACK') ||
+        u.includes('DIAS') || u.includes('DIA') ||
+        (u.includes('MINUTOS') && !u.includes('PLAN'))
+      ) && !u.includes('BENEFICIO') && !u.includes('DUPLICA') && !u.includes('PLAN') && !u.includes('DESCUENTO');
 
-      if (!isSkippedDetail) {
+      if (isExtraHeader) {
         const amounts = rawLine.match(/-?[\d\.]+(?:,\d{2})\b/g) || rawLine.match(/-?[\d,]+(?:\.\d{2})\b/g);
         if (amounts) {
           const valStr = amounts[amounts.length - 1];
           const isNegative = valStr.includes('-');
           const val = parsePersonalNumber(valStr.replace('-', ''));
           if (!isNegative && val > 0 && val < 200000) {
-            if (!hasSkippedPlanPrice) {
-              hasSkippedPlanPrice = true;
-              continue;
-            }
             current.excedentes += val;
+            current._isWaitingExtraAmount = false;
+            continue;
+          }
+        }
+        current._isWaitingExtraAmount = true;
+        continue;
+      }
+
+      if (current._isWaitingExtraAmount) {
+        const amounts = rawLine.match(/-?[\d\.]+(?:,\d{2})\b/g) || rawLine.match(/-?[\d,]+(?:\.\d{2})\b/g);
+        if (amounts) {
+          const valStr = amounts[amounts.length - 1];
+          const isNegative = valStr.includes('-');
+          const val = parsePersonalNumber(valStr.replace('-', ''));
+          if (!isNegative && val > 0 && val < 200000) {
+            current.excedentes += val;
+            current._isWaitingExtraAmount = false;
+            continue;
           }
         }
       }
