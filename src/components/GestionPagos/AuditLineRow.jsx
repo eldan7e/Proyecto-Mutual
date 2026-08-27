@@ -141,32 +141,66 @@ export default function AuditLineRow({ d, isPeriodoLiquidado, adicionalesData, o
             </div>
           )}
 
-          {Math.abs(d.calculado?.bonifManual || 0) > 0.01 ? (
-            <div 
+          {/* Descuentos / Cargos editables */}
+          {(Math.abs(d.calculado?.bonifManual || 0) > 0.01 || (d.calculado?.appliedDiscountPct || 0) !== 0) ? (
+            <div
               onClick={() => onOpenDescuento && onOpenDescuento(d)}
-              title="Editar o gestionar descuento"
-              style={{ 
-                background: (d.calculado?.bonifManual || 0) > 0 ? '#f0fdf4' : '#fff7ed',
-                padding: '6px 10px',
-                borderRadius: '8px',
-                border: (d.calculado?.bonifManual || 0) > 0 ? '1px solid #bcf0da' : '1px solid #ffedd5',
-                textAlign: 'right',
+              title="Hacé clic para modificar o eliminar este descuento/cargo"
+              style={{
                 cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px'
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'flex-end',
+                gap: '2px',
+                padding: '4px 8px',
+                borderRadius: '8px',
+                transition: 'all 0.15s ease',
+                background: (d.calculado?.appliedDiscountPct || 0) >= 0 && (d.calculado?.bonifManual || 0) >= 0 ? '#f0fdf4' : '#fff7ed',
+                border: (d.calculado?.appliedDiscountPct || 0) >= 0 && (d.calculado?.bonifManual || 0) >= 0 ? '1px solid #bcf0da' : '1px solid #ffedd5'
               }}
+              onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.08)'}
+              onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
             >
-              <div style={{ fontWeight: 800, color: (d.calculado?.bonifManual || 0) > 0 ? '#16a34a' : '#c2410c', fontSize: '14px' }}>
-                {(d.calculado?.bonifManual || 0) > 0 ? '-' : '+'}${Math.abs(d.calculado.bonifManual).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <div style={{ fontWeight: 800, color: ((d.calculado?.bonifManual || 0) > 0 || (d.calculado?.appliedDiscountPct || 0) > 0) ? '#16a34a' : '#c2410c', fontSize: '14px' }}>
+                  {(d.calculado?.bonifManual || 0) > 0 || (d.calculado?.appliedDiscountPct || 0) > 0 ? '-' : '+'}${Math.abs(d.calculado?.bonifManual || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                </div>
+                <Tag size={12} color={((d.calculado?.bonifManual || 0) > 0 || (d.calculado?.appliedDiscountPct || 0) > 0) ? '#16a34a' : '#c2410c'} />
               </div>
-              <Tag size={12} color={(d.calculado?.bonifManual || 0) > 0 ? '#16a34a' : '#c2410c'} />
+              
+              {(d.calculado?.appliedDiscountPct || 0) !== 0 && (
+                <div style={{ 
+                  fontSize: '10px', 
+                  color: (d.calculado?.appliedDiscountPct || 0) > 0 ? '#16a34a' : '#c2410c', 
+                  fontWeight: 800, 
+                  textTransform: 'uppercase'
+                }}>
+                  {Math.abs(d.calculado.appliedDiscountPct)}% {(d.calculado?.appliedDiscountPct || 0) > 0 ? 'Desc.' : 'Cargo'} Socio
+                </div>
+              )}
+
+              {adicionalesData[d.numero_linea]?.filter(ad => (ad.tipo === 'DESCUENTO' || ad.tipo === 'CARGO_PCT' || ad.tipo === 'CARGO') && ad.total_cuotas > 1).map(ad => {
+                const isDesc = ad.tipo === 'DESCUENTO';
+                const remaining = Math.max(0, (ad.total_cuotas || 1) - (ad.cta_numero || 1));
+                const [pYear, pMonth] = (d.periodo || '').split('-').map(Number);
+                const baseMonth = (pMonth && !isNaN(pMonth)) ? pMonth - 1 : new Date().getMonth();
+                const baseYear = (pYear && !isNaN(pYear)) ? pYear : new Date().getFullYear();
+                const endMonth = (baseMonth + remaining) % 12;
+                const endYear = baseYear + Math.floor((baseMonth + remaining) / 12);
+                const shortMonths = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+                const endStr = `${shortMonths[endMonth]} ${endYear}`;
+                return (
+                  <div key={ad.id} style={{ fontSize: '9px', color: isDesc ? '#16a34a' : '#c2410c', fontWeight: 700 }}>
+                    MES {ad.cta_numero} DE {ad.total_cuotas} (Fin: {endStr})
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <button
               onClick={() => onOpenDescuento && onOpenDescuento(d)}
               style={{
-                padding: '3px 8px',
+                padding: '4px 10px',
                 fontSize: '11px',
                 fontWeight: 700,
                 color: '#64748b',
@@ -185,35 +219,6 @@ export default function AuditLineRow({ d, isPeriodoLiquidado, adicionalesData, o
             >
               <Plus size={11} /> $0 (Crear)
             </button>
-          )}
-          {(d.calculado?.appliedDiscountPct || 0) !== 0 && (
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ 
-                fontSize: '10px', 
-                color: (d.calculado?.appliedDiscountPct || 0) > 0 ? '#16a34a' : '#c2410c', 
-                fontWeight: 800, 
-                textTransform: 'uppercase', 
-                marginTop: '2px' 
-              }}>
-                {Math.abs(d.calculado.appliedDiscountPct)}% {(d.calculado?.appliedDiscountPct || 0) > 0 ? 'Desc.' : 'Cargo'} Socio
-              </div>
-              {adicionalesData[d.numero_linea]?.filter(ad => (ad.tipo === 'DESCUENTO' || ad.tipo === 'CARGO_PCT' || ad.tipo === 'CARGO') && ad.total_cuotas > 1).map(ad => {
-                const isDesc = ad.tipo === 'DESCUENTO';
-                const remaining = Math.max(0, (ad.total_cuotas || 1) - (ad.cta_numero || 1));
-                const [pYear, pMonth] = (d.periodo || '').split('-').map(Number);
-                const baseMonth = (pMonth && !isNaN(pMonth)) ? pMonth - 1 : new Date().getMonth();
-                const baseYear = (pYear && !isNaN(pYear)) ? pYear : new Date().getFullYear();
-                const endMonth = (baseMonth + remaining) % 12;
-                const endYear = baseYear + Math.floor((baseMonth + remaining) / 12);
-                const shortMonths = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-                const endStr = `${shortMonths[endMonth]} ${endYear}`;
-                return (
-                  <div key={ad.id} style={{ fontSize: '9px', color: isDesc ? '#16a34a' : '#c2410c', fontWeight: 700 }}>
-                    MES {ad.cta_numero} DE {ad.total_cuotas} (Fin: {endStr})
-                  </div>
-                );
-              })}
-            </div>
           )}
         </div>
       </td>

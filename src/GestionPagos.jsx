@@ -120,20 +120,60 @@ export default function GestionPagos() {
       socioId: d.lineas?.socios?.socio_id,
       planOficial: d.lineas?.planes_abonos?.nombre_plan,
       abono: abonoBaseFull,
-      consumoId: d.consumo_id
+      consumoId: d.consumo_id,
+      currentDiscountPct: d.calculado?.appliedDiscountPct || 0,
+      bonifManual: d.calculado?.bonifManual || 0,
+      adicionales: adicionalesData[d.numero_linea] || []
     });
     setIsDescuentoModalOpen(true);
   };
 
-  const handleApplyDescuentoGestionPagos = async ({ linea, socioId, tipo, valor, esPorcentaje, esDuradero, cuotas, descripcion, consumoId }) => {
+  const handleApplyDescuentoGestionPagos = async ({ linea, socioId, tipo, valor, esPorcentaje, esDuradero, cuotas, descripcion, consumoId, action }) => {
     try {
+      if (action === 'DELETE') {
+        // Eliminar descuentos y cargos asociados a esta línea
+        await supabase
+          .from('adicionales')
+          .delete()
+          .eq('numero_linea', linea);
+
+        await supabase
+          .from('lineas')
+          .update({ descuento_esperado: null })
+          .eq('numero_linea', linea);
+
+        if (socioId) {
+          await supabase
+            .from('socios')
+            .update({ desc_adicionales: 0 })
+            .eq('socio_id', socioId);
+        }
+
+        if (consumoId) {
+          await supabase
+            .from('consumos_mensuales')
+            .update({ bonificaciones: 0, otros_cargos_op: 0 })
+            .eq('consumo_id', consumoId);
+        }
+
+        addToast(`Descuento/Cargo eliminado para la línea ${linea}`, 'success');
+        fetchLineas();
+        return;
+      }
+
       const numValor = Number(valor);
       if (isNaN(numValor) || numValor <= 0) return;
 
       const isDesc = tipo === 'DESCUENTO';
 
       if (esDuradero) {
-        // Guardar en la tabla 'adicionales' para que figure en Descuentos y Cargos
+        // Eliminar primero cualquier adicional previo para evitar duplicaciones
+        await supabase
+          .from('adicionales')
+          .delete()
+          .eq('numero_linea', linea);
+
+        // Guardar en la tabla 'adicionales'
         const { error: errAdicional } = await supabase
           .from('adicionales')
           .insert({
@@ -155,9 +195,23 @@ export default function GestionPagos() {
             .from('lineas')
             .update({ descuento_esperado: numValor })
             .eq('numero_linea', linea);
+
+          if (socioId) {
+            await supabase
+              .from('socios')
+              .update({ desc_adicionales: numValor })
+              .eq('socio_id', socioId);
+          }
+        } else if (!isDesc && esPorcentaje) {
+          if (socioId) {
+            await supabase
+              .from('socios')
+              .update({ desc_adicionales: -numValor })
+              .eq('socio_id', socioId);
+          }
         }
 
-        addToast(`${isDesc ? 'Descuento' : 'Cargo'} duradero (${cuotas} meses) guardado en Descuentos y Cargos`, 'success');
+        addToast(`${isDesc ? 'Descuento' : 'Cargo'} de ${numValor}${esPorcentaje ? '%' : '$'} (${cuotas} meses) guardado correctamente`, 'success');
       } else {
         if (consumoId) {
           if (isDesc) {

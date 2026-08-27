@@ -1,21 +1,72 @@
-import React, { useState } from 'react';
-import { Tag, Calendar, Check, X, Percent, DollarSign, PlusCircle, MinusCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Tag, Calendar, Check, X, Percent, DollarSign, PlusCircle, MinusCircle, Trash2 } from 'lucide-react';
 import Modal from '../Modal';
 
 export default function DescuentoModal({ isOpen, onClose, row, onApply }) {
   const [tipoAjuste, setTipoAjuste] = useState('DESCUENTO'); // 'DESCUENTO' | 'CARGO'
   const [esPorcentaje, setEsPorcentaje] = useState(true);
-  const [valor, setValor] = useState('80');
+  const [valor, setValor] = useState('');
   const [descripcion, setDescripcion] = useState('');
   const [esDuradero, setEsDuradero] = useState(true);
   const [cuotas, setCuotas] = useState(12);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (row && isOpen) {
+      const ad = row.adicionales && row.adicionales.length > 0 ? row.adicionales[0] : null;
+      const dPct = row.currentDiscountPct !== undefined ? Number(row.currentDiscountPct) : Number(row.desc_adicionales || 0);
+      const bMan = Number(row.bonifManual || 0);
+
+      const isPct = ad ? (ad.tipo === 'DESCUENTO' || ad.tipo === 'CARGO_PCT') : (dPct !== 0 || bMan === 0);
+      const isDesc = ad ? (ad.tipo === 'DESCUENTO') : (dPct >= 0 && bMan >= 0);
+
+      let v = '';
+      if (ad && ad.valor) {
+        v = String(ad.valor);
+      } else if (dPct !== 0) {
+        v = String(Math.abs(dPct));
+      } else if (bMan !== 0) {
+        v = String(Math.abs(bMan));
+      } else {
+        v = '10'; // default sugerido cuando es nuevo
+      }
+
+      setTipoAjuste(isDesc ? 'DESCUENTO' : 'CARGO');
+      setEsPorcentaje(isPct);
+      setValor(v);
+      setDescripcion(ad?.descripcion || '');
+      setEsDuradero(ad ? (ad.total_cuotas > 1) : true);
+      setCuotas(ad?.total_cuotas || 12);
+    }
+  }, [row, isOpen]);
 
   if (!isOpen || !row) return null;
 
   const isDescuento = tipoAjuste === 'DESCUENTO';
   const mainColor = isDescuento ? '#16a34a' : '#c2410c';
   const mainBg = isDescuento ? 'rgba(16, 185, 129, 0.1)' : 'rgba(249, 115, 22, 0.1)';
+
+  const hasExistingDiscount = (row.currentDiscountPct && Number(row.currentDiscountPct) !== 0) ||
+    (row.bonifManual && Number(row.bonifManual) !== 0) ||
+    (row.adicionales && row.adicionales.length > 0) ||
+    (row.desc_adicionales && Number(row.desc_adicionales) !== 0);
+
+  const handleDelete = async () => {
+    setIsSubmitting(true);
+    try {
+      await onApply({
+        linea: row.numero_linea || row.linea,
+        socioId: row.socioId || row.lineas?.socio_id,
+        consumoId: row.consumo_id || row.consumoId,
+        action: 'DELETE'
+      });
+      onClose();
+    } catch (err) {
+      console.error("Error al eliminar descuento/cargo:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -265,24 +316,50 @@ export default function DescuentoModal({ isOpen, onClose, row, onApply }) {
         </div>
 
         {/* Botones del Modal */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
-          <button
-            type="button"
-            onClick={onClose}
-            className="air-btn"
-            style={{ background: 'transparent', border: '1px solid var(--border-light)' }}
-          >
-            Cancelar
-          </button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginTop: '12px' }}>
+          {hasExistingDiscount ? (
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={isSubmitting}
+              className="air-btn"
+              style={{
+                background: '#fee2e2',
+                color: '#dc2626',
+                border: '1px solid #fca5a5',
+                fontWeight: 800,
+                fontSize: '13px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '10px 16px',
+                borderRadius: '10px',
+                cursor: 'pointer'
+              }}
+            >
+              <Trash2 size={16} /> Eliminar Descuento
+            </button>
+          ) : <div />}
 
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="air-btn"
-            style={{ background: mainColor, color: 'white', fontWeight: 800 }}
-          >
-            {isSubmitting ? 'Guardando...' : `Aplicar ${isDescuento ? 'Descuento' : 'Cargo'}`}
-          </button>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button
+              type="button"
+              onClick={onClose}
+              className="air-btn"
+              style={{ background: 'transparent', border: '1px solid var(--border-light)' }}
+            >
+              Cancelar
+            </button>
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="air-btn"
+              style={{ background: mainColor, color: 'white', fontWeight: 800 }}
+            >
+              {isSubmitting ? 'Guardando...' : `Guardar ${isDescuento ? 'Descuento' : 'Cargo'}`}
+            </button>
+          </div>
         </div>
       </form>
     </Modal>
