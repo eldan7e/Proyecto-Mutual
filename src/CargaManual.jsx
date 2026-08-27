@@ -1409,6 +1409,11 @@ export default function CargaManual() {
                 <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>
                   <span style={{ color: '#f59e0b' }}>Total Excedentes:</span> ${(fileData.reduce((acc, curr) => acc + (curr.excedentes || 0), 0)).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
+                {invoiceTotals?.total > 0 && Math.abs(invoiceTotals.total - (fileData.reduce((acc, curr) => acc + Math.round(Number(curr.montoFactura || 0) * 100), 0) / 100)) > 5 && (
+                  <div style={{ fontSize: '12px', color: '#059669', fontWeight: 700, width: '100%', marginTop: '2px', background: '#ecfdf5', padding: '4px 8px', borderRadius: '6px', border: '1px solid #a7f3d0' }}>
+                    📄 Total Facturas PDF: ${invoiceTotals.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })} (Desc. Global Cuenta: -${Math.abs((fileData.reduce((acc, curr) => acc + Math.round(Number(curr.montoFactura || 0) * 100), 0) / 100) - invoiceTotals.total).toLocaleString('es-AR', { minimumFractionDigits: 2 })})
+                  </div>
+                )}
               </div>
             </div>
 
