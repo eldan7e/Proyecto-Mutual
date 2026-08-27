@@ -346,7 +346,16 @@ export default function DescuentoModal({ isOpen, onClose, row, onApply }) {
               type="button"
               onClick={onClose}
               className="air-btn"
-              style={{ background: 'transparent', border: '1px solid var(--border-light)' }}
+              style={{
+                background: 'var(--surface-light, #f1f5f9)',
+                border: '1px solid var(--border-light, #cbd5e1)',
+                color: 'var(--text-primary, #334155)',
+                fontWeight: 700,
+                fontSize: '13px',
+                padding: '10px 18px',
+                borderRadius: '10px',
+                cursor: 'pointer'
+              }}
             >
               Cancelar
             </button>
@@ -355,7 +364,17 @@ export default function DescuentoModal({ isOpen, onClose, row, onApply }) {
               type="submit"
               disabled={isSubmitting}
               className="air-btn"
-              style={{ background: mainColor, color: 'white', fontWeight: 800 }}
+              style={{
+                background: mainColor,
+                color: '#ffffff',
+                fontWeight: 800,
+                fontSize: '13px',
+                padding: '10px 20px',
+                borderRadius: '10px',
+                border: 'none',
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+              }}
             >
               {isSubmitting ? 'Guardando...' : `Guardar ${isDescuento ? 'Descuento' : 'Cargo'}`}
             </button>
