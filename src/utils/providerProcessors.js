@@ -106,7 +106,7 @@ export const procesarPersonal = (textLines) => {
       const m = l.match(/\$\s*([\d\.]+,\d{1,2})/);
       if (m) {
         const val = parsePersonalNumber(m[1]);
-        if (val > 50000) {
+        if (val > 1000) {
           distinctTotals.add(m[1]);
           individualTotalValues.add(val);
         }

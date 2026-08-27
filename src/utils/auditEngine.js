@@ -514,9 +514,10 @@ export function auditLineItem(item, dbInfo, context) {
   let montoFacturado = parseNum(item.montoStr);
   let excMonto = parseNum(item.excedenteStr);
 
+  // Si la línea se factura aparte, respetar el monto facturado real del comprobante
   const isBilledSeparately = item.telefono === '2216824786' || item.telefono?.includes('2216824786');
-  if (isBilledSeparately && selectedProvider === 'personal') {
-    montoFacturado = 8910.93;
+  if (isBilledSeparately && selectedProvider === 'personal' && (!montoFacturado || montoFacturado === 0)) {
+    montoFacturado = 9113.84;
   }
 
   // Identificación de planes para auditoría
