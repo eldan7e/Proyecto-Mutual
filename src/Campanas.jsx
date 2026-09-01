@@ -231,6 +231,43 @@ export default function Campanas() {
     }
   };
 
+  // Formateadores idénticos a los del bot de WhatsApp en n8n
+  const emprolijarGrupo = (groupNum, total, vto, lineas = []) => {
+    const formattedGroup = String(groupNum).padStart(4, '0');
+    const vtoStr = vto && vto.trim() ? vto.trim() : 's/d';
+    const linesFormatted = (lineas || []).map(item => {
+      const num = item.numero || '';
+      const last4 = num.length >= 4 ? num.slice(-4) : num;
+      return `• ...${last4} ${item.nombre}: $ ${item.total_str}`;
+    });
+
+    return `📊 *Detalle de Facturación - Grupo ${formattedGroup}* 📊\n\n` +
+           `📅 *Vencimiento:* ${vtoStr}\n` +
+           `💰 *Total del Grupo:* $ ${total}\n\n` +
+           `📱 *Desglose de Líneas:*\n` +
+           (linesFormatted.length > 0 ? linesFormatted.join('\n') : '• Sin líneas registradas');
+  };
+
+  const emprolijarCelular = (line, phoneNum, vto) => {
+    const name = line.nombre || '';
+    const vtoStr = vto && vto.trim() ? vto.trim() : (line.vto || 's/d');
+    const total = line.total_str || '0';
+    const grupo = line.grupo ? line.grupo : null;
+    const plan = line.plan ? line.plan.trim() : null;
+    const exc = line.excedente_str && line.excedente_str !== '0' ? line.excedente_str : null;
+    const comp = line.empresa ? line.empresa : '';
+
+    return `📱 *Detalle de tu Factura* 📱\n\n` +
+           `¡Hola ${name}! Te enviamos los detalles de tu línea:\n\n` +
+           `📞 *Número:* ${phoneNum}\n` +
+           (comp ? `🏢 *Empresa:* ${comp}\n` : '') +
+           (plan ? `📦 *Plan:* ${plan}\n` : '') +
+           `📅 *Vencimiento:* ${vtoStr}\n\n` +
+           `💰 *Importe:* $ ${total} (luego del vencimiento aplica +10%)\n` +
+           (exc ? `⚠️ *Excedentes:* $ ${exc}\n\n` : '\n') +
+           (grupo ? `👥 *Grupo:* #${grupo}` : '');
+  };
+
   const handleTestBotQuery = (queryText) => {
     const q = (queryText !== undefined ? queryText : botTestQuery).trim();
     if (!q) {
@@ -241,18 +278,17 @@ export default function Campanas() {
     setBotTestQuery(q);
     const qClean = q.replace(/\D/g, '');
     const vtoActual = customVencimiento || botResult?.vencimiento || '';
-    const vtoText = vtoActual ? `vto ${vtoActual} ` : '';
 
-    // Comandos estáticos
+    // Comandos estáticos con el formato exacto del Bot
     const staticCommands = {
-      '#menu': '¡Hola! Bienvenido a Mutual Aunar.\nEnviá:\n- Tu número de celular (10 dígitos) para consultar tu saldo.\n- El número de tu grupo para ver el saldo grupal.\n- #pago para medios de pago y CBU.\n- #red para consultar la red y cobertura.\n- #autogestion para autogestión Claro/Personal/Movistar.',
-      'menu': '¡Hola! Bienvenido a Mutual Aunar.\nEnviá:\n- Tu número de celular (10 dígitos) para consultar tu saldo.\n- El número de tu grupo para ver el saldo grupal.\n- #pago para medios de pago y CBU.\n- #red para consultar la red y cobertura.\n- #autogestion para autogestión Claro/Personal/Movistar.',
-      '#pago': '💳 Medios de Pago Mutual AUNAR:\n- Transferencia bancaria (CBU / Alias).\n- Débito automático en cuenta.\n- Consultas de cobranzas: administracion@aunar.org.ar',
-      'pago': '💳 Medios de Pago Mutual AUNAR:\n- Transferencia bancaria (CBU / Alias).\n- Débito automático en cuenta.\n- Consultas de cobranzas: administracion@aunar.org.ar',
-      '#red': '📶 Red de Cobertura:\nBrindamos servicio con Claro, Personal y Movistar con la máxima cobertura 4G/5G del país.',
-      'red': '📶 Red de Cobertura:\nBrindamos servicio con Claro, Personal y Movistar con la máxima cobertura 4G/5G del país.',
-      '#autogestion': '📱 Autogestión:\n- Mi Claro: miclaro.com.ar\n- Mi Personal: personal.com.ar\n- Mi Movistar: app.movistar.com.ar',
-      'autogestion': '📱 Autogestión:\n- Mi Claro: miclaro.com.ar\n- Mi Personal: personal.com.ar\n- Mi Movistar: app.movistar.com.ar'
+      '#menu': `¡Hola! Gracias por comunicarte con Aunar Mutual.\n⏰ Atención Lunes a Viernes | 08:45 a 13:45 hs.\n\n🤖 *Menú Auto-Consulta:*\nEscribí el texto con el # incluido para la respuesta:\n👉 Ejemplo *#2216210369* (Importe de factura)\n🧑🤝🧑 *#* + núm de grupo (Importe del grupo)\n📊 *#abono* (Formas de Consultar Abono y Saldo en curso)\n🔄 *#recarga* (Opciones de Recargar Datos, o saldo para Llamadas)\n🤝 *#pago* (Formas de pago)\n\n⚙️ *Otras:*\n• 📶 *#red* (Por Inconvenientes técnicos y posibles soluciones)\n• 📱 *#equipos* (Compras de equipos)\n• 🛟 *#autogestion* (comunicarse con la empresa prestadora del servicio)\n• ✈️ *#roaming* (¿Te vas de viaje? Averiguá sobre el roaming)\n\n🚨 *Urgencias* (si fuera de horario no podés usar tu móvil: WhatsApp al 👉 *2216260506*)`,
+      'menu': `¡Hola! Gracias por comunicarte con Aunar Mutual.\n⏰ Atención Lunes a Viernes | 08:45 a 13:45 hs.\n\n🤖 *Menú Auto-Consulta:*\nEscribí el texto con el # incluido para la respuesta:\n👉 Ejemplo *#2216210369* (Importe de factura)\n🧑🤝🧑 *#* + núm de grupo (Importe del grupo)\n📊 *#abono* (Formas de Consultar Abono y Saldo en curso)\n🔄 *#recarga* (Opciones de Recargar Datos, o saldo para Llamadas)\n🤝 *#pago* (Formas de pago)\n\n⚙️ *Otras:*\n• 📶 *#red* (Por Inconvenientes técnicos y posibles soluciones)\n• 📱 *#equipos* (Compras de equipos)\n• 🛟 *#autogestion* (comunicarse con la empresa prestadora del servicio)\n• ✈️ *#roaming* (¿Te vas de viaje? Averiguá sobre el roaming)\n\n🚨 *Urgencias* (si fuera de horario no podés usar tu móvil: WhatsApp al 👉 *2216260506*)`,
+      '#pago': `🤝 *Medios de Pago Mutual AUNAR:*\n\n1️⃣ *Transferencia Bancaria / CBU / Alias*\nSolicitá los datos de cuenta institucional a nuestro WhatsApp de atención.\n\n2️⃣ *Débito Automático en Cuenta (CBU)*\nPodés adherirte enviándonos tu constancia de CBU por este medio.\n\n3️⃣ *Cobro en Efectivo / Cobranzas*\nLunes a Viernes de 08:45 a 13:45 hs en sede mutual.`,
+      'pago': `🤝 *Medios de Pago Mutual AUNAR:*\n\n1️⃣ *Transferencia Bancaria / CBU / Alias*\nSolicitá los datos de cuenta institucional a nuestro WhatsApp de atención.\n\n2️⃣ *Débito Automático en Cuenta (CBU)*\nPodés adherirte enviándonos tu constancia de CBU por este medio.\n\n3️⃣ *Cobro en Efectivo / Cobranzas*\nLunes a Viernes de 08:45 a 13:45 hs en sede mutual.`,
+      '#red': `📶 *Inconvenientes Técnicos y Red de Cobertura:*\n\nSi experimentás falta de señal o datos móviles:\n1. Reiniciá tu teléfono durante 30 segundos.\n2. Verificá que el 'Modo Avión' esté desactivado.\n3. Asegurate de tener los 'Datos Móviles' e 'Itinerancia' activados.\n4. Si el problema persiste, comunicate al soporte técnico de guardia.`,
+      'red': `📶 *Inconvenientes Técnicos y Red de Cobertura:*\n\nSi experimentás falta de señal o datos móviles:\n1. Reiniciá tu teléfono durante 30 segundos.\n2. Verificá que el 'Modo Avión' esté desactivado.\n3. Asegurate de tener los 'Datos Móviles' e 'Itinerancia' activados.\n4. Si el problema persiste, comunicate al soporte técnico de guardia.`,
+      '#autogestion': `🛟 *Autogestión por Prestadora:*\n\n• *Claro:* App 'Mi Claro' o marcá *611#\n• *Personal:* App 'Mi Personal' o marcá *111\n• *Movistar:* App 'Mi Movistar' o marcá *611`,
+      'autogestion': `🛟 *Autogestión por Prestadora:*\n\n• *Claro:* App 'Mi Claro' o marcá *611#\n• *Personal:* App 'Mi Personal' o marcá *111\n• *Movistar:* App 'Mi Movistar' o marcá *611`
     };
 
     const lowerQ = q.toLowerCase();
@@ -282,14 +318,13 @@ export default function Campanas() {
 
       if (foundLine) {
         const lineVto = foundLine.vto || vtoActual;
-        const vtoPart = lineVto ? `vto ${lineVto} ` : '';
-        const resp = `Hola ${foundLine.nombre}, ${vtoPart}el saldo de tu celular es de $ ${foundLine.total_str}. Grupo: #${foundLine.grupo}. Plan: ${foundLine.plan}. Exc. $: ${foundLine.excedente_str}. Empresa: ${foundLine.empresa}`;
+        const respFormatted = emprolijarCelular(foundLine, foundLine.numero, lineVto);
         setBotTestResult({
           ok: true,
           query: q,
           tipo: 'linea',
           detalle: foundLine,
-          respuesta: resp
+          respuesta: respFormatted
         });
         return;
       }
@@ -299,22 +334,13 @@ export default function Campanas() {
         const groupData = botResult.detalle_grupos[q] || botResult.detalle_grupos[qClean];
         if (groupData) {
           const gVto = groupData.vto || vtoActual;
-          const vtoPart = gVto ? `[Vto.${gVto}]` : '';
-          let resp = `[Grupo:${q}][Total $${groupData.total}]${vtoPart}`;
-          const snippets = (groupData.lineas || []).map(item => {
-            const num = item.numero;
-            const last4 = num.length >= 4 ? num.slice(-4) : num;
-            return `[Linea...${last4}(${item.nombre}) $${item.total_str}]`;
-          });
-          if (snippets.length > 0) {
-            resp += ' ' + snippets.join(' ');
-          }
+          const respFormatted = emprolijarGrupo(qClean || q, groupData.total, gVto, groupData.lineas);
           setBotTestResult({
             ok: true,
             query: q,
             tipo: 'grupo',
             detalle: groupData,
-            respuesta: resp
+            respuesta: respFormatted
           });
           return;
         }
@@ -1393,7 +1419,7 @@ export default function Campanas() {
                           {customVencimiento || botResult.vencimiento || 'Sin Vencimiento'}
                         </div>
                         <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                          {customVencimiento || botResult.vencimiento ? 'Se incluye en cada mensaje' : 'Completalo arriba y aplicá'}
+                          {customVencimiento || botResult.vencimiento ? 'Se incluye en cada mensaje' : 'Completalo abajo y presioná Aplicar'}
                         </div>
                       </div>
                     </div>
