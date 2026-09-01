@@ -7,7 +7,8 @@ import {
   Settings, ChevronRight, ChevronDown, RefreshCw, Eye,
   ArrowLeft, Users, FileText, X, Check, Clock, Hash, Phone, Tag,
   Bot, MessageSquare, UploadCloud, FileSpreadsheet, Sparkles, Database,
-  CheckCircle, AlertTriangle
+  CheckCircle, AlertTriangle, Calendar, Play, Building2, HelpCircle,
+  Copy, Smartphone, ChevronUp
 } from 'lucide-react';
 import { useToast } from './components/ui/ToastProvider';
 import Modal from './components/Modal';
@@ -68,6 +69,16 @@ export default function Campanas() {
   const [n8nBotWebhookUrl, setN8nBotWebhookUrl] = useState(
     localStorage.getItem('n8n_webhook_bot_url') || 'http://34.176.65.52:5678/webhook/actualizar-bot-respuestas'
   );
+
+  // Bot WhatsApp - Pantalla Informativa y Simulador
+  const [botActiveTab, setBotActiveTab] = useState('resumen'); // 'resumen' | 'lineas' | 'grupos' | 'test_bot'
+  const [botFilterEmpresa, setBotFilterEmpresa] = useState('ALL');
+  const [botSearch, setBotSearch] = useState('');
+  const [customVencimiento, setCustomVencimiento] = useState('');
+  const [applyingVto, setApplyingVto] = useState(false);
+  const [botTestQuery, setBotTestQuery] = useState('');
+  const [botTestResult, setBotTestResult] = useState(null);
+  const [expandedGroups, setExpandedGroups] = useState(new Set());
   
   const editorRef = useRef(null);
 
@@ -123,22 +134,26 @@ export default function Campanas() {
     }
     setBotFile(file);
     setBotResult(null);
+    setBotTestResult(null);
   };
 
-  const handleSyncBotBilling = async () => {
+  const handleSyncBotBilling = async (vtoParam) => {
     if (!botFile) {
       addToast('Seleccioná un archivo Excel para sincronizar.', 'warning');
       return;
     }
 
     setUploadingBot(true);
-    setBotResult(null);
+    const vtoToUse = (vtoParam !== undefined ? vtoParam : customVencimiento).trim();
 
     try {
       const formData = new FormData();
       formData.append('data', botFile);
       formData.append('file', botFile);
       formData.append('archivo', botFile);
+      if (vtoToUse) {
+        formData.append('vencimiento', vtoToUse);
+      }
 
       const targetUrl = n8nBotWebhookUrl || 'http://34.176.65.52:5678/webhook/actualizar-bot-respuestas';
       
@@ -155,8 +170,13 @@ export default function Campanas() {
       const result = await response.json();
       if (result.ok || result.success) {
         setBotResult(result);
+        if (result.vencimiento) {
+          setCustomVencimiento(result.vencimiento);
+        } else if (vtoToUse) {
+          setCustomVencimiento(vtoToUse);
+        }
         addToast(
-          `¡Éxito! Se actualizaron ${result.lineas_procesadas || 0} líneas y ${result.grupos_actualizados || 0} grupos del bot.`,
+          `¡Éxito! Se procesaron ${result.lineas_procesadas || 0} líneas de ${result.empresas?.join(', ') || 'la prestadora'}.`,
           'success'
         );
       } else {
@@ -169,6 +189,153 @@ export default function Campanas() {
     } finally {
       setUploadingBot(false);
     }
+  };
+
+  const handleApplyVencimiento = async () => {
+    if (!customVencimiento.trim()) {
+      addToast('Ingresá una fecha de vencimiento (ej: 15/08/2026)', 'warning');
+      return;
+    }
+
+    setApplyingVto(true);
+    try {
+      // If we have the original botFile, re-sync with server
+      if (botFile) {
+        await handleSyncBotBilling(customVencimiento);
+        addToast(`¡Vencimiento ${customVencimiento} aplicado y sincronizado en el servidor!`, 'success');
+      } else if (botResult && botResult.ok) {
+        // In-memory update
+        const updated = { ...botResult, vencimiento: customVencimiento };
+        if (updated.detalle_empresas) {
+          Object.keys(updated.detalle_empresas).forEach(emp => {
+            if (updated.detalle_empresas[emp]?.lineas) {
+              updated.detalle_empresas[emp].lineas = updated.detalle_empresas[emp].lineas.map(l => ({ ...l, vto: customVencimiento }));
+            }
+          });
+        }
+        if (updated.detalle_grupos) {
+          Object.keys(updated.detalle_grupos).forEach(g => {
+            if (updated.detalle_grupos[g]) {
+              updated.detalle_grupos[g].vto = customVencimiento;
+            }
+          });
+        }
+        setBotResult(updated);
+        addToast(`Vencimiento actualizado a ${customVencimiento}`, 'success');
+      }
+    } catch (err) {
+      console.error('Error al aplicar vencimiento:', err);
+      addToast('Error al actualizar el vencimiento', 'error');
+    } finally {
+      setApplyingVto(false);
+    }
+  };
+
+  const handleTestBotQuery = (queryText) => {
+    const q = (queryText !== undefined ? queryText : botTestQuery).trim();
+    if (!q) {
+      setBotTestResult(null);
+      return;
+    }
+    
+    setBotTestQuery(q);
+    const qClean = q.replace(/\D/g, '');
+    const vtoActual = customVencimiento || botResult?.vencimiento || '';
+    const vtoText = vtoActual ? `vto ${vtoActual} ` : '';
+
+    // Comandos estáticos
+    const staticCommands = {
+      '#menu': '¡Hola! Bienvenido a Mutual Aunar.\nEnviá:\n- Tu número de celular (10 dígitos) para consultar tu saldo.\n- El número de tu grupo para ver el saldo grupal.\n- #pago para medios de pago y CBU.\n- #red para consultar la red y cobertura.\n- #autogestion para autogestión Claro/Personal/Movistar.',
+      'menu': '¡Hola! Bienvenido a Mutual Aunar.\nEnviá:\n- Tu número de celular (10 dígitos) para consultar tu saldo.\n- El número de tu grupo para ver el saldo grupal.\n- #pago para medios de pago y CBU.\n- #red para consultar la red y cobertura.\n- #autogestion para autogestión Claro/Personal/Movistar.',
+      '#pago': '💳 Medios de Pago Mutual AUNAR:\n- Transferencia bancaria (CBU / Alias).\n- Débito automático en cuenta.\n- Consultas de cobranzas: administracion@aunar.org.ar',
+      'pago': '💳 Medios de Pago Mutual AUNAR:\n- Transferencia bancaria (CBU / Alias).\n- Débito automático en cuenta.\n- Consultas de cobranzas: administracion@aunar.org.ar',
+      '#red': '📶 Red de Cobertura:\nBrindamos servicio con Claro, Personal y Movistar con la máxima cobertura 4G/5G del país.',
+      'red': '📶 Red de Cobertura:\nBrindamos servicio con Claro, Personal y Movistar con la máxima cobertura 4G/5G del país.',
+      '#autogestion': '📱 Autogestión:\n- Mi Claro: miclaro.com.ar\n- Mi Personal: personal.com.ar\n- Mi Movistar: app.movistar.com.ar',
+      'autogestion': '📱 Autogestión:\n- Mi Claro: miclaro.com.ar\n- Mi Personal: personal.com.ar\n- Mi Movistar: app.movistar.com.ar'
+    };
+
+    const lowerQ = q.toLowerCase();
+    if (staticCommands[lowerQ]) {
+      setBotTestResult({
+        ok: true,
+        query: q,
+        tipo: 'comando',
+        respuesta: staticCommands[lowerQ]
+      });
+      return;
+    }
+
+    if (botResult && botResult.ok) {
+      // 1. Buscar en líneas individuales
+      let foundLine = null;
+      if (botResult.detalle_empresas) {
+        for (const emp of Object.keys(botResult.detalle_empresas)) {
+          const lines = botResult.detalle_empresas[emp]?.lineas || [];
+          const match = lines.find(l => l.numero === qClean || (qClean.length >= 6 && l.numero.endsWith(qClean)));
+          if (match) {
+            foundLine = { ...match, empresa: emp };
+            break;
+          }
+        }
+      }
+
+      if (foundLine) {
+        const lineVto = foundLine.vto || vtoActual;
+        const vtoPart = lineVto ? `vto ${lineVto} ` : '';
+        const resp = `Hola ${foundLine.nombre}, ${vtoPart}el saldo de tu celular es de $ ${foundLine.total_str}. Grupo: #${foundLine.grupo}. Plan: ${foundLine.plan}. Exc. $: ${foundLine.excedente_str}. Empresa: ${foundLine.empresa}`;
+        setBotTestResult({
+          ok: true,
+          query: q,
+          tipo: 'linea',
+          detalle: foundLine,
+          respuesta: resp
+        });
+        return;
+      }
+
+      // 2. Buscar en grupos
+      if (botResult.detalle_grupos) {
+        const groupData = botResult.detalle_grupos[q] || botResult.detalle_grupos[qClean];
+        if (groupData) {
+          const gVto = groupData.vto || vtoActual;
+          const vtoPart = gVto ? `[Vto.${gVto}]` : '';
+          let resp = `[Grupo:${q}][Total $${groupData.total}]${vtoPart}`;
+          const snippets = (groupData.lineas || []).map(item => {
+            const num = item.numero;
+            const last4 = num.length >= 4 ? num.slice(-4) : num;
+            return `[Linea...${last4}(${item.nombre}) $${item.total_str}]`;
+          });
+          if (snippets.length > 0) {
+            resp += ' ' + snippets.join(' ');
+          }
+          setBotTestResult({
+            ok: true,
+            query: q,
+            tipo: 'grupo',
+            detalle: groupData,
+            respuesta: resp
+          });
+          return;
+        }
+      }
+    }
+
+    setBotTestResult({
+      ok: false,
+      query: q,
+      tipo: 'no_encontrado',
+      respuesta: `⚠️ No se encontró ninguna línea ni grupo correspondiente a "${q}". Verificá que el número de 10 dígitos o el ID de grupo esté cargado en el archivo Excel.`
+    });
+  };
+
+  const toggleGroupExpand = (groupId) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
   };
 
   // --------------- FETCHS PARA CADA TIPO ---------------
@@ -1038,239 +1205,882 @@ export default function Campanas() {
           ) : campaignType === 'bot_wsp' ? (
             <div>
               {/* Barra de volver */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                <button onClick={() => { setCampaignType(null); setBotFile(null); setBotResult(null); }} style={S.btnSecondary}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+                <button onClick={() => { setCampaignType(null); setBotFile(null); setBotResult(null); setBotTestResult(null); }} style={S.btnSecondary}>
                   <ArrowLeft size={16} /> Volver a opciones
                 </button>
-                <span style={{ fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <MessageSquare size={18} style={{ color: '#25D366' }} /> Bot de WhatsApp – Actualización de Facturación
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#25D366' }} />
+                  <span style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '15px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <MessageSquare size={18} style={{ color: '#25D366' }} /> Bot de WhatsApp – Facturación & Consultas
+                  </span>
+                </div>
               </div>
 
-              {/* Contenedor Informativo y Carga */}
-              <div style={{ maxWidth: '800px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              {/* Contenedor Principal */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 
-                {/* Hero Banner */}
+                {/* ─── Carga y Sincronización Inicial ─── */}
                 <div style={{
-                  background: 'linear-gradient(135deg, rgba(37, 211, 102, 0.1) 0%, rgba(18, 140, 126, 0.15) 100%)',
-                  border: '1px solid rgba(37, 211, 102, 0.25)',
+                  background: 'rgba(255,255,255,0.4)',
+                  border: '1px solid var(--border-light)',
                   borderRadius: '20px',
-                  padding: '24px',
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: '16px'
+                  padding: '20px'
                 }}>
-                  <div style={{
-                    width: '44px',
-                    height: '44px',
-                    borderRadius: '12px',
-                    background: '#25D366',
-                    color: '#fff',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0
-                  }}>
-                    <Bot size={24} />
-                  </div>
-                  <div>
-                    <h3 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                      Sincronizar Facturación del Bot Automático
-                    </h3>
-                    <p style={{ margin: 0, fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                      Cargá el archivo Excel (.xlsx o .xls) de la prestadora (Claro, Personal o Movistar). El servidor actualizará las respuestas individuales de cada socio, los totales de grupos y mantendrá los comandos estáticos (como <code style={{ background: 'rgba(0,0,0,0.06)', padding: '2px 5px', borderRadius: '4px' }}>#menu</code>, <code style={{ background: 'rgba(0,0,0,0.06)', padding: '2px 5px', borderRadius: '4px' }}>#pago</code>, <code style={{ background: 'rgba(0,0,0,0.06)', padding: '2px 5px', borderRadius: '4px' }}>#red</code>).
-                    </p>
-                  </div>
-                </div>
-
-                {/* Dropzone de Archivo */}
-                <div
-                  onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-                  onDragLeave={() => setIsDragOver(false)}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setIsDragOver(false);
-                    const file = e.dataTransfer.files?.[0];
-                    if (file) handleBotFileSelect(file);
-                  }}
-                  onClick={() => document.getElementById('bot-excel-file-input')?.click()}
-                  style={{
-                    border: `2px dashed ${isDragOver ? '#25D366' : 'var(--border-light)'}`,
-                    borderRadius: '20px',
-                    padding: '36px 24px',
-                    textAlign: 'center',
-                    background: isDragOver ? 'rgba(37, 211, 102, 0.08)' : 'rgba(255,255,255,0.4)',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '12px'
-                  }}
-                >
-                  <input
-                    id="bot-excel-file-input"
-                    type="file"
-                    accept=".xlsx, .xls"
-                    style={{ display: 'none' }}
-                    onChange={(e) => handleBotFileSelect(e.target.files?.[0])}
-                  />
-
-                  {botFile ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', width: '100%', maxWidth: '500px', background: 'rgba(255,255,255,0.8)', padding: '14px 20px', borderRadius: '14px', border: '1px solid rgba(46,125,50,0.3)' }}>
-                      <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(46,125,50,0.1)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <FileSpreadsheet size={22} />
-                      </div>
-                      <div style={{ textAlign: 'left', flex: 1, overflow: 'hidden' }}>
-                        <div style={{ fontWeight: 700, fontSize: '13.5px', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {botFile.name}
-                        </div>
-                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                          {(botFile.size / 1024).toFixed(1)} KB • Listo para procesar
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); setBotFile(null); setBotResult(null); }}
-                        style={{ ...S.btnSecondary, padding: '6px 10px', fontSize: '12px' }}
-                      >
-                        <X size={14} /> Quitar
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: 'rgba(37, 211, 102, 0.12)', color: '#128C7E', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <UploadCloud size={28} />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#25D366', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Bot size={20} />
                       </div>
                       <div>
-                        <h4 style={{ margin: '0 0 4px 0', fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                          Hacé click para seleccionar o arrastrá tu archivo Excel
+                        <h4 style={{ margin: 0, fontSize: '14.5px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                          Carga de Facturación Mensual (.xlsx / .xls)
                         </h4>
-                        <p style={{ margin: 0, fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-                          Formatos aceptados: .xlsx o .xls con hoja de SOCIOS
+                        <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)' }}>
+                          Soporta Claro, Personal y Movistar (hoja SOCIOS).
                         </p>
                       </div>
-                    </>
-                  )}
-                </div>
-
-                {/* Configuración del Webhook */}
-                <div style={{
-                  background: 'rgba(255,255,255,0.3)',
-                  border: '1px solid var(--border-light)',
-                  borderRadius: '16px',
-                  padding: '16px 20px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  flexWrap: 'wrap',
-                  gap: '12px'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Settings size={15} style={{ color: 'var(--text-secondary)' }} />
-                    <span style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                      Webhook n8n en VM:
-                    </span>
-                  </div>
-                  <input
-                    type="text"
-                    value={n8nBotWebhookUrl}
-                    onChange={(e) => handleBotWebhookUrlChange(e.target.value)}
-                    style={{ ...S.input, maxWidth: '420px', fontSize: '12px', padding: '6px 12px' }}
-                    placeholder="http://34.176.65.52:5678/webhook/actualizar-bot-respuestas"
-                  />
-                </div>
-
-                {/* Botón de Acción Principal */}
-                <div style={{ display: 'flex', justifyContent: 'center' }}>
-                  <button
-                    type="button"
-                    onClick={handleSyncBotBilling}
-                    disabled={!botFile || uploadingBot}
-                    style={{
-                      ...S.btnPrimary,
-                      padding: '14px 36px',
-                      fontSize: '15px',
-                      borderRadius: '14px',
-                      background: !botFile ? 'rgba(0,0,0,0.1)' : 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)',
-                      color: '#ffffff',
-                      boxShadow: !botFile ? 'none' : '0 6px 20px rgba(37, 211, 102, 0.35)',
-                      opacity: !botFile || uploadingBot ? 0.6 : 1,
-                      cursor: !botFile || uploadingBot ? 'not-allowed' : 'pointer'
-                    }}
-                  >
-                    {uploadingBot ? (
-                      <>
-                        <Loader2 size={18} className="animate-spin" />
-                        <span>Procesando y Sincronizando con el Bot...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles size={18} />
-                        <span>Sincronizar Facturación con Bot WSP</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                {/* Resultados de la sincronización */}
-                {botResult && (
-                  <div style={{
-                    background: botResult.ok ? 'rgba(46,125,50,0.06)' : 'rgba(211,47,47,0.06)',
-                    border: `1px solid ${botResult.ok ? 'rgba(46,125,50,0.25)' : 'rgba(211,47,47,0.25)'}`,
-                    borderRadius: '20px',
-                    padding: '24px',
-                    animation: 'fadeIn 0.3s ease'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-                      {botResult.ok ? (
-                        <CheckCircle size={22} style={{ color: 'var(--accent)' }} />
-                      ) : (
-                        <AlertTriangle size={22} style={{ color: 'var(--danger)' }} />
-                      )}
-                      <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: botResult.ok ? 'var(--accent)' : 'var(--danger)' }}>
-                        {botResult.ok ? '¡Facturación Actualizada con Éxito!' : 'Error al procesar la facturación'}
-                      </h4>
                     </div>
 
-                    {botResult.ok ? (
-                      <div>
-                        <div style={{
-                          display: 'grid',
-                          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-                          gap: '12px',
-                          marginBottom: '16px'
-                        }}>
-                          <div style={{ background: 'rgba(255,255,255,0.7)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
-                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Líneas Actualizadas</div>
-                            <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '2px' }}>{botResult.lineas_procesadas || 0}</div>
+                    {/* Vencimiento input inline */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Calendar size={15} style={{ color: 'var(--text-secondary)' }} />
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>Vencimiento:</span>
+                      <input
+                        type="text"
+                        value={customVencimiento}
+                        onChange={(e) => setCustomVencimiento(e.target.value)}
+                        placeholder="ej: 15/08/2026"
+                        style={{ ...S.input, width: '130px', padding: '5px 10px', fontSize: '12.5px', fontWeight: 600 }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Dropzone Compacto */}
+                  <div
+                    onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+                    onDragLeave={() => setIsDragOver(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDragOver(false);
+                      const file = e.dataTransfer.files?.[0];
+                      if (file) handleBotFileSelect(file);
+                    }}
+                    onClick={() => document.getElementById('bot-excel-file-input')?.click()}
+                    style={{
+                      border: `2px dashed ${isDragOver ? '#25D366' : 'var(--border-light)'}`,
+                      borderRadius: '16px',
+                      padding: '20px',
+                      textAlign: 'center',
+                      background: isDragOver ? 'rgba(37, 211, 102, 0.08)' : 'rgba(255,255,255,0.3)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '16px',
+                      flexWrap: 'wrap'
+                    }}
+                  >
+                    <input
+                      id="bot-excel-file-input"
+                      type="file"
+                      accept=".xlsx, .xls"
+                      style={{ display: 'none' }}
+                      onChange={(e) => handleBotFileSelect(e.target.files?.[0])}
+                    />
+
+                    {botFile ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, justifyContent: 'center' }}>
+                        <FileSpreadsheet size={24} style={{ color: 'var(--accent)' }} />
+                        <span style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text-primary)' }}>{botFile.name}</span>
+                        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>({(botFile.size / 1024).toFixed(1)} KB)</span>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setBotFile(null); setBotResult(null); setBotTestResult(null); }}
+                          style={{ ...S.btnSecondary, padding: '4px 8px', fontSize: '11px', marginLeft: '8px' }}
+                        >
+                          <X size={12} /> Quitar
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <UploadCloud size={24} style={{ color: '#128C7E' }} />
+                        <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                          Arrastrá el archivo Excel de facturación aquí o hacé click para seleccionar
+                        </span>
+                      </>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleSyncBotBilling(); }}
+                      disabled={!botFile || uploadingBot}
+                      style={{
+                        ...S.btnPrimary,
+                        padding: '8px 20px',
+                        fontSize: '13px',
+                        borderRadius: '10px',
+                        background: !botFile ? 'rgba(0,0,0,0.1)' : 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)',
+                        color: '#ffffff',
+                        boxShadow: !botFile ? 'none' : '0 4px 12px rgba(37, 211, 102, 0.3)',
+                        opacity: !botFile || uploadingBot ? 0.6 : 1,
+                        cursor: !botFile || uploadingBot ? 'not-allowed' : 'pointer'
+                      }}
+                    >
+                      {uploadingBot ? (
+                        <>
+                          <Loader2 size={15} className="animate-spin" />
+                          <span>Procesando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={15} />
+                          <span>{botResult ? 'Reprocesar Excel' : 'Procesar Facturación'}</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* ─── PANTALLA INFORMATIVA CON RESULTADOS ─── */}
+                {botResult && botResult.ok && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    
+                    {/* Tarjetas Métricas Superiores */}
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                      gap: '14px'
+                    }}>
+                      <div style={{ background: 'rgba(255,255,255,0.7)', padding: '16px', borderRadius: '16px', border: '1px solid var(--border-light)' }}>
+                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 800 }}>Líneas Procesadas</div>
+                        <div style={{ fontSize: '24px', fontWeight: 900, color: 'var(--text-primary)', marginTop: '4px' }}>
+                          {botResult.lineas_procesadas || 0}
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--accent)', marginTop: '2px', fontWeight: 600 }}>✓ Respuestas individuales</div>
+                      </div>
+
+                      <div style={{ background: 'rgba(255,255,255,0.7)', padding: '16px', borderRadius: '16px', border: '1px solid var(--border-light)' }}>
+                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 800 }}>Grupos Consolidados</div>
+                        <div style={{ fontSize: '24px', fontWeight: 900, color: 'var(--text-primary)', marginTop: '4px' }}>
+                          {botResult.grupos_actualizados || 0}
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--accent)', marginTop: '2px', fontWeight: 600 }}>✓ Totales calculados</div>
+                      </div>
+
+                      <div style={{ background: 'rgba(255,255,255,0.7)', padding: '16px', borderRadius: '16px', border: '1px solid var(--border-light)' }}>
+                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 800 }}>Empresas Detectadas</div>
+                        <div style={{ fontSize: '16px', fontWeight: 900, color: 'var(--text-primary)', marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                          {botResult.empresas?.map(emp => (
+                            <span key={emp} style={{
+                              fontSize: '11px',
+                              padding: '2px 8px',
+                              borderRadius: '6px',
+                              fontWeight: 800,
+                              background: emp === 'CLARO' ? 'rgba(229, 57, 53, 0.12)' : emp === 'PERSONAL' ? 'rgba(2, 136, 209, 0.12)' : 'rgba(0, 137, 123, 0.12)',
+                              color: emp === 'CLARO' ? '#E53935' : emp === 'PERSONAL' ? '#0288D1' : '#00897B'
+                            }}>
+                              {emp}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div style={{ background: 'rgba(255,255,255,0.7)', padding: '16px', borderRadius: '16px', border: '1px solid var(--border-light)' }}>
+                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 800 }}>Vencimiento Activo</div>
+                        <div style={{ fontSize: '18px', fontWeight: 900, color: customVencimiento || botResult.vencimiento ? 'var(--text-primary)' : 'var(--danger)', marginTop: '6px' }}>
+                          {customVencimiento || botResult.vencimiento || 'Sin Vencimiento'}
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                          {customVencimiento || botResult.vencimiento ? 'Se incluye en cada mensaje' : 'Completalo arriba y aplicá'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Barra de Ajuste Rápido de Vencimiento */}
+                    <div style={{
+                      background: 'linear-gradient(135deg, rgba(37, 211, 102, 0.08) 0%, rgba(18, 140, 126, 0.12) 100%)',
+                      border: '1px solid rgba(37, 211, 102, 0.3)',
+                      borderRadius: '16px',
+                      padding: '14px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '12px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <Calendar size={18} style={{ color: '#128C7E' }} />
+                        <div>
+                          <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                            Modificar Fecha de Vencimiento para todas las respuestas
                           </div>
-                          <div style={{ background: 'rgba(255,255,255,0.7)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
-                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Grupos Calculados</div>
-                            <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '2px' }}>{botResult.grupos_actualizados || 0}</div>
+                          <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+                            Cambiá la fecha y presioná "Aplicar Vencimiento" para actualizar los textos de socios y grupos.
                           </div>
-                          <div style={{ background: 'rgba(255,255,255,0.7)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
-                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Empresa</div>
-                            <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>
-                              {Array.isArray(botResult.empresas) ? botResult.empresas.join(', ') : (botResult.empresas || 'Detectada')}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input
+                          type="text"
+                          value={customVencimiento}
+                          onChange={(e) => setCustomVencimiento(e.target.value)}
+                          placeholder="ej: 15/08/2026"
+                          style={{ ...S.input, width: '140px', padding: '7px 12px', fontSize: '13px', fontWeight: 700 }}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleApplyVencimiento}
+                          disabled={applyingVto || !customVencimiento.trim()}
+                          style={{
+                            ...S.btnPrimary,
+                            padding: '7px 16px',
+                            fontSize: '12.5px',
+                            borderRadius: '10px',
+                            background: '#128C7E',
+                            color: '#fff'
+                          }}
+                        >
+                          {applyingVto ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                          <span>Aplicar Vencimiento</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* ─── Pestañas de Navegación ─── */}
+                    <div style={{ display: 'flex', borderBottom: '1px solid var(--border-light)', gap: '8px', flexWrap: 'wrap' }}>
+                      <button
+                        onClick={() => setBotActiveTab('resumen')}
+                        style={{
+                          padding: '10px 18px',
+                          fontSize: '13px',
+                          fontWeight: 700,
+                          border: 'none',
+                          background: 'none',
+                          cursor: 'pointer',
+                          borderBottom: botActiveTab === 'resumen' ? '3px solid #25D366' : '3px solid transparent',
+                          color: botActiveTab === 'resumen' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}
+                      >
+                        <Building2 size={16} /> Resumen por Empresa
+                      </button>
+
+                      <button
+                        onClick={() => setBotActiveTab('lineas')}
+                        style={{
+                          padding: '10px 18px',
+                          fontSize: '13px',
+                          fontWeight: 700,
+                          border: 'none',
+                          background: 'none',
+                          cursor: 'pointer',
+                          borderBottom: botActiveTab === 'lineas' ? '3px solid #25D366' : '3px solid transparent',
+                          color: botActiveTab === 'lineas' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}
+                      >
+                        <Phone size={16} /> Líneas y Socios ({botResult.lineas_procesadas || 0})
+                      </button>
+
+                      <button
+                        onClick={() => setBotActiveTab('grupos')}
+                        style={{
+                          padding: '10px 18px',
+                          fontSize: '13px',
+                          fontWeight: 700,
+                          border: 'none',
+                          background: 'none',
+                          cursor: 'pointer',
+                          borderBottom: botActiveTab === 'grupos' ? '3px solid #25D366' : '3px solid transparent',
+                          color: botActiveTab === 'grupos' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}
+                      >
+                        <Hash size={16} /> Grupos Consolidados ({botResult.grupos_actualizados || 0})
+                      </button>
+
+                      <button
+                        onClick={() => setBotActiveTab('test_bot')}
+                        style={{
+                          padding: '10px 18px',
+                          fontSize: '13px',
+                          fontWeight: 800,
+                          border: 'none',
+                          background: botActiveTab === 'test_bot' ? 'rgba(37, 211, 102, 0.12)' : 'none',
+                          borderRadius: '8px 8px 0 0',
+                          cursor: 'pointer',
+                          borderBottom: botActiveTab === 'test_bot' ? '3px solid #25D366' : '3px solid transparent',
+                          color: botActiveTab === 'test_bot' ? '#128C7E' : 'var(--text-secondary)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}
+                      >
+                        <Bot size={16} style={{ color: '#25D366' }} /> Probar Respuestas del Bot (Simulador)
+                      </button>
+                    </div>
+
+                    {/* ─── TAB 1: RESUMEN POR EMPRESA ─── */}
+                    {botActiveTab === 'resumen' && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+                          {Object.entries(botResult.detalle_empresas || {}).map(([empresaName, data]) => {
+                            const isClaro = empresaName === 'CLARO';
+                            const isPersonal = empresaName === 'PERSONAL';
+                            const isMovistar = empresaName === 'MOVISTAR';
+                            const accentColor = isClaro ? '#E53935' : isPersonal ? '#0288D1' : '#00897B';
+
+                            return (
+                              <div
+                                key={empresaName}
+                                style={{
+                                  background: 'rgba(255,255,255,0.7)',
+                                  border: `1px solid ${accentColor}33`,
+                                  borderRadius: '18px',
+                                  padding: '20px',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: '12px',
+                                  boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
+                                }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <span style={{
+                                    fontSize: '12px',
+                                    fontWeight: 900,
+                                    padding: '4px 12px',
+                                    borderRadius: '8px',
+                                    background: `${accentColor}18`,
+                                    color: accentColor,
+                                    letterSpacing: '0.5px'
+                                  }}>
+                                    {empresaName}
+                                  </span>
+                                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                                    {data.cantidad} líneas
+                                  </span>
+                                </div>
+
+                                <div>
+                                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>
+                                    Monto Total Facturado
+                                  </div>
+                                  <div style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text-primary)', marginTop: '2px' }}>
+                                    $ {data.total}
+                                  </div>
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', paddingTop: '8px' }}>
+                                  <button
+                                    onClick={() => {
+                                      setBotFilterEmpresa(empresaName);
+                                      setBotActiveTab('lineas');
+                                    }}
+                                    style={{
+                                      ...S.btnSecondary,
+                                      flex: 1,
+                                      justifyContent: 'center',
+                                      fontSize: '12px',
+                                      padding: '6px 12px'
+                                    }}
+                                  >
+                                    Ver {data.cantidad} Líneas
+                                  </button>
+
+                                  {data.lineas?.[0] && (
+                                    <button
+                                      onClick={() => {
+                                        setBotTestQuery(data.lineas[0].numero);
+                                        handleTestBotQuery(data.lineas[0].numero);
+                                        setBotActiveTab('test_bot');
+                                      }}
+                                      style={{
+                                        ...S.btnSecondary,
+                                        fontSize: '12px',
+                                        padding: '6px 10px',
+                                        color: '#128C7E'
+                                      }}
+                                      title="Probar primera línea en el bot"
+                                    >
+                                      <Play size={13} /> Probar
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ─── TAB 2: LÍNEAS Y SOCIOS ─── */}
+                    {botActiveTab === 'lineas' && (() => {
+                      // Consolidate lines across all empresas
+                      let allLines = [];
+                      Object.entries(botResult.detalle_empresas || {}).forEach(([emp, data]) => {
+                        (data.lineas || []).forEach(l => {
+                          allLines.push({ ...l, empresa: emp });
+                        });
+                      });
+
+                      // Filter by company
+                      if (botFilterEmpresa !== 'ALL') {
+                        allLines = allLines.filter(l => l.empresa === botFilterEmpresa);
+                      }
+
+                      // Filter by search
+                      if (botSearch.trim()) {
+                        const q = botSearch.toLowerCase().trim();
+                        allLines = allLines.filter(l => 
+                          l.nombre?.toLowerCase().includes(q) ||
+                          l.numero?.includes(q) ||
+                          l.grupo?.toLowerCase().includes(q) ||
+                          l.plan?.toLowerCase().includes(q) ||
+                          l.abono?.toLowerCase().includes(q) ||
+                          l.empresa?.toLowerCase().includes(q)
+                        );
+                      }
+
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                          {/* Controles de Filtro */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                            {/* Buscador */}
+                            <div style={{ position: 'relative', flex: 1, minWidth: '240px', maxWidth: '400px' }}>
+                              <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+                              <input
+                                type="text"
+                                value={botSearch}
+                                onChange={(e) => setBotSearch(e.target.value)}
+                                placeholder="Buscar por socio, número, grupo, plan..."
+                                style={{ ...S.input, paddingLeft: '36px', fontSize: '12.5px' }}
+                              />
+                            </div>
+
+                            {/* Filtro de Empresas */}
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              {['ALL', ...(botResult.empresas || [])].map(emp => (
+                                <button
+                                  key={emp}
+                                  onClick={() => setBotFilterEmpresa(emp)}
+                                  style={{
+                                    padding: '5px 12px',
+                                    borderRadius: '8px',
+                                    fontSize: '11.5px',
+                                    fontWeight: 700,
+                                    border: '1px solid var(--border-light)',
+                                    cursor: 'pointer',
+                                    background: botFilterEmpresa === emp ? '#128C7E' : 'rgba(255,255,255,0.7)',
+                                    color: botFilterEmpresa === emp ? '#fff' : 'var(--text-primary)'
+                                  }}
+                                >
+                                  {emp === 'ALL' ? 'Todas las Empresas' : emp}
+                                </button>
+                              ))}
                             </div>
                           </div>
-                          <div style={{ background: 'rgba(255,255,255,0.7)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
-                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Vencimiento</div>
-                            <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{botResult.vencimiento || 'N/A'}</div>
+
+                          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                            Mostrando {allLines.length} líneas de socios
+                          </div>
+
+                          {/* Tabla de Líneas */}
+                          <div style={{ ...S.tableContainer, maxHeight: '500px', overflowY: 'auto' }}>
+                            <table style={S.table}>
+                              <thead>
+                                <tr>
+                                  <th style={S.th}>Socio</th>
+                                  <th style={{ ...S.th, textAlign: 'center' }}>Línea</th>
+                                  <th style={{ ...S.th, textAlign: 'center' }}>Empresa</th>
+                                  <th style={{ ...S.th, textAlign: 'center' }}>Grupo</th>
+                                  <th style={{ ...S.th, textAlign: 'center' }}>Plan / GB</th>
+                                  <th style={{ ...S.th, textAlign: 'right' }}>Total $</th>
+                                  <th style={{ ...S.th, textAlign: 'right' }}>Excedente $</th>
+                                  <th style={{ ...S.th, textAlign: 'center', width: '90px' }}>Acción</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {allLines.slice(0, 200).map((line, idx) => (
+                                  <tr key={idx}>
+                                    <td style={S.td}>
+                                      <div style={{ fontWeight: 700, fontSize: '12.5px' }}>{line.nombre}</div>
+                                      {line.abono && <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>{line.abono}</div>}
+                                    </td>
+                                    <td style={{ ...S.td, textAlign: 'center', fontFamily: 'monospace', fontWeight: 700 }}>
+                                      {line.numero}
+                                    </td>
+                                    <td style={{ ...S.td, textAlign: 'center' }}>
+                                      <span style={{
+                                        fontSize: '10.5px',
+                                        padding: '2px 7px',
+                                        borderRadius: '5px',
+                                        fontWeight: 800,
+                                        background: line.empresa === 'CLARO' ? 'rgba(229, 57, 53, 0.1)' : line.empresa === 'PERSONAL' ? 'rgba(2, 136, 209, 0.1)' : 'rgba(0, 137, 123, 0.1)',
+                                        color: line.empresa === 'CLARO' ? '#E53935' : line.empresa === 'PERSONAL' ? '#0288D1' : '#00897B'
+                                      }}>
+                                        {line.empresa}
+                                      </span>
+                                    </td>
+                                    <td style={{ ...S.td, textAlign: 'center', fontWeight: 600 }}>
+                                      #{line.grupo}
+                                    </td>
+                                    <td style={{ ...S.td, textAlign: 'center', fontSize: '11.5px' }}>
+                                      {line.plan || '—'}
+                                    </td>
+                                    <td style={{ ...S.td, textAlign: 'right', fontWeight: 800 }}>
+                                      $ {line.total_str}
+                                    </td>
+                                    <td style={{ ...S.td, textAlign: 'right', color: line.excedente_str !== '0' ? 'var(--danger)' : 'var(--text-secondary)', fontSize: '11.5px' }}>
+                                      $ {line.excedente_str}
+                                    </td>
+                                    <td style={{ ...S.td, textAlign: 'center' }}>
+                                      <button
+                                        onClick={() => {
+                                          setBotTestQuery(line.numero);
+                                          handleTestBotQuery(line.numero);
+                                          setBotActiveTab('test_bot');
+                                        }}
+                                        style={{
+                                          ...S.btnSecondary,
+                                          padding: '3px 8px',
+                                          fontSize: '11px',
+                                          color: '#128C7E',
+                                          borderColor: 'rgba(37, 211, 102, 0.4)'
+                                        }}
+                                        title="Probar respuesta del bot para esta línea"
+                                      >
+                                        <Bot size={12} /> Probar
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                            {allLines.length > 200 && (
+                              <div style={{ textAlign: 'center', padding: '12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                Mostrando las primeras 200 de {allLines.length} líneas. Usá el buscador arriba para filtrar.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* ─── TAB 3: GRUPOS CONSOLIDADOS ─── */}
+                    {botActiveTab === 'grupos' && (() => {
+                      let groupEntries = Object.entries(botResult.detalle_grupos || {});
+
+                      if (botSearch.trim()) {
+                        const q = botSearch.toLowerCase().trim();
+                        groupEntries = groupEntries.filter(([gid, gdata]) => 
+                          gid.includes(q) ||
+                          gdata.empresa?.toLowerCase().includes(q) ||
+                          (gdata.lineas || []).some(l => l.nombre?.toLowerCase().includes(q) || l.numero?.includes(q))
+                        );
+                      }
+
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                            <div style={{ position: 'relative', flex: 1, minWidth: '240px', maxWidth: '400px' }}>
+                              <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+                              <input
+                                type="text"
+                                value={botSearch}
+                                onChange={(e) => setBotSearch(e.target.value)}
+                                placeholder="Buscar por número de grupo o socio integrante..."
+                                style={{ ...S.input, paddingLeft: '36px', fontSize: '12.5px' }}
+                              />
+                            </div>
+                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                              {groupEntries.length} grupos consolidados
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '520px', overflowY: 'auto' }}>
+                            {groupEntries.slice(0, 100).map(([groupId, group]) => {
+                              const isExpanded = expandedGroups.has(groupId);
+
+                              return (
+                                <div
+                                  key={groupId}
+                                  style={{
+                                    background: 'rgba(255,255,255,0.7)',
+                                    border: '1px solid var(--border-light)',
+                                    borderRadius: '14px',
+                                    padding: '14px 18px',
+                                    transition: 'all 0.15s ease'
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                      <div style={{
+                                        width: '38px',
+                                        height: '38px',
+                                        borderRadius: '10px',
+                                        background: 'rgba(0,0,0,0.05)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontWeight: 800,
+                                        fontSize: '13px'
+                                      }}>
+                                        #{groupId}
+                                      </div>
+                                      <div>
+                                        <div style={{ fontWeight: 800, fontSize: '14px', color: 'var(--text-primary)' }}>
+                                          Grupo #{groupId}
+                                        </div>
+                                        <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                          {group.cantidad_lineas} {group.cantidad_lineas === 1 ? 'línea' : 'líneas'} • {group.empresa || 'Varios'}
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                      <div style={{ textAlign: 'right' }}>
+                                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Total Grupo</div>
+                                        <div style={{ fontSize: '16px', fontWeight: 900, color: 'var(--accent)' }}>$ {group.total}</div>
+                                      </div>
+
+                                      <button
+                                        onClick={() => toggleGroupExpand(groupId)}
+                                        style={{ ...S.btnSecondary, padding: '6px 10px', fontSize: '11.5px' }}
+                                      >
+                                        {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                        <span>{isExpanded ? 'Ocultar' : 'Ver Líneas'}</span>
+                                      </button>
+
+                                      <button
+                                        onClick={() => {
+                                          setBotTestQuery(groupId);
+                                          handleTestBotQuery(groupId);
+                                          setBotActiveTab('test_bot');
+                                        }}
+                                        style={{
+                                          ...S.btnSecondary,
+                                          padding: '6px 12px',
+                                          fontSize: '11.5px',
+                                          color: '#128C7E',
+                                          borderColor: 'rgba(37, 211, 102, 0.4)'
+                                        }}
+                                      >
+                                        <Play size={12} /> Probar Bot
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {/* Desglose Expandido de Líneas del Grupo */}
+                                  {isExpanded && (
+                                    <div style={{
+                                      marginTop: '12px',
+                                      paddingTop: '12px',
+                                      borderTop: '1px solid var(--border-light)',
+                                      display: 'grid',
+                                      gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                                      gap: '8px'
+                                    }}>
+                                      {(group.lineas || []).map((l, lIdx) => (
+                                        <div
+                                          key={lIdx}
+                                          style={{
+                                            background: 'rgba(255,255,255,0.8)',
+                                            padding: '8px 12px',
+                                            borderRadius: '8px',
+                                            border: '1px solid var(--border-light)',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center'
+                                          }}
+                                        >
+                                          <div>
+                                            <div style={{ fontSize: '12px', fontWeight: 700 }}>{l.nombre}</div>
+                                            <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>...{l.numero?.slice(-4)} ({l.plan})</div>
+                                          </div>
+                                          <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                                            $ {l.total_str}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* ─── TAB 4: SIMULADOR DE RESPUESTAS DEL BOT ─── */}
+                    {botActiveTab === 'test_bot' && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '750px', margin: '0 auto', width: '100%' }}>
+                        
+                        {/* Explicación */}
+                        <div style={{
+                          background: 'rgba(255,255,255,0.6)',
+                          border: '1px solid var(--border-light)',
+                          borderRadius: '16px',
+                          padding: '16px 20px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '12px'
+                        }}>
+                          <Smartphone size={24} style={{ color: '#25D366', flexShrink: 0 }} />
+                          <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                            <strong>Simulador en Vivo:</strong> Ingresá cualquier número de línea (10 dígitos), número de grupo o comando para verificar exactamente qué mensaje devolverá el bot a un socio por WhatsApp.
                           </div>
                         </div>
 
-                        <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', lineHeight: 1.5, background: 'rgba(255,255,255,0.5)', padding: '10px 14px', borderRadius: '10px' }}>
-                          ✓ El archivo <code style={{ fontWeight: 700 }}>respuestas.json</code> en el servidor ahora cuenta con un total de <strong>{botResult.total_claves_json || 0}</strong> entradas activas. Cualquier socio que consulte por WhatsApp recibirá inmediatamente el saldo y vencimiento actualizados.
+                        {/* Input de Consulta */}
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <input
+                            type="text"
+                            value={botTestQuery}
+                            onChange={(e) => setBotTestQuery(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleTestBotQuery(); }}
+                            placeholder="Ingresá línea (ej: 1121566192), grupo (ej: 5037) o comando (#menu, #pago)..."
+                            style={{ ...S.input, padding: '12px 16px', fontSize: '14px', flex: 1 }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleTestBotQuery()}
+                            style={{
+                              ...S.btnPrimary,
+                              padding: '12px 24px',
+                              fontSize: '13.5px',
+                              borderRadius: '12px',
+                              background: '#25D366',
+                              color: '#fff'
+                            }}
+                          >
+                            <Send size={15} />
+                            <span>Consultar</span>
+                          </button>
                         </div>
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: '13px', color: 'var(--danger)', lineHeight: 1.5 }}>
-                        {botResult.error || 'Ocurrió un error inesperado al procesar el archivo.'}
+
+                        {/* Chips de Prueba Rápida */}
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase' }}>
+                            Pruebas rápidas:
+                          </span>
+                          {Object.values(botResult.detalle_empresas || {})[0]?.lineas?.[0] && (
+                            <button
+                              type="button"
+                              onClick={() => handleTestBotQuery(Object.values(botResult.detalle_empresas)[0].lineas[0].numero)}
+                              style={{ ...S.btnSecondary, padding: '4px 10px', fontSize: '11px', borderRadius: '14px' }}
+                            >
+                              📱 Línea: {Object.values(botResult.detalle_empresas)[0].lineas[0].numero}
+                            </button>
+                          )}
+                          {Object.keys(botResult.detalle_grupos || {})[0] && (
+                            <button
+                              type="button"
+                              onClick={() => handleTestBotQuery(Object.keys(botResult.detalle_grupos)[0])}
+                              style={{ ...S.btnSecondary, padding: '4px 10px', fontSize: '11px', borderRadius: '14px' }}
+                            >
+                              👥 Grupo: #{Object.keys(botResult.detalle_grupos)[0]}
+                            </button>
+                          )}
+                          {['#menu', '#pago', '#red', '#autogestion'].map(cmd => (
+                            <button
+                              key={cmd}
+                              type="button"
+                              onClick={() => handleTestBotQuery(cmd)}
+                              style={{ ...S.btnSecondary, padding: '4px 10px', fontSize: '11px', borderRadius: '14px' }}
+                            >
+                              {cmd}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Mockup de Chat de WhatsApp */}
+                        {botTestResult && (
+                          <div style={{
+                            background: '#EFEAE2',
+                            borderRadius: '20px',
+                            overflow: 'hidden',
+                            boxShadow: '0 8px 24px rgba(0,0,0,0.08)',
+                            border: '1px solid rgba(0,0,0,0.1)'
+                          }}>
+                            {/* WhatsApp Header */}
+                            <div style={{
+                              background: '#075E54',
+                              color: '#ffffff',
+                              padding: '12px 18px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between'
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <div style={{ width: '34px', height: '34px', borderRadius: '50%', background: '#25D366', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>
+                                  <Bot size={18} />
+                                </div>
+                                <div>
+                                  <div style={{ fontWeight: 700, fontSize: '13.5px' }}>Bot Mutual AUNAR</div>
+                                  <div style={{ fontSize: '10.5px', color: '#B2DFDB' }}>en línea</div>
+                                </div>
+                              </div>
+                              <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.15)', padding: '3px 8px', borderRadius: '6px' }}>
+                                Tipo: {botTestResult.tipo === 'linea' ? '📱 Consulta de Línea' : botTestResult.tipo === 'grupo' ? '👥 Consulta de Grupo' : botTestResult.tipo === 'comando' ? '📋 Comando' : '⚠️ No encontrado'}
+                              </span>
+                            </div>
+
+                            {/* Chat Body */}
+                            <div style={{
+                              padding: '24px 20px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '14px',
+                              minHeight: '180px'
+                            }}>
+                              {/* Mensaje del Usuario (Derecha) */}
+                              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                <div style={{
+                                  background: '#DCF8C6',
+                                  padding: '8px 14px',
+                                  borderRadius: '12px 12px 0 12px',
+                                  maxWidth: '80%',
+                                  boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+                                  fontSize: '13.5px',
+                                  color: '#111827'
+                                }}>
+                                  {botTestResult.query}
+                                </div>
+                              </div>
+
+                              {/* Mensaje del Bot (Izquierda) */}
+                              <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                                <div style={{
+                                  background: '#ffffff',
+                                  padding: '12px 16px',
+                                  borderRadius: '12px 12px 12px 0',
+                                  maxWidth: '85%',
+                                  boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+                                  fontSize: '13.5px',
+                                  color: '#111827',
+                                  lineHeight: 1.5,
+                                  whiteSpace: 'pre-line'
+                                }}>
+                                  {botTestResult.respuesta}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
                       </div>
                     )}
+
                   </div>
                 )}
 
