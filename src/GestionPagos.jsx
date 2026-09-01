@@ -123,6 +123,7 @@ export default function GestionPagos() {
       consumoId: d.consumo_id,
       currentDiscountPct: d.calculado?.appliedDiscountPct || 0,
       bonifManual: d.calculado?.bonifManual || 0,
+      otros_cargos_op: Number(d.otros_cargos_op || 0),
       adicionales: adicionalesData[d.numero_linea] || []
     });
     setIsDescuentoModalOpen(true);
@@ -131,31 +132,14 @@ export default function GestionPagos() {
   const handleApplyDescuentoGestionPagos = async ({ linea, socioId, tipo, valor, esPorcentaje, esDuradero, cuotas, descripcion, consumoId, action }) => {
     try {
       if (action === 'DELETE') {
-        // Eliminar descuentos y cargos asociados a esta línea
-        await supabase
-          .from('adicionales')
-          .delete()
-          .eq('numero_linea', linea);
-
-        await supabase
-          .from('lineas')
-          .update({ descuento_esperado: null })
-          .eq('numero_linea', linea);
-
+        await supabase.from('adicionales').delete().eq('numero_linea', linea);
+        await supabase.from('lineas').update({ descuento_esperado: null }).eq('numero_linea', linea);
         if (socioId) {
-          await supabase
-            .from('socios')
-            .update({ desc_adicionales: 0 })
-            .eq('socio_id', socioId);
+          await supabase.from('socios').update({ desc_adicionales: 0 }).eq('socio_id', socioId);
         }
-
         if (consumoId) {
-          await supabase
-            .from('consumos_mensuales')
-            .update({ bonificaciones: 0, otros_cargos_op: 0 })
-            .eq('consumo_id', consumoId);
+          await supabase.from('consumos_mensuales').update({ bonificaciones: 0, otros_cargos_op: 0 }).eq('consumo_id', consumoId);
         }
-
         addToast(`Descuento/Cargo eliminado para la línea ${linea}`, 'success');
         fetchLineas();
         return;
@@ -164,71 +148,86 @@ export default function GestionPagos() {
       const numValor = Number(valor);
       if (isNaN(numValor) || numValor <= 0) return;
 
-      const isDesc = tipo === 'DESCUENTO';
+      const isDesc = tipo === 'DESCUENTO';  // true = descuento, false = cargo
 
-      if (esDuradero) {
-        // Eliminar primero cualquier adicional previo para evitar duplicaciones
-        await supabase
-          .from('adicionales')
-          .delete()
-          .eq('numero_linea', linea);
+      // Limpiar siempre el estado previo de la línea
+      await supabase.from('adicionales').delete().eq('numero_linea', linea);
+      if (consumoId) {
+        await supabase.from('consumos_mensuales')
+          .update({ bonificaciones: 0, otros_cargos_op: 0 })
+          .eq('consumo_id', consumoId);
+      }
 
-        // Guardar en la tabla 'adicionales'
-        const { error: errAdicional } = await supabase
-          .from('adicionales')
-          .insert({
+      if (esPorcentaje) {
+        // ── AJUSTE PORCENTUAL (%) ──────────────────────────────────────────
+        // Se guarda en 'adicionales' independientemente de si es puntual o duradero.
+        // El auditEngine lo aplica como multiplicador sobre el subtotal.
+        const tipoAdicional = isDesc ? 'DESCUENTO' : 'CARGO_PCT';
+        const numCuotas = esDuradero ? (Number(cuotas) || 12) : 1;
+
+        const { error: errAdicional } = await supabase.from('adicionales').insert({
+          socio_id: socioId || null,
+          numero_linea: linea,
+          tipo: tipoAdicional,
+          descripcion: descripcion || `${isDesc ? 'Descuento' : 'Cargo'} ${numValor}% (${numCuotas} ${numCuotas === 1 ? 'mes' : 'meses'})`,
+          valor: numValor,
+          cta_numero: 1,
+          total_cuotas: numCuotas,
+          activo: true,
+          periodo_inicio: selectedPeriodo || new Date().toISOString().substring(0, 7)
+        });
+        if (errAdicional) throw errAdicional;
+
+        // Para descuentos duraderos también actualizar lineas y socios
+        if (esDuradero) {
+          if (isDesc) {
+            await supabase.from('lineas').update({ descuento_esperado: numValor }).eq('numero_linea', linea);
+            if (socioId) {
+              await supabase.from('socios').update({ desc_adicionales: numValor }).eq('socio_id', socioId);
+            }
+          } else {
+            if (socioId) {
+              await supabase.from('socios').update({ desc_adicionales: -numValor }).eq('socio_id', socioId);
+            }
+          }
+        }
+
+        addToast(
+          `${isDesc ? 'Descuento' : 'Cargo'} de ${numValor}% (${numCuotas === 1 ? 'este período' : numCuotas + ' meses'}) aplicado correctamente`,
+          'success'
+        );
+      } else {
+        // ── AJUSTE MONTO FIJO ($) ──────────────────────────────────────────
+        if (esDuradero) {
+          // Duradero: guardar en adicionales (CARGO o DESCUENTO_FIJO)
+          const tipoAdicional = isDesc ? 'DESCUENTO_FIJO' : 'CARGO';
+          const numCuotas = Number(cuotas) || 12;
+
+          const { error: errAdicional } = await supabase.from('adicionales').insert({
             socio_id: socioId || null,
             numero_linea: linea,
-            tipo: tipo || 'DESCUENTO',
-            descripcion: descripcion || `${isDesc ? 'Descuento' : 'Cargo'} ${numValor}${esPorcentaje ? '%' : '$'} (${cuotas} meses)`,
+            tipo: tipoAdicional,
+            descripcion: descripcion || `${isDesc ? 'Descuento' : 'Cargo'} fijo $${numValor} (${numCuotas} meses)`,
             valor: numValor,
             cta_numero: 1,
-            total_cuotas: Number(cuotas) || 12,
+            total_cuotas: numCuotas,
             activo: true,
             periodo_inicio: selectedPeriodo || new Date().toISOString().substring(0, 7)
           });
+          if (errAdicional) throw errAdicional;
 
-        if (errAdicional) throw errAdicional;
-
-        if (isDesc && esPorcentaje) {
-          await supabase
-            .from('lineas')
-            .update({ descuento_esperado: numValor })
-            .eq('numero_linea', linea);
-
-          if (socioId) {
-            await supabase
-              .from('socios')
-              .update({ desc_adicionales: numValor })
-              .eq('socio_id', socioId);
-          }
-        } else if (!isDesc && esPorcentaje) {
-          if (socioId) {
-            await supabase
-              .from('socios')
-              .update({ desc_adicionales: -numValor })
-              .eq('socio_id', socioId);
-          }
-        }
-
-        addToast(`${isDesc ? 'Descuento' : 'Cargo'} de ${numValor}${esPorcentaje ? '%' : '$'} (${cuotas} meses) guardado correctamente`, 'success');
-      } else {
-        if (consumoId) {
-          if (isDesc) {
-            const { error: errConsumo } = await supabase
-              .from('consumos_mensuales')
-              .update({ bonificaciones: numValor })
-              .eq('consumo_id', consumoId);
-            if (errConsumo) throw errConsumo;
-          } else {
-            const { error: errConsumo } = await supabase
-              .from('consumos_mensuales')
-              .update({ otros_cargos_op: numValor })
-              .eq('consumo_id', consumoId);
+          addToast(`${isDesc ? 'Descuento' : 'Cargo'} fijo de $${numValor} (${numCuotas} meses) guardado correctamente`, 'success');
+        } else {
+          // Puntual: guardar en consumo del período actual
+          if (consumoId) {
+            const updates = isDesc
+              ? { bonificaciones: numValor, otros_cargos_op: 0 }
+              : { otros_cargos_op: numValor, bonificaciones: 0 };
+            const { error: errConsumo } = await supabase.from('consumos_mensuales').update(updates).eq('consumo_id', consumoId);
             if (errConsumo) throw errConsumo;
           }
+          addToast(`${isDesc ? 'Descuento' : 'Cargo'} fijo de $${numValor} aplicado para este período`, 'success');
         }
-        addToast(`${isDesc ? 'Descuento' : 'Cargo'} de ${esPorcentaje ? numValor + '%' : '$' + numValor} aplicado para este período`, 'success');
       }
 
       fetchLineas();

@@ -5,7 +5,9 @@ import {
   Bold, Italic, Underline, List, AlignLeft, AlignCenter, 
   AlignRight, CheckSquare, Square, Loader2, 
   Settings, ChevronRight, ChevronDown, RefreshCw, Eye,
-  ArrowLeft, Users, FileText, X, Check, Clock, Hash, Phone, Tag
+  ArrowLeft, Users, FileText, X, Check, Clock, Hash, Phone, Tag,
+  Bot, MessageSquare, UploadCloud, FileSpreadsheet, Sparkles, Database,
+  CheckCircle, AlertTriangle
 } from 'lucide-react';
 import { useToast } from './components/ui/ToastProvider';
 import Modal from './components/Modal';
@@ -18,7 +20,7 @@ export default function Campanas() {
   const [currentStep, setCurrentStep] = useState(1);
   
   // Tipo de campaña en paso 1
-  const [campaignType, setCampaignType] = useState(null); // 'nueva' | 'grupal' | 'lineas'
+  const [campaignType, setCampaignType] = useState(null); // 'nueva' | 'grupal' | 'lineas' | 'bot_wsp'
 
   // Estados de listas y selección
   const [items, setItems] = useState([]); // elementos según tipo
@@ -55,7 +57,16 @@ export default function Campanas() {
   const [subject, setSubject] = useState('');
   const [bodyHtml, setBodyHtml] = useState('');
   const [n8nWebhookUrl, setN8nWebhookUrl] = useState(
-    localStorage.getItem('n8n_webhook_campaign_url') || 'http://163.176.222.32:5678/webhook/envio-campana'
+    localStorage.getItem('n8n_webhook_campaign_url') || 'http://34.176.65.52:5678/webhook/envio-campana'
+  );
+
+  // Bot WhatsApp Sincronizador de Facturación
+  const [botFile, setBotFile] = useState(null);
+  const [uploadingBot, setUploadingBot] = useState(false);
+  const [botResult, setBotResult] = useState(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [n8nBotWebhookUrl, setN8nBotWebhookUrl] = useState(
+    localStorage.getItem('n8n_webhook_bot_url') || 'http://34.176.65.52:5678/webhook/actualizar-bot-respuestas'
   );
   
   const editorRef = useRef(null);
@@ -97,6 +108,67 @@ export default function Campanas() {
   const handleWebhookUrlChange = (val) => {
     setN8nWebhookUrl(val);
     localStorage.setItem('n8n_webhook_campaign_url', val);
+  };
+
+  const handleBotWebhookUrlChange = (val) => {
+    setN8nBotWebhookUrl(val);
+    localStorage.setItem('n8n_webhook_bot_url', val);
+  };
+
+  const handleBotFileSelect = (file) => {
+    if (!file) return;
+    if (!file.name.match(/\.(xlsx|xls)$/i)) {
+      addToast('Por favor seleccioná un archivo Excel válido (.xlsx o .xls)', 'error');
+      return;
+    }
+    setBotFile(file);
+    setBotResult(null);
+  };
+
+  const handleSyncBotBilling = async () => {
+    if (!botFile) {
+      addToast('Seleccioná un archivo Excel para sincronizar.', 'warning');
+      return;
+    }
+
+    setUploadingBot(true);
+    setBotResult(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('data', botFile);
+      formData.append('file', botFile);
+      formData.append('archivo', botFile);
+
+      const targetUrl = n8nBotWebhookUrl || 'http://34.176.65.52:5678/webhook/actualizar-bot-respuestas';
+      
+      const response = await fetch(targetUrl, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`El servidor respondió con error (${response.status}): ${errorText || response.statusText}`);
+      }
+
+      const result = await response.json();
+      if (result.ok || result.success) {
+        setBotResult(result);
+        addToast(
+          `¡Éxito! Se actualizaron ${result.lineas_procesadas || 0} líneas y ${result.grupos_actualizados || 0} grupos del bot.`,
+          'success'
+        );
+      } else {
+        throw new Error(result.error || 'Error al procesar el archivo Excel.');
+      }
+    } catch (err) {
+      console.error('Error sincronizando bot WSP:', err);
+      addToast(err.message || 'Error al conectar con el webhook del bot.', 'error');
+      setBotResult({ ok: false, error: err.message });
+    } finally {
+      setUploadingBot(false);
+    }
   };
 
   // --------------- FETCHS PARA CADA TIPO ---------------
@@ -915,12 +987,12 @@ export default function Campanas() {
         </div>
       </div>
 
-      {/* ═══════════════════ STEP 1: RECIPIENTS ═══════════════════ */}
+      {/* ═══════════════════ STEP 1: RECIPIENTS / BOT SYNC ═══════════════════ */}
       {currentStep === 1 && (
         <div style={S.card}>
           {/* Selector de tipo de campaña */}
           {!campaignType ? (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', padding: '20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', padding: '20px' }}>
               <div
                 onClick={() => { setCampaignType('nueva'); fetchSocios(); }}
                 style={{ ...S.uploadZone, cursor: 'pointer', flexDirection: 'column', padding: '32px' }}
@@ -944,6 +1016,264 @@ export default function Campanas() {
                 <Phone size={32} />
                 <h3 style={{ margin: '8px 0' }}>Campaña por Líneas</h3>
                 <p style={{ textAlign: 'center', fontSize: '13px' }}>Líneas individuales con email</p>
+              </div>
+              <div
+                onClick={() => { setCampaignType('bot_wsp'); setBotResult(null); }}
+                style={{ 
+                  ...S.uploadZone, 
+                  cursor: 'pointer', 
+                  flexDirection: 'column', 
+                  padding: '32px',
+                  background: 'linear-gradient(135deg, rgba(37, 211, 102, 0.08) 0%, rgba(18, 140, 126, 0.12) 100%)',
+                  borderColor: 'rgba(37, 211, 102, 0.4)'
+                }}
+              >
+                <div style={{ color: '#25D366' }}>
+                  <MessageSquare size={32} />
+                </div>
+                <h3 style={{ margin: '8px 0', color: 'var(--text-primary)' }}>Bot WhatsApp</h3>
+                <p style={{ textAlign: 'center', fontSize: '13px' }}>Actualizar facturación de líneas y grupos (XLS)</p>
+              </div>
+            </div>
+          ) : campaignType === 'bot_wsp' ? (
+            <div>
+              {/* Barra de volver */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                <button onClick={() => { setCampaignType(null); setBotFile(null); setBotResult(null); }} style={S.btnSecondary}>
+                  <ArrowLeft size={16} /> Volver a opciones
+                </button>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <MessageSquare size={18} style={{ color: '#25D366' }} /> Bot de WhatsApp – Actualización de Facturación
+                </span>
+              </div>
+
+              {/* Contenedor Informativo y Carga */}
+              <div style={{ maxWidth: '800px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                
+                {/* Hero Banner */}
+                <div style={{
+                  background: 'linear-gradient(135deg, rgba(37, 211, 102, 0.1) 0%, rgba(18, 140, 126, 0.15) 100%)',
+                  border: '1px solid rgba(37, 211, 102, 0.25)',
+                  borderRadius: '20px',
+                  padding: '24px',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '16px'
+                }}>
+                  <div style={{
+                    width: '44px',
+                    height: '44px',
+                    borderRadius: '12px',
+                    background: '#25D366',
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0
+                  }}>
+                    <Bot size={24} />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                      Sincronizar Facturación del Bot Automático
+                    </h3>
+                    <p style={{ margin: 0, fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                      Cargá el archivo Excel (.xlsx o .xls) de la prestadora (Claro, Personal o Movistar). El servidor actualizará las respuestas individuales de cada socio, los totales de grupos y mantendrá los comandos estáticos (como <code style={{ background: 'rgba(0,0,0,0.06)', padding: '2px 5px', borderRadius: '4px' }}>#menu</code>, <code style={{ background: 'rgba(0,0,0,0.06)', padding: '2px 5px', borderRadius: '4px' }}>#pago</code>, <code style={{ background: 'rgba(0,0,0,0.06)', padding: '2px 5px', borderRadius: '4px' }}>#red</code>).
+                    </p>
+                  </div>
+                </div>
+
+                {/* Dropzone de Archivo */}
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+                  onDragLeave={() => setIsDragOver(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragOver(false);
+                    const file = e.dataTransfer.files?.[0];
+                    if (file) handleBotFileSelect(file);
+                  }}
+                  onClick={() => document.getElementById('bot-excel-file-input')?.click()}
+                  style={{
+                    border: `2px dashed ${isDragOver ? '#25D366' : 'var(--border-light)'}`,
+                    borderRadius: '20px',
+                    padding: '36px 24px',
+                    textAlign: 'center',
+                    background: isDragOver ? 'rgba(37, 211, 102, 0.08)' : 'rgba(255,255,255,0.4)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '12px'
+                  }}
+                >
+                  <input
+                    id="bot-excel-file-input"
+                    type="file"
+                    accept=".xlsx, .xls"
+                    style={{ display: 'none' }}
+                    onChange={(e) => handleBotFileSelect(e.target.files?.[0])}
+                  />
+
+                  {botFile ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', width: '100%', maxWidth: '500px', background: 'rgba(255,255,255,0.8)', padding: '14px 20px', borderRadius: '14px', border: '1px solid rgba(46,125,50,0.3)' }}>
+                      <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(46,125,50,0.1)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <FileSpreadsheet size={22} />
+                      </div>
+                      <div style={{ textAlign: 'left', flex: 1, overflow: 'hidden' }}>
+                        <div style={{ fontWeight: 700, fontSize: '13.5px', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {botFile.name}
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                          {(botFile.size / 1024).toFixed(1)} KB • Listo para procesar
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setBotFile(null); setBotResult(null); }}
+                        style={{ ...S.btnSecondary, padding: '6px 10px', fontSize: '12px' }}
+                      >
+                        <X size={14} /> Quitar
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: 'rgba(37, 211, 102, 0.12)', color: '#128C7E', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <UploadCloud size={28} />
+                      </div>
+                      <div>
+                        <h4 style={{ margin: '0 0 4px 0', fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          Hacé click para seleccionar o arrastrá tu archivo Excel
+                        </h4>
+                        <p style={{ margin: 0, fontSize: '12.5px', color: 'var(--text-secondary)' }}>
+                          Formatos aceptados: .xlsx o .xls con hoja de SOCIOS
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Configuración del Webhook */}
+                <div style={{
+                  background: 'rgba(255,255,255,0.3)',
+                  border: '1px solid var(--border-light)',
+                  borderRadius: '16px',
+                  padding: '16px 20px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '12px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Settings size={15} style={{ color: 'var(--text-secondary)' }} />
+                    <span style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                      Webhook n8n en VM:
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    value={n8nBotWebhookUrl}
+                    onChange={(e) => handleBotWebhookUrlChange(e.target.value)}
+                    style={{ ...S.input, maxWidth: '420px', fontSize: '12px', padding: '6px 12px' }}
+                    placeholder="http://34.176.65.52:5678/webhook/actualizar-bot-respuestas"
+                  />
+                </div>
+
+                {/* Botón de Acción Principal */}
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                  <button
+                    type="button"
+                    onClick={handleSyncBotBilling}
+                    disabled={!botFile || uploadingBot}
+                    style={{
+                      ...S.btnPrimary,
+                      padding: '14px 36px',
+                      fontSize: '15px',
+                      borderRadius: '14px',
+                      background: !botFile ? 'rgba(0,0,0,0.1)' : 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)',
+                      color: '#ffffff',
+                      boxShadow: !botFile ? 'none' : '0 6px 20px rgba(37, 211, 102, 0.35)',
+                      opacity: !botFile || uploadingBot ? 0.6 : 1,
+                      cursor: !botFile || uploadingBot ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    {uploadingBot ? (
+                      <>
+                        <Loader2 size={18} className="animate-spin" />
+                        <span>Procesando y Sincronizando con el Bot...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={18} />
+                        <span>Sincronizar Facturación con Bot WSP</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Resultados de la sincronización */}
+                {botResult && (
+                  <div style={{
+                    background: botResult.ok ? 'rgba(46,125,50,0.06)' : 'rgba(211,47,47,0.06)',
+                    border: `1px solid ${botResult.ok ? 'rgba(46,125,50,0.25)' : 'rgba(211,47,47,0.25)'}`,
+                    borderRadius: '20px',
+                    padding: '24px',
+                    animation: 'fadeIn 0.3s ease'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                      {botResult.ok ? (
+                        <CheckCircle size={22} style={{ color: 'var(--accent)' }} />
+                      ) : (
+                        <AlertTriangle size={22} style={{ color: 'var(--danger)' }} />
+                      )}
+                      <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: botResult.ok ? 'var(--accent)' : 'var(--danger)' }}>
+                        {botResult.ok ? '¡Facturación Actualizada con Éxito!' : 'Error al procesar la facturación'}
+                      </h4>
+                    </div>
+
+                    {botResult.ok ? (
+                      <div>
+                        <div style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                          gap: '12px',
+                          marginBottom: '16px'
+                        }}>
+                          <div style={{ background: 'rgba(255,255,255,0.7)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Líneas Actualizadas</div>
+                            <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '2px' }}>{botResult.lineas_procesadas || 0}</div>
+                          </div>
+                          <div style={{ background: 'rgba(255,255,255,0.7)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Grupos Calculados</div>
+                            <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '2px' }}>{botResult.grupos_actualizados || 0}</div>
+                          </div>
+                          <div style={{ background: 'rgba(255,255,255,0.7)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Empresa</div>
+                            <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>
+                              {Array.isArray(botResult.empresas) ? botResult.empresas.join(', ') : (botResult.empresas || 'Detectada')}
+                            </div>
+                          </div>
+                          <div style={{ background: 'rgba(255,255,255,0.7)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Vencimiento</div>
+                            <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{botResult.vencimiento || 'N/A'}</div>
+                          </div>
+                        </div>
+
+                        <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', lineHeight: 1.5, background: 'rgba(255,255,255,0.5)', padding: '10px 14px', borderRadius: '10px' }}>
+                          ✓ El archivo <code style={{ fontWeight: 700 }}>respuestas.json</code> en el servidor ahora cuenta con un total de <strong>{botResult.total_claves_json || 0}</strong> entradas activas. Cualquier socio que consulte por WhatsApp recibirá inmediatamente el saldo y vencimiento actualizados.
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: '13px', color: 'var(--danger)', lineHeight: 1.5 }}>
+                        {botResult.error || 'Ocurrió un error inesperado al procesar el archivo.'}
+                      </div>
+                    )}
+                  </div>
+                )}
+
               </div>
             </div>
           ) : (

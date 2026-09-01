@@ -216,6 +216,8 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
           descExtraPct += Number(ad.valor || 0);
         } else if (ad.tipo === 'CARGO_PCT') {
           descExtraPct -= Number(ad.valor || 0);
+        } else if (ad.tipo === 'DESCUENTO_FIJO') {
+          cargosExtra -= Number(ad.valor || 0);
         }
       });
     }

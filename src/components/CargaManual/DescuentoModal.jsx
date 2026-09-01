@@ -16,9 +16,10 @@ export default function DescuentoModal({ isOpen, onClose, row, onApply }) {
       const ad = row.adicionales && row.adicionales.length > 0 ? row.adicionales[0] : null;
       const dPct = row.currentDiscountPct !== undefined ? Number(row.currentDiscountPct) : Number(row.desc_adicionales || 0);
       const bMan = Number(row.bonifManual || 0);
+      const otrosCargos = Number(row.otros_cargos_op || 0);
 
-      const isPct = ad ? (ad.tipo === 'DESCUENTO' || ad.tipo === 'CARGO_PCT') : (dPct !== 0 || bMan === 0);
-      const isDesc = ad ? (ad.tipo === 'DESCUENTO') : (dPct >= 0 && bMan >= 0);
+      const isPct = ad ? (ad.tipo === 'DESCUENTO' || ad.tipo === 'CARGO_PCT') : (dPct !== 0 || (bMan === 0 && otrosCargos === 0));
+      const isDesc = ad ? (ad.tipo === 'DESCUENTO') : (dPct > 0 || (dPct === 0 && bMan > 0) || (dPct === 0 && bMan === 0 && otrosCargos === 0));
 
       let v = '';
       if (ad && ad.valor) {
@@ -27,6 +28,8 @@ export default function DescuentoModal({ isOpen, onClose, row, onApply }) {
         v = String(Math.abs(dPct));
       } else if (bMan !== 0) {
         v = String(Math.abs(bMan));
+      } else if (otrosCargos !== 0) {
+        v = String(Math.abs(otrosCargos));
       } else {
         v = '10'; // default sugerido cuando es nuevo
       }
@@ -34,8 +37,8 @@ export default function DescuentoModal({ isOpen, onClose, row, onApply }) {
       setTipoAjuste(isDesc ? 'DESCUENTO' : 'CARGO');
       setEsPorcentaje(isPct);
       setValor(v);
-      setDescripcion(ad?.descripcion || '');
-      setEsDuradero(ad ? (ad.total_cuotas > 1) : true);
+      setDescripcion(ad?.descripcion || (otrosCargos !== 0 ? 'Ajuste operadora' : ''));
+      setEsDuradero(ad ? (ad.total_cuotas > 1) : false);
       setCuotas(ad?.total_cuotas || 12);
     }
   }, [row, isOpen]);
@@ -48,6 +51,7 @@ export default function DescuentoModal({ isOpen, onClose, row, onApply }) {
 
   const hasExistingDiscount = (row.currentDiscountPct && Number(row.currentDiscountPct) !== 0) ||
     (row.bonifManual && Number(row.bonifManual) !== 0) ||
+    (row.otros_cargos_op && Number(row.otros_cargos_op) !== 0) ||
     (row.adicionales && row.adicionales.length > 0) ||
     (row.desc_adicionales && Number(row.desc_adicionales) !== 0);
 
@@ -73,16 +77,11 @@ export default function DescuentoModal({ isOpen, onClose, row, onApply }) {
     if (!valor || isNaN(Number(valor)) || Number(valor) <= 0) return;
     setIsSubmitting(true);
     try {
-      let finalTipo = tipoAjuste;
-      if (!isDescuento && esPorcentaje) {
-        finalTipo = 'CARGO_PCT';
-      }
-
       await onApply({
         linea: row.numero_linea || row.linea,
         socioId: row.socioId || row.lineas?.socio_id,
         consumoId: row.consumo_id || row.consumoId,
-        tipo: finalTipo,
+        tipo: tipoAjuste,           // siempre 'DESCUENTO' | 'CARGO'
         valor: Number(valor),
         esPorcentaje,
         esDuradero,

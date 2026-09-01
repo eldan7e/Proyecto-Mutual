@@ -125,13 +125,21 @@ export default function AuditLineRow({ d, isPeriodoLiquidado, adicionalesData, o
           )}
 
           {Number(d.otros_cargos_op || 0) !== 0 && (
-            <div style={{ 
-              background: Number(d.otros_cargos_op) > 0 ? '#eff6ff' : '#fee2e2', 
-              padding: '6px 10px', 
-              borderRadius: '8px', 
-              border: Number(d.otros_cargos_op) > 0 ? '1px solid #bfdbfe' : '1px solid #fca5a5',
-              textAlign: 'right'
-            }}>
+            <div 
+              onClick={() => onOpenDescuento && onOpenDescuento(d)}
+              title="Hacé clic para modificar o eliminar este ajuste de operadora"
+              style={{ 
+                cursor: 'pointer',
+                background: Number(d.otros_cargos_op) > 0 ? '#eff6ff' : '#fee2e2', 
+                padding: '6px 10px', 
+                borderRadius: '8px', 
+                border: Number(d.otros_cargos_op) > 0 ? '1px solid #bfdbfe' : '1px solid #fca5a5',
+                textAlign: 'right',
+                transition: 'all 0.15s ease'
+              }}
+              onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.08)'}
+              onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
+            >
               <div style={{ fontWeight: 800, color: Number(d.otros_cargos_op) > 0 ? '#1d4ed8' : '#ef4444', fontSize: '14px' }}>
                 {Number(d.otros_cargos_op) > 0 ? '+' : ''}${Number(d.otros_cargos_op).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
               </div>
