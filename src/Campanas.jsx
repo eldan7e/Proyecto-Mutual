@@ -377,6 +377,25 @@ export default function Campanas() {
   };
 
   // --------------- CAMPAÑA DESDE EXCEL (TODOS) ---------------
+  const formatGbsPlan = (plan, gb) => {
+    if (gb && String(gb).trim()) {
+      let clean = String(gb).trim();
+      clean = clean.replace(/(\d+)\s*MB\s*GB/i, '$1 MB');
+      clean = clean.replace(/(\d+)\s*MB/i, '$1 MB');
+      clean = clean.replace(/\s+/g, ' ');
+      return clean;
+    }
+    if (plan && String(plan).trim()) {
+      const str = String(plan).trim();
+      const match = str.match(/(\d+(?:[,\.]\d+)?)\s*(GB|MB)/i);
+      if (match) {
+        return `${match[1]} ${match[2].toUpperCase()}`;
+      }
+      return str;
+    }
+    return '-';
+  };
+
   const applyExcelRows = (rawRows, mode, empresa, searchStr, periodoVal) => {
     if (!rawRows || rawRows.length === 0) {
       setItems([]);
@@ -399,7 +418,9 @@ export default function Campanas() {
       const emailFinal = emailIndiv || emailGpo;
       const grupo = r['GRUPO'] != null ? String(r['GRUPO']).trim() : '';
       const nombre = String(r['APELLIDO, NOMBRE'] || '').trim();
-      const plan = String(r['ABONO NOMBRE'] || r['GB INTERNET'] || '').trim();
+      const rawGb = String(r['GB INTERNET'] || '').trim();
+      const rawAbono = String(r['ABONO NOMBRE'] || '').trim();
+      const plan = formatGbsPlan(rawAbono, rawGb);
       const prov = String(r['EMPRESA'] || '').trim().toUpperCase();
       const fpago = String(r['FPAGO'] || '').trim();
       const cbu = String(r['CBU'] || '').trim();
@@ -410,6 +431,7 @@ export default function Campanas() {
         nombre,
         numero: numLinea,
         plan,
+        gb: rawGb,
         abonoBase,
         excedentes,
         tarifaAunar,
@@ -458,6 +480,7 @@ export default function Campanas() {
         target.detalle_lineas.push({
           numero_linea: r.numero,
           nombre_plan: r.plan,
+          gb: r.gb,
           proveedor: r.empresa,
           costo_abono_real: r.abonoBase,
           excedentes: r.excedentes,
@@ -506,6 +529,7 @@ export default function Campanas() {
         target.detalle_lineas.push({
           numero_linea: r.numero,
           nombre_plan: r.plan,
+          gb: r.gb,
           proveedor: r.empresa,
           costo_abono_real: r.abonoBase,
           excedentes: r.excedentes,
@@ -1089,7 +1113,7 @@ export default function Campanas() {
       tableRows = r.detalle_lineas.map(l =>
         `<tr style="border-bottom: 1px solid #e2e8f0;">
           <td style="padding: 8px 10px; font-size: 13px; font-weight: 600; color: #1e293b;">${l.numero_linea}</td>
-          <td style="padding: 8px 10px; font-size: 13px; color: #475569;">${l.nombre_plan || '-'}</td>
+          <td style="padding: 8px 10px; font-size: 13px; color: #475569;">${formatGbsPlan(l.nombre_plan, l.gb)}</td>
           <td style="padding: 8px 10px; font-size: 13px; color: #475569;">${l.proveedor || '-'}</td>
           <td style="padding: 8px 10px; font-size: 13px; text-align: right; color: #475569;">$ ${Number(l.costo_abono_real || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
           <td style="padding: 8px 10px; font-size: 13px; text-align: right; color: #475569;">$ ${Number(l.excedentes || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
