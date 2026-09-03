@@ -483,8 +483,35 @@ export default function Campanas() {
         monto_cuota_cel: 0,
         total_cuotas: 0,
         monto_adeudado: 0,
-        dias_mora: '0'
+        dias_mora: '0',
+        periodo: '',
+        detalle_lineas: []
       }));
+
+      // Enriquecer con última facturación del grupo
+      try {
+        const { data: ultLiqs } = await supabase
+          .from('liquidaciones_grupos')
+          .select('numero_grupo, periodo, monto_total_facturado')
+          .order('periodo', { ascending: false });
+
+        if (ultLiqs && ultLiqs.length > 0) {
+          const ultimoPeriodo = ultLiqs[0].periodo;
+          const liqsMap = {};
+          ultLiqs.filter(l => l.periodo === ultimoPeriodo).forEach(l => {
+            liqsMap[l.numero_grupo] = (liqsMap[l.numero_grupo] || 0) + Number(l.monto_total_facturado || 0);
+          });
+          mapped.forEach(item => {
+            if (liqsMap[item.grupo]) {
+              item.monto_adeudado = liqsMap[item.grupo].toFixed(2);
+              item.periodo = ultimoPeriodo;
+            }
+          });
+        }
+      } catch (e) {
+        console.warn('Error al enriquecer facturación grupal:', e);
+      }
+
       setItems(mapped);
       setSelectedIds(new Set());
     } catch (err) {
