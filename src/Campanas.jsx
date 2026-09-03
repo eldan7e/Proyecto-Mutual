@@ -532,7 +532,7 @@ export default function Campanas() {
 
       if (error) throw error;
 
-      let list = data || [];
+      let list = (data || []).filter(l => l.numero_linea && !l.numero_linea.startsWith('000') && l.numero_linea.length >= 8);
       const term = debouncedLineasSearch.trim().toLowerCase();
       if (term) {
         list = list.filter(l =>
