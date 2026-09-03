@@ -113,6 +113,8 @@ export default function Campanas() {
   const [botTestQuery, setBotTestQuery] = useState('');
   const [botTestResult, setBotTestResult] = useState(null);
   const [expandedGroups, setExpandedGroups] = useState(new Set());
+  const [isConfirmPublishModalOpen, setIsConfirmPublishModalOpen] = useState(false);
+  const [publishingBot, setPublishingBot] = useState(false);
   
   // Campaña desde Excel (TODOS)
   const [excelFile, setExcelFile] = useState(null);
@@ -342,13 +344,18 @@ export default function Campanas() {
     setBotTestResult(null);
   };
 
-  const handleSyncBotBilling = async (vtoParam) => {
+  const handleSyncBotBilling = async (actionType = 'preview', vtoParam) => {
     if (!botFile) {
-      addToast('Seleccioná un archivo Excel para sincronizar.', 'warning');
+      addToast('Seleccioná un archivo Excel para analizar.', 'warning');
       return;
     }
 
-    setUploadingBot(true);
+    if (actionType === 'publish') {
+      setPublishingBot(true);
+    } else {
+      setUploadingBot(true);
+    }
+    
     const vtoToUse = (vtoParam !== undefined ? vtoParam : customVencimiento).trim();
 
     try {
@@ -356,6 +363,7 @@ export default function Campanas() {
       formData.append('data', botFile);
       formData.append('file', botFile);
       formData.append('archivo', botFile);
+      formData.append('action', actionType); // 'preview' | 'publish'
       if (vtoToUse) {
         formData.append('vencimiento', vtoToUse);
       }
@@ -374,59 +382,69 @@ export default function Campanas() {
 
       const result = await response.json();
       if (result.ok || result.success) {
-        setBotResult(result);
+        const isPublished = (actionType === 'publish');
+        setBotResult({ ...result, published: isPublished });
         if (result.vencimiento) {
           setCustomVencimiento(result.vencimiento);
         } else if (vtoToUse) {
           setCustomVencimiento(vtoToUse);
         }
-        addToast(
-          `¡Éxito! Se procesaron ${result.lineas_procesadas || 0} líneas de ${result.empresas?.join(', ') || 'la prestadora'}.`,
-          'success'
-        );
+
+        if (isPublished) {
+          setIsConfirmPublishModalOpen(false);
+          addToast(
+            `¡Éxito! Facturación publicada en vivo en el Bot de WhatsApp (${result.lineas_procesadas || 0} líneas, ${result.grupos_actualizados || 0} grupos).`,
+            'success'
+          );
+        } else {
+          addToast(
+            `Vista previa generada: ${result.lineas_procesadas || 0} líneas analizadas. Revisá los datos y confirmá la publicación.`,
+            'info'
+          );
+        }
       } else {
         throw new Error(result.error || 'Error al procesar el archivo Excel.');
       }
     } catch (err) {
-      console.error('Error sincronizando bot WSP:', err);
+      console.error('Error procesando bot WSP:', err);
       addToast(err.message || 'Error al conectar con el webhook del bot.', 'error');
       setBotResult({ ok: false, error: err.message });
     } finally {
       setUploadingBot(false);
+      setPublishingBot(false);
     }
   };
 
-  const handleApplyVencimiento = async () => {
-    if (!customVencimiento.trim()) {
-      addToast('Ingresá una fecha de vencimiento (ej: 15/08/2026)', 'warning');
+  const handleApplyVencimiento = async (newVto) => {
+    const vto = (newVto !== undefined ? newVto : customVencimiento).trim();
+    if (!vto) {
+      addToast('Ingresá una fecha de vencimiento (ej: 12/09/2026)', 'warning');
       return;
     }
 
+    setCustomVencimiento(vto);
     setApplyingVto(true);
+
     try {
-      // If we have the original botFile, re-sync with server
-      if (botFile) {
-        await handleSyncBotBilling(customVencimiento);
-        addToast(`¡Vencimiento ${customVencimiento} aplicado y sincronizado en el servidor!`, 'success');
-      } else if (botResult && botResult.ok) {
-        // In-memory update
-        const updated = { ...botResult, vencimiento: customVencimiento };
+      // If we have the botResult in preview, update memory and preview
+      if (botResult && botResult.ok) {
+        const updated = { ...botResult, vencimiento: vto, published: false };
         if (updated.detalle_empresas) {
           Object.keys(updated.detalle_empresas).forEach(emp => {
             if (updated.detalle_empresas[emp]?.lineas) {
-              updated.detalle_empresas[emp].lineas = updated.detalle_empresas[emp].lineas.map(l => ({ ...l, vto: customVencimiento }));
+              updated.detalle_empresas[emp].lineas = updated.detalle_empresas[emp].lineas.map(l => ({ ...l, vto: vto }));
             }
           });
         }
         if (updated.detalle_grupos) {
           Object.keys(updated.detalle_grupos).forEach(g => {
             if (updated.detalle_grupos[g]) {
-              updated.detalle_grupos[g].vto = customVencimiento;
+              updated.detalle_grupos[g].vto = vto;
             }
           });
         }
         setBotResult(updated);
-        addToast(`Vencimiento actualizado a ${customVencimiento}`, 'success');
+        addToast(`Vencimiento actualizado a ${vto}. Presioná "Confirmar y Publicar" para impactar en WhatsApp.`, 'info');
       }
     } catch (err) {
       console.error('Error al aplicar vencimiento:', err);
@@ -2589,7 +2607,7 @@ export default function Campanas() {
                   <ArrowLeft size={16} /> Volver a opciones
                 </button>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#25D366' }} />
+                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: botResult?.published ? '#25D366' : '#f59e0b' }} />
                   <span style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '15px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <MessageSquare size={18} style={{ color: '#25D366' }} /> Bot de WhatsApp – Facturación & Consultas
                   </span>
@@ -2599,7 +2617,7 @@ export default function Campanas() {
               {/* Contenedor Principal */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 
-                {/* ─── Carga y Sincronización Inicial ─── */}
+                {/* ─── Carga y Previsualización Inicial ─── */}
                 <div style={{
                   background: 'rgba(255,255,255,0.4)',
                   border: '1px solid var(--border-light)',
@@ -2629,7 +2647,7 @@ export default function Campanas() {
                         type="text"
                         value={customVencimiento}
                         onChange={(e) => setCustomVencimiento(e.target.value)}
-                        placeholder="ej: 15/08/2026"
+                        placeholder="ej: 12/09/2026"
                         style={{ ...S.input, width: '130px', padding: '5px 10px', fontSize: '12.5px', fontWeight: 600 }}
                       />
                     </div>
@@ -2693,16 +2711,16 @@ export default function Campanas() {
 
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); handleSyncBotBilling(); }}
+                      onClick={(e) => { e.stopPropagation(); handleSyncBotBilling('preview'); }}
                       disabled={!botFile || uploadingBot}
                       style={{
                         ...S.btnPrimary,
                         padding: '8px 20px',
                         fontSize: '13px',
                         borderRadius: '10px',
-                        background: !botFile ? 'rgba(0,0,0,0.1)' : 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)',
+                        background: !botFile ? 'rgba(0,0,0,0.1)' : 'linear-gradient(135deg, #0288d1 0%, #01579b 100%)',
                         color: '#ffffff',
-                        boxShadow: !botFile ? 'none' : '0 4px 12px rgba(37, 211, 102, 0.3)',
+                        boxShadow: !botFile ? 'none' : '0 4px 12px rgba(2, 136, 209, 0.3)',
                         opacity: !botFile || uploadingBot ? 0.6 : 1,
                         cursor: !botFile || uploadingBot ? 'not-allowed' : 'pointer'
                       }}
@@ -2710,12 +2728,12 @@ export default function Campanas() {
                       {uploadingBot ? (
                         <>
                           <Loader2 size={15} className="animate-spin" />
-                          <span>Procesando...</span>
+                          <span>Analizando Excel...</span>
                         </>
                       ) : (
                         <>
-                          <Sparkles size={15} />
-                          <span>{botResult ? 'Reprocesar Excel' : 'Procesar Facturación'}</span>
+                          <Search size={15} />
+                          <span>{botResult ? 'Re-analizar Excel' : 'Analizar y Previsualizar'}</span>
                         </>
                       )}
                     </button>
@@ -2726,6 +2744,121 @@ export default function Campanas() {
                 {botResult && botResult.ok && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                     
+                    {/* ─── BANNER DE ESTADO (BORRADOR vs PUBLICADO) ─── */}
+                    {!botResult.published ? (
+                      <div style={{
+                        background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, rgba(217, 119, 6, 0.12) 100%)',
+                        border: '1.5px solid rgba(245, 158, 11, 0.35)',
+                        borderRadius: '16px',
+                        padding: '16px 20px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: '14px',
+                        boxShadow: '0 4px 14px rgba(245, 158, 11, 0.08)'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: '280px' }}>
+                          <div style={{ width: '42px', height: '42px', borderRadius: '12px', background: '#f59e0b', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <Eye size={22} />
+                          </div>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '11px', fontWeight: 900, background: '#f59e0b', color: '#fff', padding: '2px 8px', borderRadius: '6px', letterSpacing: '0.4px' }}>
+                                VISTA PREVIA (BORRADOR)
+                              </span>
+                              <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                                Facturación analizada y lista para revisión
+                              </span>
+                            </div>
+                            <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                              Los datos de abajo han sido calculados para su control. <strong>Aún NO se han publicado en el bot de WhatsApp</strong>. Verificá el vencimiento y confirmá para impactar en producción.
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!customVencimiento.trim()) {
+                              addToast('Por favor, ingresá la fecha de vencimiento abajo antes de confirmar la publicación.', 'warning');
+                              return;
+                            }
+                            setIsConfirmPublishModalOpen(true);
+                          }}
+                          disabled={publishingBot}
+                          style={{
+                            ...S.btnPrimary,
+                            padding: '12px 24px',
+                            fontSize: '13.5px',
+                            borderRadius: '12px',
+                            background: 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)',
+                            color: '#ffffff',
+                            fontWeight: 800,
+                            boxShadow: '0 6px 20px rgba(37, 211, 102, 0.4)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                          }}
+                        >
+                          {publishingBot ? (
+                            <>
+                              <Loader2 size={16} className="animate-spin" />
+                              <span>Publicando...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles size={16} />
+                              <span>Confirmar y Publicar en Bot de WhatsApp</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{
+                        background: 'linear-gradient(135deg, rgba(37, 211, 102, 0.08) 0%, rgba(18, 140, 126, 0.14) 100%)',
+                        border: '1.5px solid rgba(37, 211, 102, 0.35)',
+                        borderRadius: '16px',
+                        padding: '16px 20px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: '14px',
+                        boxShadow: '0 4px 14px rgba(37, 211, 102, 0.1)'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div style={{ width: '42px', height: '42px', borderRadius: '12px', background: '#25D366', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <CheckCircle size={22} />
+                          </div>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '11px', fontWeight: 900, background: '#25D366', color: '#fff', padding: '2px 8px', borderRadius: '6px', letterSpacing: '0.4px' }}>
+                                PUBLICADO EN VIVO
+                              </span>
+                              <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                                ¡Facturación activa y operativa en WhatsApp!
+                              </span>
+                            </div>
+                            <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                              Las {botResult.lineas_procesadas} líneas y {botResult.grupos_actualizados} grupos están respondiendo en vivo a los socios con vencimiento <strong>{botResult.vencimiento}</strong>.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            type="button"
+                            onClick={() => setIsConfirmPublishModalOpen(true)}
+                            style={{ ...S.btnSecondary, fontSize: '12px', padding: '8px 16px', borderRadius: '10px' }}
+                          >
+                            Republicar con Cambios
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Tarjetas Métricas Superiores */}
                     <div style={{
                       display: 'grid',
@@ -2767,20 +2900,20 @@ export default function Campanas() {
                       </div>
 
                       <div style={{ background: 'rgba(255,255,255,0.7)', padding: '16px', borderRadius: '16px', border: '1px solid var(--border-light)' }}>
-                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 800 }}>Vencimiento Activo</div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 800 }}>Vencimiento</div>
                         <div style={{ fontSize: '18px', fontWeight: 900, color: customVencimiento || botResult.vencimiento ? 'var(--text-primary)' : 'var(--danger)', marginTop: '6px' }}>
                           {customVencimiento || botResult.vencimiento || 'Sin Vencimiento'}
                         </div>
                         <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                          {customVencimiento || botResult.vencimiento ? 'Se incluye en cada mensaje' : 'Completalo abajo y presioná Aplicar'}
+                          {customVencimiento || botResult.vencimiento ? (botResult.published ? 'Activo en producción' : 'Pendiente de confirmación') : 'Completalo abajo y aplicá'}
                         </div>
                       </div>
                     </div>
 
                     {/* Barra de Ajuste Rápido de Vencimiento */}
                     <div style={{
-                      background: 'linear-gradient(135deg, rgba(37, 211, 102, 0.08) 0%, rgba(18, 140, 126, 0.12) 100%)',
-                      border: '1px solid rgba(37, 211, 102, 0.3)',
+                      background: 'rgba(255,255,255,0.6)',
+                      border: '1px solid var(--border-light)',
                       borderRadius: '16px',
                       padding: '14px 20px',
                       display: 'flex',
@@ -2793,10 +2926,10 @@ export default function Campanas() {
                         <Calendar size={18} style={{ color: '#128C7E' }} />
                         <div>
                           <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                            Modificar Fecha de Vencimiento para todas las respuestas
+                            Fecha de Vencimiento de Facturación
                           </div>
                           <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
-                            Cambiá la fecha y presioná "Aplicar Vencimiento" para actualizar los textos de socios y grupos.
+                            Ingresá o cambiá la fecha para recalcular la vista previa antes de publicar.
                           </div>
                         </div>
                       </div>
@@ -2806,24 +2939,22 @@ export default function Campanas() {
                           type="text"
                           value={customVencimiento}
                           onChange={(e) => setCustomVencimiento(e.target.value)}
-                          placeholder="ej: 15/08/2026"
+                          placeholder="ej: 12/09/2026"
                           style={{ ...S.input, width: '140px', padding: '7px 12px', fontSize: '13px', fontWeight: 700 }}
                         />
                         <button
                           type="button"
-                          onClick={handleApplyVencimiento}
+                          onClick={() => handleApplyVencimiento()}
                           disabled={applyingVto || !customVencimiento.trim()}
                           style={{
-                            ...S.btnPrimary,
+                            ...S.btnSecondary,
                             padding: '7px 16px',
                             fontSize: '12.5px',
-                            borderRadius: '10px',
-                            background: '#128C7E',
-                            color: '#fff'
+                            borderRadius: '10px'
                           }}
                         >
                           {applyingVto ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                          <span>Aplicar Vencimiento</span>
+                          <span>Actualizar Fecha</span>
                         </button>
                       </div>
                     </div>
@@ -3461,6 +3592,100 @@ export default function Campanas() {
                     )}
 
                   </div>
+                )}
+
+                {/* Modal de Confirmación de Publicación en Producción */}
+                {isConfirmPublishModalOpen && (
+                  <Modal
+                    isOpen={isConfirmPublishModalOpen}
+                    onClose={() => { if (!publishingBot) setIsConfirmPublishModalOpen(false); }}
+                    title="Confirmar Publicación en el Bot de WhatsApp"
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '8px 0' }}>
+                      <p style={{ margin: 0, fontSize: '13.5px', color: 'var(--text-primary)', lineHeight: 1.5 }}>
+                        ¿Estás seguro de que deseas publicar y activar esta facturación en el <strong>Bot de WhatsApp en producción</strong>?
+                      </p>
+
+                      <div style={{
+                        background: 'rgba(0,0,0,0.03)',
+                        border: '1px solid var(--border-light)',
+                        borderRadius: '12px',
+                        padding: '14px',
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(2, 1fr)',
+                        gap: '12px',
+                        fontSize: '13px'
+                      }}>
+                        <div>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase', fontWeight: 700 }}>Líneas a Actualizar:</span>
+                          <div style={{ fontWeight: 800, fontSize: '16px', color: 'var(--text-primary)', marginTop: '2px' }}>{botResult?.lineas_procesadas || 0}</div>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase', fontWeight: 700 }}>Grupos Consolidados:</span>
+                          <div style={{ fontWeight: 800, fontSize: '16px', color: 'var(--text-primary)', marginTop: '2px' }}>{botResult?.grupos_actualizados || 0}</div>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase', fontWeight: 700 }}>Empresas Detectadas:</span>
+                          <div style={{ fontWeight: 800, fontSize: '13px', color: 'var(--text-primary)', marginTop: '2px' }}>{botResult?.empresas?.join(', ') || 'Todas'}</div>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase', fontWeight: 700 }}>Fecha de Vencimiento:</span>
+                          <div style={{ fontWeight: 900, fontSize: '14px', color: '#16a34a', marginTop: '2px' }}>{customVencimiento || 'Sin Vencimiento'}</div>
+                        </div>
+                      </div>
+
+                      <div style={{
+                        background: 'rgba(239, 68, 68, 0.08)',
+                        border: '1px solid rgba(239, 68, 68, 0.25)',
+                        borderRadius: '10px',
+                        padding: '10px 14px',
+                        fontSize: '12px',
+                        color: 'var(--danger)',
+                        lineHeight: 1.4
+                      }}>
+                        ⚠️ <strong>Atención:</strong> Esta acción reemplazará inmediatamente el archivo <code style={{ fontWeight: 700 }}>respuestas.json</code> en el servidor. A partir de este momento, todos los socios que consulten por WhatsApp recibirán estos datos con la fecha de vencimiento configurada.
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
+                        <button
+                          type="button"
+                          onClick={() => setIsConfirmPublishModalOpen(false)}
+                          style={S.btnSecondary}
+                          disabled={publishingBot}
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSyncBotBilling('publish', customVencimiento)}
+                          disabled={publishingBot}
+                          style={{
+                            ...S.btnPrimary,
+                            background: 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)',
+                            color: '#fff',
+                            fontWeight: 800,
+                            padding: '10px 20px',
+                            borderRadius: '10px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                          }}
+                        >
+                          {publishingBot ? (
+                            <>
+                              <Loader2 size={16} className="animate-spin" />
+                              <span>Publicando en Producción...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Check size={16} />
+                              <span>Sí, Publicar en Vivo</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </Modal>
                 )}
 
               </div>
