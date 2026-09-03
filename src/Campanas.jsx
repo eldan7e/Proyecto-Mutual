@@ -1335,7 +1335,7 @@ export default function Campanas() {
 
   <!-- Logo AUNAR -->
   <div style="text-align: center; margin-bottom: 24px;">
-    <img src="https://proyecto-mutual.vercel.app/logo.png" alt="Aunar Asociación" style="max-width: 220px; height: auto;" />
+    <img src="https://proyecto-mutual.vercel.app/logo.png" alt="Aunar Asociación" style="width: 170px; max-width: 100%; height: auto; display: inline-block;" />
   </div>
 
   <!-- Saludo -->
@@ -1470,7 +1470,7 @@ export default function Campanas() {
 
   <!-- Logo AUNAR -->
   <div style="text-align: center; margin-bottom: 24px;">
-    <img src="https://proyecto-mutual.vercel.app/logo.png" alt="Aunar Asociación" style="max-width: 220px; height: auto;" />
+    <img src="https://proyecto-mutual.vercel.app/logo.png" alt="Aunar Asociación" style="width: 170px; max-width: 100%; height: auto; display: inline-block;" />
   </div>
 
   <!-- Saludo -->
