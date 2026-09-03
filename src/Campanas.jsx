@@ -1243,6 +1243,11 @@ export default function Campanas() {
     }
     body = body.split('{{detalle_lineas_html}}').join(tableRows);
 
+    // Normalizar logo a la versión horizontal oficial en Supabase Storage
+    body = body.replace(/https:\/\/proyecto-mutual\.vercel\.app\/logo\.png/g, 'https://zwncyaviinmfzvminytv.supabase.co/storage/v1/object/public/public_assets/logo_aunar.png');
+    body = body.replace(/src=["']\/logo\.png["']/g, 'src="https://zwncyaviinmfzvminytv.supabase.co/storage/v1/object/public/public_assets/logo_aunar.png"');
+    body = body.replace(/max-width:\s*2[0-9]{2}px/g, 'width: 160px; max-width: 100%');
+
     // Extraer nombre y apellido
     let firstName = '';
     let lastName = '';
@@ -1335,7 +1340,7 @@ export default function Campanas() {
 
   <!-- Logo AUNAR -->
   <div style="text-align: center; margin-bottom: 24px;">
-    <img src="https://proyecto-mutual.vercel.app/logo.png" alt="Aunar Asociación" style="width: 170px; max-width: 100%; height: auto; display: inline-block;" />
+    <img src="https://zwncyaviinmfzvminytv.supabase.co/storage/v1/object/public/public_assets/logo_aunar.png" alt="Aunar Asociación" style="width: 160px; max-width: 100%; height: auto; display: inline-block;" />
   </div>
 
   <!-- Saludo -->
@@ -1470,7 +1475,7 @@ export default function Campanas() {
 
   <!-- Logo AUNAR -->
   <div style="text-align: center; margin-bottom: 24px;">
-    <img src="https://proyecto-mutual.vercel.app/logo.png" alt="Aunar Asociación" style="width: 170px; max-width: 100%; height: auto; display: inline-block;" />
+    <img src="https://zwncyaviinmfzvminytv.supabase.co/storage/v1/object/public/public_assets/logo_aunar.png" alt="Aunar Asociación" style="width: 160px; max-width: 100%; height: auto; display: inline-block;" />
   </div>
 
   <!-- Saludo -->
