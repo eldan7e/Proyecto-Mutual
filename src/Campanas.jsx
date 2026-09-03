@@ -389,6 +389,7 @@ export default function Campanas() {
       
       const mapped = (data || []).map(s => ({
         id: `socio_${s.socio_id}`,
+        socio_id_num: s.socio_id,
         nombre: s.nombre_completo,
         email: s.email,
         dni: s.dni || '',
@@ -399,9 +400,46 @@ export default function Campanas() {
         total_cuotas: s.total_cuotas || 0,
         monto_cuota_cel: s.monto_cuota_cel || 0,
         monto_adeudado: (Number(s.total_cuotas || 0) * Number(s.monto_cuota_cel || 0)).toFixed(2),
-        dias_mora: s.total_cuotas > 0 ? String(s.total_cuotas * 30) : '0'
+        dias_mora: s.total_cuotas > 0 ? String(s.total_cuotas * 30) : '0',
+        periodo: '',
+        detalle_lineas: []
       }));
-      
+
+      // --- Enriquecer con facturación del último período ---
+      try {
+        const { data: periodoData } = await supabase
+          .from('consumos_mensuales')
+          .select('periodo')
+          .order('periodo', { ascending: false })
+          .limit(1);
+        const ultimoPeriodo = periodoData?.[0]?.periodo;
+
+        if (ultimoPeriodo) {
+          const { data: facturacion } = await supabase
+            .from('v_historial_facturacion_socio')
+            .select('socio_id, numero_linea, nombre_plan, proveedor, costo_abono_real, excedentes, bonificaciones, total_linea')
+            .eq('periodo', ultimoPeriodo);
+
+          const facturacionPorSocio = {};
+          (facturacion || []).forEach(f => {
+            if (!facturacionPorSocio[f.socio_id]) facturacionPorSocio[f.socio_id] = [];
+            facturacionPorSocio[f.socio_id].push(f);
+          });
+
+          mapped.forEach(item => {
+            const lineasFactura = facturacionPorSocio[item.socio_id_num] || [];
+            item.periodo = ultimoPeriodo;
+            item.detalle_lineas = lineasFactura;
+            if (lineasFactura.length > 0) {
+              item.monto_adeudado = lineasFactura.reduce((sum, l) => sum + Number(l.total_linea || 0), 0).toFixed(2);
+              item.lineas = lineasFactura.map(l => l.numero_linea).join(', ');
+            }
+          });
+        }
+      } catch (facErr) {
+        console.error('Error al enriquecer con facturación:', facErr);
+      }
+
       setItems(mapped);
       setSelectedIds(new Set());
     } catch (err) {
@@ -415,19 +453,25 @@ export default function Campanas() {
   async function fetchGrupos() {
     setLoading(true);
     try {
-      let query = supabase
+      const { data, error } = await supabase
         .from('grupos')
         .select('numero_grupo, alias_grupo, email_facturacion')
-        .not('email_facturacion', 'is', null);
+        .not('email_facturacion', 'is', null)
+        .order('numero_grupo', { ascending: true });
 
-      if (debouncedGrupalSearch.trim()) {
-        query = query.or(
-          `numero_grupo.ilike.%${debouncedGrupalSearch.trim()}%,alias_grupo.ilike.%${debouncedGrupalSearch.trim()}%`
+      if (error) throw error;
+
+      let list = data || [];
+      const term = debouncedGrupalSearch.trim().toLowerCase();
+      if (term) {
+        list = list.filter(g => 
+          String(g.numero_grupo).includes(term) ||
+          (g.alias_grupo && g.alias_grupo.toLowerCase().includes(term)) ||
+          (g.email_facturacion && g.email_facturacion.toLowerCase().includes(term))
         );
       }
-      const { data, error } = await query;
-      if (error) throw error;
-      const mapped = (data || []).map(g => ({
+
+      const mapped = list.map(g => ({
         id: `grupo_${g.numero_grupo}`,
         nombre: `Grupo ${g.numero_grupo}${g.alias_grupo ? ` - ${g.alias_grupo}` : ''}`,
         email: g.email_facturacion,
@@ -454,18 +498,24 @@ export default function Campanas() {
   async function fetchLineas() {
     setLoading(true);
     try {
-      let query = supabase
+      const { data, error } = await supabase
         .from('v_lineas_email')
-        .select('linea_id, numero_linea, email_contacto, nombre_socio');
+        .select('linea_id, numero_linea, email_contacto, nombre_socio')
+        .order('numero_linea', { ascending: true });
 
-      if (debouncedLineasSearch.trim()) {
-        query = query.or(
-          `numero_linea.ilike.%${debouncedLineasSearch.trim()}%,nombre_socio.ilike.%${debouncedLineasSearch.trim()}%`
+      if (error) throw error;
+
+      let list = data || [];
+      const term = debouncedLineasSearch.trim().toLowerCase();
+      if (term) {
+        list = list.filter(l =>
+          (l.numero_linea && l.numero_linea.includes(term)) ||
+          (l.nombre_socio && l.nombre_socio.toLowerCase().includes(term)) ||
+          (l.email_contacto && l.email_contacto.toLowerCase().includes(term))
         );
       }
-      const { data, error } = await query;
-      if (error) throw error;
-      const mapped = (data || []).map(l => ({
+
+      const mapped = list.map(l => ({
         id: `linea_${l.linea_id}`,
         nombre: `${l.nombre_socio || 'Sin nombre'} (Línea: ${l.numero_linea})`,
         email: l.email_contacto,
@@ -552,7 +602,18 @@ export default function Campanas() {
       monto_cuota_cel: item.monto_cuota_cel || 0,
       total_cuotas: item.total_cuotas || 0,
       monto_adeudado: item.monto_adeudado || 0,
-      dias_mora: item.dias_mora || '0'
+      dias_mora: item.dias_mora || '0',
+      periodo: item.periodo || '',
+      detalle_lineas_html: (item.detalle_lineas || []).map(l =>
+        `<tr style="border-bottom: 1px solid #e2e8f0;">
+          <td style="padding:8px; font-size:13px;">${l.numero_linea}</td>
+          <td style="padding:8px; font-size:13px;">${l.nombre_plan || '-'}</td>
+          <td style="padding:8px; font-size:13px;">${l.proveedor || '-'}</td>
+          <td style="padding:8px; font-size:13px; text-align:right;">$ ${Number(l.costo_abono_real || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+          <td style="padding:8px; font-size:13px; text-align:right;">$ ${Number(l.excedentes || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+          <td style="padding:8px; font-size:13px; text-align:right; font-weight:bold;">$ ${Number(l.total_linea || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+        </tr>`
+      ).join('')
     }));
 
     try {
@@ -644,11 +705,28 @@ export default function Campanas() {
   
   <div style="background-color: #f8fafc; border-left: 4px solid #10b981; padding: 12px 16px; margin-bottom: 20px; border-radius: 8px;">
     <p style="margin: 0; font-size: 14px; font-weight: bold; color: #1e293b;">
-      {{nombre_socio}} - Línea: {{lineas}}
+      {{nombre_socio}} — Facturación Período {{periodo}}
     </p>
-    <p style="margin: 4px 0 0 0; font-size: 14px; color: #475569;">
-      Importe: $ {{monto_adeudado}} - Vto. 12/06
-    </p>
+  </div>
+
+  <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+    <thead>
+      <tr style="background-color: #10b981; color: #ffffff;">
+        <th style="padding: 8px 10px; text-align: left; font-size: 13px;">Línea</th>
+        <th style="padding: 8px 10px; text-align: left; font-size: 13px;">Plan</th>
+        <th style="padding: 8px 10px; text-align: left; font-size: 13px;">Empresa</th>
+        <th style="padding: 8px 10px; text-align: right; font-size: 13px;">Abono</th>
+        <th style="padding: 8px 10px; text-align: right; font-size: 13px;">Excedentes</th>
+        <th style="padding: 8px 10px; text-align: right; font-size: 13px;">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{detalle_lineas_html}}
+    </tbody>
+  </table>
+
+  <div style="background-color: #f0fdf4; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; text-align: right;">
+    <p style="margin: 0; font-size: 15px; font-weight: bold; color: #166534;">Total del período: $ {{monto_adeudado}}</p>
   </div>
   
   <p style="font-size: 14px; line-height: 1.6; margin-bottom: 16px;">
@@ -764,7 +842,9 @@ export default function Campanas() {
     { label: 'Monto de Cuota', value: '{{monto_cuota_cel}}' },
     { label: 'Nro de Grupo', value: '{{grupo}}' },
     { label: 'Monto Adeudado', value: '{{monto_adeudado}}' },
-    { label: 'Días de Mora', value: '{{dias_mora}}' }
+    { label: 'Días de Mora', value: '{{dias_mora}}' },
+    { label: 'Período Facturado', value: '{{periodo}}' },
+    { label: 'Detalle Líneas (Tabla)', value: '{{detalle_lineas_html}}' }
   ];
 
   const totalSelected = selectedIds.size;
@@ -2162,24 +2242,68 @@ export default function Campanas() {
               {campaignType === 'grupal' && (
                 <div style={{ marginBottom: '16px' }}>
                   <div style={S.label}>Buscar grupo</div>
-                  <input
-                    value={grupalSearch}
-                    onChange={e => setGrupalSearch(e.target.value)}
-                    placeholder="Buscar grupo por número o alias..."
-                    style={{ ...S.input, maxWidth: '400px' }}
-                  />
+                  <div style={{ position: 'relative', maxWidth: '400px' }}>
+                    <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+                    <input
+                      value={grupalSearch}
+                      onChange={e => setGrupalSearch(e.target.value)}
+                      placeholder="Buscar por número de grupo, alias o email..."
+                      style={{ ...S.input, paddingLeft: '36px', paddingRight: grupalSearch ? '32px' : '12px' }}
+                    />
+                    {grupalSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setGrupalSearch('')}
+                        style={{
+                          position: 'absolute',
+                          right: '10px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          border: 'none',
+                          background: 'transparent',
+                          cursor: 'pointer',
+                          color: 'var(--text-secondary)',
+                          padding: 0
+                        }}
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
               {campaignType === 'lineas' && (
                 <div style={{ marginBottom: '16px' }}>
                   <div style={S.label}>Buscar línea</div>
-                  <input
-                    value={lineasSearch}
-                    onChange={e => setLineasSearch(e.target.value)}
-                    placeholder="Buscar línea o nombre..."
-                    style={{ ...S.input, maxWidth: '400px' }}
-                  />
+                  <div style={{ position: 'relative', maxWidth: '400px' }}>
+                    <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+                    <input
+                      value={lineasSearch}
+                      onChange={e => setLineasSearch(e.target.value)}
+                      placeholder="Buscar línea, nombre o email..."
+                      style={{ ...S.input, paddingLeft: '36px', paddingRight: lineasSearch ? '32px' : '12px' }}
+                    />
+                    {lineasSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setLineasSearch('')}
+                        style={{
+                          position: 'absolute',
+                          right: '10px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          border: 'none',
+                          background: 'transparent',
+                          cursor: 'pointer',
+                          color: 'var(--text-secondary)',
+                          padding: 0
+                        }}
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 

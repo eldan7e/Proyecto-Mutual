@@ -254,7 +254,7 @@ export default function Contaduria() {
     setLoading(true);
     try {
       const rawMovs = await fetchMovimientosGrupo(numeroGrupo);
-      const procesados = recalcularSaldosGrupo(rawMovs, 0);
+      const procesados = recalcularSaldosGrupo(rawMovs, tna);
       setMovimientos(procesados);
     } catch (err) {
       console.error('Error al cargar movimientos:', err);
@@ -475,23 +475,6 @@ export default function Contaduria() {
         periodo: targetFactura?.periodo || null,
         imputaciones: resultadoFifo?.desgloses || []
       });
-
-      // Si el cobro se originó desde una factura específica, asegurar actualización directa
-      if (targetFactura) {
-        const pagadoActual = Number(targetFactura.monto_abonado || 0);
-        const totalFact = Number(targetFactura.monto_total_facturado || 0);
-        const nuevoAbonado = Math.min(totalFact, pagadoActual + val);
-        const nuevoEstado = nuevoAbonado >= (totalFact - 1) ? 'ABONADO' : 'PARCIAL';
-
-        await supabase
-          .from('liquidaciones_grupos')
-          .update({
-            monto_abonado: Math.round(nuevoAbonado * 100) / 100,
-            estado_pago: nuevoEstado,
-            updated_at: new Date().toISOString()
-          })
-          .eq('liquidacion_id', targetFactura.liquidacion_id);
-      }
 
       addToast(`Cobro de ${formatMoney(val)} registrado exitosamente.`, 'success');
 
@@ -782,6 +765,7 @@ export default function Contaduria() {
     let totalPendiente = 0;
     let comprobantesImpagosCount = 0;
     const gruposEnSeleccion = new Set();
+    const conteoEstados = { TODAS: 0, IMPAGAS: 0, PARCIALES: 0, COBRADAS: 0 };
 
     liquidacionesBaseKPIs.forEach(l => {
       const fact = Number(l.monto_total_facturado || 0);
@@ -794,6 +778,15 @@ export default function Contaduria() {
 
       if (pend > 5) comprobantesImpagosCount++;
       if (l.numero_grupo) gruposEnSeleccion.add(l.numero_grupo);
+
+      conteoEstados.TODAS++;
+      if (l.estado_pago === 'ABONADO' || pend <= 1) {
+        conteoEstados.COBRADAS++;
+      } else if (l.estado_pago === 'PARCIAL' || (abon > 0 && pend > 1)) {
+        conteoEstados.PARCIALES++;
+      } else {
+        conteoEstados.IMPAGAS++;
+      }
     });
 
     let totalIntereses = 0;
@@ -804,8 +797,9 @@ export default function Contaduria() {
       }
     });
 
-    const saldoNetoReal = totalFacturado - totalCobrado;
-    const totalSaldosAFavor = Math.max(0, totalPendiente - saldoNetoReal);
+    const saldoNetoReal = Math.max(0, totalFacturado - totalCobrado);
+    const totalSaldosAFavor = Math.max(0, totalPendiente - (totalFacturado - totalCobrado));
+    const tasaCobranza = totalFacturado > 0 ? ((totalCobrado / totalFacturado) * 100).toFixed(1) : '0.0';
 
     return {
       totalFacturado,
@@ -815,6 +809,8 @@ export default function Contaduria() {
       totalSaldosAFavor,
       comprobantesImpagosCount,
       totalIntereses,
+      tasaCobranza,
+      conteoEstados,
       totalComprobantes: liquidacionesBaseKPIs.length
     };
   }, [liquidacionesBaseKPIs, saldosData, periodoFilter, operadoraFilter, searchGrupo]);
@@ -834,24 +830,56 @@ export default function Contaduria() {
   return (
     <div className="page-container animate-fade" style={{ paddingBottom: '60px' }}>
       
-      {/* HEADER PRINCIPAL CONTADURÍA ESTILO XUBIO */}
-      <div style={{ marginBottom: '28px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
+      {/* HEADER PRINCIPAL CONTADURÍA FINTECH */}
+      <div style={{ marginBottom: '28px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '20px' }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ background: 'var(--accent)', color: 'white', padding: '12px', borderRadius: '16px', boxShadow: '0 10px 20px -5px rgba(22, 163, 74, 0.4)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div style={{ 
+              background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', 
+              color: 'white', 
+              padding: '12px', 
+              borderRadius: '16px', 
+              boxShadow: '0 10px 25px -5px rgba(16, 185, 129, 0.35)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
               <Calculator size={26} />
             </div>
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                 <h1 style={{ fontSize: '26px', fontWeight: 900, letterSpacing: '-0.03em', margin: 0, color: 'var(--text-primary)' }}>
                   Facturación y Contaduría
                 </h1>
-                <span style={{ background: 'var(--accent-light)', color: 'var(--accent)', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 800 }}>
-                  SUITE ESTILO XUBIO
+                <span style={{ 
+                  display: 'inline-flex', 
+                  alignItems: 'center', 
+                  gap: '5px', 
+                  background: 'rgba(16, 185, 129, 0.1)', 
+                  color: '#10b981', 
+                  padding: '3px 10px', 
+                  borderRadius: '20px', 
+                  fontSize: '11px', 
+                  fontWeight: 800,
+                  border: '1px solid rgba(16, 185, 129, 0.2)'
+                }}>
+                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }} />
+                  Finanzas & Cuenta Corriente
+                </span>
+                <span style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid var(--border-light)',
+                  color: 'var(--text-secondary)',
+                  padding: '3px 10px',
+                  borderRadius: '20px',
+                  fontSize: '11px',
+                  fontWeight: 700
+                }}>
+                  Período: {periodoFilter === 'AUTO' ? (periodosDisponibles[0] || 'Actual') : periodoFilter === 'TODOS' ? 'Histórico General' : periodoFilter}
                 </span>
               </div>
-              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '2px 0 0', fontWeight: 500 }}>
-                Administración contable de saldos pagos, impagos, liquidaciones por grupo y cobranzas.
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '4px 0 0', fontWeight: 500 }}>
+                Control integral de liquidaciones, gestión de cobranzas, estados de cuenta y libro mayor por grupo.
               </p>
             </div>
           </div>
@@ -864,7 +892,19 @@ export default function Contaduria() {
               else addToast('Seleccione un grupo primero para aplicar un ajuste', 'warning');
             }}
             className="air-btn"
-            style={{ background: 'var(--surface)', border: '1px solid var(--border-light)', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px', borderRadius: '12px', fontSize: '13px', fontWeight: 700 }}
+            style={{ 
+              background: 'var(--surface)', 
+              border: '1px solid var(--border-light)', 
+              color: 'var(--text-primary)', 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '8px', 
+              padding: '10px 18px', 
+              borderRadius: '12px', 
+              fontSize: '13px', 
+              fontWeight: 700,
+              boxShadow: 'var(--shadow-soft)'
+            }}
           >
             <Plus size={16} /> Nota de Crédito / Ajuste
           </button>
@@ -872,158 +912,265 @@ export default function Contaduria() {
           <button 
             onClick={() => handleOpenCobroModal()}
             className="air-btn-primary"
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', borderRadius: '12px', fontSize: '13px', fontWeight: 800 }}
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '8px', 
+              padding: '10px 22px', 
+              borderRadius: '12px', 
+              fontSize: '13px', 
+              fontWeight: 800,
+              background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+              boxShadow: '0 10px 20px -5px rgba(16, 185, 129, 0.4)'
+            }}
           >
             <DollarSign size={18} /> Registrar Cobro
           </button>
         </div>
       </div>
 
-      {/* DASHBOARD KPIS XUBIO */}
-      <div className="bento-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', marginBottom: '28px', gap: '16px' }}>
-        <div className="bento-card" style={{ padding: '20px', borderLeft: '4px solid var(--accent)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>FACTURACIÓN TOTAL</span>
-            <FileText size={18} color="var(--accent)" />
+      {/* DASHBOARD KPIS FINTECH MODERNOS */}
+      <div className="bento-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', marginBottom: '28px', gap: '16px' }}>
+        
+        {/* KPI 1: FACTURACIÓN TOTAL */}
+        <div className="bento-card" style={{ padding: '22px', position: 'relative', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              FACTURACIÓN EMITIDA
+            </span>
+            <div style={{ padding: '6px', borderRadius: '8px', background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}>
+              <FileText size={16} />
+            </div>
           </div>
-          <div style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text-primary)' }}>
+          <div style={{ fontSize: '24px', fontWeight: 900, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
             {formatMoney(statsGlobales.totalFacturado)}
           </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 600 }}>
-            {statsGlobales.totalComprobantes} comprobantes liquidados
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '10px', fontSize: '11.5px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+            <span>{statsGlobales.totalComprobantes} comprobantes</span>
+            <span style={{ background: 'rgba(255, 255, 255, 0.05)', padding: '2px 6px', borderRadius: '4px' }}>
+              {periodoFilter === 'AUTO' ? `Período ${periodosDisponibles[0] || ''}` : periodoFilter === 'TODOS' ? 'Histórico' : periodoFilter}
+            </span>
           </div>
         </div>
 
-        <div className="bento-card" style={{ padding: '20px', borderLeft: '4px solid #10b981' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>COBRADO E IMPUTADO</span>
-            <CheckCircle2 size={18} color="#10b981" />
+        {/* KPI 2: RECAUDACIÓN / COBRADO */}
+        <div className="bento-card" style={{ padding: '22px', position: 'relative', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              TOTAL RECAUDADO
+            </span>
+            <span style={{ 
+              fontSize: '11px', 
+              fontWeight: 800, 
+              background: 'rgba(16, 185, 129, 0.15)', 
+              color: '#10b981', 
+              padding: '2px 8px', 
+              borderRadius: '12px' 
+            }}>
+              {statsGlobales.tasaCobranza}%
+            </span>
           </div>
-          <div style={{ fontSize: '22px', fontWeight: 900, color: '#10b981' }}>
+          <div style={{ fontSize: '24px', fontWeight: 900, color: '#10b981', letterSpacing: '-0.02em' }}>
             {formatMoney(statsGlobales.totalCobrado)}
           </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 600 }}>
-            Ingresos reales acreditados
+          {/* Progress bar */}
+          <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '2px', marginTop: '10px', overflow: 'hidden' }}>
+            <div style={{ 
+              width: `${Math.min(100, Math.max(0, Number(statsGlobales.tasaCobranza)))}%`, 
+              height: '100%', 
+              background: 'linear-gradient(90deg, #059669 0%, #10b981 100%)', 
+              borderRadius: '2px' 
+            }} />
+          </div>
+          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '6px', fontWeight: 600 }}>
+            Ingresos acreditados e imputados
           </div>
         </div>
 
-        <div className="bento-card" style={{ padding: '20px', borderLeft: '4px solid #ef4444' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SALDO IMPAGO NETO</span>
-            <AlertCircle size={18} color="#ef4444" />
+        {/* KPI 3: SALDO PENDIENTE */}
+        <div className="bento-card" style={{ padding: '22px', position: 'relative', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              SALDO PENDIENTE
+            </span>
+            <div style={{ padding: '6px', borderRadius: '8px', background: statsGlobales.saldoNetoReal > 5 ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)', color: statsGlobales.saldoNetoReal > 5 ? '#ef4444' : '#10b981' }}>
+              <AlertCircle size={16} />
+            </div>
           </div>
-          <div style={{ fontSize: '22px', fontWeight: 900, color: '#ef4444' }}>
+          <div style={{ fontSize: '24px', fontWeight: 900, color: statsGlobales.saldoNetoReal > 5 ? '#ef4444' : '#10b981', letterSpacing: '-0.02em' }}>
             {formatMoney(statsGlobales.saldoNetoReal)}
           </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 600 }}>
-            <span style={{ color: '#ef4444', fontWeight: 700 }}>{statsGlobales.comprobantesImpagosCount} facturas pendientes</span>
-            {statsGlobales.totalSaldosAFavor > 0 && (
-              <span style={{ marginLeft: '4px', color: 'var(--text-secondary)' }}>· Deuda bruta: {formatMoney(statsGlobales.totalPendiente)}</span>
+          <div style={{ fontSize: '11.5px', marginTop: '10px', fontWeight: 600 }}>
+            {statsGlobales.comprobantesImpagosCount > 0 ? (
+              <span style={{ color: '#ef4444', fontWeight: 700 }}>
+                {statsGlobales.comprobantesImpagosCount} facturas pendientes de cobro
+              </span>
+            ) : (
+              <span style={{ color: '#10b981', fontWeight: 700 }}>
+                ✓ Al día sin deuda en este filtro
+              </span>
             )}
           </div>
         </div>
 
-        <div className="bento-card" style={{ padding: '20px', borderLeft: '4px solid #3b82f6' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SALDOS A FAVOR / EXCEDENTES</span>
-            <DollarSign size={18} color="#3b82f6" />
+        {/* KPI 4: SALDOS A FAVOR */}
+        <div className="bento-card" style={{ padding: '22px', position: 'relative', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              CRÉDITOS / A FAVOR
+            </span>
+            <div style={{ padding: '6px', borderRadius: '8px', background: 'rgba(147, 51, 234, 0.1)', color: '#a855f7' }}>
+              <TrendingUp size={16} />
+            </div>
           </div>
-          <div style={{ fontSize: '22px', fontWeight: 900, color: '#3b82f6' }}>
+          <div style={{ fontSize: '24px', fontWeight: 900, color: '#a855f7', letterSpacing: '-0.02em' }}>
             {formatMoney(statsGlobales.totalSaldosAFavor)}
           </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 600 }}>
-            Pagos adelantados / excedentes
+          <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '10px', fontWeight: 600 }}>
+            Pagos anticipados de asociados
           </div>
         </div>
+
       </div>
 
-      {/* PESTAÑAS PRINCIPALES DEL MÓDULO ESTILO XUBIO */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', background: 'rgba(0,0,0,0.03)', padding: '6px', borderRadius: '18px', width: 'fit-content', flexWrap: 'wrap' }}>
+      {/* PESTAÑAS PRINCIPALES DEL MÓDULO */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', background: 'rgba(0,0,0,0.03)', padding: '6px', borderRadius: '16px', width: 'fit-content', flexWrap: 'wrap', border: '1px solid var(--border-light)' }}>
         <button
           onClick={() => setActiveTab('facturas')}
           className={`nav-pill ${activeTab === 'facturas' ? 'active' : ''}`}
-          style={{ border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontWeight: 700 }}
+          style={{ border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontWeight: 700, borderRadius: '12px' }}
         >
-          <Receipt size={16} /> Facturas y Comprobantes ({facturasAgrupadas.length})
+          <Receipt size={16} /> Facturas y Comprobantes 
+          <span style={{ 
+            background: activeTab === 'facturas' ? 'var(--accent)' : 'rgba(255,255,255,0.08)', 
+            color: activeTab === 'facturas' ? '#fff' : 'var(--text-secondary)', 
+            fontSize: '11px', 
+            padding: '2px 7px', 
+            borderRadius: '10px', 
+            fontWeight: 800 
+          }}>
+            {facturasAgrupadas.length}
+          </span>
         </button>
         <button
           onClick={() => setActiveTab('saldos')}
           className={`nav-pill ${activeTab === 'saldos' ? 'active' : ''}`}
-          style={{ border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontWeight: 700 }}
+          style={{ border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontWeight: 700, borderRadius: '12px' }}
         >
-          <Building size={16} /> Cuentas Corrientes y Saldos ({saldosFiltrados.length})
+          <Building size={16} /> Cuentas Corrientes y Saldos 
+          <span style={{ 
+            background: activeTab === 'saldos' ? 'var(--accent)' : 'rgba(255,255,255,0.08)', 
+            color: activeTab === 'saldos' ? '#fff' : 'var(--text-secondary)', 
+            fontSize: '11px', 
+            padding: '2px 7px', 
+            borderRadius: '10px', 
+            fontWeight: 800 
+          }}>
+            {saldosFiltrados.length}
+          </span>
         </button>
         <button
           onClick={() => setActiveTab('extracto')}
           className={`nav-pill ${activeTab === 'extracto' ? 'active' : ''}`}
-          style={{ border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontWeight: 700 }}
+          style={{ border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontWeight: 700, borderRadius: '12px' }}
         >
-          <FileText size={16} /> Extracto / Libro Mayor (Grupo {selectedGrupo ? `#${selectedGrupo}` : ''})
+          <FileText size={16} /> Extracto / Libro Mayor 
+          {selectedGrupo && (
+            <span style={{ 
+              background: 'rgba(16, 185, 129, 0.15)', 
+              color: '#10b981', 
+              fontSize: '11px', 
+              padding: '2px 7px', 
+              borderRadius: '10px', 
+              fontWeight: 800 
+            }}>
+              #{selectedGrupo}
+            </span>
+          )}
         </button>
         <button
           onClick={() => setActiveTab('lineas')}
           className={`nav-pill ${activeTab === 'lineas' ? 'active' : ''}`}
-          style={{ border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontWeight: 700 }}
+          style={{ border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontWeight: 700, borderRadius: '12px' }}
         >
           <Phone size={16} /> Líneas del Grupo ({lineasGrupo.length})
         </button>
       </div>
 
-      {/* PESTAÑA 1: GESTIÓN DE FACTURAS Y COMPROBANTES (VENTAS/LIQUIDACIONES ESTILO XUBIO) */}
+      {/* PESTAÑA 1: GESTIÓN DE FACTURAS Y COMPROBANTES */}
       {activeTab === 'facturas' && (
         <div className="bento-card" style={{ padding: '24px' }}>
           
-          {/* BARRA DE FILTROS CONTABLES ESTILO XUBIO */}
+          {/* BARRA DE FILTROS CONTABLES */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
             
-            {/* FILTROS DE ESTADO PAGO */}
-            <div style={{ display: 'flex', gap: '6px', background: 'rgba(0,0,0,0.03)', padding: '4px', borderRadius: '12px' }}>
+            {/* SEGMENTED CONTROL: ESTADOS DE PAGO CON CONTADORES */}
+            <div style={{ display: 'flex', gap: '4px', background: 'rgba(0,0,0,0.04)', padding: '4px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
               {[
-                { id: 'TODAS', label: 'Todas' },
-                { id: 'IMPAGAS', label: 'Impagas / Vencidas' },
-                { id: 'PARCIALES', label: 'Parciales' },
-                { id: 'COBRADAS', label: 'Cobradas' }
-              ].map(f => (
-                <button
-                  key={f.id}
-                  onClick={() => setEstadoFilter(f.id)}
-                  style={{
-                    border: 'none',
-                    padding: '6px 14px',
-                    borderRadius: '8px',
-                    fontSize: '12px',
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                    background: estadoFilter === f.id ? 'var(--surface)' : 'transparent',
-                    color: estadoFilter === f.id ? 'var(--accent)' : 'var(--text-secondary)',
-                    boxShadow: estadoFilter === f.id ? 'var(--shadow-soft)' : 'none'
-                  }}
-                >
-                  {f.label}
-                </button>
-              ))}
+                { id: 'TODAS', label: 'Todas', count: statsGlobales.conteoEstados.TODAS },
+                { id: 'IMPAGAS', label: 'Impagas / Vencidas', count: statsGlobales.conteoEstados.IMPAGAS, badgeColor: '#ef4444' },
+                { id: 'PARCIALES', label: 'Parciales', count: statsGlobales.conteoEstados.PARCIALES, badgeColor: '#f59e0b' },
+                { id: 'COBRADAS', label: 'Cobradas', count: statsGlobales.conteoEstados.COBRADAS, badgeColor: '#10b981' }
+              ].map(f => {
+                const isActive = estadoFilter === f.id;
+                return (
+                  <button
+                    key={f.id}
+                    onClick={() => setEstadoFilter(f.id)}
+                    style={{
+                      border: 'none',
+                      padding: '7px 14px',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '7px',
+                      background: isActive ? 'var(--surface)' : 'transparent',
+                      color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
+                      boxShadow: isActive ? 'var(--shadow-soft)' : 'none',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <span>{f.label}</span>
+                    <span style={{ 
+                      fontSize: '11px',
+                      padding: '1px 6px',
+                      borderRadius: '10px',
+                      background: isActive ? (f.badgeColor ? `${f.badgeColor}20` : 'rgba(255,255,255,0.08)') : 'rgba(0,0,0,0.05)',
+                      color: isActive && f.badgeColor ? f.badgeColor : 'var(--text-secondary)',
+                      fontWeight: 800
+                    }}>
+                      {f.count}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
-            {/* FILTRO OPERADORA + PERÍODO + BUSCADOR */}
+            {/* SELECTORES DE PERÍODO, OPERADORA Y BUSCADOR */}
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <select
-                value={periodoFilter}
-                onChange={(e) => setPeriodoFilter(e.target.value)}
-                className="premium-input"
-                style={{ fontSize: '12px', padding: '8px 12px', height: '40px', fontWeight: 800 }}
-              >
-                <option value="AUTO">Último Período ({periodosDisponibles[0] || 'Actual'})</option>
-                <option value="TODOS">Todos los Períodos</option>
-                {periodosDisponibles.map(p => (
-                  <option key={p} value={p}>Período {p}</option>
-                ))}
-              </select>
+              <div style={{ position: 'relative' }}>
+                <select
+                  value={periodoFilter}
+                  onChange={(e) => setPeriodoFilter(e.target.value)}
+                  className="premium-input"
+                  style={{ fontSize: '12px', padding: '8px 12px', height: '40px', fontWeight: 800, minWidth: '180px' }}
+                >
+                  <option value="AUTO">Último Período ({periodosDisponibles[0] || 'Actual'})</option>
+                  <option value="TODOS">Todos los Períodos</option>
+                  {periodosDisponibles.map(p => (
+                    <option key={p} value={p}>Período {p}</option>
+                  ))}
+                </select>
+              </div>
 
               <select
                 value={operadoraFilter}
                 onChange={(e) => setOperadoraFilter(e.target.value)}
                 className="premium-input"
-                style={{ fontSize: '12px', padding: '8px 12px', height: '40px' }}
+                style={{ fontSize: '12px', padding: '8px 12px', height: '40px', fontWeight: 600 }}
               >
                 <option value="TODAS">Todas las Operadoras</option>
                 <option value="CLARO">Claro</option>
@@ -1039,22 +1186,40 @@ export default function Contaduria() {
                   value={searchGrupo}
                   onChange={(e) => setSearchGrupo(e.target.value)}
                   className="premium-input"
-                  style={{ width: '100%', paddingLeft: '38px', height: '40px', fontSize: '12px' }}
+                  style={{ width: '100%', paddingLeft: '38px', paddingRight: searchGrupo ? '32px' : '12px', height: '40px', fontSize: '12px' }}
                 />
+                {searchGrupo && (
+                  <button
+                    onClick={() => setSearchGrupo('')}
+                    style={{
+                      position: 'absolute',
+                      right: '10px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      border: 'none',
+                      background: 'transparent',
+                      cursor: 'pointer',
+                      color: 'var(--text-secondary)',
+                      padding: 0
+                    }}
+                  >
+                    <X size={14} />
+                  </button>
+                )}
               </div>
 
               <button 
                 onClick={loadTodasLiquidaciones}
                 className="air-btn"
                 style={{ padding: '8px 12px', height: '40px', borderRadius: '10px' }}
-                title="Refrescar lista"
+                title="Actualizar datos"
               >
                 <RefreshCw size={14} className={loadingLiqs ? 'animate-spin' : ''} />
               </button>
             </div>
           </div>
 
-          {/* TABLA PRINCIPAL DE COMPROBANTES XUBIO */}
+          {/* TABLA PRINCIPAL DE COMPROBANTES */}
           <div className="table-responsive" style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '13px' }}>
               <thead>
@@ -1065,8 +1230,8 @@ export default function Contaduria() {
                   <th style={{ padding: '12px 14px', textAlign: 'right' }}>TOTAL FACTURADO</th>
                   <th style={{ padding: '12px 14px', textAlign: 'right' }}>ABONADO</th>
                   <th style={{ padding: '12px 14px', textAlign: 'right' }}>SALDO IMPAGO</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'center' }}>ESTADO CONTABLE</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'center', borderRadius: '0 12px 12px 0' }}>ACCIONES XUBIO</th>
+                  <th style={{ padding: '12px 14px', textAlign: 'center' }}>ESTADO</th>
+                  <th style={{ padding: '12px 14px', textAlign: 'center', borderRadius: '0 12px 12px 0' }}>ACCIONES</th>
                 </tr>
               </thead>
               <tbody>
@@ -1189,11 +1354,24 @@ export default function Contaduria() {
                           {/* 7. ESTADO */}
                           <td style={{ padding: '14px 16px', textAlign: 'center' }}>
                             <span style={{
-                              background: isCobrada ? 'rgba(16, 185, 129, 0.1)' : isParcial ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              background: isCobrada ? 'rgba(16, 185, 129, 0.12)' : isParcial ? 'rgba(245, 158, 11, 0.12)' : 'rgba(239, 68, 68, 0.12)',
                               color: isCobrada ? '#10b981' : isParcial ? '#f59e0b' : '#ef4444',
-                              padding: '4px 10px', borderRadius: '8px', fontWeight: 800, fontSize: '11px'
+                              border: isCobrada ? '1px solid rgba(16, 185, 129, 0.25)' : isParcial ? '1px solid rgba(245, 158, 11, 0.25)' : '1px solid rgba(239, 68, 68, 0.25)',
+                              padding: '4px 11px',
+                              borderRadius: '20px',
+                              fontWeight: 800,
+                              fontSize: '11px'
                             }}>
-                              {isCobrada ? 'COBRADA' : isParcial ? 'PARCIAL' : 'IMPAGA'}
+                              <span style={{
+                                width: '6px',
+                                height: '6px',
+                                borderRadius: '50%',
+                                background: isCobrada ? '#10b981' : isParcial ? '#f59e0b' : '#ef4444'
+                              }} />
+                              {isCobrada ? 'ABONADA' : isParcial ? 'PARCIAL' : 'IMPAGA'}
                             </span>
                           </td>
 
@@ -1204,10 +1382,19 @@ export default function Contaduria() {
                                 <button
                                   onClick={() => handleOpenCobroModal(group.items[0], group.numero_grupo)}
                                   className="air-btn-primary"
-                                  style={{ padding: '5px 12px', fontSize: '11px', borderRadius: '8px', fontWeight: 800 }}
-                                  title="Imputar cobro a este grupo"
+                                  style={{ 
+                                    padding: '6px 12px', 
+                                    fontSize: '11px', 
+                                    borderRadius: '8px', 
+                                    fontWeight: 800,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)'
+                                  }}
+                                  title="Registrar cobro a este grupo"
                                 >
-                                  Imputar
+                                  <DollarSign size={13} /> Cobrar
                                 </button>
                               )}
                               <button
@@ -1216,10 +1403,20 @@ export default function Contaduria() {
                                   setActiveTab('extracto');
                                 }}
                                 className="air-btn"
-                                style={{ padding: '5px 12px', fontSize: '11px', borderRadius: '8px', fontWeight: 700 }}
-                                title="Ver extracto de la cuenta"
+                                style={{ 
+                                  padding: '6px 12px', 
+                                  fontSize: '11px', 
+                                  borderRadius: '8px', 
+                                  fontWeight: 700,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  background: 'var(--surface)',
+                                  border: '1px solid var(--border-light)'
+                                }}
+                                title="Ver extracto de la cuenta corriente"
                               >
-                                Extracto
+                                <FileText size={13} /> Extracto
                               </button>
                             </div>
                           </td>
@@ -1354,7 +1551,7 @@ export default function Contaduria() {
           {facturasAgrupadas.length > pageSizeFacturas && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--border-light)', flexWrap: 'wrap', gap: '12px' }}>
               <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                Mostrando {((currentPageFacturas - 1) * pageSizeFacturas) + 1} - {Math.min(currentPageFacturas * pageSizeFacturas, facturasFiltradas.length)} de {facturasFiltradas.length} comprobantes
+                Mostrando {((currentPageFacturas - 1) * pageSizeFacturas) + 1} - {Math.min(currentPageFacturas * pageSizeFacturas, facturasAgrupadas.length)} de {facturasAgrupadas.length} grupos ({facturasFiltradas.length} comprobantes)
               </div>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <button
