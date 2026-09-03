@@ -13,6 +13,7 @@ import {
 import { useToast } from './components/ui/ToastProvider';
 import Modal from './components/Modal';
 import DOMPurify from 'dompurify';
+import * as XLSX from 'xlsx';
 
 export default function Campanas() {
   const { addToast } = useToast();
@@ -80,6 +81,16 @@ export default function Campanas() {
   const [botTestResult, setBotTestResult] = useState(null);
   const [expandedGroups, setExpandedGroups] = useState(new Set());
   
+  // Campaña desde Excel (TODOS)
+  const [excelFile, setExcelFile] = useState(null);
+  const [excelRawRows, setExcelRawRows] = useState([]);
+  const [excelMode, setExcelMode] = useState('lineas_email'); // 'lineas_email' | 'grupo_email'
+  const [excelSearch, setExcelSearch] = useState('');
+  const [excelEmpresa, setExcelEmpresa] = useState('ALL');
+  const [excelPeriodo, setExcelPeriodo] = useState('08-2026');
+  const [isExcelDragOver, setIsExcelDragOver] = useState(false);
+  const [excelStats, setExcelStats] = useState({ totalLineas: 0, totalFacturado: 0, empresas: {} });
+
   const editorRef = useRef(null);
 
   // Debounce búsquedas
@@ -362,6 +373,218 @@ export default function Campanas() {
       else next.add(groupId);
       return next;
     });
+  };
+
+  // --------------- CAMPAÑA DESDE EXCEL (TODOS) ---------------
+  const applyExcelRows = (rawRows, mode, empresa, searchStr, periodoVal) => {
+    if (!rawRows || rawRows.length === 0) {
+      setItems([]);
+      setSelectedIds(new Set());
+      return;
+    }
+
+    let filtered = rawRows;
+    if (empresa && empresa !== 'ALL') {
+      filtered = filtered.filter(r => String(r['EMPRESA'] || '').trim().toUpperCase() === empresa);
+    }
+
+    const normalizedRows = filtered.map(r => {
+      const tarifaAunar = Number(r['T. AUNAR $'] || 0);
+      const excedentes = Number(r['EXCED. $ INCL.'] || 0);
+      const abonoBase = Math.max(0, tarifaAunar - excedentes);
+      const numLinea = r['NUMERO'] != null ? String(r['NUMERO']).trim() : '';
+      const emailIndiv = String(r['EMAIL INDIVIDUAL'] || '').trim();
+      const emailGpo = String(r['EMAIL GRUPO'] || '').trim();
+      const emailFinal = emailIndiv || emailGpo;
+      const grupo = r['GRUPO'] != null ? String(r['GRUPO']).trim() : '';
+      const nombre = String(r['APELLIDO, NOMBRE'] || '').trim();
+      const plan = String(r['ABONO NOMBRE'] || r['GB INTERNET'] || '').trim();
+      const prov = String(r['EMPRESA'] || '').trim().toUpperCase();
+      const fpago = String(r['FPAGO'] || '').trim();
+      const cbu = String(r['CBU'] || '').trim();
+
+      return {
+        empresa: prov,
+        grupo,
+        nombre,
+        numero: numLinea,
+        plan,
+        abonoBase,
+        excedentes,
+        tarifaAunar,
+        emailIndiv,
+        emailGpo,
+        emailFinal,
+        fpago,
+        cbu
+      };
+    }).filter(r => r.emailFinal && r.numero);
+
+    let resultItems;
+
+    if (mode === 'lineas_email') {
+      const emailMap = new Map();
+      normalizedRows.forEach(r => {
+        const key = r.emailFinal.toLowerCase();
+        if (!emailMap.has(key)) {
+          emailMap.set(key, {
+            id: `excel_mail_${key}`,
+            nombre: r.nombre,
+            nombre_socio: r.nombre,
+            email: r.emailFinal,
+            grupo: r.grupo || 'Sin Grupo',
+            lineasSet: new Set(),
+            monto_cuota_cel: 0,
+            total_cuotas: 0,
+            monto_adeudado_num: 0,
+            dias_mora: '0',
+            periodo: periodoVal || excelPeriodo,
+            fpago: r.fpago,
+            cbu: r.cbu,
+            dni: '',
+            cuit: '',
+            detalle_lineas: []
+          });
+        }
+
+        const target = emailMap.get(key);
+        target.lineasSet.add(r.numero);
+        target.monto_adeudado_num += r.tarifaAunar;
+        target.monto_cuota_cel += r.abonoBase;
+        if (!target.fpago && r.fpago) target.fpago = r.fpago;
+        if (!target.cbu && r.cbu) target.cbu = r.cbu;
+
+        target.detalle_lineas.push({
+          numero_linea: r.numero,
+          nombre_plan: r.plan,
+          proveedor: r.empresa,
+          costo_abono_real: r.abonoBase,
+          excedentes: r.excedentes,
+          total_linea: r.tarifaAunar
+        });
+      });
+
+      resultItems = Array.from(emailMap.values()).map(item => ({
+        ...item,
+        lineas: Array.from(item.lineasSet).join(', '),
+        monto_adeudado: item.monto_adeudado_num.toFixed(2),
+        monto_cuota_cel: item.monto_cuota_cel.toFixed(2),
+        display_detalle: `${item.nombre} (${item.lineasSet.size} ${item.lineasSet.size === 1 ? 'línea' : 'líneas'})`
+      }));
+    } else {
+      // Modo Grupo
+      const groupMap = new Map();
+      normalizedRows.forEach(r => {
+        const key = r.grupo || r.emailGpo || r.emailFinal;
+        if (!groupMap.has(key)) {
+          groupMap.set(key, {
+            id: `excel_gpo_${key}`,
+            nombre: `Grupo ${r.grupo} - ${r.nombre}`,
+            nombre_socio: r.nombre,
+            email: r.emailGpo || r.emailFinal,
+            grupo: r.grupo,
+            lineasSet: new Set(),
+            monto_cuota_cel: 0,
+            total_cuotas: 0,
+            monto_adeudado_num: 0,
+            dias_mora: '0',
+            periodo: periodoVal || excelPeriodo,
+            fpago: r.fpago,
+            cbu: r.cbu,
+            dni: '',
+            cuit: '',
+            detalle_lineas: []
+          });
+        }
+
+        const target = groupMap.get(key);
+        target.lineasSet.add(r.numero);
+        target.monto_adeudado_num += r.tarifaAunar;
+        target.monto_cuota_cel += r.abonoBase;
+
+        target.detalle_lineas.push({
+          numero_linea: r.numero,
+          nombre_plan: r.plan,
+          proveedor: r.empresa,
+          costo_abono_real: r.abonoBase,
+          excedentes: r.excedentes,
+          total_linea: r.tarifaAunar
+        });
+      });
+
+      resultItems = Array.from(groupMap.values()).map(item => ({
+        ...item,
+        lineas: Array.from(item.lineasSet).join(', '),
+        monto_adeudado: item.monto_adeudado_num.toFixed(2),
+        monto_cuota_cel: item.monto_cuota_cel.toFixed(2),
+        display_detalle: `${item.nombre} (${item.lineasSet.size} líneas)`
+      }));
+    }
+
+    if (searchStr && searchStr.trim()) {
+      const q = searchStr.trim().toLowerCase();
+      resultItems = resultItems.filter(item =>
+        item.nombre.toLowerCase().includes(q) ||
+        item.email.toLowerCase().includes(q) ||
+        item.lineas.includes(q) ||
+        String(item.grupo).toLowerCase().includes(q)
+      );
+    }
+
+    setItems(resultItems);
+    setSelectedIds(new Set(resultItems.map(i => i.id)));
+  };
+
+  const handleExcelFileSelect = (file) => {
+    if (!file) return;
+    if (!file.name.match(/\.(xlsx|xls)$/i)) {
+      addToast('Por favor seleccioná un archivo Excel válido (.xlsx o .xls)', 'error');
+      return;
+    }
+    setLoading(true);
+    setExcelFile(file);
+
+    const nameMatch = file.name.match(/\(?(\d{2}[-_]\d{4})\)?/);
+    const detectado = nameMatch ? nameMatch[1].replace('_', '-') : excelPeriodo;
+    if (nameMatch) {
+      setExcelPeriodo(detectado);
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames.includes('SOCIOS') ? 'SOCIOS' : workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const rawJson = XLSX.utils.sheet_to_json(worksheet);
+
+        setExcelRawRows(rawJson);
+
+        let totFact = 0;
+        const empCount = {};
+        rawJson.forEach(r => {
+          totFact += Number(r['T. AUNAR $'] || 0);
+          const emp = String(r['EMPRESA'] || 'OTRO').trim().toUpperCase();
+          empCount[emp] = (empCount[emp] || 0) + 1;
+        });
+
+        setExcelStats({
+          totalLineas: rawJson.length,
+          totalFacturado: totFact,
+          empresas: empCount
+        });
+
+        applyExcelRows(rawJson, excelMode, excelEmpresa, debouncedExcelSearch, detectado);
+        addToast(`¡Planilla cargada! Se encontraron ${rawJson.length} líneas en '${sheetName}'.`, 'success');
+      } catch (err) {
+        console.error('Error al parsear Excel:', err);
+        addToast('Error al leer el archivo Excel: ' + err.message, 'error');
+      } finally {
+        setLoading(false);
+      }
+    };
+    reader.readAsArrayBuffer(file);
   };
 
   // --------------- FETCHS PARA CADA TIPO ---------------
@@ -1394,28 +1617,62 @@ export default function Campanas() {
           {!campaignType ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', padding: '20px' }}>
               <div
+                onClick={() => { setCampaignType('excel'); }}
+                style={{ 
+                  ...S.uploadZone, 
+                  cursor: 'pointer', 
+                  flexDirection: 'column', 
+                  padding: '28px 20px',
+                  background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(5, 150, 105, 0.16) 100%)',
+                  borderColor: 'rgba(16, 185, 129, 0.5)',
+                  position: 'relative'
+                }}
+              >
+                <div style={{
+                  position: 'absolute',
+                  top: '10px',
+                  right: '10px',
+                  background: '#059669',
+                  color: '#fff',
+                  fontSize: '9.5px',
+                  fontWeight: 900,
+                  padding: '3px 8px',
+                  borderRadius: '12px',
+                  letterSpacing: '0.5px'
+                }}>
+                  RECOMENDADO
+                </div>
+                <div style={{ color: '#059669' }}>
+                  <FileSpreadsheet size={32} />
+                </div>
+                <h3 style={{ margin: '8px 0', color: 'var(--text-primary)', fontSize: '15px' }}>Campaña desde Excel (TODOS)</h3>
+                <p style={{ textAlign: 'center', fontSize: '12.5px', margin: 0, color: 'var(--text-secondary)' }}>
+                  Facturación oficial directa desde el Excel mensual con líneas y emails exactos
+                </p>
+              </div>
+              <div
                 onClick={() => { setCampaignType('nueva'); fetchSocios(); }}
-                style={{ ...S.uploadZone, cursor: 'pointer', flexDirection: 'column', padding: '32px' }}
+                style={{ ...S.uploadZone, cursor: 'pointer', flexDirection: 'column', padding: '28px 20px' }}
               >
                 <Mail size={32} />
-                <h3 style={{ margin: '8px 0' }}>Nueva Campaña</h3>
-                <p style={{ textAlign: 'center', fontSize: '13px' }}>Seleccionar destinatarios de la base de socios</p>
+                <h3 style={{ margin: '8px 0', fontSize: '15px' }}>Nueva Campaña</h3>
+                <p style={{ textAlign: 'center', fontSize: '12.5px', margin: 0, color: 'var(--text-secondary)' }}>Seleccionar destinatarios de la base de socios</p>
               </div>
               <div
                 onClick={() => { setCampaignType('grupal'); fetchGrupos(); }}
-                style={{ ...S.uploadZone, cursor: 'pointer', flexDirection: 'column', padding: '32px' }}
+                style={{ ...S.uploadZone, cursor: 'pointer', flexDirection: 'column', padding: '28px 20px' }}
               >
                 <Hash size={32} />
-                <h3 style={{ margin: '8px 0' }}>Campaña Grupal</h3>
-                <p style={{ textAlign: 'center', fontSize: '13px' }}>Solo emails que representan a cada grupo</p>
+                <h3 style={{ margin: '8px 0', fontSize: '15px' }}>Campaña Grupal</h3>
+                <p style={{ textAlign: 'center', fontSize: '12.5px', margin: 0, color: 'var(--text-secondary)' }}>Solo emails que representan a cada grupo</p>
               </div>
               <div
                 onClick={() => { setCampaignType('lineas'); fetchLineas(); }}
-                style={{ ...S.uploadZone, cursor: 'pointer', flexDirection: 'column', padding: '32px' }}
+                style={{ ...S.uploadZone, cursor: 'pointer', flexDirection: 'column', padding: '28px 20px' }}
               >
                 <Phone size={32} />
-                <h3 style={{ margin: '8px 0' }}>Campaña por Líneas</h3>
-                <p style={{ textAlign: 'center', fontSize: '13px' }}>Líneas individuales con email</p>
+                <h3 style={{ margin: '8px 0', fontSize: '15px' }}>Campaña por Líneas</h3>
+                <p style={{ textAlign: 'center', fontSize: '12.5px', margin: 0, color: 'var(--text-secondary)' }}>Líneas individuales con email</p>
               </div>
               <div
                 onClick={() => { setCampaignType('bot_wsp'); setBotResult(null); }}
@@ -1423,7 +1680,7 @@ export default function Campanas() {
                   ...S.uploadZone, 
                   cursor: 'pointer', 
                   flexDirection: 'column', 
-                  padding: '32px',
+                  padding: '28px 20px',
                   background: 'linear-gradient(135deg, rgba(37, 211, 102, 0.08) 0%, rgba(18, 140, 126, 0.12) 100%)',
                   borderColor: 'rgba(37, 211, 102, 0.4)'
                 }}
@@ -1431,8 +1688,8 @@ export default function Campanas() {
                 <div style={{ color: '#25D366' }}>
                   <MessageSquare size={32} />
                 </div>
-                <h3 style={{ margin: '8px 0', color: 'var(--text-primary)' }}>Bot WhatsApp</h3>
-                <p style={{ textAlign: 'center', fontSize: '13px' }}>Actualizar facturación de líneas y grupos (XLS)</p>
+                <h3 style={{ margin: '8px 0', color: 'var(--text-primary)', fontSize: '15px' }}>Bot WhatsApp</h3>
+                <p style={{ textAlign: 'center', fontSize: '12.5px', margin: 0, color: 'var(--text-secondary)' }}>Actualizar facturación de líneas y grupos (XLS)</p>
               </div>
             </div>
           ) : campaignType === 'bot_wsp' ? (
@@ -2330,8 +2587,223 @@ export default function Campanas() {
                   {campaignType === 'nueva' && 'Campaña General – Socios'}
                   {campaignType === 'grupal' && 'Campaña Grupal – Representantes de grupo'}
                   {campaignType === 'lineas' && 'Campaña por Líneas – Líneas individuales'}
+                  {campaignType === 'excel' && 'Campaña desde Excel – Facturación Oficial (TODOS)'}
                 </span>
               </div>
+
+              {/* Controles para Campaña desde Excel */}
+              {campaignType === 'excel' && (
+                <div style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {!excelFile ? (
+                    <div
+                      onDragOver={(e) => { e.preventDefault(); setIsExcelDragOver(true); }}
+                      onDragLeave={() => setIsExcelDragOver(false)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setIsExcelDragOver(false);
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) handleExcelFileSelect(file);
+                      }}
+                      onClick={() => document.getElementById('excel-campaign-file-input')?.click()}
+                      style={{
+                        border: `2px dashed ${isExcelDragOver ? '#059669' : 'var(--border-light)'}`,
+                        borderRadius: '16px',
+                        padding: '36px 20px',
+                        textAlign: 'center',
+                        background: isExcelDragOver ? 'rgba(16, 185, 129, 0.08)' : 'rgba(255,255,255,0.4)',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '12px'
+                      }}
+                    >
+                      <input
+                        id="excel-campaign-file-input"
+                        type="file"
+                        accept=".xlsx, .xls"
+                        style={{ display: 'none' }}
+                        onChange={(e) => handleExcelFileSelect(e.target.files?.[0])}
+                      />
+                      <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(16, 185, 129, 0.12)', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <UploadCloud size={28} />
+                      </div>
+                      <div>
+                        <h4 style={{ margin: '0 0 6px 0', fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                          Cargá tu planilla mensual de cobros (.xlsx / .xls)
+                        </h4>
+                        <p style={{ margin: 0, fontSize: '12.5px', color: 'var(--text-secondary)' }}>
+                          Arrastrá aquí <strong>"TODOS (08-2026) COBROS PERSONAL, MOVISTAR Y CLARO.xlsx"</strong> o hacé clic para buscarla.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '12px',
+                        background: 'rgba(16, 185, 129, 0.06)',
+                        border: '1px solid rgba(16, 185, 129, 0.2)',
+                        padding: '12px 18px',
+                        borderRadius: '14px'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <FileSpreadsheet size={22} style={{ color: '#059669' }} />
+                          <div>
+                            <span style={{ fontWeight: 800, fontSize: '13.5px', color: 'var(--text-primary)' }}>{excelFile.name}</span>
+                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginLeft: '8px' }}>({(excelFile.size / 1024).toFixed(1)} KB)</span>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>Período:</span>
+                            <input
+                              type="text"
+                              value={excelPeriodo}
+                              onChange={(e) => setExcelPeriodo(e.target.value)}
+                              placeholder="08-2026"
+                              style={{ ...S.input, width: '100px', padding: '4px 8px', fontSize: '12px', fontWeight: 700, textAlign: 'center' }}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => { setExcelFile(null); setExcelRawRows([]); setItems([]); setSelectedIds(new Set()); }}
+                            style={{ ...S.btnSecondary, padding: '5px 12px', fontSize: '11.5px', color: 'var(--danger)' }}
+                          >
+                            <X size={13} /> Cambiar Archivo
+                          </button>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+                        <div style={{ background: 'rgba(255,255,255,0.7)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '12px 16px' }}>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Líneas en Planilla</div>
+                          <div style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', marginTop: '2px' }}>{excelStats.totalLineas}</div>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.7)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '12px 16px' }}>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Destinatarios a Enviar</div>
+                          <div style={{ fontSize: '20px', fontWeight: 900, color: '#059669', marginTop: '2px' }}>{items.length}</div>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.7)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '12px 16px' }}>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Total Facturado</div>
+                          <div style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', marginTop: '2px' }}>
+                            $ {excelStats.totalFacturado.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.7)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '12px 16px' }}>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Distribución</div>
+                          <div style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--text-secondary)', marginTop: '6px' }}>
+                            Claro ({excelStats.empresas['CLARO'] || 0}) · Personal ({excelStats.empresas['PERSONAL'] || 0}) · Movistar ({excelStats.empresas['MOVISTAR'] || 0})
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                        <div style={{ display: 'inline-flex', background: 'rgba(0,0,0,0.05)', padding: '3px', borderRadius: '10px' }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setExcelMode('lineas_email');
+                              applyExcelRows(excelRawRows, 'lineas_email', excelEmpresa, excelSearch, excelPeriodo);
+                            }}
+                            style={{
+                              border: 'none',
+                              padding: '6px 14px',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              background: excelMode === 'lineas_email' ? '#059669' : 'transparent',
+                              color: excelMode === 'lineas_email' ? '#ffffff' : 'var(--text-primary)',
+                              transition: 'all 0.2s'
+                            }}
+                          >
+                            Consolidado por Email (Líneas)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setExcelMode('grupo_email');
+                              applyExcelRows(excelRawRows, 'grupo_email', excelEmpresa, excelSearch, excelPeriodo);
+                            }}
+                            style={{
+                              border: 'none',
+                              padding: '6px 14px',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              background: excelMode === 'grupo_email' ? '#059669' : 'transparent',
+                              color: excelMode === 'grupo_email' ? '#ffffff' : 'var(--text-primary)',
+                              transition: 'all 0.2s'
+                            }}
+                          >
+                            Por Grupo (Representantes)
+                          </button>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          {['ALL', 'CLARO', 'PERSONAL', 'MOVISTAR'].map(emp => (
+                            <button
+                              key={emp}
+                              type="button"
+                              onClick={() => {
+                                setExcelEmpresa(emp);
+                                applyExcelRows(excelRawRows, excelMode, emp, excelSearch, excelPeriodo);
+                              }}
+                              style={{
+                                border: '1px solid var(--border-light)',
+                                padding: '5px 12px',
+                                borderRadius: '8px',
+                                fontSize: '11.5px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                background: excelEmpresa === emp ? '#1e293b' : 'rgba(255,255,255,0.7)',
+                                color: excelEmpresa === emp ? '#ffffff' : 'var(--text-primary)'
+                              }}
+                            >
+                              {emp === 'ALL' ? 'Todas' : emp}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div style={{ position: 'relative', minWidth: '240px', flex: 1, maxWidth: '360px' }}>
+                          <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+                          <input
+                            type="text"
+                            value={excelSearch}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setExcelSearch(val);
+                              applyExcelRows(excelRawRows, excelMode, excelEmpresa, val, excelPeriodo);
+                            }}
+                            placeholder="Buscar por socio, línea, grupo o email..."
+                            style={{ ...S.input, paddingLeft: '36px', paddingRight: excelSearch ? '30px' : '10px', fontSize: '12px' }}
+                          />
+                          {excelSearch && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setExcelSearch('');
+                                applyExcelRows(excelRawRows, excelMode, excelEmpresa, '', excelPeriodo);
+                              }}
+                              style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-secondary)' }}
+                            >
+                              <X size={13} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Filtros según el tipo */}
               {campaignType === 'nueva' && (
@@ -2482,9 +2954,12 @@ export default function Campanas() {
                         <th style={S.th}>Email</th>
                         {campaignType === 'nueva' && <th style={{ ...S.th, textAlign: 'center', width: '80px' }}>Pago</th>}
                         <th style={{ ...S.th, textAlign: 'center', width: '80px' }}>
-                          {campaignType === 'grupal' ? 'Grupo' : 'Línea'}
+                          {campaignType === 'grupal' || campaignType === 'excel' ? 'Grupo' : 'Línea'}
                         </th>
-                        {campaignType === 'nueva' && <th style={{ ...S.th, textAlign: 'right', width: '80px' }}>Cuotas</th>}
+                        {campaignType === 'excel' && <th style={{ ...S.th, textAlign: 'center' }}>Líneas</th>}
+                        <th style={{ ...S.th, textAlign: 'right', width: campaignType === 'excel' ? '120px' : '80px' }}>
+                          {campaignType === 'excel' ? 'Total Facturado' : (campaignType === 'nueva' ? 'Cuotas' : 'Monto')}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2498,6 +2973,7 @@ export default function Campanas() {
                             <td style={S.td}>
                               <div style={{ fontWeight: 700 }}>{item.display_detalle || item.nombre}</div>
                               {item.dni && <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>DNI: {item.dni}</div>}
+                              {campaignType === 'excel' && item.cbu && <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>CBU: {item.cbu}</div>}
                             </td>
                             <td style={S.td}>{item.email}</td>
                             {campaignType === 'nueva' && (
@@ -2506,13 +2982,19 @@ export default function Campanas() {
                               </td>
                             )}
                             <td style={{ ...S.td, textAlign: 'center' }}>
-                              {campaignType === 'grupal' ? `#${item.grupo}` : item.lineas}
+                              {campaignType === 'grupal' || campaignType === 'excel' ? `#${item.grupo}` : item.lineas}
                             </td>
-                            {campaignType === 'nueva' && (
-                              <td style={{ ...S.td, textAlign: 'right', color: item.total_cuotas > 0 ? 'var(--danger)' : 'var(--accent)' }}>
-                                {item.total_cuotas || 0}
+                            {campaignType === 'excel' && (
+                              <td style={{ ...S.td, textAlign: 'center', fontSize: '11.5px' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>{item.lineas}</span>
                               </td>
                             )}
+                            <td style={{ ...S.td, textAlign: 'right', fontWeight: campaignType === 'excel' ? 800 : 500, color: campaignType === 'excel' ? '#059669' : (item.total_cuotas > 0 ? 'var(--danger)' : 'var(--accent)') }}>
+                              {campaignType === 'excel' 
+                                ? `$ ${Number(item.monto_adeudado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
+                                : (campaignType === 'nueva' ? item.total_cuotas || 0 : `$ ${item.monto_adeudado || 0}`)
+                              }
+                            </td>
                           </tr>
                         );
                       })}
