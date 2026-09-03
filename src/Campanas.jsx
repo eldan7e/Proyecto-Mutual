@@ -544,7 +544,9 @@ export default function Campanas() {
 
       const mapped = list.map(l => ({
         id: `linea_${l.linea_id}`,
-        nombre: `${l.nombre_socio || 'Sin nombre'} (Línea: ${l.numero_linea})`,
+        nombre: l.nombre_socio || 'Sin nombre',
+        nombre_socio: l.nombre_socio || 'Sin nombre',
+        display_detalle: `${l.nombre_socio || 'Sin nombre'} (Línea: ${l.numero_linea})`,
         email: l.email_contacto,
         grupo: 'Sin Grupo',
         lineas: l.numero_linea,
@@ -554,8 +556,45 @@ export default function Campanas() {
         monto_cuota_cel: 0,
         total_cuotas: 0,
         monto_adeudado: 0,
-        dias_mora: '0'
+        dias_mora: '0',
+        periodo: '',
+        detalle_lineas: []
       }));
+
+      // Enriquecer con facturación del último período
+      try {
+        const { data: periodoData } = await supabase
+          .from('consumos_mensuales')
+          .select('periodo')
+          .order('periodo', { ascending: false })
+          .limit(1);
+        const ultimoPeriodo = periodoData?.[0]?.periodo;
+
+        if (ultimoPeriodo) {
+          const { data: facturacion } = await supabase
+            .from('v_historial_facturacion_socio')
+            .select('socio_id, numero_linea, nombre_plan, proveedor, costo_abono_real, excedentes, bonificaciones, total_linea')
+            .eq('periodo', ultimoPeriodo);
+
+          const factMap = new Map();
+          (facturacion || []).forEach(f => {
+            if (f.numero_linea) factMap.set(f.numero_linea, f);
+          });
+
+          mapped.forEach(item => {
+            item.periodo = ultimoPeriodo;
+            const fact = factMap.get(item.lineas);
+            if (fact) {
+              item.detalle_lineas = [fact];
+              item.monto_adeudado = Number(fact.total_linea || 0).toFixed(2);
+              if (fact.costo_abono_real) item.monto_cuota_cel = fact.costo_abono_real;
+            }
+          });
+        }
+      } catch (e) {
+        console.warn('Error al enriquecer facturación por líneas:', e);
+      }
+
       setItems(mapped);
       setSelectedIds(new Set());
     } catch (err) {
@@ -616,22 +655,78 @@ export default function Campanas() {
 
     setSending(true);
 
-    const recipients = items.filter(i => selectedIds.has(i.id)).map(item => ({
-      socio_id: item.id,
-      nombre_completo: item.nombre,
-      nombre_socio: item.nombre,
-      email: item.email,
-      dni: item.dni || '',
-      cuit: item.cuit || '',
-      fpago: item.fpago || '',
-      grupo: item.grupo || 'Sin Grupo',
-      lineas: item.lineas || 'Sin Línea',
-      monto_cuota_cel: item.monto_cuota_cel || 0,
-      total_cuotas: item.total_cuotas || 0,
-      monto_adeudado: item.monto_adeudado || 0,
-      dias_mora: item.dias_mora || '0',
-      periodo: item.periodo || '',
-      detalle_lineas_html: (item.detalle_lineas || []).map(l =>
+    const selectedItems = items.filter(i => selectedIds.has(i.id));
+
+    // Consolidar destinatarios por email para que si una persona tiene múltiples líneas reciba un único correo agrupado
+    const emailGroups = new Map();
+    selectedItems.forEach(item => {
+      const emailKey = (item.email || '').trim().toLowerCase();
+      if (!emailKey) return;
+
+      if (!emailGroups.has(emailKey)) {
+        emailGroups.set(emailKey, {
+          socio_id: item.id,
+          nombre_completo: item.nombre_socio || item.nombre,
+          nombre_socio: item.nombre_socio || item.nombre,
+          email: item.email,
+          dni: item.dni || '',
+          cuit: item.cuit || '',
+          fpago: item.fpago || '',
+          grupo: item.grupo || 'Sin Grupo',
+          lineasSet: new Set(),
+          monto_cuota_cel: item.monto_cuota_cel || 0,
+          total_cuotas: item.total_cuotas || 0,
+          monto_adeudado_num: 0,
+          dias_mora: item.dias_mora || '0',
+          periodo: item.periodo || '',
+          detalle_lineas: []
+        });
+      }
+
+      const g = emailGroups.get(emailKey);
+
+      // Agregar números de línea
+      if (item.lineas) {
+        String(item.lineas).split(',').forEach(l => {
+          const trimmed = l.trim();
+          if (trimmed && trimmed !== 'Sin Línea') g.lineasSet.add(trimmed);
+        });
+      }
+
+      // Sumar monto adeudado
+      g.monto_adeudado_num += Number(item.monto_adeudado || 0);
+
+      // Consolidar detalles de líneas evitando duplicados
+      if (item.detalle_lineas && item.detalle_lineas.length > 0) {
+        item.detalle_lineas.forEach(dl => {
+          if (!g.detalle_lineas.some(existing => existing.numero_linea === dl.numero_linea)) {
+            g.detalle_lineas.push(dl);
+          }
+        });
+      }
+
+      if (item.periodo && !g.periodo) g.periodo = item.periodo;
+      if (item.dni && !g.dni) g.dni = item.dni;
+      if (item.cuit && !g.cuit) g.cuit = item.cuit;
+      if (item.fpago && !g.fpago) g.fpago = item.fpago;
+    });
+
+    const recipients = Array.from(emailGroups.values()).map(g => ({
+      socio_id: g.socio_id,
+      nombre_completo: g.nombre_completo,
+      nombre_socio: g.nombre_socio,
+      email: g.email,
+      dni: g.dni,
+      cuit: g.cuit,
+      fpago: g.fpago,
+      grupo: g.grupo,
+      lineas: Array.from(g.lineasSet).join(', ') || 'Sin Línea',
+      monto_cuota_cel: g.monto_cuota_cel,
+      total_cuotas: g.total_cuotas,
+      monto_adeudado: g.monto_adeudado_num.toFixed(2),
+      dias_mora: g.dias_mora,
+      periodo: g.periodo,
+      detalle_lineas_html: g.detalle_lineas.map(l =>
         `<tr style="border-bottom: 1px solid #e2e8f0;">
           <td style="padding:8px; font-size:13px;">${l.numero_linea}</td>
           <td style="padding:8px; font-size:13px;">${l.nombre_plan || '-'}</td>
@@ -669,7 +764,8 @@ export default function Campanas() {
 
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-      addToast(`Campaña enviada a n8n para ${recipients.length} correos`, 'success');
+      const consolidatedInfo = selectedItems.length > recipients.length ? ` (${selectedItems.length} líneas consolidadas)` : '';
+      addToast(`Campaña enviada para ${recipients.length} destinatarios únicos${consolidatedInfo}`, 'success');
       setCampaignName('');
       setSubject('');
       setBodyHtml('');
@@ -876,6 +972,10 @@ export default function Campanas() {
 
   const totalSelected = selectedIds.size;
   const selectedRecipientsList = items.filter(i => selectedIds.has(i.id));
+  const uniqueEmailsCount = useMemo(() => {
+    const emails = new Set(selectedRecipientsList.map(i => (i.email || '').trim().toLowerCase()).filter(Boolean));
+    return emails.size;
+  }, [selectedRecipientsList]);
 
   /* ─────────────────────── Inline Styles ─────────────────────── */
 
@@ -2335,8 +2435,26 @@ export default function Campanas() {
               )}
 
               {/* Selección y tabla */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', alignItems: 'center' }}>
-                <span style={S.badge}>{totalSelected} seleccionados</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <span style={S.badge}>{totalSelected} seleccionados</span>
+                  {totalSelected > 0 && uniqueEmailsCount < totalSelected && (
+                    <span style={{
+                      fontSize: '12px',
+                      color: '#059669',
+                      background: 'rgba(16, 185, 129, 0.12)',
+                      border: '1px solid rgba(16, 185, 129, 0.3)',
+                      padding: '4px 12px',
+                      borderRadius: '16px',
+                      fontWeight: 700,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}>
+                      ⚡ Se consolidarán en <strong>{uniqueEmailsCount}</strong> {uniqueEmailsCount === 1 ? 'único correo' : 'correos únicos'}
+                    </span>
+                  )}
+                </div>
                 <div>
                   <button onClick={toggleSelectAll} style={{ ...S.btnSecondary, padding: '6px 14px', fontSize: '12px', marginRight: '8px' }}>
                     {selectedIds.size === items.length ? 'Deseleccionar todos' : 'Seleccionar todos'}
@@ -2378,7 +2496,7 @@ export default function Campanas() {
                               {sel ? <CheckSquare size={18} style={{ color: 'var(--accent)' }} /> : <Square size={18} />}
                             </td>
                             <td style={S.td}>
-                              <div style={{ fontWeight: 700 }}>{item.nombre}</div>
+                              <div style={{ fontWeight: 700 }}>{item.display_detalle || item.nombre}</div>
                               {item.dni && <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>DNI: {item.dni}</div>}
                             </td>
                             <td style={S.td}>{item.email}</td>
@@ -2409,7 +2527,7 @@ export default function Campanas() {
                   disabled={totalSelected === 0}
                   style={{ ...S.btnPrimary, opacity: totalSelected === 0 ? 0.5 : 1, cursor: totalSelected === 0 ? 'not-allowed' : 'pointer' }}
                 >
-                  Configurar Mensaje ({totalSelected}) <ChevronRight size={16} />
+                  Configurar Mensaje ({uniqueEmailsCount < totalSelected ? `${uniqueEmailsCount} correos (${totalSelected} líneas)` : totalSelected}) <ChevronRight size={16} />
                 </button>
               </div>
             </>
