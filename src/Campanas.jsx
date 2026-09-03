@@ -8,7 +8,7 @@ import {
   ArrowLeft, Users, FileText, X, Check, Clock, Hash, Phone, Tag,
   Bot, MessageSquare, UploadCloud, FileSpreadsheet, Sparkles, Database,
   CheckCircle, AlertTriangle, Calendar, Play, Building2, HelpCircle,
-  Copy, Smartphone, ChevronUp
+  Copy, Smartphone, ChevronUp, Bookmark, Trash2, PlusCircle
 } from 'lucide-react';
 import { useToast } from './components/ui/ToastProvider';
 import Modal from './components/Modal';
@@ -62,6 +62,13 @@ export default function Campanas() {
   const [n8nWebhookUrl, setN8nWebhookUrl] = useState(
     localStorage.getItem('n8n_webhook_campaign_url') || 'http://34.176.65.52:5678/webhook/envio-campana'
   );
+
+  // Plantillas Personalizadas
+  const [customTemplates, setCustomTemplates] = useState([]);
+  const [selectedTemplateKey, setSelectedTemplateKey] = useState('aunar');
+  const [isSaveTemplateModalOpen, setIsSaveTemplateModalOpen] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState('');
+  const [savingTemplate, setSavingTemplate] = useState(false);
 
   // Bot WhatsApp Sincronizador de Facturación
   const [botFile, setBotFile] = useState(null);
@@ -136,6 +143,100 @@ export default function Campanas() {
   const handleBotWebhookUrlChange = (val) => {
     setN8nBotWebhookUrl(val);
     localStorage.setItem('n8n_webhook_bot_url', val);
+  };
+
+  // --------------- GESTIÓN DE PLANTILLAS PERSONALIZADAS ---------------
+  const fetchCustomTemplates = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('campanas_plantillas')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.warn('Aviso: error al consultar campanas_plantillas en Supabase:', error);
+        const local = localStorage.getItem('campanas_custom_templates');
+        if (local) setCustomTemplates(JSON.parse(local));
+      } else if (data) {
+        const customOnly = data.filter(t => !t.es_oficial);
+        setCustomTemplates(customOnly);
+        localStorage.setItem('campanas_custom_templates', JSON.stringify(customOnly));
+      }
+    } catch (err) {
+      console.warn('Fallback a localStorage para plantillas personalizadas:', err);
+      const local = localStorage.getItem('campanas_custom_templates');
+      if (local) setCustomTemplates(JSON.parse(local));
+    }
+  };
+
+  useEffect(() => {
+    fetchCustomTemplates();
+  }, []);
+
+  const handleSaveCustomTemplate = async () => {
+    if (!newTemplateName.trim()) {
+      return addToast('Ingresá un nombre para la plantilla', 'warning');
+    }
+    if (!bodyHtml.trim() || bodyHtml === '<br>') {
+      return addToast('El editor está vacío. Cargá o redactá contenido primero.', 'warning');
+    }
+
+    setSavingTemplate(true);
+    try {
+      const newTemplateObj = {
+        nombre: newTemplateName.trim(),
+        asunto: subject.trim(),
+        cuerpo_html: bodyHtml,
+        es_oficial: false
+      };
+
+      const { data, error } = await supabase
+        .from('campanas_plantillas')
+        .insert([newTemplateObj])
+        .select()
+        .single();
+
+      let savedItem = data;
+      if (error || !savedItem) {
+        savedItem = { 
+          ...newTemplateObj, 
+          id: 'local_' + Date.now(), 
+          created_at: new Date().toISOString() 
+        };
+      }
+
+      const updated = [savedItem, ...customTemplates];
+      setCustomTemplates(updated);
+      localStorage.setItem('campanas_custom_templates', JSON.stringify(updated));
+      setSelectedTemplateKey(`custom_${savedItem.id}`);
+
+      addToast(`¡Plantilla '${newTemplateName.trim()}' guardada con éxito!`, 'success');
+      setNewTemplateName('');
+      setIsSaveTemplateModalOpen(false);
+    } catch (err) {
+      console.error('Error al guardar plantilla:', err);
+      addToast('Error al guardar la plantilla: ' + err.message, 'error');
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  const handleDeleteCustomTemplate = async (id, nombre) => {
+    if (!window.confirm(`¿Estás seguro de eliminar la plantilla '${nombre}'?`)) return;
+
+    try {
+      if (!String(id).startsWith('local_')) {
+        await supabase.from('campanas_plantillas').delete().eq('id', id);
+      }
+      const updated = customTemplates.filter(t => String(t.id) !== String(id));
+      setCustomTemplates(updated);
+      localStorage.setItem('campanas_custom_templates', JSON.stringify(updated));
+      setSelectedTemplateKey('aunar');
+      addToast(`Plantilla '${nombre}' eliminada`, 'info');
+    } catch (err) {
+      console.error('Error al eliminar plantilla:', err);
+      addToast('Error al eliminar la plantilla', 'error');
+    }
   };
 
   const handleBotFileSelect = (file) => {
@@ -1224,7 +1325,101 @@ export default function Campanas() {
     setBodyHtml(editor.innerHTML);
   };
 
+  const buildAunarChassis = (editableTextHtml = '') => {
+    return `<div style="font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px 20px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff; color: #334155; line-height: 1.5;">
+
+  <!-- View online link -->
+  <div style="text-align: center; margin-bottom: 18px;">
+    <a href="https://proyecto-mutual.vercel.app" target="_blank" style="font-size: 11.5px; color: #64748b; text-decoration: underline;">View this email in your browser</a>
+  </div>
+
+  <!-- Logo AUNAR -->
+  <div style="text-align: center; margin-bottom: 24px;">
+    <img src="https://proyecto-mutual.vercel.app/logo.png" alt="Aunar Asociación" style="max-width: 220px; height: auto;" />
+  </div>
+
+  <!-- Saludo -->
+  <div style="margin-bottom: 16px;">
+    <p style="margin: 0 0 6px 0; font-size: 16px; color: #0f172a;">
+      👋 <strong>Hola !</strong> <span style="color: #10b981; font-weight: bold; text-decoration: underline;">{{nombre_socio}}</span>
+    </p>
+    <p style="margin: 0; font-size: 14.5px; color: #475569;">
+      📄 Te enviamos el detalle de tu factura y el monto a abonar.
+    </p>
+  </div>
+
+  <!-- Línea divisoria continua -->
+  <hr style="border: none; border-top: 1.5px solid #0f172a; margin: 16px 0 20px 0;" />
+
+  <!-- Datos del socio y tabla de líneas -->
+  <div style="text-align: center; margin-bottom: 16px;">
+    <div style="font-weight: 700; font-size: 15px; color: #0f172a;">{{nombre_socio}}</div>
+    <div style="font-size: 13px; color: #64748b; margin-top: 3px;">Grupo: #{{grupo}} · Período: {{periodo}}</div>
+  </div>
+
+  <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+    <thead>
+      <tr style="background-color: #10b981; color: #ffffff;">
+        <th style="padding: 8px 10px; text-align: left; font-size: 13px;">Línea</th>
+        <th style="padding: 8px 10px; text-align: left; font-size: 13px;">Plan</th>
+        <th style="padding: 8px 10px; text-align: left; font-size: 13px;">Empresa</th>
+        <th style="padding: 8px 10px; text-align: right; font-size: 13px;">Abono</th>
+        <th style="padding: 8px 10px; text-align: right; font-size: 13px;">Excedentes</th>
+        <th style="padding: 8px 10px; text-align: right; font-size: 13px;">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- DETALLE_LINEAS_START -->
+      <tr data-lineas-placeholder="true" style="border-bottom: 1px solid #e2e8f0;">
+        <td colspan="6" style="padding: 12px; text-align: center; color: #64748b; font-size: 13px; font-style: italic;">
+          (El detalle de líneas y consumos de cada socio se insertará automáticamente aquí)
+        </td>
+      </tr>
+      <!-- DETALLE_LINEAS_END -->
+    </tbody>
+  </table>
+
+  <!-- TOTAL A ABONAR Y VENCIMIENTO -->
+  <div style="text-align: center; margin: 20px 0 26px 0; padding: 16px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
+    <div style="font-size: 18px; font-weight: 800; color: #0f172a; letter-spacing: 0.5px;">
+      TOTAL A ABONAR $ {{monto_adeudado}}
+    </div>
+    <div style="font-size: 14px; font-weight: 600; color: #475569; margin-top: 5px;">
+      Vencimiento: {{vencimiento}}
+    </div>
+  </div>
+
+  <!-- CONTENIDO EDITABLE DE ABAJO -->
+  ${editableTextHtml || `<div style="margin: 20px 0; padding: 10px 0;">
+    <p style="font-size: 14.5px; color: #334155; line-height: 1.6; margin: 0 0 12px 0;">
+      Estimado/a socio/a, le recordamos que los comprobantes de pago deben ser enviados respondiendo a este correo o vía WhatsApp indicando número de línea o grupo.
+    </p>
+    <p style="font-size: 14.5px; color: #334155; line-height: 1.6; margin: 0 0 12px 0;">
+      Ante cualquier consulta o modificación de plan, estamos a su entera disposición.
+    </p>
+    <p style="font-size: 15px; font-weight: bold; color: #1e293b; text-align: center; margin: 24px 0 12px 0;">
+      ¡Gracias por seguir eligiendo Aunar! 🤝
+    </p>
+  </div>`}
+
+  <!-- Footer Redes y Dirección -->
+  <div style="border-top: 1px solid #e2e8f0; padding-top: 20px; text-align: center; font-size: 12px; color: #94a3b8;">
+    <div style="margin-bottom: 12px;">
+      <a href="https://twitter.com/aunar" target="_blank" style="color: #64748b; text-decoration: none; margin: 0 10px; font-weight: 600;">Twitter</a> | 
+      <a href="https://facebook.com/aunar" target="_blank" style="color: #64748b; text-decoration: none; margin: 0 10px; font-weight: 600;">Facebook</a> | 
+      <a href="https://aunar.com.ar" target="_blank" style="color: #64748b; text-decoration: none; margin: 0 10px; font-weight: 600;">Website</a>
+    </div>
+    <p style="margin: 0 0 4px 0;">Copyright &copy; 2026 AUNAR MUTUAL. Todos los derechos reservados.</p>
+    <p style="margin: 0; font-weight: bold;">AUNAR MUTUAL · 46 Diag. 76 · La Plata, Buenos Aires · Argentina</p>
+  </div>
+
+</div>`;
+  };
+
   const handleLoadTemplate = (type) => {
+    setSelectedTemplateKey(type);
+    if (!type) return;
+
     if (type === 'vacia') {
       setCampaignName('');
       setSubject('');
@@ -1232,9 +1427,35 @@ export default function Campanas() {
       if (editorRef.current) editorRef.current.innerHTML = '';
       return;
     }
+
     const now = new Date();
     const mesAnio = now.toLocaleString('es-AR', { month: 'long', year: 'numeric' });
     const mesAnioCapitalized = mesAnio.charAt(0).toUpperCase() + mesAnio.slice(1);
+
+    if (type === 'aunar_base') {
+      const name = `Comunicación Oficial - ${mesAnioCapitalized}`;
+      const subj = 'Información Importante de Telefonía Celular - {{nombre_socio}}';
+      const body = buildAunarChassis();
+      setCampaignName(name);
+      setSubject(subj);
+      setBodyHtml(body);
+      if (editorRef.current) editorRef.current.innerHTML = body;
+      addToast('Plantilla Base AUNAR cargada. Editá el texto inferior según tus necesidades.', 'success');
+      return;
+    }
+
+    if (type.startsWith('custom_')) {
+      const customId = type.replace('custom_', '');
+      const t = customTemplates.find(c => String(c.id) === String(customId));
+      if (t) {
+        setCampaignName(t.nombre);
+        setSubject(t.asunto || '');
+        setBodyHtml(t.cuerpo_html || '');
+        if (editorRef.current) editorRef.current.innerHTML = t.cuerpo_html || '';
+        addToast(`Plantilla personalizada '${t.nombre}' cargada con éxito.`, 'success');
+      }
+      return;
+    }
 
     const templates = {
       aunar: {
@@ -3327,20 +3548,74 @@ export default function Campanas() {
                 <h3 style={S.sectionTitleText}>Diseño de Campaña</h3>
               </div>
               
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Plantilla:</span>
                 <select 
+                  value={selectedTemplateKey}
                   onChange={(e) => handleLoadTemplate(e.target.value)} 
-                  style={{ ...S.input, width: '250px', padding: '6px 12px', background: 'rgba(255,255,255,0.7)' }}
-                  defaultValue=""
+                  style={{ ...S.input, minWidth: '240px', padding: '6px 12px', background: 'rgba(255,255,255,0.85)', fontWeight: 500 }}
                 >
-                  <option value="" disabled>-- Cargar plantilla predefinida --</option>
-                  <option value="aunar">Plantilla Oficial Mutual AUNAR</option>
-                  <option value="deuda">Aviso de Deuda / Cobro de Cuota</option>
-                  <option value="bienvenida">Bienvenida Nuevos Socios</option>
-                  <option value="aumento">Notificación de Aumento / Ajuste</option>
-                  <option value="vacia">Limpiar Mensaje (Vacío)</option>
+                  <optgroup label="🏛️ Plantillas Oficiales AUNAR">
+                    <option value="aunar">Oficial Completa (Factura + FAQ + Banner)</option>
+                    <option value="aunar_base">Chasis Base AUNAR (Logo + Factura + Texto Libre)</option>
+                    <option value="deuda">Aviso de Deuda / Cobro de Cuota</option>
+                    <option value="bienvenida">Bienvenida Nuevos Socios</option>
+                    <option value="aumento">Notificación de Aumento / Ajuste</option>
+                  </optgroup>
+                  {customTemplates.length > 0 && (
+                    <optgroup label="⭐ Mis Plantillas Personalizadas">
+                      {customTemplates.map(ct => (
+                        <option key={ct.id} value={`custom_${ct.id}`}>
+                          {ct.nombre}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  <optgroup label="Opciones">
+                    <option value="vacia">Limpiar Mensaje (Vacío)</option>
+                  </optgroup>
                 </select>
+
+                {/* Botón rápido Chasis Base AUNAR */}
+                <button
+                  type="button"
+                  onClick={() => handleLoadTemplate('aunar_base')}
+                  style={{ ...S.btnSecondary, padding: '6px 12px', fontSize: '12px', gap: '6px' }}
+                  title="Cargar estructura oficial AUNAR con logo y facturación lista para redactar el texto inferior"
+                >
+                  <Sparkles size={13} style={{ color: 'var(--accent)' }} />
+                  <span>Base AUNAR</span>
+                </button>
+
+                {/* Botón para guardar plantilla actual */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewTemplateName(campaignName || '');
+                    setIsSaveTemplateModalOpen(true);
+                  }}
+                  style={{ ...S.btnSecondary, padding: '6px 12px', fontSize: '12px', gap: '6px', background: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.3)', color: '#047857' }}
+                  title="Guardar el diseño actual como una nueva plantilla personalizada"
+                >
+                  <Bookmark size={13} />
+                  <span>Guardar Plantilla</span>
+                </button>
+
+                {/* Botón para eliminar plantilla personalizada activa */}
+                {selectedTemplateKey && selectedTemplateKey.startsWith('custom_') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const id = selectedTemplateKey.replace('custom_', '');
+                      const ct = customTemplates.find(t => String(t.id) === String(id));
+                      if (ct) handleDeleteCustomTemplate(ct.id, ct.nombre);
+                    }}
+                    style={{ ...S.btnSecondary, padding: '6px 10px', fontSize: '12px', color: 'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+                    title="Eliminar esta plantilla personalizada"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -3610,6 +3885,60 @@ export default function Campanas() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Modal: Guardar Plantilla Personalizada */}
+      <Modal
+        isOpen={isSaveTemplateModalOpen}
+        onClose={() => setIsSaveTemplateModalOpen(false)}
+        title="Guardar como Plantilla Personalizada"
+        maxWidth="520px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
+            Guardá el diseño actual del correo para reutilizarlo en futuras campañas. Incluye el <strong>logo oficial de Aunar</strong>, las variables de facturación y el texto que redactaste.
+          </p>
+
+          <div>
+            <label style={{ ...S.label, marginBottom: '6px' }}>Nombre de la Plantilla</label>
+            <input 
+              type="text" 
+              value={newTemplateName} 
+              onChange={(e) => setNewTemplateName(e.target.value)} 
+              placeholder="Ej: Recordatorio 2do Vencimiento, Promo Roaming..." 
+              style={S.input}
+              autoFocus
+            />
+          </div>
+
+          <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid var(--border-light)', fontSize: '12.5px', color: '#475569' }}>
+            <div style={{ marginBottom: '6px' }}>
+              <strong>Asunto predeterminado:</strong> {subject || '(Sin asunto definido)'}
+            </div>
+            <div style={{ color: '#059669', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
+              <Check size={14} /> Mantiene el logo, saludo institucional y la tabla de líneas con GBs
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+            <button 
+              type="button" 
+              onClick={() => setIsSaveTemplateModalOpen(false)} 
+              style={S.btnSecondary}
+            >
+              Cancelar
+            </button>
+            <button 
+              type="button" 
+              onClick={handleSaveCustomTemplate} 
+              disabled={savingTemplate || !newTemplateName.trim()}
+              style={{ ...S.btnPrimary, opacity: savingTemplate || !newTemplateName.trim() ? 0.6 : 1, gap: '6px' }}
+            >
+              {savingTemplate ? <Loader2 className="animate-spin" size={15} /> : <Bookmark size={15} />}
+              <span>{savingTemplate ? 'Guardando...' : 'Guardar Plantilla'}</span>
+            </button>
+          </div>
+        </div>
       </Modal>
 
       {/* Placeholder style for contentEditable */}
