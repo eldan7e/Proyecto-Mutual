@@ -1142,13 +1142,48 @@ export default function Campanas() {
     }
     body = body.split('{{detalle_lineas_html}}').join(tableRows);
 
+    // Extraer nombre y apellido
+    let firstName = '';
+    let lastName = '';
+    if (nombreStr.includes(',')) {
+      const parts = nombreStr.split(',');
+      lastName = parts[0].trim();
+      firstName = parts.slice(1).join(' ').trim();
+    } else {
+      const parts = nombreStr.split(' ');
+      firstName = parts[0] || '';
+      lastName = parts.slice(1).join(' ') || '';
+    }
+
+    // Calcular vencimiento: por defecto día 12 del mes del período (o mes siguiente)
+    let vencimientoStr = r.vencimiento;
+    if (!vencimientoStr) {
+      if (periodoStr && periodoStr.includes('-')) {
+        const pParts = periodoStr.split('-');
+        let m = parseInt(pParts[0].length === 4 ? pParts[1] : pParts[0], 10);
+        let y = parseInt(pParts[0].length === 4 ? pParts[0] : pParts[1], 10);
+        m = m + 1;
+        if (m > 12) { m = 1; y += 1; }
+        vencimientoStr = `12/${String(m).padStart(2, '0')}/${y}`;
+      } else {
+        vencimientoStr = '12/09/2026';
+      }
+    }
+
     // Mapeo general de variables
     const map = {
       '{{nombre_socio}}': nombreStr,
-      '{{nombre}}': nombreStr,
+      '{{nombre}}': firstName || nombreStr,
+      '{{apellido}}': lastName,
+      '{{first_name}}': firstName || nombreStr,
+      '{{last_name}}': lastName,
+      '<< Test First Name >>': firstName || nombreStr,
+      '<< Test Last Name >>': lastName,
+      '<< Test Address >>': grupoStr !== 'Sin Grupo' ? `Grupo #${grupoStr}` : lineasStr,
       '{{lineas}}': lineasStr,
       '{{periodo}}': periodoStr,
       '{{monto_adeudado}}': montoStr,
+      '{{vencimiento}}': vencimientoStr,
       '{{monto_cuota_cel}}': abonoStr,
       '{{grupo}}': grupoStr,
       '{{fpago}}': fpagoStr,
@@ -1205,17 +1240,35 @@ export default function Campanas() {
       aunar: {
         name: `Comunicación Oficial - ${mesAnioCapitalized}`,
         subject: 'Información Importante de Telefonía Celular - {{nombre_socio}}',
-        body: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #334155;">
-  <div style="text-align: center; margin-bottom: 24px;">
-    <img src="https://proyecto-mutual.vercel.app/logo.png" alt="Aunar Asociación" style="max-width: 240px; height: auto;" />
+        body: `<div style="font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px 20px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff; color: #334155; line-height: 1.5;">
+
+  <!-- View online link -->
+  <div style="text-align: center; margin-bottom: 18px;">
+    <a href="https://proyecto-mutual.vercel.app" target="_blank" style="font-size: 11.5px; color: #64748b; text-decoration: underline;">View this email in your browser</a>
   </div>
-  
-  <h2 style="font-size: 16px; font-weight: bold; color: #1e293b; margin-bottom: 16px;">Estimado Socio de AUNAR</h2>
-  
-  <div style="background-color: #f8fafc; border-left: 4px solid #10b981; padding: 12px 16px; margin-bottom: 20px; border-radius: 8px;">
-    <p style="margin: 0; font-size: 14px; font-weight: bold; color: #1e293b;">
-      {{nombre_socio}} — Facturación Período {{periodo}}
+
+  <!-- Logo AUNAR -->
+  <div style="text-align: center; margin-bottom: 24px;">
+    <img src="https://proyecto-mutual.vercel.app/logo.png" alt="Aunar Asociación" style="max-width: 220px; height: auto;" />
+  </div>
+
+  <!-- Saludo -->
+  <div style="margin-bottom: 16px;">
+    <p style="margin: 0 0 6px 0; font-size: 16px; color: #0f172a;">
+      👋 <strong>Hola !</strong> <span style="color: #10b981; font-weight: bold; text-decoration: underline;">{{nombre_socio}}</span>
     </p>
+    <p style="margin: 0; font-size: 14.5px; color: #475569;">
+      📄 Te enviamos el detalle de tu factura y el monto a abonar.
+    </p>
+  </div>
+
+  <!-- Línea divisoria continua -->
+  <hr style="border: none; border-top: 1.5px solid #0f172a; margin: 16px 0 20px 0;" />
+
+  <!-- Datos del socio y tabla de líneas -->
+  <div style="text-align: center; margin-bottom: 16px;">
+    <div style="font-weight: 700; font-size: 15px; color: #0f172a;">{{nombre_socio}}</div>
+    <div style="font-size: 13px; color: #64748b; margin-top: 3px;">Grupo: #{{grupo}} · Período: {{periodo}}</div>
   </div>
 
   <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
@@ -1240,37 +1293,81 @@ export default function Campanas() {
     </tbody>
   </table>
 
-  <div style="background-color: #f0fdf4; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; text-align: right;">
-    <p style="margin: 0; font-size: 15px; font-weight: bold; color: #166534;">Total del período: $ {{monto_adeudado}}</p>
+  <!-- TOTAL A ABONAR Y VENCIMIENTO -->
+  <div style="text-align: center; margin: 20px 0 26px 0; padding: 16px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
+    <div style="font-size: 18px; font-weight: 800; color: #0f172a; letter-spacing: 0.5px;">
+      TOTAL A ABONAR $ {{monto_adeudado}}
+    </div>
+    <div style="font-size: 14px; font-weight: 600; color: #475569; margin-top: 5px;">
+      Vencimiento: {{vencimiento}}
+    </div>
   </div>
-  
-  <p style="font-size: 14px; line-height: 1.6; margin-bottom: 16px;">
-    Tenemos el agrado de asegurarte que en todos los casos y en las distintas modalidades, los abonos que te ofrecemos siguen siendo siempre los más económicos (si precisas más información nosotros llevamos tablas comparativas con todas las empresas).
+
+  <!-- Bloques informativos y de beneficios -->
+  <div style="margin-bottom: 18px;">
+    <p style="margin: 0 0 4px 0; font-size: 14.5px; font-weight: bold; color: #1e293b;">
+      🤔 ¿Tenés dudas sobre tu factura o tu plan?
+    </p>
+    <p style="margin: 0; font-size: 13.5px; color: #475569; line-height: 1.5;">
+      Estamos para ayudarte y asesorarte sobre las opciones disponibles en Claro, Personal y Movistar.
+    </p>
+  </div>
+
+  <div style="margin-bottom: 18px;">
+    <p style="margin: 0 0 4px 0; font-size: 14.5px; font-weight: bold; color: #1e293b;">
+      ❤️ Beneficios y descuentos para vos.
+    </p>
+    <p style="margin: 0; font-size: 13.5px; color: #475569; line-height: 1.5;">
+      Contamos con beneficios y descuentos de portabilidad para nuestros asociados y sus referidos.
+    </p>
+  </div>
+
+  <div style="margin-bottom: 18px;">
+    <p style="margin: 0 0 4px 0; font-size: 14.5px; font-weight: bold; color: #1e293b;">
+      🛩️ ¿Vas a viajar al exterior?
+    </p>
+    <p style="margin: 0; font-size: 13.5px; color: #475569; line-height: 1.5;">
+      Avisanos con anticipación y te asesoramos sobre las opciones de roaming para tu linea.
+    </p>
+  </div>
+
+  <div style="margin-bottom: 22px;">
+    <p style="margin: 0 0 4px 0; font-size: 14.5px; font-weight: bold; color: #1e293b;">
+      📉 ¿Tu factura vino mas alta de lo habitual?
+    </p>
+    <p style="margin: 0; font-size: 13.5px; color: #475569; line-height: 1.5;">
+      Si tenes excedentes de internet, consultanos. Podemos revisar tu plan y ayudarte a encontrar el plan que mejor se adapte a vos.
+    </p>
+  </div>
+
+  <p style="font-size: 15px; font-weight: bold; color: #1e293b; text-align: center; margin: 24px 0;">
+    ¡Gracias por seguir eligiendo Aunar! 🤝
   </p>
-  <p style="font-size: 14px; line-height: 1.6; margin-bottom: 16px;">
-    Contamos con flota en Claro, Personal y Movistar, para seguir ofreciéndote siempre lo mejor. Aún se mantienen las opciones de portabilidad y descuentos de % por 12 meses en los abonos de cada empresa, nosotros nos encargamos de todo el trámite, en caso de estar interesado, consúltanos.
-  </p>
-  <p style="font-size: 14px; line-height: 1.6; margin-bottom: 16px;">
-    También estamos ofreciendo un descuento especial para vos y para quienes acerques como nuevos asociados, ingresando a cualquiera de la flotas.
-  </p>
-  <p style="font-size: 14px; line-height: 1.6; margin-bottom: 20px;">
-    Si estás por viajar fuera del país, comunicate con anticipación suficiente (1 mes previamente es lo ideal) para poder asesorarte de las tarifas roaming de tu abono, y también así poder también activar el mismo.
-  </p>
-  
-  <p style="font-size: 14px; line-height: 1.6; margin-bottom: 24px; font-style: italic;">
-    Gracias por confiar siempre en nosotros, esperamos te haya interesado la información brindada, y ante cualquier duda o sugerencia comunícate, te enviamos un afectuoso saludo desde la Mutual Aunar.
-  </p>
-  
+
+  <!-- Banner Internet y TV para el hogar -->
+  <div style="background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border: 1px solid #bbf7d0; border-radius: 12px; padding: 18px 20px; text-align: center; margin-bottom: 26px;">
+    <p style="margin: 0 0 6px 0; font-size: 14px; font-weight: 800; color: #166534; letter-spacing: 0.5px;">
+      💡 ¿SABIAS QUE TAMBIEN TENEMOS INTERNET Y TV PARA TU HOGAR?
+    </p>
+    <p style="margin: 0 0 6px 0; font-size: 13px; font-weight: 700; color: #15803d;">
+      CONSULTA POR TU ZONA Y TE COTIZAMOS EN EL INSTANTE
+    </p>
+    <p style="margin: 0; font-size: 12.5px; color: #166534; font-style: italic;">
+      Resolve tu conectividad en un solo lugar
+    </p>
+  </div>
+
+  <!-- Footer Redes y Dirección -->
   <div style="border-top: 1px solid #e2e8f0; padding-top: 20px; text-align: center; font-size: 12px; color: #94a3b8;">
     <div style="margin-bottom: 12px;">
-      <a href="#" style="color: #64748b; text-decoration: none; margin: 0 8px;">Facebook</a> | 
-      <a href="#" style="color: #64748b; text-decoration: none; margin: 0 8px;">Instagram</a> | 
-      <a href="#" style="color: #64748b; text-decoration: none; margin: 0 8px;">Twitter</a>
+      <a href="https://twitter.com/aunar" target="_blank" style="color: #64748b; text-decoration: none; margin: 0 10px; font-weight: 600;">Twitter</a> | 
+      <a href="https://facebook.com/aunar" target="_blank" style="color: #64748b; text-decoration: none; margin: 0 10px; font-weight: 600;">Facebook</a> | 
+      <a href="https://aunar.com.ar" target="_blank" style="color: #64748b; text-decoration: none; margin: 0 10px; font-weight: 600;">Website</a>
     </div>
     <p style="margin: 0 0 4px 0;">Copyright &copy; 2026 AUNAR MUTUAL. Todos los derechos reservados.</p>
-    <p style="margin: 0 0 12px 0;">Has recibido este correo electrónico porque lo has aceptado en nuestro sitio web.</p>
     <p style="margin: 0; font-weight: bold;">AUNAR MUTUAL · 46 Diag. 76 · La Plata, Buenos Aires · Argentina</p>
   </div>
+
 </div>`
       },
       deuda: {
@@ -1359,6 +1456,7 @@ export default function Campanas() {
     { label: 'Monto Adeudado', value: '{{monto_adeudado}}' },
     { label: 'Días de Mora', value: '{{dias_mora}}' },
     { label: 'Período Facturado', value: '{{periodo}}' },
+    { label: 'Vencimiento', value: '{{vencimiento}}' },
     { label: 'Detalle Líneas (Tabla)', value: '{{detalle_lineas_html}}' }
   ];
 
