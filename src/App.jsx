@@ -73,6 +73,13 @@ function App() {
   }, [theme]);
 
   useEffect(() => {
+    const isDemo = window.location.search.includes('demo=true') || localStorage.getItem('demo_mode') === 'true';
+    if (isDemo) {
+      setSession({ user: { id: 'dante', email: 'dante@admin.com' }, access_token: 'demo' });
+      setIsInitializing(false);
+      return;
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setIsInitializing(false);

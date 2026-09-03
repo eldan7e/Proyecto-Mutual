@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  Search, AlertTriangle, TrendingUp, Hash, Info, Percent, RefreshCw, Loader2, Tag
+  Search, AlertTriangle, TrendingUp, Hash, Info, Percent, RefreshCw, Loader2, Tag, Zap
 } from 'lucide-react';
 import DescuentoModal from './CargaManual/DescuentoModal';
 
@@ -431,7 +431,8 @@ export function PaginatedEditableGrid({
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
   const [filterExcedentes, setFilterExcedentes] = useState(false);
-  const [filterBajasBonif, setFilterBajasBonif] = useState(false);
+  const [filterBonificacion, setFilterBonificacion] = useState(false);
+  const [filterAumentos, setFilterAumentos] = useState(false);
   const [selectedRowForDescuento, setSelectedRowForDescuento] = useState(null);
   const [isDescuentoModalOpen, setIsDescuentoModalOpen] = useState(false);
   const [showBonifDropdown, setShowBonifDropdown] = useState(false);
@@ -467,31 +468,47 @@ export function PaginatedEditableGrid({
       .filter(row => {
         const matchesSearch = row.linea.includes(search) || row.socioNombre?.toLowerCase().includes(search.toLowerCase());
         if (!matchesSearch) return false;
+
         if (filterExcedentes) {
           return (row.excedentes || 0) > 0;
         }
+
         if (filterBonifPct !== null) {
           const pLista = Number(row.precioListaOriginal) > 0 ? Number(row.precioListaOriginal) : Number(row.precioOficial || 0);
           if (pLista <= 0) return false;
           const descPct = ((pLista - (row.abono || 0)) / pLista) * 100;
           return Math.round(descPct) === filterBonifPct;
         }
-        if (filterBajasBonif) {
-          if (selectedProvider === 'personal') {
-            const currentPrice = row.abono || 0;
-            const prevPrice = row.prevAbonoBase || 0;
-            const hasIncreaseAlert = (row.alertas || []).some(al => 
-              al.msg.includes('AUMENTO') || al.msg.includes('DESVÍO') || al.msg.includes('DESVIO') || al.msg.includes('VAR')
-            );
-            const hasPriceIncrease = prevPrice > 0 ? (currentPrice - prevPrice) > 0.5 : false;
-            return hasPriceIncrease || hasIncreaseAlert;
-          } else {
-            const hasBonifAlert = (row.alertas || []).some(al => 
-              al.msg.includes('BONIF') || al.msg.includes('DESVÍO') || al.msg.includes('DESVIO')
-            );
+
+        if (filterBonificacion) {
+          const hasBonifAlert = (row.alertas || []).some(al => 
+            al.msg.includes('BONIF') || al.msg.includes('DESVÍO') || al.msg.includes('DESVIO')
+          );
+          const anyBonifAlert = fileData.some(r => (r.alertas || []).some(al => al.msg.includes('BONIF') || al.msg.includes('DESVÍO') || al.msg.includes('DESVIO')));
+          if (anyBonifAlert) {
             return hasBonifAlert;
           }
+          return true;
         }
+
+        if (filterAumentos) {
+          const currentPrice = row.abono || 0;
+          const prevPrice = row.prevAbonoBase || 0;
+          const hasPriceIncrease = prevPrice > 0 ? (currentPrice - prevPrice) > 0.05 : false;
+          const hasIncreaseAlert = (row.alertas || []).some(al => 
+            al.msg.includes('AUMENTO') || al.msg.includes('DESVÍO') || al.msg.includes('DESVIO') || al.msg.includes('VAR')
+          );
+          const anyIncrease = fileData.some(r => {
+            const cp = r.abono || 0;
+            const pp = r.prevAbonoBase || 0;
+            return (pp > 0 && (cp - pp) > 0.05) || (r.alertas || []).some(al => al.msg.includes('AUMENTO') || al.msg.includes('VAR'));
+          });
+          if (anyIncrease) {
+            return hasPriceIncrease || hasIncreaseAlert;
+          }
+          return true;
+        }
+
         return true;
       })
       .sort((a, b) => {
@@ -509,35 +526,51 @@ export function PaginatedEditableGrid({
 
           return bCritAlerts - aCritAlerts;
         }
-        if (filterExcedentes || filterBonifPct !== null) {
+
+        if (filterExcedentes) {
           const excA = a.excedentes || 0;
           const excB = b.excedentes || 0;
           return excB - excA; 
         }
-        if (filterBajasBonif) {
-          if (selectedProvider === 'personal') {
-            const prevA = a.prevAbonoBase || 0;
-            const currA = a.abono || 0;
-            const diffA = prevA > 0 ? (currA - prevA) : 0;
 
-            const prevB = b.prevAbonoBase || 0;
-            const currB = b.abono || 0;
-            const diffB = prevB > 0 ? (currB - prevB) : 0;
+        if (filterBonificacion && filterBonifPct === null) {
+          const pListaA = Number(a.precioListaOriginal) > 0 ? Number(a.precioListaOriginal) : Number(a.precioOficial || 0);
+          const discA = pListaA > 0 ? ((pListaA - (a.abono || 0)) / pListaA) * 100 : 0;
+          const expectedA = a.descuentoEsperado || (selectedProvider === 'claro' ? 85 : 80);
+          const devA = expectedA - discA;
 
-            return diffB - diffA;
-          } else {
-            const discA = a.precioOficial > 0 ? Math.abs(((a.precioOficial - a.abono) / a.precioOficial) * 100) : 0;
-            const discB = b.precioOficial > 0 ? Math.abs(((b.precioOficial - b.abono) / b.precioOficial) * 100) : 0;
-            const expectedA = a.descuentoEsperado || (selectedProvider === 'claro' ? 85 : 80);
-            const expectedB = b.descuentoEsperado || (selectedProvider === 'claro' ? 85 : 80);
-            const devA = expectedA - discA;
-            const devB = expectedB - discB;
+          const pListaB = Number(b.precioListaOriginal) > 0 ? Number(b.precioListaOriginal) : Number(b.precioOficial || 0);
+          const discB = pListaB > 0 ? ((pListaB - (b.abono || 0)) / pListaB) * 100 : 0;
+          const expectedB = b.descuentoEsperado || (selectedProvider === 'claro' ? 85 : 80);
+          const devB = expectedB - discB;
+
+          if (Math.abs(devB - devA) > 0.01) {
             return devB - devA;
           }
+          return discA - discB;
         }
+
+        if (filterAumentos) {
+          const prevA = a.prevAbonoBase || 0;
+          const currA = a.abono || 0;
+          const pctA = prevA > 0 ? ((currA - prevA) / prevA) * 100 : 0;
+          const diffA = currA - prevA;
+
+          const prevB = b.prevAbonoBase || 0;
+          const currB = b.abono || 0;
+          const pctB = prevB > 0 ? ((currB - prevB) / prevB) * 100 : 0;
+          const diffB = currB - prevB;
+
+          // De menor a mayor aumento
+          if (Math.abs(pctA - pctB) > 0.001) {
+            return pctA - pctB;
+          }
+          return diffA - diffB;
+        }
+
         return 0;
       });
-  }, [fileData, search, sortByAnomalies, filterExcedentes, filterBajasBonif, filterBonifPct, selectedProvider]);
+  }, [fileData, search, sortByAnomalies, filterExcedentes, filterBonificacion, filterBonifPct, filterAumentos, selectedProvider]);
 
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);
   const paginatedData = filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -559,7 +592,7 @@ export function PaginatedEditableGrid({
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, sortByAnomalies, filterExcedentes, filterBajasBonif, filterBonifPct]);
+  }, [search, sortByAnomalies, filterExcedentes, filterBonificacion, filterBonifPct, filterAumentos]);
 
   // Cerrar dropdown de bonif al hacer click afuera
   useEffect(() => {
@@ -571,16 +604,18 @@ export function PaginatedEditableGrid({
 
   return (
     <div className="air-card" style={{ overflow: 'hidden' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
         <h3 style={{ fontSize: '18px', fontWeight: '800', margin: 0 }}>Previsualización Detallada</h3>
-        <div style={{ display: 'flex', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           
-          {/* Button 1: Priorizar Cambios */}
+          {/* Button 1: Priorizar Cambios del Socio */}
           <button 
             onClick={() => {
               setFilterExcedentes(false);
-              setFilterBajasBonif(false);
+              setFilterBonificacion(false);
               setFilterBonifPct(null);
+              setShowBonifDropdown(false);
+              setFilterAumentos(false);
               setSortByAnomalies(!sortByAnomalies);
             }}
             className="air-btn" 
@@ -591,30 +626,35 @@ export function PaginatedEditableGrid({
               display: 'flex', alignItems: 'center', gap: '8px'
             }}
           >
-            <AlertTriangle size={16} /> Priorizar Cambios
+            <AlertTriangle size={16} /> Priorizar Cambios del Socio
           </button>
           
-          {/* Button 2: Priorizar Excedentes + Dropdown de % Bonificación */}
+          {/* Button 2: Priorizar Bonificación + Dropdown de % */}
           <div style={{ position: 'relative', display: 'inline-flex' }} onClick={e => e.stopPropagation()}>
             <button 
               onClick={() => {
                 setSortByAnomalies(false);
-                setFilterBajasBonif(false);
-                setFilterBonifPct(null);
-                setFilterExcedentes(!filterExcedentes);
+                setFilterExcedentes(false);
+                setFilterAumentos(false);
                 setShowBonifDropdown(false);
+                if (filterBonifPct !== null || filterBonificacion) {
+                  setFilterBonificacion(false);
+                  setFilterBonifPct(null);
+                } else {
+                  setFilterBonificacion(true);
+                }
               }}
               className="air-btn" 
               style={{ 
-                background: filterExcedentes ? 'rgba(16, 185, 129, 0.1)' : 'var(--surface)', 
-                color: filterExcedentes ? '#10b981' : 'var(--text-secondary)',
-                border: `1px solid ${filterExcedentes ? '#10b981' : 'var(--border-light)'}`,
+                background: (filterBonificacion || filterBonifPct !== null) ? 'rgba(168, 85, 247, 0.1)' : 'var(--surface)', 
+                color: (filterBonificacion || filterBonifPct !== null) ? '#9333ea' : 'var(--text-secondary)',
+                border: `1px solid ${(filterBonificacion || filterBonifPct !== null) ? '#9333ea' : 'var(--border-light)'}`,
                 display: 'flex', alignItems: 'center', gap: '8px',
                 borderRadius: '10px 0 0 10px',
                 borderRight: 'none'
               }}
             >
-              <TrendingUp size={16} /> {filterBonifPct !== null ? `Bonif: ${filterBonifPct}%` : 'Priorizar Excedentes'}
+              <Percent size={16} /> {filterBonifPct !== null ? `Bonif: ${filterBonifPct}%` : 'Priorizar Bonificación'}
             </button>
             {/* Chevron para abrir el dropdown de % de bonificación */}
             <button
@@ -622,16 +662,15 @@ export function PaginatedEditableGrid({
               onClick={() => setShowBonifDropdown(prev => !prev)}
               className="air-btn"
               style={{
-                background: showBonifDropdown || filterBonifPct !== null ? 'rgba(16, 185, 129, 0.18)' : 'var(--surface)',
-                color: filterBonifPct !== null ? '#10b981' : 'var(--text-secondary)',
-                border: `1px solid ${filterBonifPct !== null ? '#10b981' : 'var(--border-light)'}`,
+                background: showBonifDropdown || filterBonifPct !== null || filterBonificacion ? 'rgba(168, 85, 247, 0.18)' : 'var(--surface)',
+                color: (filterBonifPct !== null || filterBonificacion) ? '#9333ea' : 'var(--text-secondary)',
+                border: `1px solid ${(filterBonifPct !== null || filterBonificacion) ? '#9333ea' : 'var(--border-light)'}`,
                 borderRadius: '0 10px 10px 0',
                 padding: '8px 10px',
                 display: 'flex', alignItems: 'center', gap: '4px',
                 fontSize: '11px', fontWeight: 700
               }}
             >
-              <Percent size={13} />
               ▾
             </button>
             {/* Dropdown */}
@@ -639,7 +678,7 @@ export function PaginatedEditableGrid({
               <div style={{
                 position: 'absolute',
                 top: 'calc(100% + 6px)',
-                right: 0,
+                left: 0,
                 minWidth: '220px',
                 background: 'var(--modal-bg, #ffffff)',
                 border: '1px solid var(--border-light)',
@@ -653,15 +692,15 @@ export function PaginatedEditableGrid({
                 </div>
                 {/* Opción para quitar el filtro */}
                 <div
-                  onClick={() => { setFilterBonifPct(null); setFilterExcedentes(false); setShowBonifDropdown(false); }}
+                  onClick={() => { setFilterBonifPct(null); setFilterBonificacion(false); setShowBonifDropdown(false); }}
                   style={{
                     padding: '8px 14px',
                     fontSize: '12px',
                     fontWeight: 600,
                     cursor: 'pointer',
                     borderBottom: '1px solid var(--border-light)',
-                    background: filterBonifPct === null ? 'rgba(16, 185, 129, 0.08)' : 'transparent',
-                    color: filterBonifPct === null ? '#10b981' : 'var(--text-secondary)',
+                    background: (filterBonifPct === null && !filterBonificacion) ? 'rgba(168, 85, 247, 0.08)' : 'transparent',
+                    color: (filterBonifPct === null && !filterBonificacion) ? '#9333ea' : 'var(--text-secondary)',
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center'
                   }}
                 >
@@ -676,9 +715,10 @@ export function PaginatedEditableGrid({
                       key={pct}
                       onClick={() => {
                         setFilterBonifPct(pct);
+                        setFilterBonificacion(true);
                         setFilterExcedentes(false);
                         setSortByAnomalies(false);
-                        setFilterBajasBonif(false);
+                        setFilterAumentos(false);
                         setShowBonifDropdown(false);
                       }}
                       style={{
@@ -687,22 +727,22 @@ export function PaginatedEditableGrid({
                         fontWeight: 700,
                         cursor: 'pointer',
                         borderBottom: '1px solid var(--border-light)',
-                        background: filterBonifPct === pct ? 'rgba(16, 185, 129, 0.1)' : 'transparent',
-                        color: filterBonifPct === pct ? '#10b981' : 'var(--text-primary)',
+                        background: filterBonifPct === pct ? 'rgba(168, 85, 247, 0.1)' : 'transparent',
+                        color: filterBonifPct === pct ? '#9333ea' : 'var(--text-primary)',
                         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                         transition: 'background 0.15s'
                       }}
-                      onMouseEnter={e => { if (filterBonifPct !== pct) e.currentTarget.style.background = 'var(--accent-light, #f0fdf4)'; }}
+                      onMouseEnter={e => { if (filterBonifPct !== pct) e.currentTarget.style.background = 'rgba(168, 85, 247, 0.05)'; }}
                       onMouseLeave={e => { if (filterBonifPct !== pct) e.currentTarget.style.background = 'transparent'; }}
                     >
                       <span>
-                        <span style={{ color: '#10b981', marginRight: '6px' }}>●</span>
+                        <span style={{ color: '#9333ea', marginRight: '6px' }}>●</span>
                         Bonif. {pct}%
                       </span>
                       <span style={{
                         fontSize: '10px',
-                        background: filterBonifPct === pct ? 'rgba(16,185,129,0.15)' : 'var(--border-light)',
-                        color: filterBonifPct === pct ? '#10b981' : 'var(--text-secondary)',
+                        background: filterBonifPct === pct ? 'rgba(168, 85, 247, 0.15)' : 'var(--border-light)',
+                        color: filterBonifPct === pct ? '#9333ea' : 'var(--text-secondary)',
                         padding: '2px 7px', borderRadius: '6px', fontWeight: 800
                       }}>{count} líneas</span>
                     </div>
@@ -712,33 +752,50 @@ export function PaginatedEditableGrid({
             )}
           </div>
 
-          {/* Button 3: Priorizar Bonificación / Priorizar Aumento */}
+          {/* Button 3: Priorizar Excedentes */}
           <button 
             onClick={() => {
-              setFilterExcedentes(false);
               setSortByAnomalies(false);
-              setFilterBajasBonif(!filterBajasBonif);
+              setFilterBonificacion(false);
+              setFilterBonifPct(null);
+              setShowBonifDropdown(false);
+              setFilterAumentos(false);
+              setFilterExcedentes(!filterExcedentes);
             }}
             className="air-btn" 
             style={{ 
-              background: filterBajasBonif ? (selectedProvider === 'personal' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(168, 85, 247, 0.1)') : 'var(--surface)', 
-              color: filterBajasBonif ? (selectedProvider === 'personal' ? '#ef4444' : '#a855f7') : 'var(--text-secondary)',
-              border: `1px solid ${filterBajasBonif ? (selectedProvider === 'personal' ? '#ef4444' : '#a855f7') : 'var(--border-light)'}`,
+              background: filterExcedentes ? 'rgba(245, 158, 11, 0.12)' : 'var(--surface)', 
+              color: filterExcedentes ? '#d97706' : 'var(--text-secondary)',
+              border: `1px solid ${filterExcedentes ? '#f59e0b' : 'var(--border-light)'}`,
               display: 'flex', alignItems: 'center', gap: '8px'
             }}
           >
-            {selectedProvider === 'personal' ? (
-              <>
-                <TrendingUp size={16} /> Priorizar Aumento
-              </>
-            ) : (
-              <>
-                <Percent size={16} /> Priorizar Bonificación
-              </>
-            )}
+            <Zap size={16} /> Priorizar Excedentes
           </button>
 
-          <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', width: '300px' }}>
+          {/* Button 4: Priorizar Aumentos (de menor a mayor) */}
+          <button 
+            title="Priorizar aumentos de menor a mayor"
+            onClick={() => {
+              setSortByAnomalies(false);
+              setFilterBonificacion(false);
+              setFilterBonifPct(null);
+              setShowBonifDropdown(false);
+              setFilterExcedentes(false);
+              setFilterAumentos(!filterAumentos);
+            }}
+            className="air-btn" 
+            style={{ 
+              background: filterAumentos ? 'rgba(37, 99, 235, 0.1)' : 'var(--surface)', 
+              color: filterAumentos ? '#2563eb' : 'var(--text-secondary)',
+              border: `1px solid ${filterAumentos ? '#2563eb' : 'var(--border-light)'}`,
+              display: 'flex', alignItems: 'center', gap: '8px'
+            }}
+          >
+            <TrendingUp size={16} /> Priorizar Aumentos
+          </button>
+
+          <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', minWidth: '240px' }}>
             <Search size={16} color="var(--text-secondary)" />
             <input 
               type="text" 
