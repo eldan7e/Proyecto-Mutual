@@ -438,6 +438,39 @@ export function PaginatedEditableGrid({
   const [showBonifDropdown, setShowBonifDropdown] = useState(false);
   const [filterBonifPct, setFilterBonifPct] = useState(null);
 
+  // Identifica si una fila tiene cambio de plan, plan sin registrar o número sin datos
+  const isPlanOrDataIssue = useCallback((row) => {
+    if (!row) return false;
+    // 1. Cambio de plan: el plan facturado difiere del oficial registrado
+    const hasPlanDiff = Boolean(
+      row.plan && 
+      row.planOficial && 
+      row.planOficial !== 'No registrado' && 
+      !arePlansEquivalent(row.plan, row.planOficial)
+    );
+    // 2. Plan sin registrar en DB o sin plan
+    const hasUnregisteredPlan = Boolean(
+      !row.planOficial || 
+      row.planOficial === 'No registrado' || 
+      !row.plan
+    );
+    // 3. Número sin datos (línea suelta, no válida en DB o sin socio asignado)
+    const isNumeroSinDatos = Boolean(
+      !row.isValid || 
+      row.linea?.startsWith('SUELTA_') || 
+      !row.socioNombre || 
+      row.socioNombre === 'Sin asignar' || 
+      row.socioNombre === 'No registrado' ||
+      !row.socioId
+    );
+
+    return hasPlanDiff || hasUnregisteredPlan || isNumeroSinDatos;
+  }, []);
+
+  const pendingPlanOrDataCount = React.useMemo(() => {
+    return (fileData || []).filter(row => isPlanOrDataIssue(row)).length;
+  }, [fileData, isPlanOrDataIssue]);
+
   const pendingPlanUpdatesCount = React.useMemo(() => {
     return (fileData || []).filter(row => row.plan && !arePlansEquivalent(row.plan, row.planOficial)).length;
   }, [fileData]);
@@ -468,6 +501,10 @@ export function PaginatedEditableGrid({
       .filter(row => {
         const matchesSearch = row.linea.includes(search) || row.socioNombre?.toLowerCase().includes(search.toLowerCase());
         if (!matchesSearch) return false;
+
+        if (sortByAnomalies) {
+          return isPlanOrDataIssue(row);
+        }
 
         if (filterExcedentes) {
           return (row.excedentes || 0) > 0;
@@ -513,18 +550,20 @@ export function PaginatedEditableGrid({
       })
       .sort((a, b) => {
         if (sortByAnomalies) {
-          const aCritAlerts = (a.alertas || []).some(al => al.tipo === 'CRITICAL') ? 1 : 0;
-          const bCritAlerts = (b.alertas || []).some(al => al.tipo === 'CRITICAL') ? 1 : 0;
+          // 1. Números sin datos o líneas sueltas primero (mayor urgencia)
+          const aNoData = (!a.isValid || a.linea?.startsWith('SUELTA_') || !a.socioNombre) ? 1 : 0;
+          const bNoData = (!b.isValid || b.linea?.startsWith('SUELTA_') || !b.socioNombre) ? 1 : 0;
+          if (bNoData !== aNoData) return bNoData - aNoData;
 
-          const aChanges = (!a.isValid || a.linea.startsWith('SUELTA_') || a.planOficial === 'No registrado' || !arePlansEquivalent(a.plan, a.planOficial) || a.auditStatus === 'WARN' || aCritAlerts) ? 1 : 0;
-          const bChanges = (!b.isValid || b.linea.startsWith('SUELTA_') || b.planOficial === 'No registrado' || !arePlansEquivalent(b.plan, b.planOficial) || b.auditStatus === 'WARN' || bCritAlerts) ? 1 : 0;
-          if (bChanges !== aChanges) return bChanges - aChanges;
+          // 2. Planes no registrados
+          const aNoPlan = (!a.planOficial || a.planOficial === 'No registrado') ? 1 : 0;
+          const bNoPlan = (!b.planOficial || b.planOficial === 'No registrado') ? 1 : 0;
+          if (bNoPlan !== aNoPlan) return bNoPlan - aNoPlan;
 
-          const aCrit = (!a.isValid || a.linea.startsWith('SUELTA_')) ? 1 : 0;
-          const bCrit = (!b.isValid || b.linea.startsWith('SUELTA_')) ? 1 : 0;
-          if (bCrit !== aCrit) return bCrit - aCrit;
-
-          return bCritAlerts - aCritAlerts;
+          // 3. Cambios de plan (plan facturado difiere del registrado en DB)
+          const aPlanDiff = (a.plan && !arePlansEquivalent(a.plan, a.planOficial)) ? 1 : 0;
+          const bPlanDiff = (b.plan && !arePlansEquivalent(b.plan, b.planOficial)) ? 1 : 0;
+          return bPlanDiff - aPlanDiff;
         }
 
         if (filterExcedentes) {
@@ -608,8 +647,9 @@ export function PaginatedEditableGrid({
         <h3 style={{ fontSize: '18px', fontWeight: '800', margin: 0 }}>Previsualización Detallada</h3>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           
-          {/* Button 1: Priorizar Cambios del Socio */}
+          {/* Button 1: Priorizar Cambios de Plan */}
           <button 
+            title="Mostrar cambios de plan, planes no registrados o números sin datos"
             onClick={() => {
               setFilterExcedentes(false);
               setFilterBonificacion(false);
@@ -626,7 +666,16 @@ export function PaginatedEditableGrid({
               display: 'flex', alignItems: 'center', gap: '8px'
             }}
           >
-            <AlertTriangle size={16} /> Priorizar Cambios del Socio
+            <AlertTriangle size={16} /> Priorizar Cambios de Plan {pendingPlanOrDataCount > 0 && (
+              <span style={{
+                fontSize: '11px',
+                fontWeight: 800,
+                background: sortByAnomalies ? '#ef4444' : 'rgba(239, 68, 68, 0.15)',
+                color: sortByAnomalies ? '#ffffff' : '#ef4444',
+                padding: '1px 6px',
+                borderRadius: '8px'
+              }}>{pendingPlanOrDataCount}</span>
+            )}
           </button>
           
           {/* Button 2: Priorizar Bonificación + Dropdown de % */}
