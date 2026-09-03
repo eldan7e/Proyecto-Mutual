@@ -29,6 +29,7 @@ export default function Campanas() {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [sendProgress, setSendProgress] = useState(null);
   
   // Filtros comunes para campaña "nueva"
   const [search, setSearch] = useState('');
@@ -575,7 +576,7 @@ export default function Campanas() {
           empresas: empCount
         });
 
-        applyExcelRows(rawJson, excelMode, excelEmpresa, debouncedExcelSearch, detectado);
+        applyExcelRows(rawJson, excelMode, excelEmpresa, excelSearch, detectado);
         addToast(`¡Planilla cargada! Se encontraron ${rawJson.length} líneas en '${sheetName}'.`, 'success');
       } catch (err) {
         console.error('Error al parsear Excel:', err);
@@ -942,65 +943,203 @@ export default function Campanas() {
       dni: g.dni,
       cuit: g.cuit,
       fpago: g.fpago,
+      cbu: g.cbu,
       grupo: g.grupo,
       lineas: Array.from(g.lineasSet).join(', ') || 'Sin Línea',
       monto_cuota_cel: g.monto_cuota_cel,
       total_cuotas: g.total_cuotas,
       monto_adeudado: g.monto_adeudado_num.toFixed(2),
       dias_mora: g.dias_mora,
-      periodo: g.periodo,
-      detalle_lineas_html: g.detalle_lineas.map(l =>
-        `<tr style="border-bottom: 1px solid #e2e8f0;">
-          <td style="padding:8px; font-size:13px;">${l.numero_linea}</td>
-          <td style="padding:8px; font-size:13px;">${l.nombre_plan || '-'}</td>
-          <td style="padding:8px; font-size:13px;">${l.proveedor || '-'}</td>
-          <td style="padding:8px; font-size:13px; text-align:right;">$ ${Number(l.costo_abono_real || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-          <td style="padding:8px; font-size:13px; text-align:right;">$ ${Number(l.excedentes || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-          <td style="padding:8px; font-size:13px; text-align:right; font-weight:bold;">$ ${Number(l.total_linea || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-        </tr>`
-      ).join('')
+      periodo: g.periodo || excelPeriodo || '08-2026',
+      detalle_lineas: g.detalle_lineas || []
     }));
 
+    setSending(true);
+    setSendProgress({ current: 0, total: recipients.length });
+
+    // Sanitizar HTML base antes de procesar
+    const sanitizedBaseBody = DOMPurify.sanitize(bodyHtml);
+
+    // Obtener token de sesión para el proxy
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    const proxyUrl = 'https://zwncyaviinmfzvminytv.supabase.co/functions/v1/n8n-proxy';
+
+    let successCount = 0;
+    let errorCount = 0;
+    const logInserts = [];
+
     try {
-      // Sanitizar HTML antes de enviar
-      const sanitizedBody = DOMPurify.sanitize(bodyHtml);
+      // Procesar en lotes concurrentes (concurrency = 5 para no saturar n8n)
+      const BATCH_SIZE = 5;
+      for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
+        const batch = recipients.slice(i, i + BATCH_SIZE);
+        
+        await Promise.all(batch.map(async (r) => {
+          const { body: renderedBody, subj: renderedSubj } = renderEmailForRecipient(
+            sanitizedBaseBody, 
+            subject.trim(), 
+            r
+          );
 
-      // Obtener token de sesión para el proxy
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
+          let isOk = false;
+          let errMsg = null;
 
-      const proxyUrl = 'https://zwncyaviinmfzvminytv.supabase.co/functions/v1/n8n-proxy';
-      const response = await fetch(proxyUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-target-url': n8nWebhookUrl.trim(),
-          ...(token && { Authorization: `Bearer ${token}` }),
-        },
-        body: JSON.stringify({
-          campaignName: campaignName.trim(),
-          subject: subject.trim(),
-          bodyHtml: sanitizedBody,
-          recipients,
-        }),
-      });
+          try {
+            const response = await fetch(proxyUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-target-url': n8nWebhookUrl.trim(),
+                ...(token && { Authorization: `Bearer ${token}` }),
+              },
+              body: JSON.stringify({
+                campaignName: campaignName.trim(),
+                subject: renderedSubj,
+                bodyHtml: renderedBody,
+                recipients: [{
+                  ...r,
+                  subject: renderedSubj,
+                  bodyHtml: renderedBody
+                }],
+              }),
+            });
 
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            if (response.ok) {
+              isOk = true;
+              successCount++;
+            } else {
+              errMsg = `HTTP ${response.status}`;
+              errorCount++;
+            }
+          } catch (fetchErr) {
+            errMsg = fetchErr.message;
+            errorCount++;
+          }
 
-      const consolidatedInfo = selectedItems.length > recipients.length ? ` (${selectedItems.length} líneas consolidadas)` : '';
-      addToast(`Campaña enviada para ${recipients.length} destinatarios únicos${consolidatedInfo}`, 'success');
+          const sIdNum = typeof r.socio_id === 'number' 
+            ? r.socio_id 
+            : (Number(String(r.socio_id).replace(/\D/g, '')) || null);
+
+          logInserts.push({
+            created_at: new Date().toISOString(),
+            nombre_campana: campaignName.trim(),
+            destinatario_nombre: r.nombre_socio || r.nombre_completo || 'Socio',
+            destinatario_email: r.email,
+            asunto: renderedSubj,
+            cuerpo_html: renderedBody,
+            estado: isOk ? 'exito' : 'error',
+            error_mensaje: errMsg,
+            socio_id: sIdNum
+          });
+        }));
+
+        setSendProgress({ current: Math.min(i + BATCH_SIZE, recipients.length), total: recipients.length });
+      }
+
+      // Guardar todos los logs en Supabase campanas_logs
+      if (logInserts.length > 0) {
+        try {
+          const { error: logErr } = await supabase.from('campanas_logs').insert(logInserts);
+          if (logErr) console.warn('Aviso: error al insertar campanas_logs:', logErr);
+        } catch (logErr) {
+          console.warn('Error al guardar campanas_logs:', logErr);
+        }
+      }
+
+      const consolidatedInfo = selectedItems.length > recipients.length ? ` (${selectedItems.length} líneas)` : '';
+      addToast(`Campaña finalizada: ${successCount} correos enviados${consolidatedInfo}${errorCount > 0 ? ` (${errorCount} con error)` : ''}`, successCount > 0 ? 'success' : 'error');
+
       setCampaignName('');
       setSubject('');
       setBodyHtml('');
       if (editorRef.current) editorRef.current.innerHTML = '';
       setSelectedIds(new Set());
+      
       setCurrentStep(3);
+      fetchLogs();
     } catch (err) {
       console.error(err);
-      addToast('Error al conectar con n8n', 'error');
+      addToast('Error durante el envío de la campaña: ' + err.message, 'error');
     } finally {
       setSending(false);
+      setSendProgress(null);
     }
+  };
+
+  const renderEmailForRecipient = (templateHtml, templateSubject, r) => {
+    let body = templateHtml;
+    let subj = templateSubject;
+
+    const periodoStr = r.periodo || excelPeriodo || '08-2026';
+    const montoStr = Number(r.monto_adeudado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 });
+    const abonoStr = Number(r.monto_cuota_cel || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 });
+    const nombreStr = r.nombre_socio || r.nombre_completo || 'Socio';
+    const lineasStr = r.lineas || 'Sin Línea';
+    const grupoStr = r.grupo || 'Sin Grupo';
+    const fpagoStr = r.fpago === 'D' ? 'Débito CBU' : (r.fpago || 'Efectivo');
+    const cbuStr = r.cbu || '';
+    const dniStr = r.dni || '-';
+    const cuitStr = r.cuit || '-';
+    const diasMoraStr = r.dias_mora || '0';
+
+    // Generar filas de la tabla de detalle de líneas
+    let tableRows;
+    if (r.detalle_lineas && r.detalle_lineas.length > 0) {
+      tableRows = r.detalle_lineas.map(l =>
+        `<tr style="border-bottom: 1px solid #e2e8f0;">
+          <td style="padding: 8px 10px; font-size: 13px; font-weight: 600; color: #1e293b;">${l.numero_linea}</td>
+          <td style="padding: 8px 10px; font-size: 13px; color: #475569;">${l.nombre_plan || '-'}</td>
+          <td style="padding: 8px 10px; font-size: 13px; color: #475569;">${l.proveedor || '-'}</td>
+          <td style="padding: 8px 10px; font-size: 13px; text-align: right; color: #475569;">$ ${Number(l.costo_abono_real || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+          <td style="padding: 8px 10px; font-size: 13px; text-align: right; color: #475569;">$ ${Number(l.excedentes || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+          <td style="padding: 8px 10px; font-size: 13px; text-align: right; font-weight: bold; color: #166534;">$ ${Number(l.total_linea || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+        </tr>`
+      ).join('');
+    } else {
+      tableRows = `<tr style="border-bottom: 1px solid #e2e8f0;">
+        <td style="padding: 8px 10px; font-size: 13px; font-weight: 600; color: #1e293b;">${lineasStr}</td>
+        <td style="padding: 8px 10px; font-size: 13px; color: #475569;">Abono Telefónico</td>
+        <td style="padding: 8px 10px; font-size: 13px; color: #475569;">Mutual Aunar</td>
+        <td style="padding: 8px 10px; font-size: 13px; text-align: right; color: #475569;">$ ${montoStr}</td>
+        <td style="padding: 8px 10px; font-size: 13px; text-align: right; color: #475569;">$ 0,00</td>
+        <td style="padding: 8px 10px; font-size: 13px; text-align: right; font-weight: bold; color: #166534;">$ ${montoStr}</td>
+      </tr>`;
+    }
+
+    // Reemplazar marcador de tabla de líneas o {{detalle_lineas_html}}
+    const placeholderRowRegex = /<tr[^>]*data-lineas-placeholder[^>]*>[\s\S]*?<\/tr>/gi;
+    if (placeholderRowRegex.test(body)) {
+      body = body.replace(placeholderRowRegex, tableRows);
+    }
+    const commentPlaceholderRegex = /<!--\s*DETALLE_LINEAS_START\s*-->[\s\S]*?<!--\s*DETALLE_LINEAS_END\s*-->/gi;
+    if (commentPlaceholderRegex.test(body)) {
+      body = body.replace(commentPlaceholderRegex, tableRows);
+    }
+    body = body.split('{{detalle_lineas_html}}').join(tableRows);
+
+    // Mapeo general de variables
+    const map = {
+      '{{nombre_socio}}': nombreStr,
+      '{{nombre}}': nombreStr,
+      '{{lineas}}': lineasStr,
+      '{{periodo}}': periodoStr,
+      '{{monto_adeudado}}': montoStr,
+      '{{monto_cuota_cel}}': abonoStr,
+      '{{grupo}}': grupoStr,
+      '{{fpago}}': fpagoStr,
+      '{{cbu}}': cbuStr,
+      '{{dni}}': dniStr,
+      '{{cuit}}': cuitStr,
+      '{{dias_mora}}': diasMoraStr,
+    };
+
+    Object.entries(map).forEach(([tag, val]) => {
+      body = body.split(tag).join(val);
+      subj = subj.split(tag).join(val);
+    });
+
+    return { body, subj };
   };
 
   const runCommand = (command, value = null) => {
@@ -1067,7 +1206,13 @@ export default function Campanas() {
       </tr>
     </thead>
     <tbody>
-      {{detalle_lineas_html}}
+      <!-- DETALLE_LINEAS_START -->
+      <tr data-lineas-placeholder="true" style="border-bottom: 1px solid #e2e8f0;">
+        <td colspan="6" style="padding: 12px; text-align: center; color: #64748b; font-size: 13px; font-style: italic;">
+          (El detalle de líneas y consumos de cada socio se insertará automáticamente aquí)
+        </td>
+      </tr>
+      <!-- DETALLE_LINEAS_END -->
     </tbody>
   </table>
 
@@ -3147,7 +3292,12 @@ export default function Campanas() {
                 style={{ ...S.btnPrimary, opacity: sending ? 0.6 : 1, cursor: sending ? 'not-allowed' : 'pointer' }}
               >
                 {sending ? (
-                  <><Loader2 className="animate-spin" size={15} /><span>Despachando...</span></>
+                  <>
+                    <Loader2 className="animate-spin" size={15} />
+                    <span>
+                      {sendProgress ? `Enviando ${sendProgress.current} de ${sendProgress.total}...` : 'Despachando...'}
+                    </span>
+                  </>
                 ) : (
                   <><Send size={15} /><span>Enviar Campaña</span></>
                 )}
