@@ -1653,7 +1653,7 @@ export default function Campanas() {
     const cuitStr = r.cuit || '-';
     const diasMoraStr = r.dias_mora || '0';
 
-    // Generar filas de la tabla de detalle de líneas (Línea, Compañía, GB Contratados, Abono)
+    // Generar filas de la tabla de detalle de líneas (Línea, Compañía, GB Contratados, Abono, Excedentes)
     let tableRows;
     if (r.detalle_lineas && r.detalle_lineas.length > 0) {
       tableRows = r.detalle_lineas.map(l => {
@@ -1669,13 +1669,28 @@ export default function Campanas() {
         }
         const planGb = formatGbsPlan(l.nombre_plan, l.gb);
         const prov = l.proveedor || '-';
-        const total = `$ ${Number(l.total_linea || l.costo_abono_real || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+
+        // Abono base del plan
+        const abonoBaseVal = Number(l.costo_abono_real || 0) > 0 
+          ? Number(l.costo_abono_real) 
+          : Math.max(0, Number(l.total_linea || 0) - Number(l.excedentes || 0));
+        const abonoStr = `$ ${abonoBaseVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+
+        // Excedentes de la línea
+        const excVal = Number(l.excedentes || 0);
+        const excStr = excVal > 0 
+          ? `$ ${excVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` 
+          : '$ 0,00';
+        const excStyle = excVal > 0 
+          ? 'color: #d97706; font-weight: 700;' 
+          : 'color: #777;';
 
         return `<tr>
           <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; font-weight: 600; color: #333;">${lineLabel}</td>
           <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; color: #555;">${prov}</td>
           <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; text-align: center; color: #555;">${planGb}</td>
-          <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; text-align: right; color: #555; font-weight: 600;">${total}</td>
+          <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; text-align: right; color: #555; font-weight: 600;">${abonoStr}</td>
+          <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; text-align: right; ${excStyle}">${excStr}</td>
         </tr>`;
       }).join('');
     } else {
@@ -1684,6 +1699,7 @@ export default function Campanas() {
         <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; color: #555;">Mutual Aunar</td>
         <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; text-align: center; color: #555;">-</td>
         <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; text-align: right; color: #555; font-weight: 600;">$ ${montoStr}</td>
+        <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; text-align: right; color: #777;">$ 0,00</td>
       </tr>`;
     }
 
@@ -1692,6 +1708,15 @@ export default function Campanas() {
       /<th([^>]*)>(?:Empresa|Compañía)<\/th>\s*<th([^>]*)>Abono<\/th>/gi,
       `<th$1>Compañía</th><th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: center; color: #555;">GB Contratados</th><th$2>Abono</th>`
     );
+
+    // Asegurar que si el cuerpo trae encabezado sin columna de Excedentes, se agregue automáticamente
+    if (!/<th[^>]*>Excedentes<\/th>/i.test(body)) {
+      body = body.replace(
+        /<th([^>]*)>Abono<\/th>/gi,
+        `<th$1>Abono</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: right; color: #555;">Excedentes</th>`
+      );
+      body = body.replace(/colspan=["']4["']/gi, 'colspan="5"');
+    }
 
     // Reemplazar marcador de tabla de líneas o {{detalle_lineas_html}}
     const placeholderRowRegex = /<tr[^>]*data-lineas-placeholder[^>]*>[\s\S]*?<\/tr>/gi;
@@ -1841,12 +1866,13 @@ export default function Campanas() {
           <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: left; color: #555;">Compañía</th>
           <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: center; color: #555;">GB Contratados</th>
           <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: right; color: #555;">Abono</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: right; color: #555;">Excedentes</th>
         </tr>
       </thead>
       <tbody>
         <!-- DETALLE_LINEAS_START -->
         <tr data-lineas-placeholder="true">
-          <td colspan="4" style="padding: 12px; text-align: center; color: #999; font-size: 13px; font-style: italic;">
+          <td colspan="5" style="padding: 12px; text-align: center; color: #999; font-size: 13px; font-style: italic;">
             (El detalle de líneas se insertará automáticamente aquí)
           </td>
         </tr>
@@ -1917,10 +1943,18 @@ export default function Campanas() {
       const customId = type.replace('custom_', '');
       const t = customTemplates.find(c => String(c.id) === String(customId));
       if (t) {
+        let customBody = t.cuerpo_html || '';
+        if (customBody && !/<th[^>]*>Excedentes<\/th>/i.test(customBody) && /<th[^>]*>Abono<\/th>/i.test(customBody)) {
+          customBody = customBody.replace(
+            /<th([^>]*)>Abono<\/th>/gi,
+            `<th$1>Abono</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: right; color: #555;">Excedentes</th>`
+          );
+          customBody = customBody.replace(/colspan=["']4["']/gi, 'colspan="5"');
+        }
         setCampaignName(t.nombre);
         setSubject(t.asunto || '');
-        setBodyHtml(t.cuerpo_html || '');
-        if (editorRef.current) editorRef.current.innerHTML = t.cuerpo_html || '';
+        setBodyHtml(customBody);
+        if (editorRef.current) editorRef.current.innerHTML = customBody;
         addToast(`Plantilla personalizada '${t.nombre}' cargada con éxito.`, 'success');
       }
       return;
@@ -1955,12 +1989,13 @@ export default function Campanas() {
           <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: left; color: #555;">Compañía</th>
           <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: center; color: #555;">GB Contratados</th>
           <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: right; color: #555;">Abono</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: right; color: #555;">Excedentes</th>
         </tr>
       </thead>
       <tbody>
         <!-- DETALLE_LINEAS_START -->
         <tr data-lineas-placeholder="true">
-          <td colspan="4" style="padding: 12px; text-align: center; color: #999; font-size: 13px; font-style: italic;">
+          <td colspan="5" style="padding: 12px; text-align: center; color: #999; font-size: 13px; font-style: italic;">
             (El detalle de líneas se insertará automáticamente aquí)
           </td>
         </tr>
@@ -2057,6 +2092,28 @@ export default function Campanas() {
       addToast('Plantilla cargada con éxito.', 'success');
     }
   };
+
+  // Sincronizar editor y actualizar estructura de tabla con columna Excedentes al entrar en Paso 2
+  useEffect(() => {
+    if (currentStep === 2) {
+      if (!bodyHtml) {
+        handleLoadTemplate('aunar');
+      } else {
+        let upgraded = bodyHtml;
+        if (!/<th[^>]*>Excedentes<\/th>/i.test(upgraded) && /<th[^>]*>Abono<\/th>/i.test(upgraded)) {
+          upgraded = upgraded.replace(
+            /<th([^>]*)>Abono<\/th>/gi,
+            `<th$1>Abono</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: right; color: #555;">Excedentes</th>`
+          );
+          upgraded = upgraded.replace(/colspan=["']4["']/gi, 'colspan="5"');
+          setBodyHtml(upgraded);
+        }
+        if (editorRef.current && editorRef.current.innerHTML !== upgraded) {
+          editorRef.current.innerHTML = upgraded;
+        }
+      }
+    }
+  }, [currentStep]);
 
   const formatDate = (isoString) => {
     if (!isoString) return '';
