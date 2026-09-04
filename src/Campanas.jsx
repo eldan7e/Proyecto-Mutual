@@ -430,6 +430,8 @@ export default function Campanas() {
           }
           fetchLogs();
           fetchEnviosHoy();
+          await fetchCompletedCampaignsList();
+          await loadCompletedCampaignDetails(activeCampaign.name);
 
           // Solo actualizar los items en memoria si el modo visualizado coincide con el de la campaña enviada
           const currentModeKey = campaignType === 'excel' ? excelMode : effectiveCampaignType;
@@ -510,10 +512,11 @@ export default function Campanas() {
       const list = Array.from(map.values());
       setCompletedCampaignsList(list);
 
-      // Si no hay activa ni seleccionada, auto-seleccionar la última
-      if (list.length > 0 && !selectedCompletedCampaignName && !activeCampaign) {
-        setSelectedCompletedCampaignName(list[0].nombre);
-        loadCompletedCampaignDetails(list[0].nombre);
+      // Auto-seleccionar la campaña activa o la más reciente nucleada
+      if (list.length > 0) {
+        const target = selectedCompletedCampaignName || (activeCampaign?.name) || list[0].nombre;
+        setSelectedCompletedCampaignName(target);
+        loadCompletedCampaignDetails(target);
       }
     } catch (err) {
       console.warn('Error al cargar lista de campañas completadas:', err);
@@ -524,20 +527,22 @@ export default function Campanas() {
     if (!campaignName) return;
     setLoadingCompletedCampaign(true);
     try {
+      // Nuclear TODOS los envíos realizados con este nombre de campaña (independientemente del día o lote)
       const { data, error } = await supabase
         .from('campanas_logs')
         .select('*')
         .eq('nombre_campana', campaignName)
-        .order('created_at', { ascending: true })
-        .limit(2000);
+        .order('created_at', { ascending: false })
+        .range(0, 49999);
 
       if (error) throw error;
       const logs = data || [];
       const successCount = logs.filter(l => l.estado === 'exito').length;
       const errorCount = logs.filter(l => l.estado === 'error').length;
       const firstSubject = logs[0]?.asunto || '';
-      const firstTime = logs[0]?.created_at || new Date().toISOString();
-      const lastTime = logs[logs.length - 1]?.created_at || firstTime;
+      const dates = logs.map(l => new Date(l.created_at).getTime()).filter(t => !isNaN(t));
+      const firstTime = dates.length > 0 ? new Date(Math.min(...dates)).toISOString() : new Date().toISOString();
+      const lastTime = dates.length > 0 ? new Date(Math.max(...dates)).toISOString() : firstTime;
 
       setCompletedCampaignData({
         name: campaignName,
@@ -561,18 +566,25 @@ export default function Campanas() {
   useEffect(() => {
     if (currentStep === 4) {
       fetchCompletedCampaignsList();
-      if (selectedCompletedCampaignName) {
-        loadCompletedCampaignDetails(selectedCompletedCampaignName);
+      const targetName = selectedCompletedCampaignName || activeCampaign?.name;
+      if (targetName) {
+        setSelectedCompletedCampaignName(targetName);
+        loadCompletedCampaignDetails(targetName);
       }
     }
-  }, [currentStep]);
+  }, [currentStep, selectedCompletedCampaignName]);
 
   const campaignToDisplay = useMemo(() => {
-    if (activeCampaign && (!selectedCompletedCampaignName || selectedCompletedCampaignName === activeCampaign.name)) {
+    // Si hay un despacho activamente en progreso en vivo (no terminado), mostrar la barra en vivo
+    if (activeCampaign && !activeCampaign.isFinished) {
       return activeCampaign;
     }
-    return completedCampaignData;
-  }, [activeCampaign, selectedCompletedCampaignName, completedCampaignData]);
+    // De lo contrario, mostrar la campaña nucleada completa con todos los días/lotes agrupados
+    if (completedCampaignData) {
+      return completedCampaignData;
+    }
+    return activeCampaign;
+  }, [activeCampaign, completedCampaignData]);
 
   const filteredStep4Logs = useMemo(() => {
     const list = campaignToDisplay?.logs || [];
@@ -2980,9 +2992,9 @@ export default function Campanas() {
                     )}
                     {campaignToDisplay.startTime && (
                       <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        Iniciada: {new Date(campaignToDisplay.startTime).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                        {campaignToDisplay.endTime && campaignToDisplay.isFinished && (
-                          <> • Finalizada: {new Date(campaignToDisplay.endTime).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</>
+                        Iniciada: {new Date(campaignToDisplay.startTime).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        {campaignToDisplay.endTime && (
+                          <> • Último envío: {new Date(campaignToDisplay.endTime).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</>
                         )}
                       </span>
                     )}
@@ -3001,15 +3013,11 @@ export default function Campanas() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>Campaña:</span>
                       <select
-                        value={campaignToDisplay.name}
+                        value={selectedCompletedCampaignName || campaignToDisplay.name}
                         onChange={(e) => {
                           const targetName = e.target.value;
                           setSelectedCompletedCampaignName(targetName);
-                          if (activeCampaign && activeCampaign.name === targetName) {
-                            // Mantener activa
-                          } else {
-                            loadCompletedCampaignDetails(targetName);
-                          }
+                          loadCompletedCampaignDetails(targetName);
                         }}
                         style={{ ...S.input, padding: '6px 12px', fontSize: '12px', minWidth: '220px', cursor: 'pointer', background: 'rgba(255,255,255,0.85)' }}
                       >
@@ -3129,7 +3137,7 @@ export default function Campanas() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <Sparkles size={16} color="var(--accent)" />
                     <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                      Avance de Envíos en Vivo (Movimiento por movimiento)
+                      {!campaignToDisplay.isFinished ? 'Avance de Envíos en Vivo (Movimiento por movimiento)' : 'Registro Completo de Envíos Realizados'}
                     </h4>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
