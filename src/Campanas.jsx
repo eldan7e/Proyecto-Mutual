@@ -162,11 +162,11 @@ export default function Campanas() {
     if (currentStep === 3) fetchLogs();
   }, [currentStep, debouncedSearchLog, filterLogEstado]);
 
-  // Helper para estimar tiempo restante según ritmo de 8s de n8n
+  // Helper para estimar tiempo restante según ritmo de Brevo API (~0.8s por mail)
   const calculateRemainingTime = (total, sentCount) => {
     if (sentCount >= total) return 'Finalizado';
     const remainingCount = Math.max(0, total - sentCount);
-    const totalSecs = remainingCount * 8;
+    const totalSecs = Math.ceil(remainingCount * 0.8);
     const mins = Math.floor(totalSecs / 60);
     const secs = totalSecs % 60;
     if (mins > 0) {
@@ -2325,7 +2325,7 @@ export default function Campanas() {
                 {activeCampaign.name}
               </h2>
               <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
-                Asunto: <strong>{activeCampaign.subject}</strong> • Retardo de seguridad anti-bloqueo: <strong>8 seg / correo</strong>
+                Asunto: <strong>{activeCampaign.subject}</strong> • Despacho: <strong>Brevo API (Alta Velocidad)</strong>
               </p>
             </div>
 
@@ -2383,7 +2383,7 @@ export default function Campanas() {
                 {activeCampaign.isFinished ? 'Completado' : calculateRemainingTime(activeCampaign.total, activeCampaign.sentCount)}
               </div>
               <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                {activeCampaign.isFinished ? 'Todos los correos despachados' : 'Ritmo: ~8 seg entre cada correo'}
+                {activeCampaign.isFinished ? 'Todos los correos despachados' : 'Despacho rápido vía Brevo API'}
               </div>
             </div>
 
@@ -2393,7 +2393,7 @@ export default function Campanas() {
                 {activeCampaign.successCount}
               </div>
               <div style={{ fontSize: '12px', color: '#047857', marginTop: '2px' }}>
-                Entregados vía SMTP
+                Entregados vía Brevo API
               </div>
             </div>
 
@@ -2450,7 +2450,7 @@ export default function Campanas() {
                   Despachando campaña con n8n...
                 </div>
                 <p style={{ margin: 0, fontSize: '12.5px' }}>
-                  El flujo está procesando el primer destinatario tras la espera de seguridad de 8 segundos.
+                  El flujo está procesando los destinatarios vía Brevo API.
                 </p>
               </div>
             ) : (
@@ -4525,7 +4525,7 @@ export default function Campanas() {
                   </div>
                   <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                     {!activeCampaign.isFinished 
-                      ? `Tiempo restante estimado: ${calculateRemainingTime(activeCampaign.total, activeCampaign.sentCount)} • Ritmo: 8s por mail`
+                      ? `Tiempo restante estimado: ${calculateRemainingTime(activeCampaign.total, activeCampaign.sentCount)} • Despacho Brevo API`
                       : `¡Campaña finalizada! ${activeCampaign.successCount} enviados exitosamente.`}
                   </div>
                 </div>
