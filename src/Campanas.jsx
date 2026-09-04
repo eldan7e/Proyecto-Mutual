@@ -69,6 +69,10 @@ export default function Campanas() {
   const [lineasSearch, setLineasSearch] = useState('');
   const [debouncedLineasSearch, setDebouncedLineasSearch] = useState('');
   
+  // Cupo Brevo y Filtro de Grupos / Socios Notificados
+  const [enviosHoy, setEnviosHoy] = useState(0);
+  const [filterNotificado, setFilterNotificado] = useState('ALL'); // 'ALL' | 'PENDIENTE' | 'NOTIFICADO'
+
   // Historial (Step 3)
   const [logs, setLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
@@ -158,9 +162,41 @@ export default function Campanas() {
     }
   }, [debouncedSearch, filterPago, filterGrupoNumero, filterDeuda, campaignType, effectiveCampaignType, currentStep, debouncedGrupalSearch, debouncedLineasSearch]);
 
+  // Consultar cupo diario consumido hoy en Brevo
+  const fetchEnviosHoy = async () => {
+    try {
+      const hoyInicio = new Date();
+      hoyInicio.setHours(0, 0, 0, 0);
+      const { count, error } = await supabase
+        .from('campanas_logs')
+        .select('*', { count: 'exact', head: true })
+        .gte('created_at', hoyInicio.toISOString())
+        .neq('estado', 'error');
+      if (!error && typeof count === 'number') {
+        setEnviosHoy(count);
+      }
+    } catch (e) {
+      console.warn('Error al consultar envíos de hoy:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchEnviosHoy();
+  }, [currentStep, activeCampaign?.isFinished]);
+
   useEffect(() => {
     if (currentStep === 3) fetchLogs();
   }, [currentStep, debouncedSearchLog, filterLogEstado]);
+
+  // Filtrado de ítems por estado de notificación
+  const displayedItems = useMemo(() => {
+    if (filterNotificado === 'PENDIENTE') return items.filter(i => !i.notificado);
+    if (filterNotificado === 'NOTIFICADO') return items.filter(i => i.notificado);
+    return items;
+  }, [items, filterNotificado]);
+
+  const countPendientes = useMemo(() => items.filter(i => !i.notificado).length, [items]);
+  const countNotificados = useMemo(() => items.filter(i => i.notificado).length, [items]);
 
   // Helper para estimar tiempo restante según ritmo de Brevo API (~0.8s por mail)
   const calculateRemainingTime = (total, sentCount) => {
@@ -214,6 +250,17 @@ export default function Campanas() {
         if (isDone) {
           addToast(`¡Campaña "${activeCampaign.name}" finalizada! ${successCount} enviados${errorCount > 0 ? `, ${errorCount} con error` : ''}.`, successCount > 0 ? 'success' : 'error');
           fetchLogs();
+          fetchEnviosHoy();
+          // Marcar en memoria como notificados inmediatamente a los que salieron con éxito
+          const sentEmails = new Set(
+            currentLogs.filter(l => l.estado !== 'error').map(l => (l.destinatario_email || '').trim().toLowerCase())
+          );
+          setItems(prev => prev.map(it => {
+            if (sentEmails.has((it.email || '').trim().toLowerCase())) {
+              return { ...it, notificado: true, ultimo_envio: new Date().toISOString() };
+            }
+            return it;
+          }));
         }
       } catch (err) {
         console.warn('Error polling campanas_logs:', err);
@@ -900,10 +947,34 @@ export default function Campanas() {
             facturacionPorSocio[f.socio_id].push(f);
           });
 
+          // Cargar notificaciones del mes para marcar socios notificados
+          const inicioMes = new Date();
+          inicioMes.setDate(1);
+          inicioMes.setHours(0, 0, 0, 0);
+
+          const { data: logsMes } = await supabase
+            .from('campanas_logs')
+            .select('destinatario_email, created_at, estado')
+            .gte('created_at', inicioMes.toISOString())
+            .neq('estado', 'error');
+
+          const notifMap = new Map();
+          (logsMes || []).forEach(l => {
+            if (l.destinatario_email) {
+              const em = l.destinatario_email.trim().toLowerCase();
+              if (!notifMap.has(em)) notifMap.set(em, l);
+            }
+          });
+
           mapped.forEach(item => {
             const lineasFactura = facturacionPorSocio[item.socio_id_num] || [];
             item.periodo = ultimoPeriodo;
             item.detalle_lineas = lineasFactura;
+            const notif = notifMap.get((item.email || '').trim().toLowerCase());
+            item.notificado = !!notif;
+            item.ultimo_envio = notif?.created_at || null;
+            item.ultimo_estado = notif?.estado || null;
+
             if (lineasFactura.length > 0) {
               item.monto_adeudado = lineasFactura.reduce((sum, l) => sum + Number(l.total_linea || 0), 0).toFixed(2);
               item.lineas = lineasFactura.map(l => l.numero_linea).join(', ');
@@ -1031,10 +1102,34 @@ export default function Campanas() {
           });
         });
 
+        // Cargar notificaciones de este mes para marcar grupos notificados
+        const inicioMes = new Date();
+        inicioMes.setDate(1);
+        inicioMes.setHours(0, 0, 0, 0);
+
+        const { data: logsMes } = await supabase
+          .from('campanas_logs')
+          .select('destinatario_email, created_at, estado')
+          .gte('created_at', inicioMes.toISOString())
+          .neq('estado', 'error');
+
+        const notifMap = new Map();
+        (logsMes || []).forEach(l => {
+          if (l.destinatario_email) {
+            const em = l.destinatario_email.trim().toLowerCase();
+            if (!notifMap.has(em)) notifMap.set(em, l);
+          }
+        });
+
         mapped.forEach(item => {
           const gLines = linesByGroup[item.grupo] || [];
           item.detalle_lineas = gLines;
           item.periodo = ultimoPeriodo;
+          const notif = notifMap.get((item.email || '').trim().toLowerCase());
+          item.notificado = !!notif;
+          item.ultimo_envio = notif?.created_at || null;
+          item.ultimo_estado = notif?.estado || null;
+
           if (gLines.length > 0) {
             item.lineas = gLines.map(l => l.numero_linea).join(', ');
             const sumLines = gLines.reduce((sum, l) => sum + Number(l.total_linea || 0), 0);
@@ -1130,8 +1225,32 @@ export default function Campanas() {
             if (f.numero_linea) factMap.set(f.numero_linea, f);
           });
 
+          // Cargar notificaciones del mes para marcar líneas notificadas
+          const inicioMes = new Date();
+          inicioMes.setDate(1);
+          inicioMes.setHours(0, 0, 0, 0);
+
+          const { data: logsMes } = await supabase
+            .from('campanas_logs')
+            .select('destinatario_email, created_at, estado')
+            .gte('created_at', inicioMes.toISOString())
+            .neq('estado', 'error');
+
+          const notifMap = new Map();
+          (logsMes || []).forEach(l => {
+            if (l.destinatario_email) {
+              const em = l.destinatario_email.trim().toLowerCase();
+              if (!notifMap.has(em)) notifMap.set(em, l);
+            }
+          });
+
           mapped.forEach(item => {
             item.periodo = ultimoPeriodo;
+            const notif = notifMap.get((item.email || '').trim().toLowerCase());
+            item.notificado = !!notif;
+            item.ultimo_envio = notif?.created_at || null;
+            item.ultimo_estado = notif?.estado || null;
+
             const fact = factMap.get(item.lineas);
             if (fact) {
               item.detalle_lineas = [fact];
@@ -1177,10 +1296,11 @@ export default function Campanas() {
 
   // --------------- MANEJO DE SELECCIÓN ---------------
   const toggleSelectAll = () => {
-    if (selectedIds.size === items.length && items.length > 0) {
+    const targetItems = displayedItems || items;
+    if (selectedIds.size >= targetItems.length && targetItems.length > 0) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(items.map(i => i.id)));
+      setSelectedIds(new Set(targetItems.map(i => i.id)));
     }
   };
 
@@ -2199,7 +2319,24 @@ export default function Campanas() {
               <Mail size={22} />
             </div>
             <div>
-              <h2 style={S.title}>Campañas de Correo</h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <h2 style={S.title}>Campañas de Correo</h2>
+                <div style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '3px 10px',
+                  borderRadius: '20px',
+                  background: (300 - enviosHoy) > 50 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.12)',
+                  border: `1px solid ${(300 - enviosHoy) > 50 ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.3)'}`,
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  color: (300 - enviosHoy) > 50 ? '#059669' : '#d97706'
+                }} title={`Envíos registrados hoy: ${enviosHoy}. Límite gratuito de Brevo: 300 correos por día (se reinicia a las 00:00 UTC).`}>
+                  <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: (300 - enviosHoy) > 50 ? '#10b981' : '#f59e0b', display: 'inline-block' }} />
+                  <span>Brevo hoy: <strong>{Math.max(0, 300 - enviosHoy)} disponibles</strong> de 300</span>
+                </div>
+              </div>
               <p style={S.subtitle}>Envío masivo y personalizado de notificaciones</p>
             </div>
           </div>
@@ -4228,10 +4365,87 @@ export default function Campanas() {
                       ⚡ Se consolidarán en <strong>{uniqueEmailsCount}</strong> {uniqueEmailsCount === 1 ? 'único correo' : 'correos únicos'}
                     </span>
                   )}
+
+                  {/* Filtro por estado de notificación del mes */}
+                  <div style={{ display: 'inline-flex', background: 'rgba(0,0,0,0.04)', padding: '3px', borderRadius: '10px', gap: '2px', border: '1px solid var(--border-light)' }}>
+                    <button
+                      type="button"
+                      onClick={() => setFilterNotificado('ALL')}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: '7px',
+                        border: 'none',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        background: filterNotificado === 'ALL' ? '#fff' : 'transparent',
+                        color: filterNotificado === 'ALL' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                        boxShadow: filterNotificado === 'ALL' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                      }}
+                    >
+                      Todos ({items.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFilterNotificado('PENDIENTE')}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: '7px',
+                        border: 'none',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        background: filterNotificado === 'PENDIENTE' ? '#fff' : 'transparent',
+                        color: filterNotificado === 'PENDIENTE' ? '#d97706' : 'var(--text-secondary)',
+                        boxShadow: filterNotificado === 'PENDIENTE' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                      }}
+                    >
+                      ⏳ Pendientes ({countPendientes})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFilterNotificado('NOTIFICADO')}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: '7px',
+                        border: 'none',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        background: filterNotificado === 'NOTIFICADO' ? '#fff' : 'transparent',
+                        color: filterNotificado === 'NOTIFICADO' ? '#059669' : 'var(--text-secondary)',
+                        boxShadow: filterNotificado === 'NOTIFICADO' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                      }}
+                    >
+                      ✅ Notificados ({countNotificados})
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <button onClick={toggleSelectAll} style={{ ...S.btnSecondary, padding: '6px 14px', fontSize: '12px', marginRight: '8px' }}>
-                    {selectedIds.size === items.length ? 'Deseleccionar todos' : 'Seleccionar todos'}
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  {countPendientes > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const pendientes = items.filter(i => !i.notificado);
+                        setSelectedIds(new Set(pendientes.map(i => i.id)));
+                      }}
+                      style={{
+                        ...S.btnSecondary,
+                        padding: '6px 12px',
+                        fontSize: '12px',
+                        color: '#d97706',
+                        borderColor: 'rgba(245, 158, 11, 0.4)',
+                        background: 'rgba(245, 158, 11, 0.08)',
+                        fontWeight: 700
+                      }}
+                      title="Selecciona automáticamente todos los grupos o socios pendientes de notificación"
+                    >
+                      ⚡ Seleccionar pendientes ({countPendientes})
+                    </button>
+                  )}
+                  <button onClick={toggleSelectAll} style={{ ...S.btnSecondary, padding: '6px 14px', fontSize: '12px' }}>
+                    {selectedIds.size === displayedItems.length && displayedItems.length > 0 ? 'Deseleccionar todos' : 'Seleccionar mostrados'}
                   </button>
                   {totalSelected > 0 && (
                     <button onClick={clearSelection} style={{ ...S.btnSecondary, padding: '6px 14px', fontSize: '12px' }}><X size={12} /> Limpiar</button>
@@ -4242,10 +4456,11 @@ export default function Campanas() {
               <div style={S.tableWrapper}>
                 {loading ? (
                   <div style={S.emptyState}><Loader2 className="animate-spin" size={32} /></div>
-                ) : items.length === 0 ? (
+                ) : displayedItems.length === 0 ? (
                   <div style={S.emptyState}>
                     <AlertCircle size={40} style={{ marginBottom: '12px' }} />
                     <h4>Sin resultados</h4>
+                    <p style={{ fontSize: '12px', margin: '4px 0 0' }}>No hay destinatarios que coincidan con los filtros aplicados.</p>
                   </div>
                 ) : (
                   <table style={S.table}>
@@ -4265,7 +4480,7 @@ export default function Campanas() {
                       </tr>
                     </thead>
                     <tbody>
-                      {items.map(item => {
+                      {displayedItems.map(item => {
                         const sel = selectedIds.has(item.id);
                         return (
                           <tr key={item.id} onClick={() => toggleItem(item.id)} style={{ cursor: 'pointer', background: sel ? 'rgba(46,125,50,0.06)' : 'transparent' }}>
@@ -4273,7 +4488,37 @@ export default function Campanas() {
                               {sel ? <CheckSquare size={18} style={{ color: 'var(--accent)' }} /> : <Square size={18} />}
                             </td>
                             <td style={S.td}>
-                              <div style={{ fontWeight: 700 }}>{item.display_detalle || item.nombre}</div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                <span style={{ fontWeight: 700 }}>{item.display_detalle || item.nombre}</span>
+                                {item.notificado ? (
+                                  <span style={{
+                                    fontSize: '10.5px',
+                                    fontWeight: 700,
+                                    padding: '2px 8px',
+                                    borderRadius: '12px',
+                                    background: 'rgba(16, 185, 129, 0.12)',
+                                    color: '#059669',
+                                    border: '1px solid rgba(16, 185, 129, 0.3)',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
+                                  }} title={item.ultimo_envio ? `Enviado el ${new Date(item.ultimo_envio).toLocaleString('es-AR')}` : 'Notificado este mes'}>
+                                    <Check size={11} /> Notificado
+                                  </span>
+                                ) : (
+                                  <span style={{
+                                    fontSize: '10px',
+                                    fontWeight: 600,
+                                    padding: '2px 6px',
+                                    borderRadius: '12px',
+                                    background: 'rgba(245, 158, 11, 0.08)',
+                                    color: '#d97706',
+                                    border: '1px solid rgba(245, 158, 11, 0.25)',
+                                  }}>
+                                    Pendiente
+                                  </span>
+                                )}
+                              </div>
                               {item.dni && <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>DNI: {item.dni}</div>}
                               {campaignType === 'excel' && item.cbu && <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>CBU: {item.cbu}</div>}
                             </td>
