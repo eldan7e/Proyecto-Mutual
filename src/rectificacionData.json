@@ -1,0 +1,1864 @@
+[
+  {
+    "id": "rect_ramironario@yahoo.com.ar_50012",
+    "email": "ramironario@yahoo.com.ar",
+    "grupo": "50012",
+    "nombre": "Grupo 50012 - Saino, Agustina",
+    "nombre_socio": "Saino, Agustina",
+    "lineas": "1154629496, 2215461764",
+    "monto_adeudado": "51115.89",
+    "monto_cuota_cel": 20671.84,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "1154629496",
+        "nombre_socio": "Saino, Agustina",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2215461764",
+        "nombre_socio": "Nario, Ramiro",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 30444.05,
+        "excedentes": 0,
+        "total_linea": 30444.05
+      }
+    ]
+  },
+  {
+    "id": "rect_ramironario@yahoo.com.ar_130",
+    "email": "ramironario@yahoo.com.ar",
+    "grupo": "130",
+    "nombre": "Grupo 130 - Nario, Juan Manuel",
+    "nombre_socio": "Nario, Juan Manuel",
+    "lineas": "2215488492, 2215895540",
+    "monto_adeudado": "41343.68",
+    "monto_cuota_cel": 20671.84,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215488492",
+        "nombre_socio": "Nario, Juan Manuel",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2215895540",
+        "nombre_socio": "Garcia, Silvana ",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      }
+    ]
+  },
+  {
+    "id": "rect_chburion@hotmail.com_568",
+    "email": "chburion@hotmail.com",
+    "grupo": "568",
+    "nombre": "Grupo 568 - Burion, Carlos Alberto",
+    "nombre_socio": "Burion, Carlos Alberto",
+    "lineas": "1162117520, 1168119719, 1168207812",
+    "monto_adeudado": "65969.82",
+    "monto_cuota_cel": 17981.8,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "1162117520",
+        "nombre_socio": "Burion, Carlos Alberto",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 17981.8,
+        "excedentes": 0,
+        "total_linea": 17981.8
+      },
+      {
+        "numero_linea": "1168119719",
+        "nombre_socio": "Rodriguez, Teresa",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 23358.12,
+        "excedentes": 0,
+        "total_linea": 23358.12
+      },
+      {
+        "numero_linea": "1168207812",
+        "nombre_socio": "Burion, Andres",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      }
+    ]
+  },
+  {
+    "id": "rect_chburion@hotmail.com_70129",
+    "email": "chburion@hotmail.com",
+    "grupo": "70129",
+    "nombre": "Grupo 70129 - Burion, Paulina (hija)",
+    "nombre_socio": "Burion, Paulina (hija)",
+    "lineas": "1164221817, 1168227675",
+    "monto_adeudado": "39694.76",
+    "monto_cuota_cel": 15064.86,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "1164221817",
+        "nombre_socio": "Burion, Paulina (hija)",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 15064.86,
+        "excedentes": 0,
+        "total_linea": 15064.86
+      },
+      {
+        "numero_linea": "1168227675",
+        "nombre_socio": "Burion, Paulina",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      }
+    ]
+  },
+  {
+    "id": "rect_f_luqui@yahoo.com.ar_208",
+    "email": "f_luqui@yahoo.com.ar",
+    "grupo": "208",
+    "nombre": "Grupo 208 - Kaplan, Enrique",
+    "nombre_socio": "Kaplan, Enrique",
+    "lineas": "2212203847, 2215030130, 2215525280, 2235027346, 2323515298, 2323515914, 2324476264, 2920321731, 3487624269",
+    "monto_adeudado": "186046.56",
+    "monto_cuota_cel": 20671.84,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2212203847",
+        "nombre_socio": "Kaplan, Enrique",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2215030130",
+        "nombre_socio": "Luqui, Federico Manuel",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2215525280",
+        "nombre_socio": "Luqui, Federico Manuel",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2235027346",
+        "nombre_socio": "Pujato, Gustavo Horacio (UTI)",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2323515298",
+        "nombre_socio": "Capdevilla, Juan",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2323515914",
+        "nombre_socio": "Capdevilla, Juan",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2324476264",
+        "nombre_socio": "Costa, Jorge",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2920321731",
+        "nombre_socio": "Palma, Mario ",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "3487624269",
+        "nombre_socio": "Jacquet, María Gabriela",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      }
+    ]
+  },
+  {
+    "id": "rect_f_luqui@yahoo.com.ar_518",
+    "email": "f_luqui@yahoo.com.ar",
+    "grupo": "518",
+    "nombre": "Grupo 518 - Castillo, Mirta",
+    "nombre_socio": "Castillo, Mirta",
+    "lineas": "2215487253",
+    "monto_adeudado": "20671.84",
+    "monto_cuota_cel": 20671.84,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215487253",
+        "nombre_socio": "Castillo, Mirta",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      }
+    ]
+  },
+  {
+    "id": "rect_f_luqui@yahoo.com.ar_70133",
+    "email": "f_luqui@yahoo.com.ar",
+    "grupo": "70133",
+    "nombre": "Grupo 70133 - Castro, Andres (cbio numero)",
+    "nombre_socio": "Castro, Andres (cbio numero)",
+    "lineas": "2235215059",
+    "monto_adeudado": "20671.84",
+    "monto_cuota_cel": 20671.84,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2235215059",
+        "nombre_socio": "Castro, Andres (cbio numero)",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      }
+    ]
+  },
+  {
+    "id": "rect_orlandobienesraices@yahoo.com.ar_70070",
+    "email": "orlandobienesraices@yahoo.com.ar",
+    "grupo": "70070",
+    "nombre": "Grupo 70070 - Orlando, Rafael",
+    "nombre_socio": "Orlando, Rafael",
+    "lineas": "2213541111, 2216011111, 2216391111",
+    "monto_adeudado": "55241.50",
+    "monto_cuota_cel": 15064.86,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2213541111",
+        "nombre_socio": "Orlando, Rafael",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 15064.86,
+        "excedentes": 0,
+        "total_linea": 15064.86
+      },
+      {
+        "numero_linea": "2216011111",
+        "nombre_socio": "Orlando, Gastón",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 25111.78,
+        "excedentes": 0,
+        "total_linea": 25111.78
+      },
+      {
+        "numero_linea": "2216391111",
+        "nombre_socio": "Orlando, Catalina",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 15064.86,
+        "excedentes": 0,
+        "total_linea": 15064.86
+      }
+    ]
+  },
+  {
+    "id": "rect_orlandobienesraices@yahoo.com.ar_17",
+    "email": "orlandobienesraices@yahoo.com.ar",
+    "grupo": "17",
+    "nombre": "Grupo 17 - Ojeda, Claudia Alejandra",
+    "nombre_socio": "Ojeda, Claudia Alejandra",
+    "lineas": "2215025865, 2216246183, 2216252526",
+    "monto_adeudado": "50801.56",
+    "monto_cuota_cel": 15064.86,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215025865",
+        "nombre_socio": "Ojeda, Claudia Alejandra",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 15064.86,
+        "excedentes": 0,
+        "total_linea": 15064.86
+      },
+      {
+        "numero_linea": "2216246183",
+        "nombre_socio": "Orlando, Marcos",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2216252526",
+        "nombre_socio": "Orlando, Sergio Mario",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 15064.86,
+        "excedentes": 0,
+        "total_linea": 15064.86
+      }
+    ]
+  },
+  {
+    "id": "rect_mhcarrara@speedy.com.ar_70069",
+    "email": "mhcarrara@speedy.com.ar",
+    "grupo": "70069",
+    "nombre": "Grupo 70069 - Gioia Carrara, Maria Paz",
+    "nombre_socio": "Gioia Carrara, Maria Paz",
+    "lineas": "2213030248, 2215437925",
+    "monto_adeudado": "54324.85",
+    "monto_cuota_cel": 23880.8,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2213030248",
+        "nombre_socio": "Gioia Carrara, Maria Paz",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 23880.8,
+        "excedentes": 0,
+        "total_linea": 23880.8
+      },
+      {
+        "numero_linea": "2215437925",
+        "nombre_socio": "Carrara, Maria Florencia",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 30444.05,
+        "excedentes": 0,
+        "total_linea": 30444.05
+      }
+    ]
+  },
+  {
+    "id": "rect_mhcarrara@speedy.com.ar_5018",
+    "email": "mhcarrara@speedy.com.ar",
+    "grupo": "5018",
+    "nombre": "Grupo 5018 - Carrara, Mario Hector",
+    "nombre_socio": "Carrara, Mario Hector",
+    "lineas": "2215033100, 2215033372",
+    "monto_adeudado": "41343.68",
+    "monto_cuota_cel": 20671.84,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215033100",
+        "nombre_socio": "Carrara, Mario Hector",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2215033372",
+        "nombre_socio": "Sanchez Porfido, Maria Elisabet",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      }
+    ]
+  },
+  {
+    "id": "rect_ferrararodrigo@hotmail.com_255",
+    "email": "ferrararodrigo@hotmail.com",
+    "grupo": "255",
+    "nombre": "Grupo 255 - Lorenzo, Irene ",
+    "nombre_socio": "Lorenzo, Irene ",
+    "lineas": "2213039084, 2215474398, 2215486709",
+    "monto_adeudado": "60366.60",
+    "monto_cuota_cel": 24629.9,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2213039084",
+        "nombre_socio": "Lorenzo, Irene ",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      },
+      {
+        "numero_linea": "2215474398",
+        "nombre_socio": "Ferrara, Amalia",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2215486709",
+        "nombre_socio": "Ferrara, Beltran",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 15064.86,
+        "excedentes": 0,
+        "total_linea": 15064.86
+      }
+    ]
+  },
+  {
+    "id": "rect_ferrararodrigo@hotmail.com_506",
+    "email": "ferrararodrigo@hotmail.com",
+    "grupo": "506",
+    "nombre": "Grupo 506 - Ferrara, Rodrigo",
+    "nombre_socio": "Ferrara, Rodrigo",
+    "lineas": "2215031266",
+    "monto_adeudado": "23880.80",
+    "monto_cuota_cel": 23880.8,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215031266",
+        "nombre_socio": "Ferrara, Rodrigo",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 23880.8,
+        "excedentes": 0,
+        "total_linea": 23880.8
+      }
+    ]
+  },
+  {
+    "id": "rect_velasquezpaine@live.com.ar_5042",
+    "email": "velasquezpaine@live.com.ar",
+    "grupo": "5042",
+    "nombre": "Grupo 5042 - Capital diario, Capital diario ",
+    "nombre_socio": "Capital diario, Capital diario ",
+    "lineas": "2213061102, 2213521059, 2214385418, 2214385889, 2215588451, 2216300004, 2216353333, 2216353334, 2216767558, 2216801285, 2216804400, 2216804735, 2216810082, 2216917321, 2216917322, 2213628880, 2215733825, 2216290115, 2216290116, 2216290123",
+    "monto_adeudado": "282659.21",
+    "monto_cuota_cel": 11688.17,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2213061102",
+        "nombre_socio": "Capital diario, Capital diario ",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 11688.17,
+        "excedentes": 0,
+        "total_linea": 11688.17
+      },
+      {
+        "numero_linea": "2213521059",
+        "nombre_socio": "Capital diario, Capital diario ",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 11688.17,
+        "excedentes": 0,
+        "total_linea": 11688.17
+      },
+      {
+        "numero_linea": "2214385418",
+        "nombre_socio": "Capital diario, Capital diario ",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 11688.17,
+        "excedentes": 0,
+        "total_linea": 11688.17
+      },
+      {
+        "numero_linea": "2214385889",
+        "nombre_socio": "Capital diario, Capital diario ",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 11688.17,
+        "excedentes": 0,
+        "total_linea": 11688.17
+      },
+      {
+        "numero_linea": "2215588451",
+        "nombre_socio": "Capital Diario, Capital Diario",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 11688.17,
+        "excedentes": 0,
+        "total_linea": 11688.17
+      },
+      {
+        "numero_linea": "2216300004",
+        "nombre_socio": "Capital Diario, Capital Diario",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 11688.17,
+        "excedentes": 0,
+        "total_linea": 11688.17
+      },
+      {
+        "numero_linea": "2216353333",
+        "nombre_socio": "Capital Diario, Capital Diario",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 11688.17,
+        "excedentes": 0,
+        "total_linea": 11688.17
+      },
+      {
+        "numero_linea": "2216353334",
+        "nombre_socio": "Capital Diario, Capital Diario",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 17981.8,
+        "excedentes": 0,
+        "total_linea": 17981.8
+      },
+      {
+        "numero_linea": "2216767558",
+        "nombre_socio": "Bolli, Facundo ",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 46233.59,
+        "excedentes": 0,
+        "total_linea": 46233.59
+      },
+      {
+        "numero_linea": "2216801285",
+        "nombre_socio": "Capital Diario, Capital Diario",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 11688.17,
+        "excedentes": 0,
+        "total_linea": 11688.17
+      },
+      {
+        "numero_linea": "2216804400",
+        "nombre_socio": "Capital Diario, Capital Diario",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 11688.17,
+        "excedentes": 0,
+        "total_linea": 11688.17
+      },
+      {
+        "numero_linea": "2216804735",
+        "nombre_socio": "Capital Diario, Capital Diario",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 11688.17,
+        "excedentes": 0,
+        "total_linea": 11688.17
+      },
+      {
+        "numero_linea": "2216810082",
+        "nombre_socio": "Capital Diario, Capital Diario",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 11688.17,
+        "excedentes": 0,
+        "total_linea": 11688.17
+      },
+      {
+        "numero_linea": "2216917321",
+        "nombre_socio": "Capital Diario, Capital Diario",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 11688.17,
+        "excedentes": 0,
+        "total_linea": 11688.17
+      },
+      {
+        "numero_linea": "2216917322",
+        "nombre_socio": "Capital Diario, Capital Diario",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 11688.17,
+        "excedentes": 0,
+        "total_linea": 11688.17
+      },
+      {
+        "numero_linea": "2213628880",
+        "nombre_socio": "Capital diario, Capital",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 13221.52,
+        "excedentes": 0,
+        "total_linea": 13221.52
+      },
+      {
+        "numero_linea": "2215733825",
+        "nombre_socio": "Capital diario, Capital",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 13611.53,
+        "excedentes": 0,
+        "total_linea": 13611.53
+      },
+      {
+        "numero_linea": "2216290115",
+        "nombre_socio": "Capital diario, Capital",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 13221.52,
+        "excedentes": 0,
+        "total_linea": 13221.52
+      },
+      {
+        "numero_linea": "2216290116",
+        "nombre_socio": "Capital diario, Capital",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 13221.52,
+        "excedentes": 0,
+        "total_linea": 13221.52
+      },
+      {
+        "numero_linea": "2216290123",
+        "nombre_socio": "Capital diario, Capital",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 13221.52,
+        "excedentes": 0,
+        "total_linea": 13221.52
+      }
+    ]
+  },
+  {
+    "id": "rect_velasquezpaine@live.com.ar_70137",
+    "email": "velasquezpaine@live.com.ar",
+    "grupo": "70137",
+    "nombre": "Grupo 70137 - Velasquez Palacios, Paine Anahi",
+    "nombre_socio": "Velasquez Palacios, Paine Anahi",
+    "lineas": "2215917468",
+    "monto_adeudado": "35864.98",
+    "monto_cuota_cel": 35864.98,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215917468",
+        "nombre_socio": "Velasquez Palacios, Paine Anahi",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 35864.98,
+        "excedentes": 0,
+        "total_linea": 35864.98
+      }
+    ]
+  },
+  {
+    "id": "rect_construmarli@hotmail.com_50131",
+    "email": "construmarli@hotmail.com",
+    "grupo": "50131",
+    "nombre": "Grupo 50131 - Bertoldi, Liliana ",
+    "nombre_socio": "Bertoldi, Liliana ",
+    "lineas": "2214554443, 2215475711, 2215526578, 2216741367",
+    "monto_adeudado": "74390.34",
+    "monto_cuota_cel": 20671.84,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2214554443",
+        "nombre_socio": "Bertoldi, Liliana ",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2215475711",
+        "nombre_socio": "Brizuela, Mariano",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 15064.86,
+        "excedentes": 0,
+        "total_linea": 15064.86
+      },
+      {
+        "numero_linea": "2215526578",
+        "nombre_socio": "Brizuela, Carlos Martin",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2216741367",
+        "nombre_socio": "Bertoldi, liliana ",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 17981.8,
+        "excedentes": 0,
+        "total_linea": 17981.8
+      }
+    ]
+  },
+  {
+    "id": "rect_construmarli@hotmail.com_614",
+    "email": "construmarli@hotmail.com",
+    "grupo": "614",
+    "nombre": "Grupo 614 - Lovato, Irma",
+    "nombre_socio": "Lovato, Irma",
+    "lineas": "2216260540",
+    "monto_adeudado": "15064.86",
+    "monto_cuota_cel": 15064.86,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2216260540",
+        "nombre_socio": "Lovato, Irma",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 15064.86,
+        "excedentes": 0,
+        "total_linea": 15064.86
+      }
+    ]
+  },
+  {
+    "id": "rect_meryamico75@gmail.com_507",
+    "email": "meryamico75@gmail.com",
+    "grupo": "507",
+    "nombre": "Grupo 507 - Amico, Veronica Mariana",
+    "nombre_socio": "Amico, Veronica Mariana",
+    "lineas": "2215310868, 2216637753",
+    "monto_adeudado": "43185.50",
+    "monto_cuota_cel": 20671.84,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215310868",
+        "nombre_socio": "Amico, Veronica Mariana",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2216637753",
+        "nombre_socio": "Amico, Veronica Mariana",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 22513.66,
+        "excedentes": 0,
+        "total_linea": 22513.66
+      }
+    ]
+  },
+  {
+    "id": "rect_meryamico75@gmail.com_70079",
+    "email": "meryamico75@gmail.com",
+    "grupo": "70079",
+    "nombre": "Grupo 70079 - Miranda, Maria Mabel",
+    "nombre_socio": "Miranda, Maria Mabel",
+    "lineas": "2235235630",
+    "monto_adeudado": "17981.80",
+    "monto_cuota_cel": 17981.8,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2235235630",
+        "nombre_socio": "Miranda, Maria Mabel",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 17981.8,
+        "excedentes": 0,
+        "total_linea": 17981.8
+      }
+    ]
+  },
+  {
+    "id": "rect_aberivero@gmail.com_115",
+    "email": "aberivero@gmail.com",
+    "grupo": "115",
+    "nombre": "Grupo 115 - Rivero, Abelardo",
+    "nombre_socio": "Rivero, Abelardo",
+    "lineas": "2215421557",
+    "monto_adeudado": "20671.84",
+    "monto_cuota_cel": 20671.84,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215421557",
+        "nombre_socio": "Rivero, Abelardo",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      }
+    ]
+  },
+  {
+    "id": "rect_aberivero@gmail.com_5004",
+    "email": "aberivero@gmail.com",
+    "grupo": "5004",
+    "nombre": "Grupo 5004 - Galindo, Yennifer Yohana",
+    "nombre_socio": "Galindo, Yennifer Yohana",
+    "lineas": "2216219048, 2216219916",
+    "monto_adeudado": "41343.68",
+    "monto_cuota_cel": 20671.84,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2216219048",
+        "nombre_socio": "Galindo, Yennifer Yohana",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2216219916",
+        "nombre_socio": "Rivero, Jeronimo",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      }
+    ]
+  },
+  {
+    "id": "rect_aliciacatenaro@gmail.com_510",
+    "email": "aliciacatenaro@gmail.com",
+    "grupo": "510",
+    "nombre": "Grupo 510 - Erbetta, Gonzalo Javier",
+    "nombre_socio": "Erbetta, Gonzalo Javier",
+    "lineas": "2215427299",
+    "monto_adeudado": "30444.05",
+    "monto_cuota_cel": 30444.05,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215427299",
+        "nombre_socio": "Erbetta, Gonzalo Javier",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 30444.05,
+        "excedentes": 0,
+        "total_linea": 30444.05
+      }
+    ]
+  },
+  {
+    "id": "rect_aliciacatenaro@gmail.com_634",
+    "email": "aliciacatenaro@gmail.com",
+    "grupo": "634",
+    "nombre": "Grupo 634 - Erbetta, Manuela Maria",
+    "nombre_socio": "Erbetta, Manuela Maria",
+    "lineas": "2215427323",
+    "monto_adeudado": "30444.05",
+    "monto_cuota_cel": 30444.05,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215427323",
+        "nombre_socio": "Erbetta, Manuela Maria",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 30444.05,
+        "excedentes": 0,
+        "total_linea": 30444.05
+      }
+    ]
+  },
+  {
+    "id": "rect_aliciacatenaro@gmail.com_5025",
+    "email": "aliciacatenaro@gmail.com",
+    "grupo": "5025",
+    "nombre": "Grupo 5025 - Erbetta, Alejandro Luis",
+    "nombre_socio": "Erbetta, Alejandro Luis",
+    "lineas": "2215427490, 2215427991, 2215427999",
+    "monto_adeudado": "62015.52",
+    "monto_cuota_cel": 20671.84,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215427490",
+        "nombre_socio": "Erbetta, Alejandro Luis",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2215427991",
+        "nombre_socio": "Erbetta, Leonardo Marcelo",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2215427999",
+        "nombre_socio": "Catenaro, Edith Alicia",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      }
+    ]
+  },
+  {
+    "id": "rect_pato_delmillo@hotmail.com_70061",
+    "email": "pato_delmillo@hotmail.com",
+    "grupo": "70061",
+    "nombre": "Grupo 70061 - Miranda, Jose Luis",
+    "nombre_socio": "Miranda, Jose Luis",
+    "lineas": "2215436834, 2215710449",
+    "monto_adeudado": "30129.72",
+    "monto_cuota_cel": 15064.86,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215436834",
+        "nombre_socio": "Miranda, Jose Luis",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 15064.86,
+        "excedentes": 0,
+        "total_linea": 15064.86
+      },
+      {
+        "numero_linea": "2215710449",
+        "nombre_socio": "Gomez, Laura",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 15064.86,
+        "excedentes": 0,
+        "total_linea": 15064.86
+      }
+    ]
+  },
+  {
+    "id": "rect_pato_delmillo@hotmail.com_137",
+    "email": "pato_delmillo@hotmail.com",
+    "grupo": "137",
+    "nombre": "Grupo 137 - Gomez, Roxana",
+    "nombre_socio": "Gomez, Roxana",
+    "lineas": "2215521596, 2215940741, 2216252528",
+    "monto_adeudado": "59325.48",
+    "monto_cuota_cel": 20671.84,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215521596",
+        "nombre_socio": "Gomez, Roxana",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2215940741",
+        "nombre_socio": "Gomez, Rosana",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 17981.8,
+        "excedentes": 0,
+        "total_linea": 17981.8
+      },
+      {
+        "numero_linea": "2216252528",
+        "nombre_socio": "Bianco, Alejandro Luis",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      }
+    ]
+  },
+  {
+    "id": "rect_maribari_2@hotmail.com_70136",
+    "email": "maribari_2@hotmail.com",
+    "grupo": "70136",
+    "nombre": "Grupo 70136 - Barisone, Esteban",
+    "nombre_socio": "Barisone, Esteban",
+    "lineas": "2215466873",
+    "monto_adeudado": "24710.32",
+    "monto_cuota_cel": 24710.32,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215466873",
+        "nombre_socio": "Barisone, Esteban",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 24710.32,
+        "excedentes": 0,
+        "total_linea": 24710.32
+      }
+    ]
+  },
+  {
+    "id": "rect_maribari_2@hotmail.com_538",
+    "email": "maribari_2@hotmail.com",
+    "grupo": "538",
+    "nombre": "Grupo 538 - Barisone, Maria Laura",
+    "nombre_socio": "Barisone, Maria Laura",
+    "lineas": "2216206303",
+    "monto_adeudado": "23717.12",
+    "monto_cuota_cel": 23717.12,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2216206303",
+        "nombre_socio": "Barisone, Maria Laura",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 23717.12,
+        "excedentes": 0,
+        "total_linea": 23717.12
+      }
+    ]
+  },
+  {
+    "id": "rect_maribari_2@hotmail.com_3",
+    "email": "maribari_2@hotmail.com",
+    "grupo": "3",
+    "nombre": "Grupo 3 - Barisone, Alberto",
+    "nombre_socio": "Barisone, Alberto",
+    "lineas": "2355501114, 2355503964",
+    "monto_adeudado": "33074.94",
+    "monto_cuota_cel": 16537.47,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2355501114",
+        "nombre_socio": "Barisone, Alberto",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 16537.47,
+        "excedentes": 0,
+        "total_linea": 16537.47
+      },
+      {
+        "numero_linea": "2355503964",
+        "nombre_socio": "Martinez, Nelida Esther",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 16537.47,
+        "excedentes": 0,
+        "total_linea": 16537.47
+      }
+    ]
+  },
+  {
+    "id": "rect_marinalopez8@hotmail.com_701",
+    "email": "marinalopez8@hotmail.com",
+    "grupo": "701",
+    "nombre": "Grupo 701 - Lopez, Marina Susana",
+    "nombre_socio": "Lopez, Marina Susana",
+    "lineas": "2215468744",
+    "monto_adeudado": "24629.90",
+    "monto_cuota_cel": 24629.9,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215468744",
+        "nombre_socio": "Lopez, Marina Susana",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      }
+    ]
+  },
+  {
+    "id": "rect_marinalopez8@hotmail.com_5036",
+    "email": "marinalopez8@hotmail.com",
+    "grupo": "5036",
+    "nombre": "Grupo 5036 - Prieto, Isabel Maria",
+    "nombre_socio": "Prieto, Isabel Maria",
+    "lineas": "2396456445, 2396457300",
+    "monto_adeudado": "35963.60",
+    "monto_cuota_cel": 17981.8,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2396456445",
+        "nombre_socio": "Prieto, Isabel Maria",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 17981.8,
+        "excedentes": 0,
+        "total_linea": 17981.8
+      },
+      {
+        "numero_linea": "2396457300",
+        "nombre_socio": "Lopez, Jorge Eugenio",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 17981.8,
+        "excedentes": 0,
+        "total_linea": 17981.8
+      }
+    ]
+  },
+  {
+    "id": "rect_wado28@hotmail.com_202",
+    "email": "wado28@hotmail.com",
+    "grupo": "202",
+    "nombre": "Grupo 202 - Olivieri, Jorge Omar",
+    "nombre_socio": "Olivieri, Jorge Omar",
+    "lineas": "2215479951",
+    "monto_adeudado": "24629.90",
+    "monto_cuota_cel": 24629.9,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215479951",
+        "nombre_socio": "Olivieri, Jorge Omar",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      }
+    ]
+  },
+  {
+    "id": "rect_wado28@hotmail.com_70035",
+    "email": "wado28@hotmail.com",
+    "grupo": "70035",
+    "nombre": "Grupo 70035 - Gambra, Joaquin",
+    "nombre_socio": "Gambra, Joaquin",
+    "lineas": "2215724195",
+    "monto_adeudado": "30444.05",
+    "monto_cuota_cel": 30444.05,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215724195",
+        "nombre_socio": "Gambra, Joaquin",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 30444.05,
+        "excedentes": 0,
+        "total_linea": 30444.05
+      }
+    ]
+  },
+  {
+    "id": "rect_wado28@hotmail.com_70116",
+    "email": "wado28@hotmail.com",
+    "grupo": "70116",
+    "nombre": "Grupo 70116 - Ballanelli, Enzo",
+    "nombre_socio": "Ballanelli, Enzo",
+    "lineas": "2216118135, 2216265397",
+    "monto_adeudado": "46183.42",
+    "monto_cuota_cel": 21923.86,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2216118135",
+        "nombre_socio": "Ballanelli, Enzo",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 21923.86,
+        "excedentes": 0,
+        "total_linea": 21923.86
+      },
+      {
+        "numero_linea": "2216265397",
+        "nombre_socio": "Ballanelli, Enzo",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 24259.56,
+        "excedentes": 0,
+        "total_linea": 24259.56
+      }
+    ]
+  },
+  {
+    "id": "rect_fevangelista@hotmail.com_70106",
+    "email": "fevangelista@hotmail.com",
+    "grupo": "70106",
+    "nombre": "Grupo 70106 - Paulino, Viviana",
+    "nombre_socio": "Paulino, Viviana",
+    "lineas": "2215527258, 2216220392",
+    "monto_adeudado": "41343.68",
+    "monto_cuota_cel": 20671.84,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215527258",
+        "nombre_socio": "Paulino, Viviana",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2216220392",
+        "nombre_socio": "Evangelista, Franco",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      }
+    ]
+  },
+  {
+    "id": "rect_fevangelista@hotmail.com_70107",
+    "email": "fevangelista@hotmail.com",
+    "grupo": "70107",
+    "nombre": "Grupo 70107 - Evangelista, Fernando",
+    "nombre_socio": "Evangelista, Fernando",
+    "lineas": "2215722053",
+    "monto_adeudado": "30077.77",
+    "monto_cuota_cel": 30077.77,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215722053",
+        "nombre_socio": "Evangelista, Fernando",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 30077.77,
+        "excedentes": 0,
+        "total_linea": 30077.77
+      }
+    ]
+  },
+  {
+    "id": "rect_noralipetroff@hotmail.com_118",
+    "email": "noralipetroff@hotmail.com",
+    "grupo": "118",
+    "nombre": "Grupo 118 - Bellagamba, Liliana Monica",
+    "nombre_socio": "Bellagamba, Liliana Monica",
+    "lineas": "2216210636, 2214382064, 2215025855, 2215520679, 2216249634, 2216371028",
+    "monto_adeudado": "107355.41",
+    "monto_cuota_cel": 15064.86,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2216210636",
+        "nombre_socio": "Bellagamba, Liliana Monica",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 15064.86,
+        "excedentes": 0,
+        "total_linea": 15064.86
+      },
+      {
+        "numero_linea": "2214382064",
+        "nombre_socio": "Petroff, Norali",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 17628.69,
+        "excedentes": 0,
+        "total_linea": 17628.69
+      },
+      {
+        "numero_linea": "2215025855",
+        "nombre_socio": "Bellagamba, Adriana",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 15606.4,
+        "excedentes": 0,
+        "total_linea": 15606.4
+      },
+      {
+        "numero_linea": "2215520679",
+        "nombre_socio": "Petroff, Norali",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 21079,
+        "excedentes": 0,
+        "total_linea": 21079
+      },
+      {
+        "numero_linea": "2216249634",
+        "nombre_socio": "Petroff, Melisa ",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 17628.69,
+        "excedentes": 0,
+        "total_linea": 17628.69
+      },
+      {
+        "numero_linea": "2216371028",
+        "nombre_socio": "Rodrigues, Federico Javier",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20347.77,
+        "excedentes": 0,
+        "total_linea": 20347.77
+      }
+    ]
+  },
+  {
+    "id": "rect_noralipetroff@hotmail.com_70132",
+    "email": "noralipetroff@hotmail.com",
+    "grupo": "70132",
+    "nombre": "Grupo 70132 - Debiace, Pablo Daniel",
+    "nombre_socio": "Debiace, Pablo Daniel",
+    "lineas": "2213030671, 2215030952",
+    "monto_adeudado": "44270.59",
+    "monto_cuota_cel": 17628.69,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2213030671",
+        "nombre_socio": "Debiace, Pablo Daniel",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 17628.69,
+        "excedentes": 0,
+        "total_linea": 17628.69
+      },
+      {
+        "numero_linea": "2215030952",
+        "nombre_socio": "Debiace, Pablo ",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 26641.9,
+        "excedentes": 0,
+        "total_linea": 26641.9
+      }
+    ]
+  },
+  {
+    "id": "rect_yaclasa@gmail.com_70043",
+    "email": "yaclasa@gmail.com",
+    "grupo": "70043",
+    "nombre": "Grupo 70043 - Asprea Sarin, Lucia",
+    "nombre_socio": "Asprea Sarin, Lucia",
+    "lineas": "2216262151",
+    "monto_adeudado": "20671.84",
+    "monto_cuota_cel": 20671.84,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2216262151",
+        "nombre_socio": "Asprea Sarin, Lucia",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      }
+    ]
+  },
+  {
+    "id": "rect_yaclasa@gmail.com_157",
+    "email": "yaclasa@gmail.com",
+    "grupo": "157",
+    "nombre": "Grupo 157 - Sarin, Yamila",
+    "nombre_socio": "Sarin, Yamila",
+    "lineas": "2216262231, 2216262266",
+    "monto_adeudado": "41343.68",
+    "monto_cuota_cel": 20671.84,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2216262231",
+        "nombre_socio": "Sarin, Yamila",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2216262266",
+        "nombre_socio": "Asprea Sarin, Ana",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      }
+    ]
+  },
+  {
+    "id": "rect_josebabilbao@hotmail.com_70047",
+    "email": "josebabilbao@hotmail.com",
+    "grupo": "70047",
+    "nombre": "Grupo 70047 - Bilbao, Joseba",
+    "nombre_socio": "Bilbao, Joseba",
+    "lineas": "2262498486",
+    "monto_adeudado": "24629.90",
+    "monto_cuota_cel": 24629.9,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2262498486",
+        "nombre_socio": "Bilbao, Joseba",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      }
+    ]
+  },
+  {
+    "id": "rect_josebabilbao@hotmail.com_702",
+    "email": "josebabilbao@hotmail.com",
+    "grupo": "702",
+    "nombre": "Grupo 702 - De Ustaran, Adriana Gloria",
+    "nombre_socio": "De Ustaran, Adriana Gloria",
+    "lineas": "3412173901",
+    "monto_adeudado": "17981.80",
+    "monto_cuota_cel": 17981.8,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "3412173901",
+        "nombre_socio": "De Ustaran, Adriana Gloria",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 17981.8,
+        "excedentes": 0,
+        "total_linea": 17981.8
+      }
+    ]
+  },
+  {
+    "id": "rect_bocalon.susana@gmail.com_70098",
+    "email": "bocalon.susana@gmail.com",
+    "grupo": "70098",
+    "nombre": "Grupo 70098 - Bocalon, Susana Mabel",
+    "nombre_socio": "Bocalon, Susana Mabel",
+    "lineas": "2392562596",
+    "monto_adeudado": "20671.84",
+    "monto_cuota_cel": 20671.84,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2392562596",
+        "nombre_socio": "Bocalon, Susana Mabel",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      }
+    ]
+  },
+  {
+    "id": "rect_bocalon.susana@gmail.com_165",
+    "email": "bocalon.susana@gmail.com",
+    "grupo": "165",
+    "nombre": "Grupo 165 - Navas, Carla Gimena",
+    "nombre_socio": "Navas, Carla Gimena",
+    "lineas": "2914720075, 2914754937, 2915758281",
+    "monto_adeudado": "69931.64",
+    "monto_cuota_cel": 24629.9,
+    "periodo": "08-2026",
+    "fpago": "Grupo",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2914720075",
+        "nombre_socio": "Navas, Carla Gimena",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      },
+      {
+        "numero_linea": "2914754937",
+        "nombre_socio": "Navas, Carla Gimena (Hijo)",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      },
+      {
+        "numero_linea": "2915758281",
+        "nombre_socio": "Falcon, Alfredo Angel",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      }
+    ]
+  }
+]
