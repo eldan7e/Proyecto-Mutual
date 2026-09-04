@@ -33,13 +33,20 @@ export default function Campanas() {
       const saved = localStorage.getItem('active_campaign_progress');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed && !parsed.isFinished && (Date.now() - new Date(parsed.startTime).getTime()) < 7200000) {
+        if (parsed && (Date.now() - new Date(parsed.startTime).getTime()) < 86400000) {
           return parsed;
         }
       }
     } catch (e) {}
     return null;
   });
+
+  // Campañas Completadas (Paso 4)
+  const [completedCampaignsList, setCompletedCampaignsList] = useState([]);
+  const [selectedCompletedCampaignName, setSelectedCompletedCampaignName] = useState('');
+  const [completedCampaignData, setCompletedCampaignData] = useState(null);
+  const [loadingCompletedCampaign, setLoadingCompletedCampaign] = useState(false);
+  const [step4SearchRecipient, setStep4SearchRecipient] = useState('');
 
   useEffect(() => {
     if (activeCampaign) {
@@ -374,6 +381,122 @@ export default function Campanas() {
     setN8nBotWebhookUrl(val);
     localStorage.setItem('n8n_webhook_bot_url', val);
   };
+
+  // --------------- GESTIÓN DE CAMPAÑAS COMPLETADAS (PASO 4) ---------------
+  const fetchCompletedCampaignsList = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('campanas_logs')
+        .select('nombre_campana, created_at, asunto, estado')
+        .order('created_at', { ascending: false })
+        .limit(2500);
+
+      if (error) throw error;
+      if (!data || data.length === 0) {
+        setCompletedCampaignsList([]);
+        return;
+      }
+
+      const map = new Map();
+      data.forEach(log => {
+        const name = (log.nombre_campana || '').trim();
+        if (!name) return;
+        if (!map.has(name)) {
+          map.set(name, {
+            nombre: name,
+            asunto: log.asunto || '',
+            firstDate: log.created_at,
+            lastDate: log.created_at,
+            total: 0,
+            exitos: 0,
+            errores: 0
+          });
+        }
+        const item = map.get(name);
+        item.total += 1;
+        if (log.estado === 'exito') item.exitos += 1;
+        if (log.estado === 'error') item.errores += 1;
+        if (new Date(log.created_at) < new Date(item.firstDate)) item.firstDate = log.created_at;
+        if (new Date(log.created_at) > new Date(item.lastDate)) item.lastDate = log.created_at;
+      });
+
+      const list = Array.from(map.values());
+      setCompletedCampaignsList(list);
+
+      // Si no hay activa ni seleccionada, auto-seleccionar la última
+      if (list.length > 0 && !selectedCompletedCampaignName && !activeCampaign) {
+        setSelectedCompletedCampaignName(list[0].nombre);
+        loadCompletedCampaignDetails(list[0].nombre);
+      }
+    } catch (err) {
+      console.warn('Error al cargar lista de campañas completadas:', err);
+    }
+  };
+
+  const loadCompletedCampaignDetails = async (campaignName) => {
+    if (!campaignName) return;
+    setLoadingCompletedCampaign(true);
+    try {
+      const { data, error } = await supabase
+        .from('campanas_logs')
+        .select('*')
+        .eq('nombre_campana', campaignName)
+        .order('created_at', { ascending: true })
+        .limit(2000);
+
+      if (error) throw error;
+      const logs = data || [];
+      const successCount = logs.filter(l => l.estado === 'exito').length;
+      const errorCount = logs.filter(l => l.estado === 'error').length;
+      const firstSubject = logs[0]?.asunto || '';
+      const firstTime = logs[0]?.created_at || new Date().toISOString();
+      const lastTime = logs[logs.length - 1]?.created_at || firstTime;
+
+      setCompletedCampaignData({
+        name: campaignName,
+        subject: firstSubject,
+        total: logs.length,
+        sentCount: logs.length,
+        successCount,
+        errorCount,
+        startTime: firstTime,
+        endTime: lastTime,
+        isFinished: true,
+        logs
+      });
+    } catch (err) {
+      console.error('Error al cargar detalle de campaña completada:', err);
+    } finally {
+      setLoadingCompletedCampaign(false);
+    }
+  };
+
+  useEffect(() => {
+    if (currentStep === 4) {
+      fetchCompletedCampaignsList();
+      if (selectedCompletedCampaignName) {
+        loadCompletedCampaignDetails(selectedCompletedCampaignName);
+      }
+    }
+  }, [currentStep]);
+
+  const campaignToDisplay = useMemo(() => {
+    if (activeCampaign && (!selectedCompletedCampaignName || selectedCompletedCampaignName === activeCampaign.name)) {
+      return activeCampaign;
+    }
+    return completedCampaignData;
+  }, [activeCampaign, selectedCompletedCampaignName, completedCampaignData]);
+
+  const filteredStep4Logs = useMemo(() => {
+    const list = campaignToDisplay?.logs || [];
+    if (!step4SearchRecipient.trim()) return list;
+    const s = step4SearchRecipient.toLowerCase().trim();
+    return list.filter(l => 
+      (l.destinatario_nombre && l.destinatario_nombre.toLowerCase().includes(s)) ||
+      (l.destinatario_email && l.destinatario_email.toLowerCase().includes(s)) ||
+      (l.asunto && l.asunto.toLowerCase().includes(s))
+    );
+  }, [campaignToDisplay?.logs, step4SearchRecipient]);
 
   // --------------- GESTIÓN DE PLANTILLAS PERSONALIZADAS ---------------
   const fetchCustomTemplates = async () => {
@@ -1420,12 +1543,13 @@ export default function Campanas() {
     }
   }
 
-  async function fetchLogs() {
+  async function fetchLogs(overrideSearch) {
     setLoadingLogs(true);
     try {
       let query = supabase.from('campanas_logs').select('*');
-      if (debouncedSearchLog.trim()) {
-        const s = `%${debouncedSearchLog.trim().toLowerCase()}%`;
+      const searchTerm = typeof overrideSearch === 'string' ? overrideSearch.trim() : debouncedSearchLog.trim();
+      if (searchTerm) {
+        const s = `%${searchTerm.toLowerCase()}%`;
         query = query.or(`nombre_campana.ilike.${s},destinatario_nombre.ilike.${s},destinatario_email.ilike.${s},asunto.ilike.${s}`);
       }
       if (filterLogEstado !== 'ALL') query = query.eq('estado', filterLogEstado);
@@ -1620,6 +1744,8 @@ export default function Campanas() {
         isFinished: false,
         isMinimized: false
       });
+      setSelectedCompletedCampaignName(campaignName.trim());
+      setCurrentStep(4);
 
       addToast(`Campaña iniciada para ${totalConsolidados} destinatarios. Monitoreando en vivo...`, 'success');
 
@@ -2562,78 +2688,72 @@ export default function Campanas() {
           <div style={S.wizardBar}>
             <button 
               type="button"
-              style={{ ...S.wizardStep(currentStep === 1 && (!activeCampaign || activeCampaign.isMinimized)), cursor: 'pointer' }}
-              onClick={() => {
-                if (activeCampaign) setActiveCampaign(prev => ({ ...prev, isMinimized: true }));
-                setCurrentStep(1);
-              }}
+              style={{ ...S.wizardStep(currentStep === 1), cursor: 'pointer' }}
+              onClick={() => setCurrentStep(1)}
             >
-              <div style={S.wizardCircle(currentStep === 1 && (!activeCampaign || activeCampaign.isMinimized))}>1</div>
+              <div style={S.wizardCircle(currentStep === 1)}>1</div>
               <span>Destinatarios</span>
             </button>
             <div style={S.wizardLine} />
             <button 
               type="button"
               style={{ 
-                ...S.wizardStep(currentStep === 2 && (!activeCampaign || activeCampaign.isMinimized)), 
+                ...S.wizardStep(currentStep === 2), 
                 cursor: totalSelected > 0 ? 'pointer' : 'not-allowed' 
               }}
               disabled={totalSelected === 0}
               onClick={() => {
-                if (activeCampaign) setActiveCampaign(prev => ({ ...prev, isMinimized: true }));
                 if (totalSelected > 0) setCurrentStep(2);
               }}
             >
-              <div style={S.wizardCircle(currentStep === 2 && (!activeCampaign || activeCampaign.isMinimized))}>2</div>
+              <div style={S.wizardCircle(currentStep === 2)}>2</div>
               <span>Mensaje</span>
             </button>
             <div style={S.wizardLine} />
             <button 
               type="button"
-              style={{ ...S.wizardStep(currentStep === 3 && (!activeCampaign || activeCampaign.isMinimized)), cursor: 'pointer' }}
-              onClick={() => {
-                if (activeCampaign) setActiveCampaign(prev => ({ ...prev, isMinimized: true }));
-                setCurrentStep(3);
-              }}
+              style={{ ...S.wizardStep(currentStep === 3), cursor: 'pointer' }}
+              onClick={() => setCurrentStep(3)}
             >
-              <div style={S.wizardCircle(currentStep === 3 && (!activeCampaign || activeCampaign.isMinimized))}>3</div>
+              <div style={S.wizardCircle(currentStep === 3)}>3</div>
               <span>Historial</span>
             </button>
-
-            {/* Tab interactivo de campaña en vivo */}
-            {activeCampaign && (
-              <>
-                <div style={S.wizardLine} />
-                <button 
-                  type="button"
-                  style={{ 
-                    ...S.wizardStep(!activeCampaign.isMinimized), 
-                    cursor: 'pointer',
-                    background: !activeCampaign.isMinimized ? 'rgba(16, 185, 129, 0.12)' : 'transparent',
-                    borderColor: 'rgba(16, 185, 129, 0.4)'
-                  }}
-                  onClick={() => setActiveCampaign(prev => ({ ...prev, isMinimized: false }))}
-                >
-                  <div style={{
-                    ...S.wizardCircle(!activeCampaign.isMinimized),
-                    background: !activeCampaign.isFinished ? '#059669' : '#10b981',
-                    color: '#fff',
-                    borderColor: '#059669'
-                  }}>
-                    {!activeCampaign.isFinished ? (
-                      <Loader2 className="animate-spin" size={13} />
-                    ) : (
-                      <Check size={13} />
-                    )}
-                  </div>
-                  <span style={{ color: '#047857', fontWeight: 800 }}>
-                    {!activeCampaign.isFinished 
-                      ? `En Vivo (${activeCampaign.sentCount}/${activeCampaign.total})` 
-                      : 'Completada'}
-                  </span>
-                </button>
-              </>
-            )}
+            <div style={S.wizardLine} />
+            <button 
+              type="button"
+              style={{ 
+                ...S.wizardStep(currentStep === 4), 
+                cursor: 'pointer',
+                ...(currentStep === 4 ? { 
+                  background: 'rgba(16, 185, 129, 0.12)', 
+                  border: '1px solid rgba(16, 185, 129, 0.4)',
+                  padding: '4px 14px',
+                  borderRadius: '20px'
+                } : {})
+              }}
+              onClick={() => setCurrentStep(4)}
+            >
+              <div style={{
+                ...S.wizardCircle(currentStep === 4),
+                background: currentStep === 4 || (activeCampaign && activeCampaign.isFinished) ? '#10b981' : (activeCampaign && !activeCampaign.isFinished ? '#059669' : 'transparent'),
+                color: currentStep === 4 || (activeCampaign && activeCampaign.isFinished) || (activeCampaign && !activeCampaign.isFinished) ? '#fff' : 'var(--text-secondary)',
+                borderColor: currentStep === 4 || (activeCampaign && activeCampaign.isFinished) || (activeCampaign && !activeCampaign.isFinished) ? '#059669' : 'var(--text-secondary)'
+              }}>
+                {activeCampaign && !activeCampaign.isFinished ? (
+                  <Loader2 className="animate-spin" size={13} color="#fff" />
+                ) : (
+                  <Check size={13} />
+                )}
+              </div>
+              <span style={{ 
+                color: currentStep === 4 ? '#047857' : (activeCampaign && activeCampaign.isFinished ? '#047857' : undefined), 
+                fontWeight: currentStep === 4 ? 800 : 600 
+              }}>
+                {activeCampaign && !activeCampaign.isFinished 
+                  ? `En Vivo (${activeCampaign.sentCount}/${activeCampaign.total})` 
+                  : 'Completada'}
+              </span>
+            </button>
           </div>
 
           {/* Right: Webhook */}
@@ -2653,272 +2773,374 @@ export default function Campanas() {
         </div>
       </div>
 
-      {/* ═══════════════════ PANTALLA DE PROGRESO DE CAMPAÑA EN VIVO ═══════════════════ */}
-      {activeCampaign && !activeCampaign.isMinimized ? (
-        <div style={S.card}>
-          {/* Encabezado con estado y acciones */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                {!activeCampaign.isFinished ? (
-                  <span style={{
-                    background: 'rgba(16, 185, 129, 0.1)',
-                    color: '#047857',
-                    border: '1px solid rgba(16, 185, 129, 0.3)',
-                    padding: '4px 12px',
-                    borderRadius: '20px',
-                    fontSize: '11.5px',
-                    fontWeight: 800,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }} className="animate-ping" />
-                    Despachando en vivo con n8n
+      {/* Banner de aviso si hay campaña en curso y el usuario está en otro paso */}
+      {activeCampaign && !activeCampaign.isFinished && currentStep !== 4 && (
+        <div style={{
+          background: 'rgba(16, 185, 129, 0.08)',
+          border: '1px solid rgba(16, 185, 129, 0.3)',
+          borderRadius: '16px',
+          padding: '12px 18px',
+          marginBottom: '18px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <Loader2 className="animate-spin" size={18} color="#059669" />
+            <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+              Campaña en curso: {activeCampaign.name} ({activeCampaign.sentCount}/{activeCampaign.total} procesados • {Math.round((activeCampaign.sentCount / (activeCampaign.total || 1)) * 100)}%)
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCurrentStep(4)}
+            style={{ ...S.btnPrimary, padding: '6px 14px', fontSize: '12px', gap: '6px' }}
+          >
+            <Maximize2 size={13} /> Ver pantalla completa
+          </button>
+        </div>
+      )}
+
+      {/* ═══════════════════ PASO 4: CAMPAÑAS COMPLETADAS Y EN VIVO ═══════════════════ */}
+      {currentStep === 4 && (
+        <>
+          {loadingCompletedCampaign && !campaignToDisplay ? (
+            <div style={S.card}>
+              <div style={S.emptyState}>
+                <Loader2 className="animate-spin" size={32} style={{ color: 'var(--accent)', marginBottom: '12px' }} />
+                <h4 style={{ margin: 0, fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)' }}>Cargando datos de la campaña...</h4>
+              </div>
+            </div>
+          ) : !campaignToDisplay ? (
+            <div style={S.card}>
+              <div style={S.emptyState}>
+                <CheckCircle2 size={42} style={{ marginBottom: '12px', color: 'var(--accent)', opacity: 0.6 }} />
+                <h4 style={{ margin: 0, fontWeight: 700, fontSize: '15px', color: 'var(--text-primary)' }}>Sin campañas para mostrar</h4>
+                <p style={{ fontSize: '13px', margin: '6px 0 16px', color: 'var(--text-secondary)' }}>
+                  No se registran campañas completadas o en curso. Podés crear y despachar una nueva campaña desde el Paso 1.
+                </p>
+                <button 
+                  onClick={() => { setCurrentStep(1); setCampaignType(null); }} 
+                  style={S.btnPrimary}
+                >
+                  <PlusCircle size={15} /> Iniciar Nueva Campaña
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={S.card}>
+              {/* Encabezado con estado y acciones */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                    {!campaignToDisplay.isFinished ? (
+                      <span style={{
+                        background: 'rgba(16, 185, 129, 0.1)',
+                        color: '#047857',
+                        border: '1px solid rgba(16, 185, 129, 0.3)',
+                        padding: '4px 12px',
+                        borderRadius: '20px',
+                        fontSize: '11.5px',
+                        fontWeight: 800,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}>
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }} className="animate-ping" />
+                        Despachando en vivo con n8n
+                      </span>
+                    ) : (
+                      <span style={{
+                        background: '#ecfdf5',
+                        color: '#047857',
+                        border: '1px solid #a7f3d0',
+                        padding: '4px 12px',
+                        borderRadius: '20px',
+                        fontSize: '11.5px',
+                        fontWeight: 800,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}>
+                        <CheckCircle size={14} color="#059669" />
+                        Campaña finalizada
+                      </span>
+                    )}
+                    {campaignToDisplay.startTime && (
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                        Iniciada: {new Date(campaignToDisplay.startTime).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        {campaignToDisplay.endTime && campaignToDisplay.isFinished && (
+                          <> • Finalizada: {new Date(campaignToDisplay.endTime).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                  <h2 style={{ margin: '0 0 6px 0', fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                    {campaignToDisplay.name}
+                  </h2>
+                  <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    Asunto: <strong>{campaignToDisplay.subject || 'Sin asunto'}</strong> • Despacho: <strong>Brevo API (Alta Velocidad)</strong>
+                  </p>
+                </div>
+
+                {/* Acciones de la barra superior */}
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  {completedCampaignsList.length > 1 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>Campaña:</span>
+                      <select
+                        value={campaignToDisplay.name}
+                        onChange={(e) => {
+                          const targetName = e.target.value;
+                          setSelectedCompletedCampaignName(targetName);
+                          if (activeCampaign && activeCampaign.name === targetName) {
+                            // Mantener activa
+                          } else {
+                            loadCompletedCampaignDetails(targetName);
+                          }
+                        }}
+                        style={{ ...S.input, padding: '6px 12px', fontSize: '12px', minWidth: '220px', cursor: 'pointer', background: 'rgba(255,255,255,0.85)' }}
+                      >
+                        {completedCampaignsList.map(c => (
+                          <option key={c.nombre} value={c.nombre}>
+                            {c.nombre} ({c.total} correos)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setCurrentStep(1)}
+                    style={{ ...S.btnSecondary, padding: '8px 16px', fontSize: '13px' }}
+                  >
+                    <Minimize2 size={15} /> Minimizar
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchLog(campaignToDisplay.name);
+                      setDebouncedSearchLog(campaignToDisplay.name);
+                      setCurrentStep(3);
+                      fetchLogs(campaignToDisplay.name);
+                    }}
+                    style={{ ...S.btnSecondary, padding: '8px 16px', fontSize: '13px' }}
+                  >
+                    <FileText size={15} /> Ver en Historial
+                  </button>
+
+                  {campaignToDisplay.isFinished && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveCampaign(null);
+                        setCurrentStep(1);
+                        setCampaignType(null);
+                      }}
+                      style={{ ...S.btnPrimary, padding: '8px 18px', fontSize: '13px' }}
+                    >
+                      <PlusCircle size={15} /> Nueva Campaña
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Grilla de métricas clave */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+                <div style={{ padding: '16px', borderRadius: '16px', background: 'rgba(255,255,255,0.6)', border: '1px solid var(--border-light)' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>Progreso de Campaña</div>
+                  <div style={{ fontSize: '24px', fontWeight: 900, color: 'var(--text-primary)' }}>
+                    {Math.round((campaignToDisplay.sentCount / (campaignToDisplay.total || 1)) * 100)}%
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    {campaignToDisplay.sentCount} de {campaignToDisplay.total} correos procesados
+                  </div>
+                </div>
+
+                <div style={{ padding: '16px', borderRadius: '16px', background: 'rgba(255,255,255,0.6)', border: '1px solid var(--border-light)' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>Tiempo Estimado Restante</div>
+                  <div style={{ fontSize: '24px', fontWeight: 900, color: campaignToDisplay.isFinished ? '#059669' : '#0284c7' }}>
+                    {campaignToDisplay.isFinished ? 'Completado' : calculateRemainingTime(campaignToDisplay.total, campaignToDisplay.sentCount)}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    {campaignToDisplay.isFinished ? 'Todos los correos despachados' : 'Despacho rápido vía Brevo API'}
+                  </div>
+                </div>
+
+                <div style={{ padding: '16px', borderRadius: '16px', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: '#047857', marginBottom: '4px' }}>Enviados con Éxito</div>
+                  <div style={{ fontSize: '24px', fontWeight: 900, color: '#059669' }}>
+                    {campaignToDisplay.successCount}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#047857', marginTop: '2px' }}>
+                    Entregados vía Brevo API
+                  </div>
+                </div>
+
+                <div style={{ padding: '16px', borderRadius: '16px', background: campaignToDisplay.errorCount > 0 ? 'rgba(239, 68, 68, 0.06)' : 'rgba(255,255,255,0.6)', border: `1px solid ${campaignToDisplay.errorCount > 0 ? 'rgba(239, 68, 68, 0.2)' : 'var(--border-light)'}` }}>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: campaignToDisplay.errorCount > 0 ? '#b91c1c' : 'var(--text-secondary)', marginBottom: '4px' }}>Rebotados / Con Error</div>
+                  <div style={{ fontSize: '24px', fontWeight: 900, color: campaignToDisplay.errorCount > 0 ? '#dc2626' : 'var(--text-primary)' }}>
+                    {campaignToDisplay.errorCount}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    {campaignToDisplay.errorCount > 0 ? 'Revisar detalle en el feed' : 'Sin errores reportados'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Barra de progreso */}
+              <div style={{ marginBottom: '28px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                    {!campaignToDisplay.isFinished ? 'Despachando lote en segundo plano con n8n...' : 'Lote completado al 100%'}
+                  </span>
+                  <span style={{ fontSize: '12.5px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                    {Math.round((campaignToDisplay.sentCount / (campaignToDisplay.total || 1)) * 100)}%
+                  </span>
+                </div>
+                <div style={{ height: '12px', background: 'rgba(0,0,0,0.06)', borderRadius: '6px', overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${Math.min(100, (campaignToDisplay.sentCount / (campaignToDisplay.total || 1)) * 100)}%`,
+                    background: 'linear-gradient(90deg, #10b981 0%, #059669 100%)',
+                    borderRadius: '6px',
+                    transition: 'width 0.4s ease'
+                  }} />
+                </div>
+              </div>
+
+              {/* Feed en vivo: Movimiento por movimiento */}
+              <div style={{ background: 'rgba(255,255,255,0.7)', borderRadius: '16px', border: '1px solid var(--border-light)', padding: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Sparkles size={16} color="var(--accent)" />
+                    <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                      Avance de Envíos en Vivo (Movimiento por movimiento)
+                    </h4>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <input
+                      type="text"
+                      placeholder="Buscar destinatario o correo..."
+                      value={step4SearchRecipient}
+                      onChange={(e) => setStep4SearchRecipient(e.target.value)}
+                      style={{ ...S.input, padding: '5px 12px', fontSize: '12px', width: '220px' }}
+                    />
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                      {filteredStep4Logs.length} de {campaignToDisplay.logs.length} movimientos
+                    </span>
+                  </div>
+                </div>
+
+                {campaignToDisplay.logs.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-secondary)' }}>
+                    <Loader2 className="animate-spin" size={28} style={{ margin: '0 auto 12px auto', color: 'var(--accent)' }} />
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>
+                      Despachando campaña con n8n...
+                    </div>
+                    <p style={{ margin: 0, fontSize: '12.5px' }}>
+                      El flujo está procesando los destinatarios vía Brevo API.
+                    </p>
+                  </div>
+                ) : (
+                  <div 
+                    style={{ 
+                      maxHeight: '340px', 
+                      overflowY: 'auto', 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      gap: '8px', 
+                      paddingRight: '6px' 
+                    }}
+                    className="premium-scrollbar"
+                  >
+                    {filteredStep4Logs.map((log, idx) => (
+                      <div
+                        key={log.id || `log-${idx}`}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '10px 14px',
+                          borderRadius: '12px',
+                          background: log.estado === 'exito' ? 'rgba(16, 185, 129, 0.05)' : 'rgba(239, 68, 68, 0.05)',
+                          border: `1px solid ${log.estado === 'exito' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
+                          transition: 'all 0.2s ease',
+                          cursor: log.cuerpo_html ? 'pointer' : 'default'
+                        }}
+                        onClick={() => { if (log.cuerpo_html) openLogDetail(log); }}
+                        title={log.cuerpo_html ? 'Clic para ver el correo enviado' : undefined}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+                          {log.estado === 'exito' ? (
+                            <CheckCircle2 size={18} color="#059669" style={{ flexShrink: 0 }} />
+                          ) : (
+                            <AlertCircle size={18} color="#dc2626" style={{ flexShrink: 0 }} />
+                          )}
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {log.destinatario_nombre || 'Destinatario'}
+                            </div>
+                            <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {log.destinatario_email} {log.asunto ? `• ${log.asunto}` : ''}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0, textAlign: 'right' }}>
+                          <div>
+                            <span style={{
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              padding: '2px 8px',
+                              borderRadius: '6px',
+                              background: log.estado === 'exito' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                              color: log.estado === 'exito' ? '#047857' : '#b91c1c'
+                            }}>
+                              {log.estado === 'exito' ? 'Enviado' : 'Error'}
+                            </span>
+                            {log.error_mensaje && (
+                              <div style={{ fontSize: '10.5px', color: '#b91c1c', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '2px' }} title={log.error_mensaje}>
+                                {log.error_mensaje}
+                              </div>
+                            )}
+                          </div>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', minWidth: '55px' }}>
+                            {new Date(log.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Banner informativo */}
+              <div style={{ marginTop: '20px', padding: '12px 16px', borderRadius: '12px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  💡 Podés consultar esta pantalla en cualquier momento desde el Paso 4 "Completada" o revisar el historial completo en el Paso 3.
+                </span>
+                {!campaignToDisplay.isFinished ? (
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#059669', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                    <Clock size={13} /> Despacho activo
                   </span>
                 ) : (
-                  <span style={{
-                    background: '#ecfdf5',
-                    color: '#047857',
-                    border: '1px solid #a7f3d0',
-                    padding: '4px 12px',
-                    borderRadius: '20px',
-                    fontSize: '11.5px',
-                    fontWeight: 800,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}>
-                    <CheckCircle size={14} color="#059669" />
-                    Campaña finalizada
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#059669', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                    <Check size={13} /> Proceso concluido
                   </span>
                 )}
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  Iniciada: {new Date(activeCampaign.startTime).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                </span>
-              </div>
-              <h2 style={{ margin: '0 0 6px 0', fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                {activeCampaign.name}
-              </h2>
-              <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
-                Asunto: <strong>{activeCampaign.subject}</strong> • Despacho: <strong>Brevo API (Alta Velocidad)</strong>
-              </p>
-            </div>
-
-            {/* Acciones de la barra superior */}
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={() => setActiveCampaign(prev => ({ ...prev, isMinimized: true }))}
-                style={{ ...S.btnSecondary, padding: '8px 16px', fontSize: '13px' }}
-              >
-                <Minimize2 size={15} /> Minimizar
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveCampaign(prev => ({ ...prev, isMinimized: true }));
-                  setCurrentStep(3);
-                  fetchLogs();
-                }}
-                style={{ ...S.btnSecondary, padding: '8px 16px', fontSize: '13px' }}
-              >
-                <FileText size={15} /> Ver en Historial
-              </button>
-              {activeCampaign.isFinished && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveCampaign(null);
-                    setCurrentStep(1);
-                    setCampaignType(null);
-                  }}
-                  style={{ ...S.btnPrimary, padding: '8px 18px', fontSize: '13px' }}
-                >
-                  <PlusCircle size={15} /> Nueva Campaña
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Grilla de métricas clave */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-            <div style={{ padding: '16px', borderRadius: '16px', background: 'rgba(255,255,255,0.6)', border: '1px solid var(--border-light)' }}>
-              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>Progreso de Campaña</div>
-              <div style={{ fontSize: '24px', fontWeight: 900, color: 'var(--text-primary)' }}>
-                {Math.round((activeCampaign.sentCount / (activeCampaign.total || 1)) * 100)}%
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                {activeCampaign.sentCount} de {activeCampaign.total} correos procesados
               </div>
             </div>
+          )}
+        </>
+      )}
 
-            <div style={{ padding: '16px', borderRadius: '16px', background: 'rgba(255,255,255,0.6)', border: '1px solid var(--border-light)' }}>
-              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>Tiempo Estimado Restante</div>
-              <div style={{ fontSize: '24px', fontWeight: 900, color: activeCampaign.isFinished ? '#059669' : '#0284c7' }}>
-                {activeCampaign.isFinished ? 'Completado' : calculateRemainingTime(activeCampaign.total, activeCampaign.sentCount)}
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                {activeCampaign.isFinished ? 'Todos los correos despachados' : 'Despacho rápido vía Brevo API'}
-              </div>
-            </div>
-
-            <div style={{ padding: '16px', borderRadius: '16px', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
-              <div style={{ fontSize: '12px', fontWeight: 700, color: '#047857', marginBottom: '4px' }}>Enviados con Éxito</div>
-              <div style={{ fontSize: '24px', fontWeight: 900, color: '#059669' }}>
-                {activeCampaign.successCount}
-              </div>
-              <div style={{ fontSize: '12px', color: '#047857', marginTop: '2px' }}>
-                Entregados vía Brevo API
-              </div>
-            </div>
-
-            <div style={{ padding: '16px', borderRadius: '16px', background: activeCampaign.errorCount > 0 ? 'rgba(239, 68, 68, 0.06)' : 'rgba(255,255,255,0.6)', border: `1px solid ${activeCampaign.errorCount > 0 ? 'rgba(239, 68, 68, 0.2)' : 'var(--border-light)'}` }}>
-              <div style={{ fontSize: '12px', fontWeight: 700, color: activeCampaign.errorCount > 0 ? '#b91c1c' : 'var(--text-secondary)', marginBottom: '4px' }}>Rebotados / Con Error</div>
-              <div style={{ fontSize: '24px', fontWeight: 900, color: activeCampaign.errorCount > 0 ? '#dc2626' : 'var(--text-primary)' }}>
-                {activeCampaign.errorCount}
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                {activeCampaign.errorCount > 0 ? 'Revisar detalle en el feed' : 'Sin errores reportados'}
-              </div>
-            </div>
-          </div>
-
-          {/* Barra de progreso */}
-          <div style={{ marginBottom: '28px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <span style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                {!activeCampaign.isFinished ? 'Despachando lote en segundo plano con n8n...' : 'Lote completado al 100%'}
-              </span>
-              <span style={{ fontSize: '12.5px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                {Math.round((activeCampaign.sentCount / (activeCampaign.total || 1)) * 100)}%
-              </span>
-            </div>
-            <div style={{ height: '12px', background: 'rgba(0,0,0,0.06)', borderRadius: '6px', overflow: 'hidden' }}>
-              <div style={{
-                height: '100%',
-                width: `${Math.min(100, (activeCampaign.sentCount / (activeCampaign.total || 1)) * 100)}%`,
-                background: 'linear-gradient(90deg, #10b981 0%, #059669 100%)',
-                borderRadius: '6px',
-                transition: 'width 0.4s ease'
-              }} />
-            </div>
-          </div>
-
-          {/* Feed en vivo: Movimiento por movimiento */}
-          <div style={{ background: 'rgba(255,255,255,0.7)', borderRadius: '16px', border: '1px solid var(--border-light)', padding: '20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Sparkles size={16} color="var(--accent)" />
-                <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                  Avance de Envíos en Vivo (Movimiento por movimiento)
-                </h4>
-              </div>
-              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                {activeCampaign.logs.length} movimientos
-              </span>
-            </div>
-
-            {activeCampaign.logs.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-secondary)' }}>
-                <Loader2 className="animate-spin" size={28} style={{ margin: '0 auto 12px auto', color: 'var(--accent)' }} />
-                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>
-                  Despachando campaña con n8n...
-                </div>
-                <p style={{ margin: 0, fontSize: '12.5px' }}>
-                  El flujo está procesando los destinatarios vía Brevo API.
-                </p>
-              </div>
-            ) : (
-              <div 
-                style={{ 
-                  maxHeight: '340px', 
-                  overflowY: 'auto', 
-                  display: 'flex', 
-                  flexDirection: 'column', 
-                  gap: '8px', 
-                  paddingRight: '6px' 
-                }}
-                className="premium-scrollbar"
-              >
-                {activeCampaign.logs.map((log, idx) => (
-                  <div
-                    key={log.id || `log-${idx}`}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '10px 14px',
-                      borderRadius: '12px',
-                      background: log.estado === 'exito' ? 'rgba(16, 185, 129, 0.05)' : 'rgba(239, 68, 68, 0.05)',
-                      border: `1px solid ${log.estado === 'exito' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
-                      transition: 'all 0.2s ease'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
-                      {log.estado === 'exito' ? (
-                        <CheckCircle2 size={18} color="#059669" style={{ flexShrink: 0 }} />
-                      ) : (
-                        <AlertCircle size={18} color="#dc2626" style={{ flexShrink: 0 }} />
-                      )}
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {log.destinatario_nombre || 'Destinatario'}
-                        </div>
-                        <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {log.destinatario_email} {log.asunto ? `• ${log.asunto}` : ''}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0, textAlign: 'right' }}>
-                      <div>
-                        <span style={{
-                          fontSize: '11px',
-                          fontWeight: 800,
-                          padding: '2px 8px',
-                          borderRadius: '6px',
-                          background: log.estado === 'exito' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                          color: log.estado === 'exito' ? '#047857' : '#b91c1c'
-                        }}>
-                          {log.estado === 'exito' ? 'Enviado' : 'Error'}
-                        </span>
-                        {log.error_mensaje && (
-                          <div style={{ fontSize: '10.5px', color: '#b91c1c', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '2px' }} title={log.error_mensaje}>
-                            {log.error_mensaje}
-                          </div>
-                        )}
-                      </div>
-                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', minWidth: '55px' }}>
-                        {new Date(log.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Banner informativo */}
-          <div style={{ marginTop: '20px', padding: '12px 16px', borderRadius: '12px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-              💡 Podés minimizar esta pantalla o cambiar de pestaña. El proceso continúa ejecutándose de forma autónoma en el servidor de n8n.
-            </span>
-            {!activeCampaign.isFinished ? (
-              <span style={{ fontSize: '12px', fontWeight: 700, color: '#059669', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                <Clock size={13} /> Despacho activo
-              </span>
-            ) : (
-              <span style={{ fontSize: '12px', fontWeight: 700, color: '#059669', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                <Check size={13} /> Proceso concluido
-              </span>
-            )}
-          </div>
-        </div>
-      ) : (
-        <>
-          {/* ═══════════════════ STEP 1: RECIPIENTS / BOT SYNC ═══════════════════ */}
-          {currentStep === 1 && (
+      {/* ═══════════════════ STEP 1: RECIPIENTS / BOT SYNC ═══════════════════ */}
+      {currentStep === 1 && (
         <div style={S.card}>
           {/* Selector de tipo de campaña */}
           {!campaignType ? (
@@ -5270,8 +5492,6 @@ export default function Campanas() {
             )}
           </div>
         </div>
-      )}
-        </>
       )}
 
       {/* ═══════════════════ DETAIL MODAL ═══════════════════ */}
