@@ -149,6 +149,16 @@ export default function Campanas() {
   const [isExcelDragOver, setIsExcelDragOver] = useState(false);
   const [excelStats, setExcelStats] = useState({ totalLineas: 0, totalFacturado: 0, empresas: {} });
 
+  // Memoria y selección aislada por modo para no mezclar líneas con grupos
+  const [modeSelections, setModeSelections] = useState({
+    lineas_email: null,
+    grupo_email: null
+  });
+  const [modeFilters, setModeFilters] = useState({
+    lineas_email: null,
+    grupo_email: null
+  });
+
   const editorRef = useRef(null);
 
   // Debounce búsquedas
@@ -200,12 +210,13 @@ export default function Campanas() {
   };
 
   // Consultar notificaciones recientes en campanas_logs (últimos 35 días para cubrir cambio de mes y períodos)
-  const fetchNotificacionesRecientes = async () => {
+  // targetMode: 'lineas_email' | 'grupo_email' | null
+  const fetchNotificacionesRecientes = async (targetMode = null) => {
     try {
       const hace35Dias = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000);
       const { data: logs, error } = await supabase
         .from('campanas_logs')
-        .select('destinatario_email, created_at, estado')
+        .select('id, destinatario_email, destinatario_nombre, asunto, created_at, estado, modo_envio, grupo, nombre_campana')
         .gte('created_at', hace35Dias.toISOString())
         .neq('estado', 'error')
         .order('created_at', { ascending: false })
@@ -214,45 +225,99 @@ export default function Campanas() {
       if (error) throw error;
 
       const notifMap = new Map();
+      const notifGroupSet = new Set();
+
       (logs || []).forEach(l => {
+        // Filtrar según targetMode para desacoplar campañas grupales de individuales
+        if (targetMode === 'lineas_email') {
+          // Un envío grupal NUNCA cuenta como notificación de línea individual
+          if (l.modo_envio === 'grupo_email') return;
+          if (l.destinatario_nombre && /^grupo\s+\d+/i.test(l.destinatario_nombre)) return;
+          if (l.nombre_campana && /grupal/i.test(l.nombre_campana)) return;
+          if (l.modo_envio && l.modo_envio !== 'lineas_email') return;
+        } else if (targetMode === 'grupo_email') {
+          // Un envío individual NUNCA cuenta como notificación para el grupo
+          if (l.modo_envio === 'lineas_email') return;
+          if (l.nombre_campana && /individual/i.test(l.nombre_campana)) return;
+        }
+
         if (l.destinatario_email) {
           const em = l.destinatario_email.trim().toLowerCase();
           if (!notifMap.has(em)) {
             notifMap.set(em, l);
           }
         }
+        if (l.grupo) {
+          notifGroupSet.add(String(l.grupo).trim());
+        }
+        const gMatch = (l.destinatario_nombre || '').match(/grupo\s+(\d+)/i) || (l.asunto || '').match(/grupo\s+(\d+)/i);
+        if (gMatch) {
+          notifGroupSet.add(gMatch[1]);
+        }
       });
-      return notifMap;
+
+      return { notifMap, notifGroupSet };
     } catch (err) {
       console.warn('Error al consultar notificaciones recientes:', err);
-      return new Map();
+      return { notifMap: new Map(), notifGroupSet: new Set() };
     }
   };
 
   // Aplicar selección y filtro automático según estado de notificación y cupo diario disponible
-  const applySelectionAndFilters = (newItems, notifCount, pendCount) => {
+  const applySelectionAndFilters = (newItems, notifCount, pendCount, isModeSwitch = false, currentMode = null) => {
     setItems(newItems);
 
-    // Si ya existen notificados en el lote, activar vista de PENDIENTES automáticamente para mostrar solo los no enviados
-    if (notifCount > 0) {
+    const effectiveModeKey = currentMode || (campaignType === 'excel' ? excelMode : effectiveCampaignType);
+    const savedFilter = modeFilters[effectiveModeKey];
+    const savedSelection = modeSelections[effectiveModeKey];
+
+    if (savedFilter) {
+      setFilterNotificado(savedFilter);
+    } else if (notifCount > 0) {
       setFilterNotificado('PENDIENTE');
-    }
-
-    const pendientes = newItems.filter(i => !i.notificado);
-    const cupo = Math.max(0, dailyLimit - enviosHoy);
-
-    if (autoSelectDailyLimit) {
-      const toSelect = pendientes.slice(0, cupo);
-      setSelectedIds(new Set(toSelect.map(i => i.id)));
-      if (notifCount > 0 && toSelect.length > 0) {
-        addToast(`Se detectaron ${notifCount} ya notificados. Mostrando los ${pendCount} pendientes y seleccionando ${toSelect.length} según cupo diario (${cupo}).`, 'info');
-      } else if (toSelect.length > 0) {
-        addToast(`Se auto-seleccionaron ${toSelect.length} destinatarios pendientes según tu cupo diario disponible (${cupo}).`, 'info');
-      }
     } else {
-      // Seleccionar únicamente pendientes (nunca los ya notificados)
-      setSelectedIds(new Set(pendientes.map(i => i.id)));
+      setFilterNotificado('ALL');
     }
+
+    if (savedSelection && savedSelection.size > 0) {
+      const existingIds = new Set(newItems.map(i => i.id));
+      const validSaved = new Set(Array.from(savedSelection).filter(id => existingIds.has(id)));
+      setSelectedIds(validSaved);
+    } else {
+      const pendientes = newItems.filter(i => !i.notificado);
+      const cupo = Math.max(0, dailyLimit - enviosHoy);
+
+      if (autoSelectDailyLimit) {
+        const toSelect = pendientes.slice(0, cupo);
+        setSelectedIds(new Set(toSelect.map(i => i.id)));
+        if (!isModeSwitch) {
+          if (notifCount > 0 && toSelect.length > 0) {
+            addToast(`Se detectaron ${notifCount} ya notificados. Mostrando los ${pendCount} pendientes y seleccionando ${toSelect.length} según cupo diario (${cupo}).`, 'info');
+          } else if (toSelect.length > 0) {
+            addToast(`Se auto-seleccionaron ${toSelect.length} destinatarios pendientes según tu cupo diario disponible (${cupo}).`, 'info');
+          }
+        }
+      } else {
+        setSelectedIds(new Set(pendientes.map(i => i.id)));
+      }
+    }
+  };
+
+  const handleSwitchExcelMode = async (newMode) => {
+    if (newMode === excelMode) return;
+
+    // Guardar selección y filtro del modo actual
+    setModeSelections(prev => ({
+      ...prev,
+      [excelMode]: new Set(selectedIds)
+    }));
+    setModeFilters(prev => ({
+      ...prev,
+      [excelMode]: filterNotificado
+    }));
+
+    setExcelMode(newMode);
+    await applyExcelRows(excelRawRows, newMode, excelEmpresa, excelSearch, excelPeriodo, true, newMode);
   };
 
   const handleSelectDailyLimit = () => {
@@ -317,7 +382,7 @@ export default function Campanas() {
       try {
         const { data, error } = await supabase
           .from('campanas_logs')
-          .select('id, created_at, nombre_campana, destinatario_nombre, destinatario_email, asunto, estado, error_mensaje')
+          .select('id, created_at, nombre_campana, destinatario_nombre, destinatario_email, asunto, estado, error_mensaje, modo_envio')
           .eq('nombre_campana', activeCampaign.name)
           .gte('created_at', activeCampaign.startTime)
           .order('id', { ascending: true });
@@ -325,6 +390,18 @@ export default function Campanas() {
         if (error || !isMounted) return;
 
         const currentLogs = data || [];
+
+        // Asegurar que cada log emitido por n8n quede clasificado con su modo_envio
+        if (activeCampaign.mode) {
+          const unassignedIds = currentLogs.filter(l => !l.modo_envio).map(l => l.id);
+          if (unassignedIds.length > 0) {
+            supabase.from('campanas_logs')
+              .update({ modo_envio: activeCampaign.mode })
+              .in('id', unassignedIds)
+              .then(() => {});
+          }
+        }
+
         const successCount = currentLogs.filter(l => l.estado === 'exito').length;
         const errorCount = currentLogs.filter(l => l.estado === 'error').length;
         const sentCount = currentLogs.length;
@@ -345,18 +422,28 @@ export default function Campanas() {
 
         if (isDone) {
           addToast(`¡Campaña "${activeCampaign.name}" finalizada! ${successCount} enviados${errorCount > 0 ? `, ${errorCount} con error` : ''}.`, successCount > 0 ? 'success' : 'error');
+          if (activeCampaign.mode) {
+            await supabase.from('campanas_logs')
+              .update({ modo_envio: activeCampaign.mode })
+              .eq('nombre_campana', activeCampaign.name)
+              .is('modo_envio', null);
+          }
           fetchLogs();
           fetchEnviosHoy();
-          // Marcar en memoria como notificados inmediatamente a los que salieron con éxito
-          const sentEmails = new Set(
-            currentLogs.filter(l => l.estado !== 'error').map(l => (l.destinatario_email || '').trim().toLowerCase())
-          );
-          setItems(prev => prev.map(it => {
-            if (sentEmails.has((it.email || '').trim().toLowerCase())) {
-              return { ...it, notificado: true, ultimo_envio: new Date().toISOString() };
-            }
-            return it;
-          }));
+
+          // Solo actualizar los items en memoria si el modo visualizado coincide con el de la campaña enviada
+          const currentModeKey = campaignType === 'excel' ? excelMode : effectiveCampaignType;
+          if (activeCampaign.mode === currentModeKey) {
+            const sentEmails = new Set(
+              currentLogs.filter(l => l.estado !== 'error').map(l => (l.destinatario_email || '').trim().toLowerCase())
+            );
+            setItems(prev => prev.map(it => {
+              if (sentEmails.has((it.email || '').trim().toLowerCase())) {
+                return { ...it, notificado: true, ultimo_envio: new Date().toISOString() };
+              }
+              return it;
+            }));
+          }
         }
       } catch (err) {
         console.warn('Error polling campanas_logs:', err);
@@ -870,7 +957,7 @@ export default function Campanas() {
     return '-';
   };
 
-  const applyExcelRows = async (rawRows, mode, empresa, searchStr, periodoVal) => {
+  const applyExcelRows = async (rawRows, mode, empresa, searchStr, periodoVal, isModeSwitch = false, targetMode = null) => {
     if (!rawRows || rawRows.length === 0) {
       setItems([]);
       setSelectedIds(new Set());
@@ -1013,8 +1100,8 @@ export default function Campanas() {
         if (!emailMap.has(key)) {
           emailMap.set(key, {
             id: `excel_mail_${key}`,
-            nombre: r.nombreTitular || r.nombre,
-            nombre_socio: r.nombreTitular || r.nombre,
+            nombre: r.nombre || r.nombreTitular || 'Socio',
+            nombre_socio: r.nombre || r.nombreTitular || 'Socio',
             email: r.emailFinal,
             grupo: r.grupo || 'Sin Grupo',
             lineasSet: new Set(),
@@ -1120,10 +1207,13 @@ export default function Campanas() {
 
     // Enriquecer con estado de notificación en campanas_logs (últimos 35 días)
     try {
-      const notifMap = await fetchNotificacionesRecientes();
+      const { notifMap, notifGroupSet } = await fetchNotificacionesRecientes(mode);
 
       resultItems.forEach(item => {
-        const notif = notifMap.get((item.email || '').trim().toLowerCase());
+        let notif = notifMap.get((item.email || '').trim().toLowerCase());
+        if (!notif && mode === 'grupo_email' && item.grupo && notifGroupSet.has(String(item.grupo).trim())) {
+          notif = { estado: 'exito' };
+        }
         item.notificado = !!notif;
         item.ultimo_envio = notif?.created_at || null;
         item.ultimo_estado = notif?.estado || null;
@@ -1134,7 +1224,7 @@ export default function Campanas() {
 
     const notifCount = resultItems.filter(i => i.notificado).length;
     const pendCount = resultItems.filter(i => !i.notificado).length;
-    applySelectionAndFilters(resultItems, notifCount, pendCount);
+    applySelectionAndFilters(resultItems, notifCount, pendCount, isModeSwitch, mode);
   };
 
   const handleExcelFileSelect = (file) => {
@@ -1145,6 +1235,8 @@ export default function Campanas() {
     }
     setLoading(true);
     setExcelFile(file);
+    setModeSelections({ lineas_email: null, grupo_email: null });
+    setModeFilters({ lineas_email: null, grupo_email: null });
 
     const nameMatch = file.name.match(/\(?(\d{2}[-_]\d{4})\)?/);
     const detectado = nameMatch ? nameMatch[1].replace('_', '-') : excelPeriodo;
@@ -1263,7 +1355,7 @@ export default function Campanas() {
           });
 
           // Cargar notificaciones recientes para marcar socios notificados
-          const notifMap = await fetchNotificacionesRecientes();
+          const { notifMap } = await fetchNotificacionesRecientes('lineas_email');
 
           mapped.forEach(item => {
             const lineasFactura = facturacionPorSocio[item.socio_id_num] || [];
@@ -1403,13 +1495,16 @@ export default function Campanas() {
         });
 
         // Cargar notificaciones recientes para marcar grupos notificados
-        const notifMap = await fetchNotificacionesRecientes();
+        const { notifMap, notifGroupSet } = await fetchNotificacionesRecientes('grupo_email');
 
         mapped.forEach(item => {
           const gLines = linesByGroup[item.grupo] || [];
           item.detalle_lineas = gLines;
           item.periodo = ultimoPeriodo;
-          const notif = notifMap.get((item.email || '').trim().toLowerCase());
+          let notif = notifMap.get((item.email || '').trim().toLowerCase());
+          if (!notif && item.grupo && notifGroupSet.has(String(item.grupo).trim())) {
+            notif = { estado: 'exito' };
+          }
           item.notificado = !!notif;
           item.ultimo_envio = notif?.created_at || null;
           item.ultimo_estado = notif?.estado || null;
@@ -1511,7 +1606,7 @@ export default function Campanas() {
           });
 
           // Cargar notificaciones recientes para marcar líneas notificadas
-          const notifMap = await fetchNotificacionesRecientes();
+          const { notifMap } = await fetchNotificacionesRecientes('lineas_email');
 
           mapped.forEach(item => {
             item.periodo = ultimoPeriodo;
@@ -1597,6 +1692,9 @@ export default function Campanas() {
 
     const selectedItems = items.filter(i => selectedIds.has(i.id));
 
+    const isGrupo = (campaignType === 'excel' && excelMode === 'grupo_email') || (campaignType === 'personalizada' && personalizadaMode === 'grupal');
+    const currentSendingMode = isGrupo ? 'grupo_email' : 'lineas_email';
+
     // Consolidar destinatarios por email para que si una persona tiene múltiples líneas reciba un único correo agrupado
     const emailGroups = new Map();
     selectedItems.forEach(item => {
@@ -1606,8 +1704,9 @@ export default function Campanas() {
       if (!emailGroups.has(emailKey)) {
         emailGroups.set(emailKey, {
           socio_id: item.id,
-          nombre_completo: item.nombre_socio || item.nombre,
+          nombre_completo: isGrupo ? (item.nombre || item.nombre_socio) : (item.nombre_socio || item.nombre),
           nombre_socio: item.nombre_socio || item.nombre,
+          nombre: item.nombre,
           email: item.email,
           dni: item.dni || '',
           cuit: item.cuit || '',
@@ -1661,6 +1760,7 @@ export default function Campanas() {
       fpago: g.fpago,
       cbu: g.cbu,
       grupo: g.grupo,
+      modo_envio: currentSendingMode,
       lineas: Array.from(g.lineasSet).join(', ') || 'Sin Línea',
       monto_cuota_cel: g.monto_cuota_cel,
       total_cuotas: g.total_cuotas,
@@ -1735,6 +1835,7 @@ export default function Campanas() {
       setActiveCampaign({
         name: campaignName.trim(),
         subject: subject.trim(),
+        mode: currentSendingMode,
         total: totalConsolidados,
         startTime: campaignStartTime,
         logs: [],
@@ -2053,9 +2154,16 @@ export default function Campanas() {
     const mesAnio = now.toLocaleString('es-AR', { month: 'long', year: 'numeric' });
     const mesAnioCapitalized = mesAnio.charAt(0).toUpperCase() + mesAnio.slice(1);
 
+    const isGrupo = (campaignType === 'excel' && excelMode === 'grupo_email') || (campaignType === 'personalizada' && personalizadaMode === 'grupal');
+    const defaultCampName = isGrupo 
+      ? `Comunicación Grupal - ${mesAnioCapitalized}`
+      : `Comunicación Individual - ${mesAnioCapitalized}`;
+
     if (type === 'aunar_base') {
-      const name = `Comunicación Oficial - ${mesAnioCapitalized}`;
-      const subj = 'Aunar - Detalle de tu abono, {{nombre_socio}} - Linea: {{lineas}}';
+      const name = defaultCampName;
+      const subj = isGrupo 
+        ? 'Aunar - Detalle de tu abono grupal, {{nombre_socio}} - Líneas: {{lineas}}'
+        : 'Aunar - Detalle de tu abono, {{nombre_socio}} - Linea: {{lineas}}';
       const body = buildAunarChassis();
       setCampaignName(name);
       setSubject(subj);
@@ -2088,8 +2196,10 @@ export default function Campanas() {
 
     const templates = {
       aunar: {
-        name: `Comunicación Oficial - ${mesAnioCapitalized}`,
-        subject: 'Aunar - Detalle de tu abono, {{nombre_socio}} - Linea: {{lineas}}',
+        name: defaultCampName,
+        subject: isGrupo 
+          ? 'Aunar - Detalle de tu abono grupal, {{nombre_socio}} - Líneas: {{lineas}}'
+          : 'Aunar - Detalle de tu abono, {{nombre_socio}} - Linea: {{lineas}}',
         body: `<div style="font-family: Arial, sans-serif; max-width: 600px; background-color: #ffffff; margin: 0 auto; padding: 20px; border-radius: 8px; border: 1px solid #ddd; color: #333; line-height: 1.5;">
 
   <!-- Logo AUNAR -->
@@ -4586,10 +4696,7 @@ export default function Campanas() {
                         <div style={{ display: 'inline-flex', background: 'rgba(0,0,0,0.05)', padding: '3px', borderRadius: '10px' }}>
                           <button
                             type="button"
-                            onClick={() => {
-                              setExcelMode('lineas_email');
-                              applyExcelRows(excelRawRows, 'lineas_email', excelEmpresa, excelSearch, excelPeriodo);
-                            }}
+                            onClick={() => handleSwitchExcelMode('lineas_email')}
                             style={{
                               border: 'none',
                               padding: '6px 14px',
@@ -4606,10 +4713,7 @@ export default function Campanas() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => {
-                              setExcelMode('grupo_email');
-                              applyExcelRows(excelRawRows, 'grupo_email', excelEmpresa, excelSearch, excelPeriodo);
-                            }}
+                            onClick={() => handleSwitchExcelMode('grupo_email')}
                             style={{
                               border: 'none',
                               padding: '6px 14px',
@@ -4677,6 +4781,30 @@ export default function Campanas() {
                             </button>
                           )}
                         </div>
+                      </div>
+
+                      <div style={{
+                        fontSize: '11.5px',
+                        color: excelMode === 'grupo_email' ? '#065f46' : '#1e40af',
+                        background: excelMode === 'grupo_email' ? 'rgba(16, 185, 129, 0.08)' : 'rgba(59, 130, 246, 0.08)',
+                        border: excelMode === 'grupo_email' ? '1px solid rgba(16, 185, 129, 0.25)' : '1px solid rgba(59, 130, 246, 0.25)',
+                        padding: '7px 12px',
+                        borderRadius: '9px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                      }}>
+                        {excelMode === 'grupo_email' ? (
+                          <>
+                            <Users size={14} style={{ flexShrink: 0 }} />
+                            <span><strong>Modo Por Grupo (Representantes):</strong> Notificación consolidada enviada al titular/representante de cada grupo con el detalle de todas sus líneas. Las selecciones y notificaciones se gestionan de forma independiente al modo líneas.</span>
+                          </>
+                        ) : (
+                          <>
+                            <Smartphone size={14} style={{ flexShrink: 0 }} />
+                            <span><strong>Modo Consolidado por Línea / Socio:</strong> Notificación a cada socio o usuario individual por su correo personal. No se ve afectado por las campañas enviadas a representantes de grupos.</span>
+                          </>
+                        )}
                       </div>
                     </div>
                   )}
