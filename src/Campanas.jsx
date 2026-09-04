@@ -1279,24 +1279,8 @@ export default function Campanas() {
           });
         });
 
-        // Cargar notificaciones de este mes para marcar grupos notificados
-        const inicioMes = new Date();
-        inicioMes.setDate(1);
-        inicioMes.setHours(0, 0, 0, 0);
-
-        const { data: logsMes } = await supabase
-          .from('campanas_logs')
-          .select('destinatario_email, created_at, estado')
-          .gte('created_at', inicioMes.toISOString())
-          .neq('estado', 'error');
-
-        const notifMap = new Map();
-        (logsMes || []).forEach(l => {
-          if (l.destinatario_email) {
-            const em = l.destinatario_email.trim().toLowerCase();
-            if (!notifMap.has(em)) notifMap.set(em, l);
-          }
-        });
+        // Cargar notificaciones recientes para marcar grupos notificados
+        const notifMap = await fetchNotificacionesRecientes();
 
         mapped.forEach(item => {
           const gLines = linesByGroup[item.grupo] || [];
@@ -1322,8 +1306,9 @@ export default function Campanas() {
         console.warn('Error al enriquecer facturación grupal:', e);
       }
 
-      setItems(mapped);
-      setSelectedIds(new Set());
+      const notifCount = mapped.filter(i => i.notificado).length;
+      const pendCount = mapped.filter(i => !i.notificado).length;
+      applySelectionAndFilters(mapped, notifCount, pendCount);
     } catch (err) {
       console.error(err);
       addToast('Error al cargar grupos', 'error');
@@ -1402,24 +1387,8 @@ export default function Campanas() {
             if (f.numero_linea) factMap.set(f.numero_linea, f);
           });
 
-          // Cargar notificaciones del mes para marcar líneas notificadas
-          const inicioMes = new Date();
-          inicioMes.setDate(1);
-          inicioMes.setHours(0, 0, 0, 0);
-
-          const { data: logsMes } = await supabase
-            .from('campanas_logs')
-            .select('destinatario_email, created_at, estado')
-            .gte('created_at', inicioMes.toISOString())
-            .neq('estado', 'error');
-
-          const notifMap = new Map();
-          (logsMes || []).forEach(l => {
-            if (l.destinatario_email) {
-              const em = l.destinatario_email.trim().toLowerCase();
-              if (!notifMap.has(em)) notifMap.set(em, l);
-            }
-          });
+          // Cargar notificaciones recientes para marcar líneas notificadas
+          const notifMap = await fetchNotificacionesRecientes();
 
           mapped.forEach(item => {
             item.periodo = ultimoPeriodo;
@@ -1440,8 +1409,9 @@ export default function Campanas() {
         console.warn('Error al enriquecer facturación por líneas:', e);
       }
 
-      setItems(mapped);
-      setSelectedIds(new Set());
+      const notifCount = mapped.filter(i => i.notificado).length;
+      const pendCount = mapped.filter(i => !i.notificado).length;
+      applySelectionAndFilters(mapped, notifCount, pendCount);
     } catch (err) {
       console.error(err);
       addToast('Error al cargar líneas', 'error');
@@ -1597,9 +1567,13 @@ export default function Campanas() {
           r
         );
 
-        const sIdNum = typeof r.socio_id === 'number' 
-          ? r.socio_id 
-          : (Number(String(r.socio_id).replace(/\D/g, '')) || null);
+        let sIdNum = null;
+        if (typeof r.socio_id === 'number') {
+          sIdNum = r.socio_id;
+        } else if (typeof r.socio_id === 'string' && !r.socio_id.startsWith('excel_') && !r.socio_id.includes('@')) {
+          const parsed = parseInt(r.socio_id, 10);
+          if (!isNaN(parsed)) sIdNum = parsed;
+        }
 
         return {
           ...r,
@@ -2498,20 +2472,29 @@ export default function Campanas() {
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                 <h2 style={S.title}>Campañas de Correo</h2>
-                <div style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '3px 10px',
-                  borderRadius: '20px',
-                  background: (300 - enviosHoy) > 50 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.12)',
-                  border: `1px solid ${(300 - enviosHoy) > 50 ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.3)'}`,
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  color: (300 - enviosHoy) > 50 ? '#059669' : '#d97706'
-                }} title={`Envíos registrados hoy: ${enviosHoy}. Límite gratuito de Brevo: 300 correos por día (se reinicia a las 00:00 UTC).`}>
-                  <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: (300 - enviosHoy) > 50 ? '#10b981' : '#f59e0b', display: 'inline-block' }} />
-                  <span>Brevo hoy: <strong>{Math.max(0, 300 - enviosHoy)} disponibles</strong> de 300</span>
+                <div 
+                  onClick={() => {
+                    setTempDailyLimit(dailyLimit);
+                    setIsDailyLimitModalOpen(true);
+                  }}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '3px 10px',
+                    borderRadius: '20px',
+                    background: availableDailyQuota > 50 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.12)',
+                    border: `1px solid ${availableDailyQuota > 50 ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.3)'}`,
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    color: availableDailyQuota > 50 ? '#059669' : '#d97706',
+                    cursor: 'pointer'
+                  }} 
+                  title={`Envíos registrados hoy: ${enviosHoy}. Límite diario: ${dailyLimit} correos por día. Clic para configurar límite o auto-selección.`}
+                >
+                  <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: availableDailyQuota > 50 ? '#10b981' : '#f59e0b', display: 'inline-block' }} />
+                  <span>Brevo hoy: <strong>{availableDailyQuota} disponibles</strong> de {dailyLimit}</span>
+                  <Settings size={11} style={{ marginLeft: '2px', opacity: 0.7 }} />
                 </div>
               </div>
               <p style={S.subtitle}>Envío masivo y personalizado de notificaciones</p>
@@ -4601,25 +4584,45 @@ export default function Campanas() {
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                   {countPendientes > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const pendientes = items.filter(i => !i.notificado);
-                        setSelectedIds(new Set(pendientes.map(i => i.id)));
-                      }}
-                      style={{
-                        ...S.btnSecondary,
-                        padding: '6px 12px',
-                        fontSize: '12px',
-                        color: '#d97706',
-                        borderColor: 'rgba(245, 158, 11, 0.4)',
-                        background: 'rgba(245, 158, 11, 0.08)',
-                        fontWeight: 700
-                      }}
-                      title="Selecciona automáticamente todos los grupos o socios pendientes de notificación"
-                    >
-                      ⚡ Seleccionar pendientes ({countPendientes})
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleSelectDailyLimit}
+                        style={{
+                          ...S.btnSecondary,
+                          padding: '6px 12px',
+                          fontSize: '12px',
+                          color: '#059669',
+                          borderColor: 'rgba(16, 185, 129, 0.4)',
+                          background: 'rgba(16, 185, 129, 0.1)',
+                          fontWeight: 700,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px'
+                        }}
+                        title={`Seleccionar hasta ${availableDailyQuota} destinatarios pendientes según cupo diario disponible (${availableDailyQuota} de ${dailyLimit})`}
+                      >
+                        <Sparkles size={13} />
+                        <span>Seleccionar cupo diario ({Math.min(countPendientes, availableDailyQuota)})</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleSelectAllPending}
+                        style={{
+                          ...S.btnSecondary,
+                          padding: '6px 12px',
+                          fontSize: '12px',
+                          color: '#d97706',
+                          borderColor: 'rgba(245, 158, 11, 0.4)',
+                          background: 'rgba(245, 158, 11, 0.08)',
+                          fontWeight: 700
+                        }}
+                        title="Selecciona todos los grupos o socios pendientes de notificación sin límite diario"
+                      >
+                        ⚡ Seleccionar todos ({countPendientes})
+                      </button>
+                    </>
                   )}
                   <button onClick={toggleSelectAll} style={{ ...S.btnSecondary, padding: '6px 14px', fontSize: '12px' }}>
                     {selectedIds.size === displayedItems.length && displayedItems.length > 0 ? 'Deseleccionar todos' : 'Seleccionar mostrados'}
@@ -4629,6 +4632,67 @@ export default function Campanas() {
                   )}
                 </div>
               </div>
+
+              {/* Banner informativo de pendientes sin enviar si hay destinatarios ya notificados */}
+              {countNotificados > 0 && filterNotificado === 'PENDIENTE' && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '9px 14px',
+                  background: 'rgba(59, 130, 246, 0.08)',
+                  border: '1px solid rgba(59, 130, 246, 0.25)',
+                  borderRadius: '10px',
+                  marginBottom: '14px',
+                  fontSize: '12.5px',
+                  color: 'var(--text-primary)',
+                  flexWrap: 'wrap',
+                  gap: '8px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <CheckCircle2 size={16} style={{ color: '#059669', flexShrink: 0 }} />
+                    <span>
+                      Mostrando únicamente <strong>{countPendientes} destinatarios sin enviar</strong>. Se omitieron automáticamente <strong>{countNotificados} ya notificados</strong> previamente.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFilterNotificado('ALL')}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#2563eb',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      textDecoration: 'underline'
+                    }}
+                  >
+                    Ver todos ({items.length})
+                  </button>
+                </div>
+              )}
+
+              {/* Banner si todos ya fueron notificados */}
+              {countPendientes === 0 && items.length > 0 && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '10px 14px',
+                  background: 'rgba(16, 185, 129, 0.1)',
+                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                  borderRadius: '10px',
+                  marginBottom: '14px',
+                  fontSize: '12.5px',
+                  color: '#065f46'
+                }}>
+                  <CheckCircle size={16} style={{ color: '#059669', flexShrink: 0 }} />
+                  <span>
+                    <strong>¡Excelente!</strong> Todos los <strong>{items.length} destinatarios</strong> de esta lista ya fueron notificados en este período.
+                  </span>
+                </div>
+              )}
 
               <div style={S.tableWrapper}>
                 {loading ? (
@@ -4765,6 +4829,46 @@ export default function Campanas() {
                 </div>
               ))}
             </div>
+
+            {uniqueEmailsCount > availableDailyQuota && (
+              <div style={{
+                padding: '10px 12px',
+                background: 'rgba(239, 68, 68, 0.08)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                borderRadius: '8px',
+                marginBottom: '12px',
+                fontSize: '11.5px',
+                color: '#b91c1c'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, marginBottom: '4px' }}>
+                  <AlertTriangle size={14} />
+                  <span>Excede el cupo diario Brevo</span>
+                </div>
+                <p style={{ margin: '0 0 8px 0', lineHeight: 1.3 }}>
+                  Vas a enviar a <strong>{uniqueEmailsCount} correos</strong>, pero hoy quedan <strong>{availableDailyQuota} disponibles</strong> de {dailyLimit}.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSelectDailyLimit();
+                    addToast(`Destinatarios ajustados a los primeros ${availableDailyQuota} según cupo disponible.`, 'info');
+                  }}
+                  style={{
+                    ...S.btnSecondary,
+                    padding: '5px 8px',
+                    fontSize: '11px',
+                    width: '100%',
+                    justifyContent: 'center',
+                    color: '#b91c1c',
+                    borderColor: 'rgba(239, 68, 68, 0.4)',
+                    background: '#fff',
+                    fontWeight: 700
+                  }}
+                >
+                  Ajustar a cupo de hoy ({availableDailyQuota})
+                </button>
+              </div>
+            )}
 
             <button 
               onClick={() => setCurrentStep(1)}
@@ -5224,6 +5328,107 @@ export default function Campanas() {
             >
               {savingTemplate ? <Loader2 className="animate-spin" size={15} /> : <Bookmark size={15} />}
               <span>{savingTemplate ? 'Guardando...' : 'Guardar Plantilla'}</span>
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal: Configuración de Cupo Diario Brevo */}
+      <Modal
+        isOpen={isDailyLimitModalOpen}
+        onClose={() => setIsDailyLimitModalOpen(false)}
+        title="Configuración de Cupo Diario Brevo"
+        maxWidth="480px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
+            Configurá el límite diario de envíos (cuentas gratuitas de Brevo disponen de <strong>300 correos/día</strong>, que se reinicia a las 00:00 UTC).
+          </p>
+
+          <div style={{ background: 'rgba(0,0,0,0.02)', padding: '14px', borderRadius: '12px', border: '1px solid var(--border-light)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Envíos hoy</div>
+              <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{enviosHoy}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Disponibles hoy</div>
+              <div style={{ fontSize: '20px', fontWeight: 800, color: availableDailyQuota > 50 ? '#059669' : '#d97706', marginTop: '4px' }}>
+                {availableDailyQuota}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label style={{ ...S.label, marginBottom: '6px' }}>Límite Diario de Correos</label>
+            <input 
+              type="number" 
+              min="1"
+              max="50000"
+              value={tempDailyLimit} 
+              onChange={(e) => setTempDailyLimit(parseInt(e.target.value, 10) || 0)} 
+              style={S.input}
+            />
+            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', display: 'block' }}>
+              Valor predeterminado: 300 (plan gratuito Brevo).
+            </span>
+          </div>
+
+          <div 
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '12px', 
+              padding: '12px 14px', 
+              background: '#f8fafc', 
+              borderRadius: '10px', 
+              border: '1px solid var(--border-light)', 
+              cursor: 'pointer' 
+            }}
+            onClick={() => {
+              const newVal = !autoSelectDailyLimit;
+              setAutoSelectDailyLimit(newVal);
+              localStorage.setItem('campanas_auto_select_daily', String(newVal));
+            }}
+          >
+            <input 
+              type="checkbox" 
+              checked={autoSelectDailyLimit} 
+              onChange={(e) => {
+                setAutoSelectDailyLimit(e.target.checked);
+                localStorage.setItem('campanas_auto_select_daily', String(e.target.checked));
+              }}
+              style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+            />
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                Selección automática por cupo diario
+              </div>
+              <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                Al cargar una planilla o campaña, selecciona automáticamente los primeros pendientes hasta el cupo disponible.
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+            <button 
+              type="button"
+              onClick={() => setIsDailyLimitModalOpen(false)}
+              style={S.btnSecondary}
+            >
+              Cancelar
+            </button>
+            <button 
+              type="button"
+              onClick={() => {
+                const val = Math.max(1, tempDailyLimit || 300);
+                setDailyLimit(val);
+                localStorage.setItem('campanas_daily_limit', String(val));
+                setIsDailyLimitModalOpen(false);
+                addToast(`Límite diario actualizado a ${val} correos.`, 'success');
+              }}
+              style={S.btnPrimary}
+            >
+              Guardar Configuración
             </button>
           </div>
         </div>
