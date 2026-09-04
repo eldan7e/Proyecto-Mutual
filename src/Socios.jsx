@@ -5,7 +5,7 @@ import {
   Search, Edit2, Trash2, Plus, Mail, Users, 
   ChevronRight, CreditCard, User as UserIcon, Shield, Hash,
   Clock, CheckCircle2, MessageSquare, Flag, TrendingUp, AlertCircle, Save, Loader2,
-  Phone, Activity
+  Phone, Activity, X, Copy, Check, ExternalLink, CheckCircle
 } from 'lucide-react';
 import { fetchSocioConsumosData, fetchSocioIncidentsData } from './services/socioService';
 import { useNavigate } from 'react-router-dom';
@@ -26,6 +26,67 @@ export default function Socios({ hideHeader = false }) {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [totalRecords, setTotalRecords] = useState(0);
   const [kpis, setKpis] = useState({ total: 0, conDto: 0, sinGrupo: 0, banco: 0, lineasActivas: 0, lineasTotales: 0 });
+
+  // Estado para la búsqueda y verificación directa de números de teléfono en base de datos
+  const [isLineSearchModalOpen, setIsLineSearchModalOpen] = useState(false);
+  const [lineSearchInput, setLineSearchInput] = useState('');
+  const [lineSearchResult, setLineSearchResult] = useState(null);
+  const [searchingLine, setSearchingLine] = useState(false);
+  const [copiedPhone, setCopiedPhone] = useState(null);
+
+  const executeLineLookup = async (phoneToSearch) => {
+    const raw = (phoneToSearch !== undefined ? phoneToSearch : lineSearchInput).trim();
+    const cleanNum = raw.replace(/\D/g, '');
+    if (!cleanNum || cleanNum.length < 3) return;
+
+    setSearchingLine(true);
+    setLineSearchResult(null);
+
+    try {
+      const { data, error } = await supabase
+        .from('lineas')
+        .select(`
+          numero_linea,
+          estado,
+          numero_grupo,
+          socio_id,
+          cargo_equipo,
+          created_at,
+          proveedores:proveedor_id (nombre),
+          planes_abonos:plan_id (nombre_plan, gb_incluidos, tarifa_aunar, precio),
+          socios:socio_id (socio_id, nro_socio, nombre_completo, dni, cuit, email, fpago)
+        `)
+        .or(`numero_linea.eq.${cleanNum},numero_linea.ilike.%${cleanNum}%`)
+        .limit(20);
+
+      if (error) throw error;
+
+      setLineSearchResult({
+        searched: true,
+        query: cleanNum,
+        found: !!(data && data.length > 0),
+        lines: data || []
+      });
+    } catch (err) {
+      console.error('Error al consultar línea:', err);
+      try {
+        const { data: simpleData } = await supabase
+          .from('lineas')
+          .select('*')
+          .or(`numero_linea.eq.${cleanNum},numero_linea.ilike.%${cleanNum}%`);
+        setLineSearchResult({
+          searched: true,
+          query: cleanNum,
+          found: !!(simpleData && simpleData.length > 0),
+          lines: simpleData || []
+        });
+      } catch (err2) {
+        setLineSearchResult({ searched: true, query: cleanNum, found: false, lines: [], error: err.message });
+      }
+    } finally {
+      setSearchingLine(false);
+    }
+  };
 
   async function fetchKpis() {
     try {
@@ -158,31 +219,42 @@ export default function Socios({ hideHeader = false }) {
 
       // Apply Smart Search Filter
       if (term) {
+        const cleanDigits = term.replace(/\D/g, '');
         const isNumeric = /^\d+$/.test(term);
 
         if (isNumeric) {
           const orConditions = [
-            `grupo_codigo_str.imatch.\\y${term}\\y`,
             `dni.ilike.%${term}%`,
             `cuit.ilike.%${term}%`,
             `nombre_completo.ilike.%${term}%`,
             `codigo_lex.ilike.%${term}%`
           ];
 
+          // Búsqueda por número de grupo exacto (solo números cortos de hasta 5 dígitos)
+          if (term.length <= 5) {
+            orConditions.push(`grupo_codigo_str.imatch.\\y${term}\\y`);
+          }
+
+          // Solo buscar por nro_socio si es un número válido y menor a 2.147.483.647 (para no desbordar INTEGER en Postgres)
           const parsedNum = parseInt(term, 10);
-          if (!isNaN(parsedNum)) {
+          if (!isNaN(parsedNum) && parsedNum > 0 && parsedNum <= 2147483647 && term.length <= 6) {
             orConditions.push(`nro_socio.eq.${parsedNum}`);
           }
 
-          // Solo buscar dentro de search_text (líneas/teléfonos) para búsquedas numéricas de 6+ dígitos
+          // Para números de 6+ dígitos (líneas telefónicas, celulares, DNIs largos) buscar dentro de search_text
           if (term.length >= 6) {
             orConditions.push(`search_text.ilike.%${term}%`);
           }
 
           query = query.or(orConditions.join(','));
         } else {
-          // Búsqueda por texto (nombres, email, código lex)
-          query = query.or(`nombre_completo.ilike.%${term}%,email.ilike.%${term}%,codigo_lex.ilike.%${term}%,search_text.ilike.%${term}%`);
+          // Búsqueda por texto (nombres, email, código lex, search_text)
+          // Si incluye dígitos mezclados (ej. teléfono con guiones o espacios), también buscar los dígitos en search_text
+          let textOr = `nombre_completo.ilike.%${term}%,email.ilike.%${term}%,codigo_lex.ilike.%${term}%,search_text.ilike.%${term}%`;
+          if (cleanDigits.length >= 6 && cleanDigits !== term) {
+            textOr += `,search_text.ilike.%${cleanDigits}%`;
+          }
+          query = query.or(textOr);
         }
       }
 
@@ -524,21 +596,65 @@ export default function Socios({ hideHeader = false }) {
 
           {/* Filters & Table */}
           <div className="glass-panel" style={{ borderRadius: '24px', overflow: 'hidden' }}>
-            <div style={{ padding: '24px', borderBottom: '1px solid var(--border-light)', display: 'flex', gap: '20px', alignItems: 'center' }}>
-              <div className="search-bar" style={{ flex: 1 }}>
+            <div style={{ padding: '24px', borderBottom: '1px solid var(--border-light)', display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <div className="search-bar" style={{ flex: 1, minWidth: '280px', position: 'relative' }}>
                 <Search size={18} />
                 <input
                   type="text"
-                  placeholder="Buscar por nombre, DNI, Nro Socio, Nro Grupo o línea..."
+                  placeholder="Buscar por nombre, DNI, Nro Socio, Nro Grupo o teléfono..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  style={{ background: 'none', border: 'none', outline: 'none', width: '100%' }}
+                  style={{ background: 'none', border: 'none', outline: 'none', width: '100%', paddingRight: search ? '28px' : '0' }}
                 />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch('')}
+                    style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
+                    title="Limpiar búsqueda"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
               </div>
+
+              {/* Botón directo: Consultar Teléfono en BD */}
+              <button
+                type="button"
+                onClick={() => {
+                  const digits = search.replace(/\D/g, '');
+                  if (digits.length >= 4) {
+                    setLineSearchInput(digits);
+                    executeLineLookup(digits);
+                  }
+                  setIsLineSearchModalOpen(true);
+                }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '10px 18px',
+                  borderRadius: '12px',
+                  height: '42px',
+                  background: 'rgba(16, 185, 129, 0.1)',
+                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                  color: '#059669',
+                  fontWeight: 700,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  transition: 'all 0.2s',
+                  flexShrink: 0
+                }}
+                title="Comprobar directamente si un número de línea telefónica existe en la base de datos"
+              >
+                <Phone size={15} />
+                <span>Consultar Teléfono</span>
+              </button>
 
               <select 
                 className="premium-input" 
-                style={{ width: '220px', padding: '10px 16px' }}
+                style={{ width: '200px', padding: '10px 16px', height: '42px' }}
                 value={selectedProvider}
                 onChange={(e) => setSelectedProvider(e.target.value)}
               >
@@ -684,6 +800,56 @@ export default function Socios({ hideHeader = false }) {
               )}
             </div>
 
+            {/* Banner informativo si el usuario está buscando un número de teléfono */}
+            {search.replace(/\D/g, '').length >= 7 && (
+              <div style={{
+                margin: '14px 24px 0 24px',
+                padding: '12px 18px',
+                background: 'rgba(16, 185, 129, 0.08)',
+                border: '1px solid rgba(16, 185, 129, 0.25)',
+                borderRadius: '14px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '12px',
+                fontSize: '13px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Phone size={16} color="#059669" />
+                  <span>
+                    Buscando línea telefónica: <strong style={{ color: '#047857', letterSpacing: '0.5px' }}>{search}</strong>
+                    {totalRecords > 0 ? ` — ${totalRecords} socio${totalRecords === 1 ? '' : 's'} vinculado${totalRecords === 1 ? '' : 's'}` : ''}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const digits = search.replace(/\D/g, '');
+                    setLineSearchInput(digits);
+                    executeLineLookup(digits);
+                    setIsLineSearchModalOpen(true);
+                  }}
+                  style={{
+                    background: '#059669',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '6px 14px',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: '0 2px 6px rgba(5,150,105,0.2)'
+                  }}
+                >
+                  <Search size={13} /> Consultar detalles de la línea en BD
+                </button>
+              </div>
+            )}
+
             <div style={{ overflowX: 'auto' }}>
               <table className="premium-table" style={{ width: '100%' }}>
                 <thead>
@@ -740,11 +906,43 @@ export default function Socios({ hideHeader = false }) {
                       </td>
                       <td>
                         <div style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '15px' }}>{s.nombre_completo}</div>
-                        <div style={{ display: 'flex', gap: '8px', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                        <div style={{ display: 'flex', gap: '8px', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, flexWrap: 'wrap' }}>
                           <span>Nº SOCIO: {s.nro_socio || '---'}</span>
                           <span>•</span>
                           <span>CÓD. LEX: {s.codigo_lex || '---'}</span>
                         </div>
+                        {s.lineas && s.lineas.length > 0 && (
+                          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '5px' }}>
+                            {s.lineas.slice(0, 3).map((l, idx) => {
+                              const cleanDigits = search.replace(/\D/g, '');
+                              const isMatch = cleanDigits.length >= 4 && l.numero_linea && l.numero_linea.includes(cleanDigits);
+                              return (
+                                <span
+                                  key={idx}
+                                  style={{
+                                    fontSize: '10.5px',
+                                    fontWeight: isMatch ? 800 : 600,
+                                    padding: '2px 7px',
+                                    borderRadius: '6px',
+                                    background: isMatch ? 'rgba(16, 185, 129, 0.18)' : 'rgba(0, 0, 0, 0.04)',
+                                    color: isMatch ? '#047857' : 'var(--text-secondary)',
+                                    border: `1px solid ${isMatch ? 'rgba(16, 185, 129, 0.4)' : 'var(--border-light)'}`,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
+                                  }}
+                                >
+                                  <Phone size={10} /> {l.numero_linea}
+                                </span>
+                              );
+                            })}
+                            {s.lineas.length > 3 && (
+                              <span style={{ fontSize: '10.5px', color: 'var(--text-secondary)', fontWeight: 600, alignSelf: 'center' }}>
+                                +{s.lineas.length - 3} más
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td>
                         <div style={{ fontSize: '13px', fontWeight: 700 }}>{s.dni || '---'}</div>
@@ -1025,6 +1223,396 @@ export default function Socios({ hideHeader = false }) {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Modal para Consultar y Verificar Línea Telefónica */}
+      <Modal
+        isOpen={isLineSearchModalOpen}
+        onClose={() => {
+          setIsLineSearchModalOpen(false);
+        }}
+        title="📱 Consultar Línea Telefónica en Base de Datos"
+        maxWidth="650px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <p style={{ margin: 0, fontSize: '13.5px', color: 'var(--text-secondary)' }}>
+            Ingresá un número de teléfono (completo o parcial) para verificar en tiempo real si existe en el sistema, ver su estado, prestador, plan y a qué socio o grupo pertenece.
+          </p>
+
+          {/* Formulario de búsqueda rápida */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              executeLineLookup();
+            }}
+            style={{ display: 'flex', gap: '10px' }}
+          >
+            <div style={{ position: 'relative', flex: 1 }}>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Ej: 2213080854..."
+                value={lineSearchInput}
+                onChange={(e) => setLineSearchInput(e.target.value)}
+                autoFocus
+                style={{ width: '100%', marginBottom: 0, fontSize: '15px', fontWeight: 600, paddingRight: '36px' }}
+              />
+              {lineSearchInput && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLineSearchInput('');
+                    setLineSearchResult(null);
+                  }}
+                  style={{
+                    position: 'absolute',
+                    right: '10px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--text-secondary)'
+                  }}
+                >
+                  <X size={15} />
+                </button>
+              )}
+            </div>
+            <button
+              type="submit"
+              className="action-button"
+              disabled={searchingLine || !lineSearchInput.trim()}
+              style={{
+                padding: '0 22px',
+                height: '42px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {searchingLine ? <Loader2 className="animate-spin" size={16} /> : <Search size={16} />}
+              <span>Consultar</span>
+            </button>
+          </form>
+
+          {/* Resultados de la búsqueda */}
+          {searchingLine && (
+            <div style={{ textAlign: 'center', padding: '36px 12px', color: 'var(--text-secondary)' }}>
+              <Loader2 className="animate-spin" size={32} style={{ margin: '0 auto 12px auto', color: 'var(--accent)' }} />
+              <div style={{ fontWeight: 600 }}>Buscando línea en la base de datos...</div>
+            </div>
+          )}
+
+          {!searchingLine && lineSearchResult?.searched && (
+            <div>
+              {lineSearchResult.found ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px 14px',
+                    background: 'rgba(16, 185, 129, 0.1)',
+                    borderRadius: '10px',
+                    border: '1px solid rgba(16, 185, 129, 0.25)',
+                    color: '#059669',
+                    fontSize: '13px',
+                    fontWeight: 700
+                  }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <CheckCircle size={16} />
+                      {lineSearchResult.lines.length} {lineSearchResult.lines.length === 1 ? 'línea encontrada' : 'líneas coincidentes'}
+                    </span>
+                    <span style={{ fontSize: '11px', opacity: 0.8 }}>Búsqueda: {lineSearchResult.query}</span>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '50vh', overflowY: 'auto' }}>
+                    {lineSearchResult.lines.map((l, idx) => {
+                      const isActive = String(l.estado || '').toUpperCase() === 'ACTIVA' || String(l.estado || '').toUpperCase() === 'ACTIVO';
+                      const isCopied = copiedPhone === l.numero_linea;
+
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            border: '1px solid var(--border-light)',
+                            borderRadius: '14px',
+                            padding: '16px',
+                            background: 'var(--card-bg, rgba(255,255,255,0.02))',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '12px'
+                          }}
+                        >
+                          {/* Cabecera de la línea */}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <span style={{ fontSize: '18px', fontWeight: 900, color: 'var(--text-primary)', letterSpacing: '0.5px' }}>
+                                {l.numero_linea}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(l.numero_linea);
+                                  setCopiedPhone(l.numero_linea);
+                                  setTimeout(() => setCopiedPhone(null), 2000);
+                                }}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  padding: '4px',
+                                  color: isCopied ? '#059669' : 'var(--text-secondary)'
+                                }}
+                                title="Copiar número"
+                              >
+                                {isCopied ? <Check size={14} /> : <Copy size={14} />}
+                              </button>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                              <span style={{
+                                padding: '4px 10px',
+                                borderRadius: '12px',
+                                fontSize: '11px',
+                                fontWeight: 800,
+                                background: isActive ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                color: isActive ? '#059669' : '#dc2626',
+                                border: `1px solid ${isActive ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`
+                              }}>
+                                {l.estado || 'SIN ESTADO'}
+                              </span>
+                              {l.proveedores?.nombre && (
+                                <span style={{
+                                  padding: '4px 10px',
+                                  borderRadius: '12px',
+                                  fontSize: '11px',
+                                  fontWeight: 800,
+                                  background: 'rgba(59, 130, 246, 0.12)',
+                                  color: '#2563eb',
+                                  border: '1px solid rgba(59, 130, 246, 0.25)'
+                                }}>
+                                  {l.proveedores.nombre}
+                                </span>
+                              )}
+                              {l.numero_grupo && (
+                                <span style={{
+                                  padding: '4px 10px',
+                                  borderRadius: '12px',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  background: 'rgba(245, 158, 11, 0.12)',
+                                  color: '#d97706',
+                                  border: '1px solid rgba(245, 158, 11, 0.25)'
+                                }}>
+                                  Grupo #{l.numero_grupo}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Datos del Plan */}
+                          {l.planes_abonos && (
+                            <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
+                              <span><strong>Plan:</strong> {l.planes_abonos.nombre_plan || 'S/D'}</span>
+                              {l.planes_abonos.gb_incluidos !== undefined && (
+                                <span><strong>Datos:</strong> {l.planes_abonos.gb_incluidos} GB</span>
+                              )}
+                              {l.planes_abonos.tarifa_aunar && (
+                                <span><strong>Tarifa:</strong> ${Number(l.planes_abonos.tarifa_aunar).toLocaleString('es-AR')}</span>
+                              )}
+                              {l.cargo_equipo ? (
+                                <span><strong>Cargo Equipo:</strong> ${Number(l.cargo_equipo).toLocaleString('es-AR')}</span>
+                              ) : null}
+                            </div>
+                          )}
+
+                          {/* Socio Vinculado */}
+                          <div style={{
+                            marginTop: '4px',
+                            padding: '12px 14px',
+                            borderRadius: '10px',
+                            background: 'rgba(0, 0, 0, 0.03)',
+                            border: '1px dashed var(--border-light)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            gap: '10px'
+                          }}>
+                            {l.socios ? (
+                              <>
+                                <div>
+                                  <div style={{ fontWeight: 800, fontSize: '14px', color: 'var(--text-primary)' }}>
+                                    {l.socios.nombre_completo}
+                                  </div>
+                                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', gap: '10px', marginTop: '2px', flexWrap: 'wrap' }}>
+                                    <span>Nº Socio: <strong>{l.socios.nro_socio || 'S/D'}</strong></span>
+                                    {l.socios.dni && <span>DNI: {l.socios.dni}</span>}
+                                    {l.socios.cuit && <span>CUIT: {l.socios.cuit}</span>}
+                                    {l.socios.email && <span>Email: {l.socios.email}</span>}
+                                  </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setIsLineSearchModalOpen(false);
+                                      setSelectedSocioId(l.socios.socio_id);
+                                    }}
+                                    className="action-button"
+                                    style={{
+                                      padding: '6px 12px',
+                                      fontSize: '12px',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '6px'
+                                    }}
+                                  >
+                                    <ExternalLink size={13} /> Ver Ficha del Socio
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setIsLineSearchModalOpen(false);
+                                      setSearch(l.numero_linea);
+                                    }}
+                                    style={{
+                                      background: 'none',
+                                      border: '1px solid var(--border-light)',
+                                      padding: '6px 12px',
+                                      borderRadius: '8px',
+                                      fontSize: '12px',
+                                      cursor: 'pointer',
+                                      color: 'var(--text-primary)',
+                                      fontWeight: 600
+                                    }}
+                                  >
+                                    Filtrar en Lista
+                                  </button>
+                                </div>
+                              </>
+                            ) : (
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                                <span style={{ fontSize: '13px', color: '#d97706', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <AlertCircle size={15} /> Línea registrada sin socio asignado
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setIsLineSearchModalOpen(false);
+                                    setCurrentSocio(null);
+                                    setIsModalOpen(true);
+                                  }}
+                                  style={{
+                                    background: 'var(--accent)',
+                                    color: '#fff',
+                                    border: 'none',
+                                    padding: '6px 12px',
+                                    borderRadius: '8px',
+                                    fontSize: '12px',
+                                    fontWeight: 700,
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  + Asignar a Nuevo Socio
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div style={{
+                  padding: '24px 18px',
+                  borderRadius: '14px',
+                  background: 'rgba(239, 68, 68, 0.06)',
+                  border: '1px solid rgba(239, 68, 68, 0.2)',
+                  textAlign: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '12px'
+                }}>
+                  <div style={{
+                    width: '48px',
+                    height: '48px',
+                    borderRadius: '50%',
+                    background: 'rgba(239, 68, 68, 0.12)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#ef4444'
+                  }}>
+                    <AlertCircle size={26} />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: 800, color: '#b91c1c' }}>
+                      La línea no existe en la base de datos
+                    </h3>
+                    <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)', maxWidth: '420px' }}>
+                      No se encontró ningún registro para el número <strong style={{ color: 'var(--text-primary)' }}>{lineSearchResult.query}</strong> en la tabla de líneas ni vinculado a ningún socio.
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '6px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsLineSearchModalOpen(false);
+                        setCurrentSocio(null);
+                        setIsModalOpen(true);
+                      }}
+                      className="action-button"
+                      style={{
+                        padding: '8px 18px',
+                        fontSize: '13px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      <Plus size={15} /> Crear Nuevo Socio
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLineSearchInput('');
+                        setLineSearchResult(null);
+                      }}
+                      style={{
+                        background: 'none',
+                        border: '1px solid var(--border-light)',
+                        padding: '8px 16px',
+                        borderRadius: '10px',
+                        fontSize: '13px',
+                        cursor: 'pointer',
+                        color: 'var(--text-secondary)'
+                      }}
+                    >
+                      Probar con otro número
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Footer del Modal */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid var(--border-light)', paddingTop: '14px', marginTop: '4px' }}>
+            <button
+              type="button"
+              className="pagination-btn-nav"
+              onClick={() => setIsLineSearchModalOpen(false)}
+              style={{ padding: '8px 20px', fontSize: '13px' }}
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
       </Modal>
       </div>
     </div>

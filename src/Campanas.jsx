@@ -72,6 +72,18 @@ export default function Campanas() {
   // Cupo Brevo y Filtro de Grupos / Socios Notificados
   const [enviosHoy, setEnviosHoy] = useState(0);
   const [filterNotificado, setFilterNotificado] = useState('ALL'); // 'ALL' | 'PENDIENTE' | 'NOTIFICADO'
+  const [dailyLimit, setDailyLimit] = useState(() => {
+    const s = localStorage.getItem('campanas_daily_limit');
+    return s ? parseInt(s, 10) : 300;
+  });
+  const [autoSelectDailyLimit, setAutoSelectDailyLimit] = useState(() => {
+    const s = localStorage.getItem('campanas_auto_select_daily');
+    return s !== null ? s === 'true' : true;
+  });
+  const [isDailyLimitModalOpen, setIsDailyLimitModalOpen] = useState(false);
+  const [tempDailyLimit, setTempDailyLimit] = useState(300);
+
+  const availableDailyQuota = Math.max(0, dailyLimit - enviosHoy);
 
   // Historial (Step 3)
   const [logs, setLogs] = useState([]);
@@ -177,6 +189,83 @@ export default function Campanas() {
       }
     } catch (e) {
       console.warn('Error al consultar envíos de hoy:', e);
+    }
+  };
+
+  // Consultar notificaciones recientes en campanas_logs (últimos 35 días para cubrir cambio de mes y períodos)
+  const fetchNotificacionesRecientes = async () => {
+    try {
+      const hace35Dias = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000);
+      const { data: logs, error } = await supabase
+        .from('campanas_logs')
+        .select('destinatario_email, created_at, estado')
+        .gte('created_at', hace35Dias.toISOString())
+        .neq('estado', 'error')
+        .order('created_at', { ascending: false })
+        .range(0, 49999);
+
+      if (error) throw error;
+
+      const notifMap = new Map();
+      (logs || []).forEach(l => {
+        if (l.destinatario_email) {
+          const em = l.destinatario_email.trim().toLowerCase();
+          if (!notifMap.has(em)) {
+            notifMap.set(em, l);
+          }
+        }
+      });
+      return notifMap;
+    } catch (err) {
+      console.warn('Error al consultar notificaciones recientes:', err);
+      return new Map();
+    }
+  };
+
+  // Aplicar selección y filtro automático según estado de notificación y cupo diario disponible
+  const applySelectionAndFilters = (newItems, notifCount, pendCount) => {
+    setItems(newItems);
+
+    // Si ya existen notificados en el lote, activar vista de PENDIENTES automáticamente para mostrar solo los no enviados
+    if (notifCount > 0) {
+      setFilterNotificado('PENDIENTE');
+    }
+
+    const pendientes = newItems.filter(i => !i.notificado);
+    const cupo = Math.max(0, dailyLimit - enviosHoy);
+
+    if (autoSelectDailyLimit) {
+      const toSelect = pendientes.slice(0, cupo);
+      setSelectedIds(new Set(toSelect.map(i => i.id)));
+      if (notifCount > 0 && toSelect.length > 0) {
+        addToast(`Se detectaron ${notifCount} ya notificados. Mostrando los ${pendCount} pendientes y seleccionando ${toSelect.length} según cupo diario (${cupo}).`, 'info');
+      } else if (toSelect.length > 0) {
+        addToast(`Se auto-seleccionaron ${toSelect.length} destinatarios pendientes según tu cupo diario disponible (${cupo}).`, 'info');
+      }
+    } else {
+      // Seleccionar únicamente pendientes (nunca los ya notificados)
+      setSelectedIds(new Set(pendientes.map(i => i.id)));
+    }
+  };
+
+  const handleSelectDailyLimit = () => {
+    const pendientes = items.filter(i => !i.notificado);
+    const cupo = Math.max(0, dailyLimit - enviosHoy);
+    const toSelect = pendientes.slice(0, cupo);
+    setSelectedIds(new Set(toSelect.map(i => i.id)));
+    setFilterNotificado('PENDIENTE');
+    addToast(`Se seleccionaron ${toSelect.length} destinatarios pendientes según el cupo diario disponible (${cupo} de ${dailyLimit}).`, 'success');
+  };
+
+  const handleSelectAllPending = () => {
+    const pendientes = items.filter(i => !i.notificado);
+    setSelectedIds(new Set(pendientes.map(i => i.id)));
+    setFilterNotificado('PENDIENTE');
+    const cupo = Math.max(0, dailyLimit - enviosHoy);
+    if (pendientes.length > cupo) {
+      addToast(`Se seleccionaron todos los ${pendientes.length} pendientes. Atención: tu cupo diario disponible es de ${cupo} correos.`, 'warning');
+    } else {
+      addToast(`Se seleccionaron todos los ${pendientes.length} pendientes.`, 'success');
     }
   };
 
@@ -906,25 +995,9 @@ export default function Campanas() {
       );
     }
 
-    // Enriquecer con estado de notificación en campanas_logs para este mes
+    // Enriquecer con estado de notificación en campanas_logs (últimos 35 días)
     try {
-      const inicioMes = new Date();
-      inicioMes.setDate(1);
-      inicioMes.setHours(0, 0, 0, 0);
-
-      const { data: logsMes } = await supabase
-        .from('campanas_logs')
-        .select('destinatario_email, created_at, estado')
-        .gte('created_at', inicioMes.toISOString())
-        .neq('estado', 'error');
-
-      const notifMap = new Map();
-      (logsMes || []).forEach(l => {
-        if (l.destinatario_email) {
-          const em = l.destinatario_email.trim().toLowerCase();
-          if (!notifMap.has(em)) notifMap.set(em, l);
-        }
-      });
+      const notifMap = await fetchNotificacionesRecientes();
 
       resultItems.forEach(item => {
         const notif = notifMap.get((item.email || '').trim().toLowerCase());
@@ -936,8 +1009,9 @@ export default function Campanas() {
       console.warn('Error al verificar notificaciones en Excel:', e);
     }
 
-    setItems(resultItems);
-    setSelectedIds(new Set(resultItems.map(i => i.id)));
+    const notifCount = resultItems.filter(i => i.notificado).length;
+    const pendCount = resultItems.filter(i => !i.notificado).length;
+    applySelectionAndFilters(resultItems, notifCount, pendCount);
   };
 
   const handleExcelFileSelect = (file) => {
@@ -1065,24 +1139,8 @@ export default function Campanas() {
             facturacionPorSocio[f.socio_id].push(f);
           });
 
-          // Cargar notificaciones del mes para marcar socios notificados
-          const inicioMes = new Date();
-          inicioMes.setDate(1);
-          inicioMes.setHours(0, 0, 0, 0);
-
-          const { data: logsMes } = await supabase
-            .from('campanas_logs')
-            .select('destinatario_email, created_at, estado')
-            .gte('created_at', inicioMes.toISOString())
-            .neq('estado', 'error');
-
-          const notifMap = new Map();
-          (logsMes || []).forEach(l => {
-            if (l.destinatario_email) {
-              const em = l.destinatario_email.trim().toLowerCase();
-              if (!notifMap.has(em)) notifMap.set(em, l);
-            }
-          });
+          // Cargar notificaciones recientes para marcar socios notificados
+          const notifMap = await fetchNotificacionesRecientes();
 
           mapped.forEach(item => {
             const lineasFactura = facturacionPorSocio[item.socio_id_num] || [];
@@ -1103,8 +1161,9 @@ export default function Campanas() {
         console.error('Error al enriquecer con facturación:', facErr);
       }
 
-      setItems(mapped);
-      setSelectedIds(new Set());
+      const notifCount = mapped.filter(i => i.notificado).length;
+      const pendCount = mapped.filter(i => !i.notificado).length;
+      applySelectionAndFilters(mapped, notifCount, pendCount);
     } catch (err) {
       console.error(err);
       addToast('Error al cargar socios', 'error');
