@@ -1435,9 +1435,9 @@ export default function Campanas() {
   const buildAunarChassis = (editableTextHtml = '') => {
     return `<div style="font-family: Arial, sans-serif; max-width: 600px; background-color: #ffffff; margin: 0 auto; padding: 20px; border-radius: 8px; border: 1px solid #ddd; color: #333; line-height: 1.5;">
 
-  <!-- Header -->
-  <div style="text-align: center; border-bottom: 2px solid #0056b3; padding-bottom: 10px; margin-bottom: 20px;">
-    <h1 style="font-size: 20px; color: #0056b3; margin: 0;">Mutual Aunar</h1>
+  <!-- Logo AUNAR -->
+  <div style="text-align: center; margin-bottom: 20px;">
+    <img src="https://zwncyaviinmfzvminytv.supabase.co/storage/v1/object/public/public_assets/logo_aunar.png" alt="Aunar Asociación" style="width: 160px; max-width: 100%; height: auto; display: inline-block;" />
   </div>
 
   <!-- Saludo -->
@@ -1548,9 +1548,9 @@ export default function Campanas() {
         subject: 'Aunar - Detalle de tu abono, {{nombre_socio}} - Linea: {{lineas}}',
         body: `<div style="font-family: Arial, sans-serif; max-width: 600px; background-color: #ffffff; margin: 0 auto; padding: 20px; border-radius: 8px; border: 1px solid #ddd; color: #333; line-height: 1.5;">
 
-  <!-- Header -->
-  <div style="text-align: center; border-bottom: 2px solid #0056b3; padding-bottom: 10px; margin-bottom: 20px;">
-    <h1 style="font-size: 20px; color: #0056b3; margin: 0;">Mutual Aunar</h1>
+  <!-- Logo AUNAR -->
+  <div style="text-align: center; margin-bottom: 20px;">
+    <img src="https://zwncyaviinmfzvminytv.supabase.co/storage/v1/object/public/public_assets/logo_aunar.png" alt="Aunar Asociación" style="width: 160px; max-width: 100%; height: auto; display: inline-block;" />
   </div>
 
   <!-- Saludo -->
