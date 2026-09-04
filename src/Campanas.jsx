@@ -9,7 +9,7 @@ import {
   Bot, MessageSquare, UploadCloud, FileSpreadsheet, Sparkles, Database,
   CheckCircle, AlertTriangle, Calendar, Play, Building2, HelpCircle,
   Copy, Smartphone, ChevronUp, Bookmark, Trash2, PlusCircle,
-  Minimize2, Maximize2
+  Minimize2, Maximize2, ExternalLink
 } from 'lucide-react';
 import { useToast } from './components/ui/ToastProvider';
 import Modal from './components/Modal';
@@ -2151,18 +2151,40 @@ export default function Campanas() {
       borderRadius: '16px',
       border: '1px solid var(--border-light)',
     },
-    statusBadge: (status) => ({
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: '4px',
-      fontSize: '10.5px',
-      fontWeight: 700,
-      padding: '4px 10px',
-      borderRadius: '100px',
-      background: status === 'exito' ? 'rgba(46,125,50,0.1)' : 'rgba(211,47,47,0.1)',
-      color: status === 'exito' ? 'var(--accent)' : 'var(--danger)',
-      border: status === 'exito' ? '1px solid rgba(46,125,50,0.15)' : '1px solid rgba(211,47,47,0.15)',
-    })
+    statusBadge: (status) => {
+      let bg = 'rgba(100,116,139,0.1)';
+      let color = 'var(--text-secondary)';
+      let border = 'rgba(100,116,139,0.15)';
+      if (status === 'exito') {
+        bg = 'rgba(16,185,129,0.1)';
+        color = '#059669';
+        border = 'rgba(16,185,129,0.25)';
+      } else if (status === 'abierto') {
+        bg = 'rgba(147,51,234,0.1)';
+        color = '#7e22ce';
+        border = 'rgba(147,51,234,0.25)';
+      } else if (status === 'click') {
+        bg = 'rgba(2,132,199,0.1)';
+        color = '#0284c7';
+        border = 'rgba(2,132,199,0.25)';
+      } else if (status === 'rebotado' || status === 'error') {
+        bg = 'rgba(239,68,68,0.1)';
+        color = '#dc2626';
+        border = 'rgba(239,68,68,0.25)';
+      }
+      return {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '4px',
+        fontSize: '10.5px',
+        fontWeight: 700,
+        padding: '4px 10px',
+        borderRadius: '100px',
+        background: bg,
+        color: color,
+        border: `1px solid ${border}`,
+      };
+    }
   };
 
   return (
@@ -4560,8 +4582,11 @@ export default function Campanas() {
                   style={{ ...S.input, cursor: 'pointer' }}
                 >
                   <option value="ALL">Todos los estados</option>
-                  <option value="exito">Éxito</option>
-                  <option value="error">Error</option>
+                  <option value="exito">Enviados</option>
+                  <option value="abierto">Abiertos (Vistos)</option>
+                  <option value="click">Clics</option>
+                  <option value="rebotado">Rebotados</option>
+                  <option value="error">Con Error</option>
                 </select>
               </div>
             </div>
@@ -4627,8 +4652,14 @@ export default function Campanas() {
                       </td>
                       <td style={{ ...S.td, textAlign: 'center' }}>
                         <span style={S.statusBadge(log.estado)}>
-                          {log.estado === 'exito' ? (
-                            <><Check size={11} /><span>Éxito</span></>
+                          {log.estado === 'abierto' ? (
+                            <><Eye size={11} /><span>Abierto</span></>
+                          ) : log.estado === 'click' ? (
+                            <><ExternalLink size={11} /><span>Clic</span></>
+                          ) : log.estado === 'rebotado' ? (
+                            <><AlertTriangle size={11} /><span>Rebotado</span></>
+                          ) : log.estado === 'exito' ? (
+                            <><Check size={11} /><span>Enviado</span></>
                           ) : (
                             <><X size={11} /><span>Error</span></>
                           )}
