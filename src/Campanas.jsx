@@ -594,6 +594,10 @@ export default function Campanas() {
       clean = clean.replace(/(\d+)\s*MB\s*GB/i, '$1 MB');
       clean = clean.replace(/(\d+)\s*MB/i, '$1 MB');
       clean = clean.replace(/\s+/g, ' ');
+      const num = parseFloat(clean);
+      if (!isNaN(num) && !/(GB|MB)/i.test(clean)) {
+        return `${num} GB`;
+      }
       return clean;
     }
     if (plan && String(plan).trim()) {
@@ -874,13 +878,24 @@ export default function Campanas() {
         const ultimoPeriodo = periodoData?.[0]?.periodo;
 
         if (ultimoPeriodo) {
-          const { data: facturacion } = await supabase
-            .from('v_historial_facturacion_socio')
-            .select('socio_id, numero_linea, nombre_plan, proveedor, costo_abono_real, excedentes, bonificaciones, total_linea')
-            .eq('periodo', ultimoPeriodo);
+          const [{ data: facturacion }, { data: lineasPlan }] = await Promise.all([
+            supabase
+              .from('v_historial_facturacion_socio')
+              .select('socio_id, numero_linea, nombre_plan, proveedor, costo_abono_real, excedentes, bonificaciones, total_linea')
+              .eq('periodo', ultimoPeriodo),
+            supabase
+              .from('lineas')
+              .select('numero_linea, planes_abonos:plan_id(gb_incluidos)')
+          ]);
+
+          const gbMap = new Map();
+          (lineasPlan || []).forEach(lp => {
+            if (lp.numero_linea) gbMap.set(lp.numero_linea, lp.planes_abonos?.gb_incluidos);
+          });
 
           const facturacionPorSocio = {};
           (facturacion || []).forEach(f => {
+            f.gb = gbMap.get(f.numero_linea);
             if (!facturacionPorSocio[f.socio_id]) facturacionPorSocio[f.socio_id] = [];
             facturacionPorSocio[f.socio_id].push(f);
           });
@@ -947,26 +962,90 @@ export default function Campanas() {
         detalle_lineas: []
       }));
 
-      // Enriquecer con última facturación del grupo
+      // Enriquecer con última facturación del grupo y detalle completo de líneas
       try {
         const { data: ultLiqs } = await supabase
           .from('liquidaciones_grupos')
           .select('numero_grupo, periodo, monto_total_facturado')
           .order('periodo', { ascending: false });
 
+        let ultimoPeriodo = '';
+        const liqsMap = {};
         if (ultLiqs && ultLiqs.length > 0) {
-          const ultimoPeriodo = ultLiqs[0].periodo;
-          const liqsMap = {};
+          ultimoPeriodo = ultLiqs[0].periodo;
           ultLiqs.filter(l => l.periodo === ultimoPeriodo).forEach(l => {
             liqsMap[l.numero_grupo] = (liqsMap[l.numero_grupo] || 0) + Number(l.monto_total_facturado || 0);
           });
-          mapped.forEach(item => {
-            if (liqsMap[item.grupo]) {
-              item.monto_adeudado = liqsMap[item.grupo].toFixed(2);
-              item.periodo = ultimoPeriodo;
-            }
+        }
+
+        if (!ultimoPeriodo) {
+          const { data: cData } = await supabase
+            .from('consumos_mensuales')
+            .select('periodo')
+            .order('periodo', { ascending: false })
+            .limit(1);
+          ultimoPeriodo = cData?.[0]?.periodo || '';
+        }
+
+        // Cargar todas las líneas asignadas a grupos con su compañía, plan, GB y socio asignado
+        const { data: groupLines } = await supabase
+          .from('lineas')
+          .select(`
+            numero_linea,
+            numero_grupo,
+            proveedores:proveedor_id (nombre),
+            planes_abonos:plan_id (nombre_plan, gb_incluidos),
+            socios:socio_id (nombre_completo)
+          `)
+          .not('numero_grupo', 'is', null)
+          .order('numero_linea', { ascending: true });
+
+        // Cargar facturación detallada del último período
+        const factMap = new Map();
+        if (ultimoPeriodo) {
+          const { data: facturacion } = await supabase
+            .from('v_historial_facturacion_socio')
+            .select('numero_linea, nombre_plan, proveedor, costo_abono_real, excedentes, bonificaciones, total_linea')
+            .eq('periodo', ultimoPeriodo);
+
+          (facturacion || []).forEach(f => {
+            if (f.numero_linea) factMap.set(f.numero_linea, f);
           });
         }
+
+        // Agrupar líneas por numero_grupo
+        const linesByGroup = {};
+        (groupLines || []).forEach(l => {
+          if (!l.numero_grupo) return;
+          if (!linesByGroup[l.numero_grupo]) linesByGroup[l.numero_grupo] = [];
+          const fact = factMap.get(l.numero_linea);
+          linesByGroup[l.numero_grupo].push({
+            numero_linea: l.numero_linea,
+            nombre_socio: l.socios?.nombre_completo || '',
+            proveedor: fact?.proveedor || l.proveedores?.nombre || 'CLARO',
+            nombre_plan: fact?.nombre_plan || l.planes_abonos?.nombre_plan || '',
+            gb: l.planes_abonos?.gb_incluidos,
+            costo_abono_real: Number(fact?.costo_abono_real || 0),
+            excedentes: Number(fact?.excedentes || 0),
+            total_linea: Number(fact?.total_linea || fact?.costo_abono_real || 0)
+          });
+        });
+
+        mapped.forEach(item => {
+          const gLines = linesByGroup[item.grupo] || [];
+          item.detalle_lineas = gLines;
+          item.periodo = ultimoPeriodo;
+          if (gLines.length > 0) {
+            item.lineas = gLines.map(l => l.numero_linea).join(', ');
+            const sumLines = gLines.reduce((sum, l) => sum + Number(l.total_linea || 0), 0);
+            if (!liqsMap[item.grupo] && sumLines > 0) {
+              item.monto_adeudado = sumLines.toFixed(2);
+            }
+          }
+          if (liqsMap[item.grupo]) {
+            item.monto_adeudado = Number(liqsMap[item.grupo]).toFixed(2);
+          }
+        });
       } catch (e) {
         console.warn('Error al enriquecer facturación grupal:', e);
       }
@@ -1030,13 +1109,24 @@ export default function Campanas() {
         const ultimoPeriodo = periodoData?.[0]?.periodo;
 
         if (ultimoPeriodo) {
-          const { data: facturacion } = await supabase
-            .from('v_historial_facturacion_socio')
-            .select('socio_id, numero_linea, nombre_plan, proveedor, costo_abono_real, excedentes, bonificaciones, total_linea')
-            .eq('periodo', ultimoPeriodo);
+          const [{ data: facturacion }, { data: lineasPlan }] = await Promise.all([
+            supabase
+              .from('v_historial_facturacion_socio')
+              .select('socio_id, numero_linea, nombre_plan, proveedor, costo_abono_real, excedentes, bonificaciones, total_linea')
+              .eq('periodo', ultimoPeriodo),
+            supabase
+              .from('lineas')
+              .select('numero_linea, planes_abonos:plan_id(gb_incluidos)')
+          ]);
+
+          const gbMap = new Map();
+          (lineasPlan || []).forEach(lp => {
+            if (lp.numero_linea) gbMap.set(lp.numero_linea, lp.planes_abonos?.gb_incluidos);
+          });
 
           const factMap = new Map();
           (facturacion || []).forEach(f => {
+            f.gb = gbMap.get(f.numero_linea);
             if (f.numero_linea) factMap.set(f.numero_linea, f);
           });
 
@@ -1292,23 +1382,45 @@ export default function Campanas() {
     const cuitStr = r.cuit || '-';
     const diasMoraStr = r.dias_mora || '0';
 
-    // Generar filas de la tabla de detalle de líneas (formato anti-spam: 3 columnas)
+    // Generar filas de la tabla de detalle de líneas (Línea, Compañía, GB Contratados, Abono)
     let tableRows;
     if (r.detalle_lineas && r.detalle_lineas.length > 0) {
-      tableRows = r.detalle_lineas.map(l =>
-        `<tr>
-          <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; font-weight: 600; color: #333;">${l.numero_linea}</td>
-          <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; color: #555;">${l.proveedor || '-'}</td>
-          <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; text-align: right; color: #555;">$ ${Number(l.total_linea || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-        </tr>`
-      ).join('');
+      tableRows = r.detalle_lineas.map(l => {
+        const lineNum = l.numero_linea || '';
+        let lineLabel = lineNum;
+        if (l.nombre_socio) {
+          const sName = l.nombre_socio.includes(',')
+            ? l.nombre_socio.split(',')[1].trim().split(' ')[0]
+            : l.nombre_socio.trim().split(' ')[0];
+          if (sName && sName.toLowerCase() !== 'socio') {
+            lineLabel = `${lineNum} (${sName})`;
+          }
+        }
+        const planGb = formatGbsPlan(l.nombre_plan, l.gb);
+        const prov = l.proveedor || '-';
+        const total = `$ ${Number(l.total_linea || l.costo_abono_real || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+
+        return `<tr>
+          <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; font-weight: 600; color: #333;">${lineLabel}</td>
+          <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; color: #555;">${prov}</td>
+          <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; text-align: center; color: #555;">${planGb}</td>
+          <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; text-align: right; color: #555; font-weight: 600;">${total}</td>
+        </tr>`;
+      }).join('');
     } else {
       tableRows = `<tr>
         <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; font-weight: 600; color: #333;">${lineasStr}</td>
         <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; color: #555;">Mutual Aunar</td>
-        <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; text-align: right; color: #555;">$ ${montoStr}</td>
+        <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; text-align: center; color: #555;">-</td>
+        <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; text-align: right; color: #555; font-weight: 600;">$ ${montoStr}</td>
       </tr>`;
     }
+
+    // Asegurar que si el cuerpo trae el encabezado de 3 columnas (Línea / Empresa / Abono), se transforme a 4 columnas con GB
+    body = body.replace(
+      /<th([^>]*)>(?:Empresa|Compañía)<\/th>\s*<th([^>]*)>Abono<\/th>/gi,
+      `<th$1>Compañía</th><th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: center; color: #555;">GB Contratados</th><th$2>Abono</th>`
+    );
 
     // Reemplazar marcador de tabla de líneas o {{detalle_lineas_html}}
     const placeholderRowRegex = /<tr[^>]*data-lineas-placeholder[^>]*>[\s\S]*?<\/tr>/gi;
@@ -1455,14 +1567,15 @@ export default function Campanas() {
       <thead>
         <tr>
           <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: left; color: #555;">Línea</th>
-          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: left; color: #555;">Empresa</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: left; color: #555;">Compañía</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: center; color: #555;">GB Contratados</th>
           <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: right; color: #555;">Abono</th>
         </tr>
       </thead>
       <tbody>
         <!-- DETALLE_LINEAS_START -->
         <tr data-lineas-placeholder="true">
-          <td colspan="3" style="padding: 12px; text-align: center; color: #999; font-size: 13px; font-style: italic;">
+          <td colspan="4" style="padding: 12px; text-align: center; color: #999; font-size: 13px; font-style: italic;">
             (El detalle de líneas se insertará automáticamente aquí)
           </td>
         </tr>
@@ -1568,14 +1681,15 @@ export default function Campanas() {
       <thead>
         <tr>
           <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: left; color: #555;">Línea</th>
-          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: left; color: #555;">Empresa</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: left; color: #555;">Compañía</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: center; color: #555;">GB Contratados</th>
           <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: right; color: #555;">Abono</th>
         </tr>
       </thead>
       <tbody>
         <!-- DETALLE_LINEAS_START -->
         <tr data-lineas-placeholder="true">
-          <td colspan="3" style="padding: 12px; text-align: center; color: #999; font-size: 13px; font-style: italic;">
+          <td colspan="4" style="padding: 12px; text-align: center; color: #999; font-size: 13px; font-style: italic;">
             (El detalle de líneas se insertará automáticamente aquí)
           </td>
         </tr>
