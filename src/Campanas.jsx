@@ -658,12 +658,87 @@ export default function Campanas() {
     return '-';
   };
 
-  const applyExcelRows = (rawRows, mode, empresa, searchStr, periodoVal) => {
+  const applyExcelRows = async (rawRows, mode, empresa, searchStr, periodoVal) => {
     if (!rawRows || rawRows.length === 0) {
       setItems([]);
       setSelectedIds(new Set());
       return;
     }
+
+    // 1. Resolver el email representativo de cada grupo por "mayor repetición"
+    // y descartando correos comodín institucionales (ej: aunarmutual@yahoo.com.ar) si existen emails personales en el grupo
+    const groupEmailFreq = new Map(); // grupoKey -> Map(email -> count)
+    const groupTitularCandidates = new Map(); // grupoKey -> Array<{ nombre, email, rawEmail }>
+
+    const isMutualPlaceholder = (em) => {
+      const lower = String(em || '').toLowerCase().trim();
+      return lower.includes('aunarmutual') || lower.endsWith('@aunar.org.ar') || lower.includes('aunar@');
+    };
+
+    rawRows.forEach(r => {
+      const gKey = r['GRUPO'] != null ? String(r['GRUPO']).trim() : '';
+      if (!gKey) return;
+
+      const emailGpo = String(r['EMAIL GRUPO'] || '').trim();
+      const emailIndiv = String(r['EMAIL INDIVIDUAL'] || '').trim();
+      const cand = (emailGpo || emailIndiv).toLowerCase();
+      const rawCand = emailGpo || emailIndiv;
+      const nombre = String(r['APELLIDO, NOMBRE'] || '').trim();
+
+      if (cand && cand.includes('@')) {
+        if (!groupEmailFreq.has(gKey)) {
+          groupEmailFreq.set(gKey, new Map());
+          groupTitularCandidates.set(gKey, []);
+        }
+        const freqMap = groupEmailFreq.get(gKey);
+        freqMap.set(cand, (freqMap.get(cand) || 0) + 1);
+
+        groupTitularCandidates.get(gKey).push({
+          nombre,
+          email: cand,
+          rawEmail: rawCand
+        });
+      }
+    });
+
+    const groupResolved = new Map(); // grupoKey -> { email, nombreTitular }
+    groupEmailFreq.forEach((freqMap, gKey) => {
+      const candidates = Array.from(freqMap.entries()).map(([email, count]) => ({
+        email,
+        count,
+        isPlaceholder: isMutualPlaceholder(email)
+      }));
+
+      // Prioridad: 1) Si no es placeholder de la mutual gana; 2) Mayor cantidad de repeticiones en el grupo
+      candidates.sort((a, b) => {
+        if (a.isPlaceholder !== b.isPlaceholder) {
+          return a.isPlaceholder ? 1 : -1;
+        }
+        return b.count - a.count;
+      });
+
+      const winningEmail = candidates[0]?.email || '';
+      const pool = groupTitularCandidates.get(gKey) || [];
+      const matchingRows = pool.filter(r => r.email === winningEmail);
+      const candidatesForName = matchingRows.length > 0 ? matchingRows : pool;
+
+      // Buscar el titular principal (preferir nombres sin sufijos como '(hijo)', '(mujer)', '(esposa)')
+      let bestNombre = candidatesForName[0]?.nombre || '';
+      for (const item of candidatesForName) {
+        const n = item.nombre.toLowerCase();
+        if (!n.includes('(') && !n.includes(')')) {
+          bestNombre = item.nombre;
+          break;
+        }
+      }
+
+      const originalEmail = pool.find(r => r.email === winningEmail)?.rawEmail || winningEmail;
+
+      groupResolved.set(gKey, {
+        email: originalEmail,
+        nombreTitular: bestNombre
+      });
+    });
 
     let filtered = rawRows;
     if (empresa && empresa !== 'ALL') {
@@ -676,9 +751,20 @@ export default function Campanas() {
       const abonoBase = Math.max(0, tarifaAunar - excedentes);
       const numLinea = r['NUMERO'] != null ? String(r['NUMERO']).trim() : '';
       const emailIndiv = String(r['EMAIL INDIVIDUAL'] || '').trim();
-      const emailGpo = String(r['EMAIL GRUPO'] || '').trim();
-      const emailFinal = emailIndiv || emailGpo;
+      const rawEmailGpo = String(r['EMAIL GRUPO'] || '').trim();
       const grupo = r['GRUPO'] != null ? String(r['GRUPO']).trim() : '';
+
+      // El email del grupo es el resuelto por mayoría de repeticiones
+      const resolvedGpo = grupo ? groupResolved.get(grupo) : null;
+      const emailGpo = resolvedGpo?.email || rawEmailGpo;
+
+      // Si la línea tiene email individual legítimo (no institucional mutual), se respeta;
+      // si no, se usa el email representativo del grupo
+      let emailFinal = emailIndiv;
+      if (!emailFinal || isMutualPlaceholder(emailFinal)) {
+        emailFinal = emailGpo || rawEmailGpo;
+      }
+
       const nombre = String(r['APELLIDO, NOMBRE'] || '').trim();
       const rawGb = String(r['GB INTERNET'] || '').trim();
       const rawAbono = String(r['ABONO NOMBRE'] || '').trim();
@@ -691,6 +777,7 @@ export default function Campanas() {
         empresa: prov,
         grupo,
         nombre,
+        nombreTitular: resolvedGpo?.nombreTitular || nombre,
         numero: numLinea,
         plan,
         gb: rawGb,
@@ -714,8 +801,8 @@ export default function Campanas() {
         if (!emailMap.has(key)) {
           emailMap.set(key, {
             id: `excel_mail_${key}`,
-            nombre: r.nombre,
-            nombre_socio: r.nombre,
+            nombre: r.nombreTitular || r.nombre,
+            nombre_socio: r.nombreTitular || r.nombre,
             email: r.emailFinal,
             grupo: r.grupo || 'Sin Grupo',
             lineasSet: new Set(),
@@ -763,10 +850,11 @@ export default function Campanas() {
       normalizedRows.forEach(r => {
         const key = r.grupo || r.emailGpo || r.emailFinal;
         if (!groupMap.has(key)) {
+          const repNombre = r.nombreTitular || r.nombre;
           groupMap.set(key, {
             id: `excel_gpo_${key}`,
-            nombre: `Grupo ${r.grupo} - ${r.nombre}`,
-            nombre_socio: r.nombre,
+            nombre: r.grupo ? `Grupo ${r.grupo} - ${repNombre}` : repNombre,
+            nombre_socio: repNombre,
             email: r.emailGpo || r.emailFinal,
             grupo: r.grupo,
             lineasSet: new Set(),
@@ -818,6 +906,36 @@ export default function Campanas() {
       );
     }
 
+    // Enriquecer con estado de notificación en campanas_logs para este mes
+    try {
+      const inicioMes = new Date();
+      inicioMes.setDate(1);
+      inicioMes.setHours(0, 0, 0, 0);
+
+      const { data: logsMes } = await supabase
+        .from('campanas_logs')
+        .select('destinatario_email, created_at, estado')
+        .gte('created_at', inicioMes.toISOString())
+        .neq('estado', 'error');
+
+      const notifMap = new Map();
+      (logsMes || []).forEach(l => {
+        if (l.destinatario_email) {
+          const em = l.destinatario_email.trim().toLowerCase();
+          if (!notifMap.has(em)) notifMap.set(em, l);
+        }
+      });
+
+      resultItems.forEach(item => {
+        const notif = notifMap.get((item.email || '').trim().toLowerCase());
+        item.notificado = !!notif;
+        item.ultimo_envio = notif?.created_at || null;
+        item.ultimo_estado = notif?.estado || null;
+      });
+    } catch (e) {
+      console.warn('Error al verificar notificaciones en Excel:', e);
+    }
+
     setItems(resultItems);
     setSelectedIds(new Set(resultItems.map(i => i.id)));
   };
@@ -838,7 +956,7 @@ export default function Campanas() {
     }
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
@@ -862,7 +980,7 @@ export default function Campanas() {
           empresas: empCount
         });
 
-        applyExcelRows(rawJson, excelMode, excelEmpresa, excelSearch, detectado);
+        await applyExcelRows(rawJson, excelMode, excelEmpresa, excelSearch, detectado);
         addToast(`¡Planilla cargada! Se encontraron ${rawJson.length} líneas en '${sheetName}'.`, 'success');
       } catch (err) {
         console.error('Error al parsear Excel:', err);
