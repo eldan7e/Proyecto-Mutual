@@ -1292,27 +1292,21 @@ export default function Campanas() {
     const cuitStr = r.cuit || '-';
     const diasMoraStr = r.dias_mora || '0';
 
-    // Generar filas de la tabla de detalle de líneas
+    // Generar filas de la tabla de detalle de líneas (formato anti-spam: 3 columnas)
     let tableRows;
     if (r.detalle_lineas && r.detalle_lineas.length > 0) {
       tableRows = r.detalle_lineas.map(l =>
-        `<tr style="border-bottom: 1px solid #e2e8f0;">
-          <td style="padding: 8px 10px; font-size: 13px; font-weight: 600; color: #1e293b;">${l.numero_linea}</td>
-          <td style="padding: 8px 10px; font-size: 13px; color: #475569;">${formatGbsPlan(l.nombre_plan, l.gb)}</td>
-          <td style="padding: 8px 10px; font-size: 13px; color: #475569;">${l.proveedor || '-'}</td>
-          <td style="padding: 8px 10px; font-size: 13px; text-align: right; color: #475569;">$ ${Number(l.costo_abono_real || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-          <td style="padding: 8px 10px; font-size: 13px; text-align: right; color: #475569;">$ ${Number(l.excedentes || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-          <td style="padding: 8px 10px; font-size: 13px; text-align: right; font-weight: bold; color: #166534;">$ ${Number(l.total_linea || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+        `<tr>
+          <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; font-weight: 600; color: #333;">${l.numero_linea}</td>
+          <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; color: #555;">${l.proveedor || '-'}</td>
+          <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; text-align: right; color: #555;">$ ${Number(l.total_linea || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
         </tr>`
       ).join('');
     } else {
-      tableRows = `<tr style="border-bottom: 1px solid #e2e8f0;">
-        <td style="padding: 8px 10px; font-size: 13px; font-weight: 600; color: #1e293b;">${lineasStr}</td>
-        <td style="padding: 8px 10px; font-size: 13px; color: #475569;">Abono Telefónico</td>
-        <td style="padding: 8px 10px; font-size: 13px; color: #475569;">Mutual Aunar</td>
-        <td style="padding: 8px 10px; font-size: 13px; text-align: right; color: #475569;">$ ${montoStr}</td>
-        <td style="padding: 8px 10px; font-size: 13px; text-align: right; color: #475569;">$ 0,00</td>
-        <td style="padding: 8px 10px; font-size: 13px; text-align: right; font-weight: bold; color: #166534;">$ ${montoStr}</td>
+      tableRows = `<tr>
+        <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; font-weight: 600; color: #333;">${lineasStr}</td>
+        <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; color: #555;">Mutual Aunar</td>
+        <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; text-align: right; color: #555;">$ ${montoStr}</td>
       </tr>`;
     }
 
@@ -1360,6 +1354,29 @@ export default function Campanas() {
       }
     }
 
+    // Generar resumen de líneas para el asunto (similar al viejo formato FACT. AUNAR)
+    let detalleLineasAsunto = '';
+    if (r.detalle_lineas && r.detalle_lineas.length > 0) {
+      detalleLineasAsunto = r.detalle_lineas.map(l => {
+        const lineNum = l.numero_linea || '';
+        // Extraer primer nombre del socio de la línea (si tiene nombre propio diferente)
+        const lineSocioName = l.nombre_socio || l.nombre_completo || '';
+        let displayName = '';
+        if (lineSocioName) {
+          if (lineSocioName.includes(',')) {
+            displayName = lineSocioName.split(',').slice(1).join(' ').trim().split(' ')[0];
+          } else {
+            displayName = lineSocioName.split(' ')[0];
+          }
+        }
+        if (!displayName) displayName = firstName || '';
+        const totalLinea = `$${Number(l.total_linea || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+        const planStr = formatGbsPlan(l.nombre_plan, l.gb);
+        const excStr = `$${Number(l.excedentes || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+        return `[${lineNum} (${displayName}) ${totalLinea} (vto.${vencimientoStr}) Plan: ${planStr} - Excedentes: ${excStr}]`;
+      }).join(' ');
+    }
+
     // Mapeo general de variables
     const map = {
       '{{nombre_socio}}': nombreStr,
@@ -1381,6 +1398,7 @@ export default function Campanas() {
       '{{dni}}': dniStr,
       '{{cuit}}': cuitStr,
       '{{dias_mora}}': diasMoraStr,
+      '{{detalle_lineas_asunto}}': detalleLineasAsunto,
     };
 
     Object.entries(map).forEach(([tag, val]) => {
@@ -1415,91 +1433,69 @@ export default function Campanas() {
   };
 
   const buildAunarChassis = (editableTextHtml = '') => {
-    return `<div style="font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px 20px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff; color: #334155; line-height: 1.5;">
+    return `<div style="font-family: Arial, sans-serif; max-width: 600px; background-color: #ffffff; margin: 0 auto; padding: 20px; border-radius: 8px; border: 1px solid #ddd; color: #333; line-height: 1.5;">
 
-  <!-- View online link -->
-  <div style="text-align: center; margin-bottom: 18px;">
-    <a href="https://proyecto-mutual.vercel.app" target="_blank" style="font-size: 11.5px; color: #64748b; text-decoration: underline;">View this email in your browser</a>
-  </div>
-
-  <!-- Logo AUNAR -->
-  <div style="text-align: center; margin-bottom: 24px;">
-    <img src="https://zwncyaviinmfzvminytv.supabase.co/storage/v1/object/public/public_assets/logo_aunar.png" alt="Aunar Asociación" style="width: 160px; max-width: 100%; height: auto; display: inline-block;" />
+  <!-- Header -->
+  <div style="text-align: center; border-bottom: 2px solid #0056b3; padding-bottom: 10px; margin-bottom: 20px;">
+    <h1 style="font-size: 20px; color: #0056b3; margin: 0;">Mutual Aunar</h1>
   </div>
 
   <!-- Saludo -->
-  <div style="margin-bottom: 16px;">
-    <p style="margin: 0 0 6px 0; font-size: 16px; color: #0f172a;">
-      👋 <strong>Hola !</strong> <span style="color: #10b981; font-weight: bold; text-decoration: underline;">{{nombre_socio}}</span>
-    </p>
-    <p style="margin: 0; font-size: 14.5px; color: #475569;">
-      📄 Te enviamos el detalle de tu factura y el monto a abonar.
-    </p>
+  <p style="font-size: 14px; line-height: 1.5; margin-bottom: 15px;">
+    &#128075; ¡Hola, <strong>{{nombre_socio}}</strong>!
+  </p>
+  <p style="font-size: 14px; line-height: 1.5; margin-bottom: 15px;">
+    Te enviamos el detalle de tu facturación y el saldo de tu cuenta.
+  </p>
+  <p style="font-size: 13px; color: #666; margin-bottom: 15px;">Grupo: #{{grupo}} · Período: {{periodo}}</p>
+
+  <!-- Tabla de líneas -->
+  <div style="background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #e0e0e0;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 15px;">
+      <thead>
+        <tr>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: left; color: #555;">Línea</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: left; color: #555;">Empresa</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: right; color: #555;">Abono</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- DETALLE_LINEAS_START -->
+        <tr data-lineas-placeholder="true">
+          <td colspan="3" style="padding: 12px; text-align: center; color: #999; font-size: 13px; font-style: italic;">
+            (El detalle de líneas se insertará automáticamente aquí)
+          </td>
+        </tr>
+        <!-- DETALLE_LINEAS_END -->
+      </tbody>
+    </table>
+    <div style="font-size: 16px; font-weight: bold; color: #d9534f; text-align: right; margin-bottom: 5px;">Total a abonar: $ {{monto_adeudado}}</div>
+    <div style="font-size: 14px; text-align: right; color: #555; font-weight: bold;">Vencimiento: {{vencimiento}}</div>
   </div>
 
-  <!-- Línea divisoria continua -->
-  <hr style="border: none; border-top: 1.5px solid #0f172a; margin: 16px 0 20px 0;" />
-
-  <!-- Datos del socio y tabla de líneas -->
-  <div style="text-align: center; margin-bottom: 16px;">
-    <div style="font-weight: 700; font-size: 15px; color: #0f172a;">{{nombre_socio}}</div>
-    <div style="font-size: 13px; color: #64748b; margin-top: 3px;">Grupo: #{{grupo}} · Período: {{periodo}}</div>
-  </div>
-
-  <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-    <thead>
-      <tr style="background-color: #10b981; color: #ffffff;">
-        <th style="padding: 8px 10px; text-align: left; font-size: 13px;">Línea</th>
-        <th style="padding: 8px 10px; text-align: left; font-size: 13px;">Plan</th>
-        <th style="padding: 8px 10px; text-align: left; font-size: 13px;">Empresa</th>
-        <th style="padding: 8px 10px; text-align: right; font-size: 13px;">Abono</th>
-        <th style="padding: 8px 10px; text-align: right; font-size: 13px;">Excedentes</th>
-        <th style="padding: 8px 10px; text-align: right; font-size: 13px;">Total</th>
-      </tr>
-    </thead>
-    <tbody>
-      <!-- DETALLE_LINEAS_START -->
-      <tr data-lineas-placeholder="true" style="border-bottom: 1px solid #e2e8f0;">
-        <td colspan="6" style="padding: 12px; text-align: center; color: #64748b; font-size: 13px; font-style: italic;">
-          (El detalle de líneas y consumos de cada socio se insertará automáticamente aquí)
-        </td>
-      </tr>
-      <!-- DETALLE_LINEAS_END -->
-    </tbody>
-  </table>
-
-  <!-- TOTAL A ABONAR Y VENCIMIENTO -->
-  <div style="text-align: center; margin: 20px 0 26px 0; padding: 16px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
-    <div style="font-size: 18px; font-weight: 800; color: #0f172a; letter-spacing: 0.5px;">
-      TOTAL A ABONAR $ {{monto_adeudado}}
-    </div>
-    <div style="font-size: 14px; font-weight: 600; color: #475569; margin-top: 5px;">
-      Vencimiento: {{vencimiento}}
-    </div>
-  </div>
-
-  <!-- CONTENIDO EDITABLE DE ABAJO -->
-  ${editableTextHtml || `<div style="margin: 20px 0; padding: 10px 0;">
-    <p style="font-size: 14.5px; color: #334155; line-height: 1.6; margin: 0 0 12px 0;">
-      Estimado/a socio/a, le recordamos que los comprobantes de pago deben ser enviados respondiendo a este correo o vía WhatsApp indicando número de línea o grupo.
-    </p>
-    <p style="font-size: 14.5px; color: #334155; line-height: 1.6; margin: 0 0 12px 0;">
-      Ante cualquier consulta o modificación de plan, estamos a su entera disposición.
-    </p>
-    <p style="font-size: 15px; font-weight: bold; color: #1e293b; text-align: center; margin: 24px 0 12px 0;">
-      ¡Gracias por seguir eligiendo Aunar! 🤝
+  ${editableTextHtml || `<!-- Sección informativa -->
+  <div style="font-size: 13px; color: #666; margin-top: 20px; line-height: 1.4; border-top: 1px solid #eee; padding-top: 15px;">
+    <p style="margin-bottom: 12px;"><strong style="color: #444;">&#129300; ¿Tenés dudas sobre tu factura o tu plan?</strong><br>Estamos para ayudarte y asesorarte sobre las opciones disponibles en Claro, Personal y Movistar.</p>
+    <p style="margin-bottom: 12px;"><strong style="color: #444;">&#10084;&#65039; Beneficios y descuentos para vos</strong><br>Contamos con beneficios de portabilidad para nuestros asociados y sus referidos.</p>
+    <p style="margin-bottom: 12px;"><strong style="color: #444;">&#9992;&#65039; ¿Vas a viajar al exterior?</strong><br>Avisanos con anticipación y te asesoramos sobre las opciones de roaming para tu línea.</p>
+    <p style="margin-bottom: 12px;"><strong style="color: #444;">&#128201; ¿Tu factura vino más alta de lo habitual?</strong><br>Si tenés excedentes de internet, consultanos. Podemos revisar tu plan y ayudarte a encontrar el que mejor se adapte a vos.</p>
+    <p style="text-align: center; font-weight: bold; color: #0056b3; margin-top: 20px;">¡Gracias por seguir eligiendo Aunar! &#129309;</p>
+    <p style="background-color: #e9ecef; padding: 10px; border-radius: 5px; text-align: center; margin-top: 15px;">
+      <strong>&#128161; ¿Sabías que también tenemos internet y TV para tu hogar?</strong><br>
+      Consultá por tu zona y te cotizamos en el instante. Resolvé tu conectividad en un solo lugar.
     </p>
   </div>`}
 
-  <!-- Footer Redes y Dirección -->
-  <div style="border-top: 1px solid #e2e8f0; padding-top: 20px; text-align: center; font-size: 12px; color: #94a3b8;">
-    <div style="margin-bottom: 12px;">
-      <a href="https://twitter.com/aunar" target="_blank" style="color: #64748b; text-decoration: none; margin: 0 10px; font-weight: 600;">Twitter</a> | 
-      <a href="https://facebook.com/aunar" target="_blank" style="color: #64748b; text-decoration: none; margin: 0 10px; font-weight: 600;">Facebook</a> | 
-      <a href="https://aunar.com.ar" target="_blank" style="color: #64748b; text-decoration: none; margin: 0 10px; font-weight: 600;">Website</a>
-    </div>
+  <!-- Footer -->
+  <div style="font-size: 11px; text-align: center; color: #888; margin-top: 30px; line-height: 1.4;">
+    <p style="margin-bottom: 8px;">
+      <a href="https://twitter.com/aunar" target="_blank" style="color: #0056b3; text-decoration: none;">Twitter</a> |
+      <a href="https://facebook.com/aunar" target="_blank" style="color: #0056b3; text-decoration: none;">Facebook</a> |
+      <a href="https://aunar.com.ar" target="_blank" style="color: #0056b3; text-decoration: none;">Website</a>
+    </p>
     <p style="margin: 0 0 4px 0;">Copyright &copy; 2026 AUNAR MUTUAL. Todos los derechos reservados.</p>
-    <p style="margin: 0; font-weight: bold;">AUNAR MUTUAL · 46 Diag. 76 · La Plata, Buenos Aires · Argentina</p>
+    <p style="margin: 0 0 4px 0;">AUNAR MUTUAL · 46 Diag. 76 · La Plata, Buenos Aires · Argentina</p>
+    <p style="margin-top: 15px;">Recibís este correo porque sos asociado activo de Mutual Aunar.<br>Si deseás modificar tus preferencias de contacto, por favor respondé este correo.</p>
   </div>
 
 </div>`;
@@ -1523,7 +1519,7 @@ export default function Campanas() {
 
     if (type === 'aunar_base') {
       const name = `Comunicación Oficial - ${mesAnioCapitalized}`;
-      const subj = 'Información Importante de Telefonía Celular - {{nombre_socio}}';
+      const subj = 'Aunar - Detalle de tu abono, {{nombre_socio}} - Linea: {{lineas}}';
       const body = buildAunarChassis();
       setCampaignName(name);
       setSubject(subj);
@@ -1549,133 +1545,70 @@ export default function Campanas() {
     const templates = {
       aunar: {
         name: `Comunicación Oficial - ${mesAnioCapitalized}`,
-        subject: 'Información Importante de Telefonía Celular - {{nombre_socio}}',
-        body: `<div style="font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px 20px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff; color: #334155; line-height: 1.5;">
+        subject: 'Aunar - Detalle de tu abono, {{nombre_socio}} - Linea: {{lineas}}',
+        body: `<div style="font-family: Arial, sans-serif; max-width: 600px; background-color: #ffffff; margin: 0 auto; padding: 20px; border-radius: 8px; border: 1px solid #ddd; color: #333; line-height: 1.5;">
 
-  <!-- View online link -->
-  <div style="text-align: center; margin-bottom: 18px;">
-    <a href="https://proyecto-mutual.vercel.app" target="_blank" style="font-size: 11.5px; color: #64748b; text-decoration: underline;">View this email in your browser</a>
-  </div>
-
-  <!-- Logo AUNAR -->
-  <div style="text-align: center; margin-bottom: 24px;">
-    <img src="https://zwncyaviinmfzvminytv.supabase.co/storage/v1/object/public/public_assets/logo_aunar.png" alt="Aunar Asociación" style="width: 160px; max-width: 100%; height: auto; display: inline-block;" />
+  <!-- Header -->
+  <div style="text-align: center; border-bottom: 2px solid #0056b3; padding-bottom: 10px; margin-bottom: 20px;">
+    <h1 style="font-size: 20px; color: #0056b3; margin: 0;">Mutual Aunar</h1>
   </div>
 
   <!-- Saludo -->
-  <div style="margin-bottom: 16px;">
-    <p style="margin: 0 0 6px 0; font-size: 16px; color: #0f172a;">
-      👋 <strong>Hola !</strong> <span style="color: #10b981; font-weight: bold; text-decoration: underline;">{{nombre_socio}}</span>
-    </p>
-    <p style="margin: 0; font-size: 14.5px; color: #475569;">
-      📄 Te enviamos el detalle de tu factura y el monto a abonar.
-    </p>
-  </div>
-
-  <!-- Línea divisoria continua -->
-  <hr style="border: none; border-top: 1.5px solid #0f172a; margin: 16px 0 20px 0;" />
-
-  <!-- Datos del socio y tabla de líneas -->
-  <div style="text-align: center; margin-bottom: 16px;">
-    <div style="font-weight: 700; font-size: 15px; color: #0f172a;">{{nombre_socio}}</div>
-    <div style="font-size: 13px; color: #64748b; margin-top: 3px;">Grupo: #{{grupo}} · Período: {{periodo}}</div>
-  </div>
-
-  <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-    <thead>
-      <tr style="background-color: #10b981; color: #ffffff;">
-        <th style="padding: 8px 10px; text-align: left; font-size: 13px;">Línea</th>
-        <th style="padding: 8px 10px; text-align: left; font-size: 13px;">Plan</th>
-        <th style="padding: 8px 10px; text-align: left; font-size: 13px;">Empresa</th>
-        <th style="padding: 8px 10px; text-align: right; font-size: 13px;">Abono</th>
-        <th style="padding: 8px 10px; text-align: right; font-size: 13px;">Excedentes</th>
-        <th style="padding: 8px 10px; text-align: right; font-size: 13px;">Total</th>
-      </tr>
-    </thead>
-    <tbody>
-      <!-- DETALLE_LINEAS_START -->
-      <tr data-lineas-placeholder="true" style="border-bottom: 1px solid #e2e8f0;">
-        <td colspan="6" style="padding: 12px; text-align: center; color: #64748b; font-size: 13px; font-style: italic;">
-          (El detalle de líneas y consumos de cada socio se insertará automáticamente aquí)
-        </td>
-      </tr>
-      <!-- DETALLE_LINEAS_END -->
-    </tbody>
-  </table>
-
-  <!-- TOTAL A ABONAR Y VENCIMIENTO -->
-  <div style="text-align: center; margin: 20px 0 26px 0; padding: 16px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
-    <div style="font-size: 18px; font-weight: 800; color: #0f172a; letter-spacing: 0.5px;">
-      TOTAL A ABONAR $ {{monto_adeudado}}
-    </div>
-    <div style="font-size: 14px; font-weight: 600; color: #475569; margin-top: 5px;">
-      Vencimiento: {{vencimiento}}
-    </div>
-  </div>
-
-  <!-- Bloques informativos y de beneficios -->
-  <div style="margin-bottom: 18px;">
-    <p style="margin: 0 0 4px 0; font-size: 14.5px; font-weight: bold; color: #1e293b;">
-      🤔 ¿Tenés dudas sobre tu factura o tu plan?
-    </p>
-    <p style="margin: 0; font-size: 13.5px; color: #475569; line-height: 1.5;">
-      Estamos para ayudarte y asesorarte sobre las opciones disponibles en Claro, Personal y Movistar.
-    </p>
-  </div>
-
-  <div style="margin-bottom: 18px;">
-    <p style="margin: 0 0 4px 0; font-size: 14.5px; font-weight: bold; color: #1e293b;">
-      ❤️ Beneficios y descuentos para vos.
-    </p>
-    <p style="margin: 0; font-size: 13.5px; color: #475569; line-height: 1.5;">
-      Contamos con beneficios y descuentos de portabilidad para nuestros asociados y sus referidos.
-    </p>
-  </div>
-
-  <div style="margin-bottom: 18px;">
-    <p style="margin: 0 0 4px 0; font-size: 14.5px; font-weight: bold; color: #1e293b;">
-      🛩️ ¿Vas a viajar al exterior?
-    </p>
-    <p style="margin: 0; font-size: 13.5px; color: #475569; line-height: 1.5;">
-      Avisanos con anticipación y te asesoramos sobre las opciones de roaming para tu linea.
-    </p>
-  </div>
-
-  <div style="margin-bottom: 22px;">
-    <p style="margin: 0 0 4px 0; font-size: 14.5px; font-weight: bold; color: #1e293b;">
-      📉 ¿Tu factura vino mas alta de lo habitual?
-    </p>
-    <p style="margin: 0; font-size: 13.5px; color: #475569; line-height: 1.5;">
-      Si tenes excedentes de internet, consultanos. Podemos revisar tu plan y ayudarte a encontrar el plan que mejor se adapte a vos.
-    </p>
-  </div>
-
-  <p style="font-size: 15px; font-weight: bold; color: #1e293b; text-align: center; margin: 24px 0;">
-    ¡Gracias por seguir eligiendo Aunar! 🤝
+  <p style="font-size: 14px; line-height: 1.5; margin-bottom: 15px;">
+    &#128075; ¡Hola, <strong>{{nombre_socio}}</strong>!
   </p>
+  <p style="font-size: 14px; line-height: 1.5; margin-bottom: 15px;">
+    Te enviamos el detalle de tu facturación y el saldo de tu cuenta.
+  </p>
+  <p style="font-size: 13px; color: #666; margin-bottom: 15px;">Grupo: #{{grupo}} · Período: {{periodo}}</p>
 
-  <!-- Banner Internet y TV para el hogar -->
-  <div style="background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border: 1px solid #bbf7d0; border-radius: 12px; padding: 18px 20px; text-align: center; margin-bottom: 26px;">
-    <p style="margin: 0 0 6px 0; font-size: 14px; font-weight: 800; color: #166534; letter-spacing: 0.5px;">
-      💡 ¿SABIAS QUE TAMBIEN TENEMOS INTERNET Y TV PARA TU HOGAR?
-    </p>
-    <p style="margin: 0 0 6px 0; font-size: 13px; font-weight: 700; color: #15803d;">
-      CONSULTA POR TU ZONA Y TE COTIZAMOS EN EL INSTANTE
-    </p>
-    <p style="margin: 0; font-size: 12.5px; color: #166534; font-style: italic;">
-      Resolve tu conectividad en un solo lugar
+  <!-- Tabla de líneas -->
+  <div style="background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #e0e0e0;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 15px;">
+      <thead>
+        <tr>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: left; color: #555;">Línea</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: left; color: #555;">Empresa</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: right; color: #555;">Abono</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- DETALLE_LINEAS_START -->
+        <tr data-lineas-placeholder="true">
+          <td colspan="3" style="padding: 12px; text-align: center; color: #999; font-size: 13px; font-style: italic;">
+            (El detalle de líneas se insertará automáticamente aquí)
+          </td>
+        </tr>
+        <!-- DETALLE_LINEAS_END -->
+      </tbody>
+    </table>
+    <div style="font-size: 16px; font-weight: bold; color: #d9534f; text-align: right; margin-bottom: 5px;">Total a abonar: $ {{monto_adeudado}}</div>
+    <div style="font-size: 14px; text-align: right; color: #555; font-weight: bold;">Vencimiento: {{vencimiento}}</div>
+  </div>
+
+  <!-- Sección informativa -->
+  <div style="font-size: 13px; color: #666; margin-top: 20px; line-height: 1.4; border-top: 1px solid #eee; padding-top: 15px;">
+    <p style="margin-bottom: 12px;"><strong style="color: #444;">&#129300; ¿Tenés dudas sobre tu factura o tu plan?</strong><br>Estamos para ayudarte y asesorarte sobre las opciones disponibles en Claro, Personal y Movistar.</p>
+    <p style="margin-bottom: 12px;"><strong style="color: #444;">&#10084;&#65039; Beneficios y descuentos para vos</strong><br>Contamos con beneficios de portabilidad para nuestros asociados y sus referidos.</p>
+    <p style="margin-bottom: 12px;"><strong style="color: #444;">&#9992;&#65039; ¿Vas a viajar al exterior?</strong><br>Avisanos con anticipación y te asesoramos sobre las opciones de roaming para tu línea.</p>
+    <p style="margin-bottom: 12px;"><strong style="color: #444;">&#128201; ¿Tu factura vino más alta de lo habitual?</strong><br>Si tenés excedentes de internet, consultanos. Podemos revisar tu plan y ayudarte a encontrar el que mejor se adapte a vos.</p>
+    <p style="text-align: center; font-weight: bold; color: #0056b3; margin-top: 20px;">¡Gracias por seguir eligiendo Aunar! &#129309;</p>
+    <p style="background-color: #e9ecef; padding: 10px; border-radius: 5px; text-align: center; margin-top: 15px;">
+      <strong>&#128161; ¿Sabías que también tenemos internet y TV para tu hogar?</strong><br>
+      Consultá por tu zona y te cotizamos en el instante. Resolvé tu conectividad en un solo lugar.
     </p>
   </div>
 
-  <!-- Footer Redes y Dirección -->
-  <div style="border-top: 1px solid #e2e8f0; padding-top: 20px; text-align: center; font-size: 12px; color: #94a3b8;">
-    <div style="margin-bottom: 12px;">
-      <a href="https://twitter.com/aunar" target="_blank" style="color: #64748b; text-decoration: none; margin: 0 10px; font-weight: 600;">Twitter</a> | 
-      <a href="https://facebook.com/aunar" target="_blank" style="color: #64748b; text-decoration: none; margin: 0 10px; font-weight: 600;">Facebook</a> | 
-      <a href="https://aunar.com.ar" target="_blank" style="color: #64748b; text-decoration: none; margin: 0 10px; font-weight: 600;">Website</a>
-    </div>
+  <!-- Footer -->
+  <div style="font-size: 11px; text-align: center; color: #888; margin-top: 30px; line-height: 1.4;">
+    <p style="margin-bottom: 8px;">
+      <a href="https://twitter.com/aunar" target="_blank" style="color: #0056b3; text-decoration: none;">Twitter</a> |
+      <a href="https://facebook.com/aunar" target="_blank" style="color: #0056b3; text-decoration: none;">Facebook</a> |
+      <a href="https://aunar.com.ar" target="_blank" style="color: #0056b3; text-decoration: none;">Website</a>
+    </p>
     <p style="margin: 0 0 4px 0;">Copyright &copy; 2026 AUNAR MUTUAL. Todos los derechos reservados.</p>
-    <p style="margin: 0; font-weight: bold;">AUNAR MUTUAL · 46 Diag. 76 · La Plata, Buenos Aires · Argentina</p>
+    <p style="margin: 0 0 4px 0;">AUNAR MUTUAL · 46 Diag. 76 · La Plata, Buenos Aires · Argentina</p>
+    <p style="margin-top: 15px;">Recibís este correo porque sos asociado activo de Mutual Aunar.<br>Si deseás modificar tus preferencias de contacto, por favor respondé este correo.</p>
   </div>
 
 </div>`
@@ -1767,7 +1700,8 @@ export default function Campanas() {
     { label: 'Días de Mora', value: '{{dias_mora}}' },
     { label: 'Período Facturado', value: '{{periodo}}' },
     { label: 'Vencimiento', value: '{{vencimiento}}' },
-    { label: 'Detalle Líneas (Tabla)', value: '{{detalle_lineas_html}}' }
+    { label: 'Detalle Líneas (Tabla)', value: '{{detalle_lineas_html}}' },
+    { label: 'Detalle Líneas (Asunto)', value: '{{detalle_lineas_asunto}}' }
   ];
 
   const totalSelected = selectedIds.size;
@@ -4371,7 +4305,7 @@ export default function Campanas() {
               </div>
               <div>
                 <div style={S.label}>Asunto del Correo</div>
-                <input type="text" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Ej: Detalle de tu abono - Aunar Mutual" style={S.input} />
+                <input type="text" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Ej: Aunar - Detalle de tu abono, {{nombre_socio}} - Linea: {{lineas}}" style={S.input} />
               </div>
             </div>
 
