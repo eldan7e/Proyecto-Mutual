@@ -3383,6 +3383,19 @@ export default function Campanas() {
                   <button
                     type="button"
                     onClick={() => {
+                      setActiveCampaign(null);
+                      setCurrentStep(1);
+                      setCampaignType(null);
+                    }}
+                    style={{ ...S.btnSecondary, padding: '8px 16px', fontSize: '13px', color: '#b91c1c', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+                    title="Cerrar el monitor y volver"
+                  >
+                    <X size={15} /> Cerrar Monitoreo
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
                       setSearchLog(campaignToDisplay.name);
                       setDebouncedSearchLog(campaignToDisplay.name);
                       setCurrentStep(3);
