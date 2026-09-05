@@ -148,7 +148,7 @@ export default function Campanas() {
   // Campaña desde Excel (TODOS)
   const [excelFile, setExcelFile] = useState(null);
   const [excelRawRows, setExcelRawRows] = useState([]);
-  const [excelMode, setExcelMode] = useState('lineas_email'); // 'lineas_email' | 'grupo_email'
+  const [excelMode, setExcelMode] = useState('lineas_individual'); // 'lineas_individual' | 'lineas_email' | 'grupo_email'
   const [excelSearch, setExcelSearch] = useState('');
   const [excelEmpresa, setExcelEmpresa] = useState('ALL');
   const [excelPeriodo, setExcelPeriodo] = useState('08-2026');
@@ -157,10 +157,12 @@ export default function Campanas() {
 
   // Memoria y selección aislada por modo para no mezclar líneas con grupos
   const [modeSelections, setModeSelections] = useState({
+    lineas_individual: null,
     lineas_email: null,
     grupo_email: null
   });
   const [modeFilters, setModeFilters] = useState({
+    lineas_individual: null,
     lineas_email: null,
     grupo_email: null
   });
@@ -244,18 +246,19 @@ export default function Campanas() {
 
       const notifMap = new Map();
       const notifGroupSet = new Set();
+      const notifLineSet = new Set();
 
       (logs || []).forEach(l => {
         // Filtrar según targetMode para desacoplar campañas grupales de individuales
-        if (targetMode === 'lineas_email') {
+        if (targetMode === 'lineas_email' || targetMode === 'lineas_individual') {
           // Un envío grupal NUNCA cuenta como notificación de línea individual
           if (l.modo_envio === 'grupo_email') return;
           if (l.destinatario_nombre && /^grupo\s+\d+/i.test(l.destinatario_nombre)) return;
           if (l.nombre_campana && /grupal/i.test(l.nombre_campana)) return;
-          if (l.modo_envio && l.modo_envio !== 'lineas_email') return;
+          if (l.modo_envio && l.modo_envio !== 'lineas_email' && l.modo_envio !== 'lineas_individual') return;
         } else if (targetMode === 'grupo_email') {
           // Un envío individual NUNCA cuenta como notificación para el grupo
-          if (l.modo_envio === 'lineas_email') return;
+          if (l.modo_envio === 'lineas_email' || l.modo_envio === 'lineas_individual') return;
           if (l.nombre_campana && /individual/i.test(l.nombre_campana)) return;
         }
 
@@ -275,9 +278,18 @@ export default function Campanas() {
         if (gMatch) {
           notifGroupSet.add(gMatch[1].trim());
         }
+
+        // Extraer números de línea para tracking exacto de líneas
+        const lMatch = (l.asunto || '').match(/L[ií]neas?:\s*([0-9,\s]+)/i);
+        if (lMatch) {
+          lMatch[1].split(',').forEach(num => {
+            const clean = num.trim();
+            if (clean && clean.length >= 8) notifLineSet.add(clean);
+          });
+        }
       });
 
-      return { notifMap, notifGroupSet };
+      return { notifMap, notifGroupSet, notifLineSet };
     } catch (err) {
       console.warn('Error al consultar notificaciones recientes:', err);
       return { notifMap: new Map(), notifGroupSet: new Set() };
@@ -1112,10 +1124,15 @@ export default function Campanas() {
       const resolvedGpo = grupo ? groupResolved.get(grupo) : null;
       const emailGpo = resolvedGpo?.email || rawEmailGpo;
 
-      // Si la línea tiene email individual legítimo (no institucional mutual), se respeta;
-      // si no, se usa el email representativo del grupo
-      let emailFinal = emailIndiv;
-      if (!emailFinal || isMutualPlaceholder(emailFinal)) {
+      // En campañas individuales (lineas_individual y lineas_email), el email DEBE ser estricta y exclusivamente el EMAIL INDIVIDUAL.
+      // ¡NUNCA caer en EMAIL GRUPO para campañas individuales!
+      let emailFinal = '';
+      if (mode === 'lineas_individual' || mode === 'lineas_email') {
+        if (emailIndiv && emailIndiv.includes('@') && !isMutualPlaceholder(emailIndiv)) {
+          emailFinal = emailIndiv;
+        }
+      } else {
+        // Modo por Grupo (Representantes)
         emailFinal = emailGpo || rawEmailGpo;
       }
 
@@ -1148,7 +1165,39 @@ export default function Campanas() {
 
     let resultItems;
 
-    if (mode === 'lineas_email') {
+    if (mode === 'lineas_individual') {
+      // MODO LÍNEA INDIVIDUAL (1 a 1): Cada línea física con su propio correo individual independiente
+      resultItems = normalizedRows.map((r, idx) => ({
+        id: `excel_linea_${r.numero}_${idx}`,
+        nombre: r.nombre || 'Socio',
+        nombre_socio: r.nombre || 'Socio',
+        email: r.emailFinal,
+        grupo: r.grupo || 'Sin Grupo',
+        lineas: r.numero,
+        lineasSet: new Set([r.numero]),
+        monto_cuota_cel: r.abonoBase.toFixed(2),
+        total_cuotas: 1,
+        monto_adeudado_num: r.tarifaAunar,
+        monto_adeudado: r.tarifaAunar.toFixed(2),
+        dias_mora: '0',
+        periodo: periodoVal || excelPeriodo,
+        fpago: r.fpago,
+        cbu: r.cbu,
+        dni: '',
+        cuit: '',
+        display_detalle: `${r.nombre} (Línea: ${r.numero})`,
+        detalle_lineas: [{
+          numero_linea: r.numero,
+          nombre_plan: r.plan,
+          gb: r.gb,
+          proveedor: r.empresa,
+          costo_abono_real: r.abonoBase,
+          excedentes: r.excedentes,
+          total_linea: r.tarifaAunar,
+          nombre_socio: r.nombre
+        }]
+      }));
+    } else if (mode === 'lineas_email') {
       const emailMap = new Map();
       normalizedRows.forEach(r => {
         const key = r.emailFinal.toLowerCase();
@@ -1271,13 +1320,17 @@ export default function Campanas() {
 
     // Enriquecer con estado de notificación en campanas_logs (últimos 35 días)
     try {
-      const { notifMap, notifGroupSet } = await fetchNotificacionesRecientes(mode);
+      const { notifMap, notifGroupSet, notifLineSet } = await fetchNotificacionesRecientes(mode);
 
       resultItems.forEach(item => {
         let notif = null;
         if (mode === 'grupo_email' && item.grupo) {
           const gKey = String(item.grupo).trim();
           if (notifGroupSet.has(gKey)) {
+            notif = { estado: 'exito' };
+          }
+        } else if (mode === 'lineas_individual') {
+          if (notifLineSet && notifLineSet.has(item.lineas)) {
             notif = { estado: 'exito' };
           }
         } else {
@@ -1895,7 +1948,8 @@ export default function Campanas() {
     const selectedItems = items.filter(i => selectedIds.has(i.id));
 
     const isGrupo = (campaignType === 'excel' && excelMode === 'grupo_email') || (campaignType === 'personalizada' && (personalizadaMode === 'grupal' || personalizadaMode === 'rectificacion' || personalizadaMode === 'fase2'));
-    const currentSendingMode = isGrupo ? 'grupo_email' : 'lineas_email';
+    const isLineasIndividual = (campaignType === 'excel' && excelMode === 'lineas_individual');
+    const currentSendingMode = isGrupo ? 'grupo_email' : (isLineasIndividual ? 'lineas_individual' : 'lineas_email');
 
     let recipients = [];
 
@@ -1949,8 +2003,37 @@ export default function Campanas() {
           });
         });
       });
+    } else if (isLineasIndividual) {
+      // MODO LÍNEA INDIVIDUAL (1 a 1):
+      // Cada línea física seleccionada se despacha directamente en su propio correo independiente a su EMAIL INDIVIDUAL.
+      // 0 riesgo de mezclar líneas de distintas personas o grupos.
+      selectedItems.forEach(item => {
+        const cleanEmail = (item.email || '').trim();
+        if (!cleanEmail || !cleanEmail.includes('@')) return;
+
+        recipients.push({
+          socio_id: item.id,
+          nombre_completo: item.nombre_socio || item.nombre,
+          nombre_socio: item.nombre_socio || item.nombre,
+          nombre: item.nombre_socio || item.nombre,
+          email: cleanEmail,
+          dni: item.dni || '',
+          cuit: item.cuit || '',
+          fpago: item.fpago || '',
+          cbu: item.cbu || '',
+          grupo: item.grupo || 'Sin Grupo',
+          modo_envio: currentSendingMode,
+          lineas: item.lineas || 'Sin Línea',
+          monto_cuota_cel: item.monto_cuota_cel || 0,
+          total_cuotas: 1,
+          monto_adeudado: item.monto_adeudado || '0.00',
+          dias_mora: item.dias_mora || '0',
+          periodo: item.periodo || excelPeriodo || '08-2026',
+          detalle_lineas: item.detalle_lineas || []
+        });
+      });
     } else {
-      // MODO INDIVIDUAL (LÍNEAS):
+      // MODO CONSOLIDADO POR EMAIL (LÍNEAS):
       // Consolidar destinatarios por email para que si una persona tiene múltiples líneas reciba un único correo agrupado
       const emailGroups = new Map();
       selectedItems.forEach(item => {
@@ -2742,6 +2825,10 @@ export default function Campanas() {
 
   const isGrupoMode = (campaignType === 'excel' && excelMode === 'grupo_email') || 
     (campaignType === 'personalizada' && (personalizadaMode === 'grupal' || personalizadaMode === 'rectificacion' || personalizadaMode === 'fase2'));
+  const isLineasIndividualMode = campaignType === 'excel' && excelMode === 'lineas_individual';
+  const effectiveEmailsToSend = isLineasIndividualMode 
+    ? totalSelected 
+    : (campaignType === 'excel' && excelMode === 'lineas_email' ? uniqueEmailsCount : totalSelected);
 
   /* ─────────────────────── Inline Styles ─────────────────────── */
 
@@ -5168,6 +5255,23 @@ export default function Campanas() {
                         <div style={{ display: 'inline-flex', background: 'rgba(0,0,0,0.05)', padding: '3px', borderRadius: '10px' }}>
                           <button
                             type="button"
+                            onClick={() => handleSwitchExcelMode('lineas_individual')}
+                            style={{
+                              border: 'none',
+                              padding: '6px 14px',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              background: excelMode === 'lineas_individual' ? '#059669' : 'transparent',
+                              color: excelMode === 'lineas_individual' ? '#ffffff' : 'var(--text-primary)',
+                              transition: 'all 0.2s'
+                            }}
+                          >
+                            📞 Por Línea Individual (1 a 1)
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleSwitchExcelMode('lineas_email')}
                             style={{
                               border: 'none',
@@ -5181,7 +5285,7 @@ export default function Campanas() {
                               transition: 'all 0.2s'
                             }}
                           >
-                            Consolidado por Email (Líneas)
+                            👤 Consolidado por Email
                           </button>
                           <button
                             type="button"
@@ -5198,7 +5302,7 @@ export default function Campanas() {
                               transition: 'all 0.2s'
                             }}
                           >
-                            Por Grupo (Representantes)
+                            👥 Por Grupo (Representantes)
                           </button>
                         </div>
 
@@ -5257,9 +5361,9 @@ export default function Campanas() {
 
                       <div style={{
                         fontSize: '11.5px',
-                        color: excelMode === 'grupo_email' ? '#065f46' : '#1e40af',
-                        background: excelMode === 'grupo_email' ? 'rgba(16, 185, 129, 0.08)' : 'rgba(59, 130, 246, 0.08)',
-                        border: excelMode === 'grupo_email' ? '1px solid rgba(16, 185, 129, 0.25)' : '1px solid rgba(59, 130, 246, 0.25)',
+                        color: excelMode === 'grupo_email' ? '#065f46' : (excelMode === 'lineas_individual' ? '#065f46' : '#1e40af'),
+                        background: excelMode === 'grupo_email' ? 'rgba(16, 185, 129, 0.08)' : (excelMode === 'lineas_individual' ? 'rgba(16, 185, 129, 0.08)' : 'rgba(59, 130, 246, 0.08)'),
+                        border: excelMode === 'grupo_email' ? '1px solid rgba(16, 185, 129, 0.25)' : (excelMode === 'lineas_individual' ? '1px solid rgba(16, 185, 129, 0.25)' : '1px solid rgba(59, 130, 246, 0.25)'),
                         padding: '7px 12px',
                         borderRadius: '9px',
                         display: 'flex',
@@ -5269,12 +5373,17 @@ export default function Campanas() {
                         {excelMode === 'grupo_email' ? (
                           <>
                             <Users size={14} style={{ flexShrink: 0 }} />
-                            <span><strong>Modo Por Grupo (Representantes):</strong> Notificación consolidada enviada al titular/representante de cada grupo con el detalle de todas sus líneas. Las selecciones y notificaciones se gestionan de forma independiente al modo líneas.</span>
+                            <span><strong>Modo Por Grupo (Representantes):</strong> Notificación consolidada enviada al titular/representante de cada grupo con el detalle de todas sus líneas.</span>
+                          </>
+                        ) : excelMode === 'lineas_individual' ? (
+                          <>
+                            <Smartphone size={14} style={{ flexShrink: 0 }} />
+                            <span><strong>Modo Por Línea Individual (1 a 1):</strong> Cada línea física se despacha en su propio correo independiente únicamente a su EMAIL INDIVIDUAL. No mezcla líneas ni notifica a representantes de grupo.</span>
                           </>
                         ) : (
                           <>
                             <Smartphone size={14} style={{ flexShrink: 0 }} />
-                            <span><strong>Modo Consolidado por Línea / Socio:</strong> Notificación a cada socio o usuario individual por su correo personal. No se ve afectado por las campañas enviadas a representantes de grupos.</span>
+                            <span><strong>Modo Consolidado por Email:</strong> Agrupa todas las líneas de un mismo socio/email personal en un único correo consolidado.</span>
                           </>
                         )}
                       </div>
@@ -5532,7 +5641,23 @@ export default function Campanas() {
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                   <span style={S.badge}>{totalSelected} seleccionados</span>
-                  {totalSelected > 0 && !isGrupoMode && uniqueEmailsCount < totalSelected && (
+                  {totalSelected > 0 && isLineasIndividualMode && (
+                    <span style={{
+                      fontSize: '12px',
+                      color: '#2563eb',
+                      background: 'rgba(37, 99, 235, 0.10)',
+                      border: '1px solid rgba(37, 99, 235, 0.25)',
+                      padding: '4px 12px',
+                      borderRadius: '16px',
+                      fontWeight: 700,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}>
+                      📞 Envío 1 a 1: <strong>{totalSelected} correos individuales</strong> (1 por cada línea)
+                    </span>
+                  )}
+                  {totalSelected > 0 && campaignType === 'excel' && excelMode === 'lineas_email' && uniqueEmailsCount < totalSelected && (
                     <span style={{
                       fontSize: '12px',
                       color: '#059669',
@@ -5838,7 +5963,7 @@ export default function Campanas() {
                   disabled={totalSelected === 0}
                   style={{ ...S.btnPrimary, opacity: totalSelected === 0 ? 0.5 : 1, cursor: totalSelected === 0 ? 'not-allowed' : 'pointer' }}
                 >
-                  Configurar Mensaje ({isGrupoMode ? `${totalSelected} grupos` : (uniqueEmailsCount < totalSelected ? `${uniqueEmailsCount} correos (${totalSelected} líneas)` : totalSelected)}) <ChevronRight size={16} />
+                  Configurar Mensaje ({isGrupoMode ? `${totalSelected} grupos` : (isLineasIndividualMode ? `${totalSelected} líneas (1 a 1)` : (campaignType === 'excel' && excelMode === 'lineas_email' && uniqueEmailsCount < totalSelected ? `${uniqueEmailsCount} correos (${totalSelected} líneas)` : `${totalSelected} destinatarios`))}) <ChevronRight size={16} />
                 </button>
               </div>
             </>
@@ -5871,7 +5996,7 @@ export default function Campanas() {
               ))}
             </div>
 
-            {uniqueEmailsCount > availableDailyQuota && (
+            {effectiveEmailsToSend > availableDailyQuota && (
               <div style={{
                 padding: '10px 12px',
                 background: 'rgba(239, 68, 68, 0.08)',
@@ -5886,7 +6011,7 @@ export default function Campanas() {
                   <span>Excede el cupo diario Brevo</span>
                 </div>
                 <p style={{ margin: '0 0 8px 0', lineHeight: 1.3 }}>
-                  Vas a enviar a <strong>{uniqueEmailsCount} correos</strong>, pero hoy quedan <strong>{availableDailyQuota} disponibles</strong> de {dailyLimit}.
+                  Vas a enviar a <strong>{effectiveEmailsToSend} correos</strong>, pero hoy quedan <strong>{availableDailyQuota} disponibles</strong> de {dailyLimit}.
                 </p>
                 <button
                   type="button"
