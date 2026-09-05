@@ -3,6 +3,15 @@
     "id": "fase2_grupo_70058",
     "grupo": "70058",
     "email": "julielorriaga24@yahoo.com.ar",
+    "representantes": [
+      {
+        "email": "julielorriaga24@yahoo.com.ar",
+        "nombre": "Elorriaga, Juliana"
+      }
+    ],
+    "emailsList": [
+      "julielorriaga24@yahoo.com.ar"
+    ],
     "nombre": "Grupo 70058 - Elorriaga, Juliana ",
     "nombre_socio": "Elorriaga, Juliana ",
     "lineas": "2926456068",
@@ -30,7 +39,21 @@
   {
     "id": "fase2_grupo_19",
     "grupo": "19",
-    "email": "surfruit_sa@yahoo.com.ar",
+    "email": "surfruit_sa@yahoo.com.ar, gio66z@hotmail.com",
+    "representantes": [
+      {
+        "email": "surfruit_sa@yahoo.com.ar",
+        "nombre": "Martinez, Jorge Hernan"
+      },
+      {
+        "email": "gio66z@hotmail.com",
+        "nombre": "Martinez, Jorge Hernan"
+      }
+    ],
+    "emailsList": [
+      "surfruit_sa@yahoo.com.ar",
+      "gio66z@hotmail.com"
+    ],
     "nombre": "Grupo 19 - Martinez, Jorge Hernan",
     "nombre_socio": "Martinez, Jorge Hernan",
     "lineas": "1126914067, 1154547457",
@@ -69,6 +92,15 @@
     "id": "fase2_grupo_70134",
     "grupo": "70134",
     "email": "cfschwarz1958@hotmail.com.ar",
+    "representantes": [
+      {
+        "email": "cfschwarz1958@hotmail.com.ar",
+        "nombre": "Schwarz, Claudio Federico"
+      }
+    ],
+    "emailsList": [
+      "cfschwarz1958@hotmail.com.ar"
+    ],
     "nombre": "Grupo 70134 - Schwarz, Claudio Federico",
     "nombre_socio": "Schwarz, Claudio Federico",
     "lineas": "1132124342, 1159529701",
@@ -107,6 +139,15 @@
     "id": "fase2_grupo_70138",
     "grupo": "70138",
     "email": "miriambruzzese@hotmail.com",
+    "representantes": [
+      {
+        "email": "miriambruzzese@hotmail.com",
+        "nombre": "Bruzzese, Miriam"
+      }
+    ],
+    "emailsList": [
+      "miriambruzzese@hotmail.com"
+    ],
     "nombre": "Grupo 70138 - Bruzzese, Miriam",
     "nombre_socio": "Bruzzese, Miriam",
     "lineas": "1133193130, 1168271810",
@@ -145,6 +186,15 @@
     "id": "fase2_grupo_23",
     "grupo": "23",
     "email": "violetatra@hotmail.com",
+    "representantes": [
+      {
+        "email": "violetatra@hotmail.com",
+        "nombre": "Mocskos, Andrea"
+      }
+    ],
+    "emailsList": [
+      "violetatra@hotmail.com"
+    ],
     "nombre": "Grupo 23 - Mocskos, Andrea",
     "nombre_socio": "Mocskos, Andrea",
     "lineas": "1140818659, 1158082971",
@@ -183,10 +233,19 @@
     "id": "fase2_grupo_70113",
     "grupo": "70113",
     "email": "martorello@hotmail.com",
+    "representantes": [
+      {
+        "email": "martorello@hotmail.com",
+        "nombre": "Martorello, Nicolas Daniel"
+      }
+    ],
+    "emailsList": [
+      "martorello@hotmail.com"
+    ],
     "nombre": "Grupo 70113 -  Martorello, Nicolas Daniel",
     "nombre_socio": " Martorello, Nicolas Daniel",
-    "lineas": "1140823408",
-    "monto_adeudado": "14805.85",
+    "lineas": "1140823408, 2216756404",
+    "monto_adeudado": "53625.67",
     "monto_cuota_cel": 14805.85,
     "periodo": "08-2026",
     "fpago": "D",
@@ -204,6 +263,16 @@
         "costo_abono_real": 14805.85,
         "excedentes": 0,
         "total_linea": 14805.85
+      },
+      {
+        "numero_linea": "2216756404",
+        "nombre_socio": " Martorello, Nicolas Daniel",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 38819.82,
+        "excedentes": 0,
+        "total_linea": 38819.82
       }
     ]
   },
@@ -211,6 +280,15 @@
     "id": "fase2_grupo_70059",
     "grupo": "70059",
     "email": "pedromalich73@gmail.com",
+    "representantes": [
+      {
+        "email": "pedromalich73@gmail.com",
+        "nombre": "Malich, Juan Pedro"
+      }
+    ],
+    "emailsList": [
+      "pedromalich73@gmail.com"
+    ],
     "nombre": "Grupo 70059 - Malich, Juan Pedro",
     "nombre_socio": "Malich, Juan Pedro",
     "lineas": "1155033072",
@@ -239,6 +317,15 @@
     "id": "fase2_grupo_262",
     "grupo": "262",
     "email": "etejado@hotmail.com",
+    "representantes": [
+      {
+        "email": "etejado@hotmail.com",
+        "nombre": "Tejado, Eduardo Emilio"
+      }
+    ],
+    "emailsList": [
+      "etejado@hotmail.com"
+    ],
     "nombre": "Grupo 262 - Tejado, Eduardo Emilio",
     "nombre_socio": "Tejado, Eduardo Emilio",
     "lineas": "2213037267, 2215461589",
@@ -277,6 +364,15 @@
     "id": "fase2_grupo_70118",
     "grupo": "70118",
     "email": "ricardomelgarejo69@hotmail.com",
+    "representantes": [
+      {
+        "email": "ricardomelgarejo69@hotmail.com",
+        "nombre": "Melgarejo, Ricardo Fabio"
+      }
+    ],
+    "emailsList": [
+      "ricardomelgarejo69@hotmail.com"
+    ],
     "nombre": "Grupo 70118 - Melgarejo, Ricardo Fabio",
     "nombre_socio": "Melgarejo, Ricardo Fabio",
     "lineas": "2213545530",
@@ -305,6 +401,15 @@
     "id": "fase2_grupo_70077",
     "grupo": "70077",
     "email": "irmalm2001@yahoo.com.ar",
+    "representantes": [
+      {
+        "email": "irmalm2001@yahoo.com.ar",
+        "nombre": "Libedinsky, Irma"
+      }
+    ],
+    "emailsList": [
+      "irmalm2001@yahoo.com.ar"
+    ],
     "nombre": "Grupo 70077 - Libedinsky, Irma",
     "nombre_socio": "Libedinsky, Irma",
     "lineas": "2214343453, 2214344660",
@@ -343,6 +448,15 @@
     "id": "fase2_grupo_50235",
     "grupo": "50235",
     "email": "milagrosmendy@gmail.com",
+    "representantes": [
+      {
+        "email": "milagrosmendy@gmail.com",
+        "nombre": "Garriga, Manuel"
+      }
+    ],
+    "emailsList": [
+      "milagrosmendy@gmail.com"
+    ],
     "nombre": "Grupo 50235 - Garriga, Manuel",
     "nombre_socio": "Garriga, Manuel",
     "lineas": "2214880678",
@@ -371,6 +485,15 @@
     "id": "fase2_grupo_5041",
     "grupo": "5041",
     "email": "martiparenza@gmail.com",
+    "representantes": [
+      {
+        "email": "martiparenza@gmail.com",
+        "nombre": "Racciope, Eduardo"
+      }
+    ],
+    "emailsList": [
+      "martiparenza@gmail.com"
+    ],
     "nombre": "Grupo 5041 - Racciope, Eduardo ",
     "nombre_socio": "Racciope, Eduardo ",
     "lineas": "2215528933, 2215529144",
@@ -409,6 +532,15 @@
     "id": "fase2_grupo_70091",
     "grupo": "70091",
     "email": "pichielbolson@hotmail.com",
+    "representantes": [
+      {
+        "email": "pichielbolson@hotmail.com",
+        "nombre": "Dirazar, Jose Alberto"
+      }
+    ],
+    "emailsList": [
+      "pichielbolson@hotmail.com"
+    ],
     "nombre": "Grupo 70091 - Dirazar, Jose Alberto",
     "nombre_socio": "Dirazar, Jose Alberto",
     "lineas": "2216026612, 2944292816, 2944292817",
@@ -456,7 +588,16 @@
   {
     "id": "fase2_grupo_70135",
     "grupo": "70135",
-    "email": "mariapaulamoretti@gmail.com",
+    "email": "Mariapaulamoretti@gmail.com",
+    "representantes": [
+      {
+        "email": "Mariapaulamoretti@gmail.com",
+        "nombre": "Moretti, Maria Paula"
+      }
+    ],
+    "emailsList": [
+      "Mariapaulamoretti@gmail.com"
+    ],
     "nombre": "Grupo 70135 - Moretti, Maria Paula",
     "nombre_socio": "Moretti, Maria Paula",
     "lineas": "2216186113",
@@ -485,6 +626,15 @@
     "id": "fase2_grupo_534",
     "grupo": "534",
     "email": "marcelo.donatone@gmail.com",
+    "representantes": [
+      {
+        "email": "marcelo.donatone@gmail.com",
+        "nombre": "Donatone, Marcelo"
+      }
+    ],
+    "emailsList": [
+      "marcelo.donatone@gmail.com"
+    ],
     "nombre": "Grupo 534 - Donatone, Marcelo",
     "nombre_socio": "Donatone, Marcelo",
     "lineas": "2216249637",
@@ -513,6 +663,15 @@
     "id": "fase2_grupo_416",
     "grupo": "416",
     "email": "lorentelucas@hotmail.com",
+    "representantes": [
+      {
+        "email": "lorentelucas@hotmail.com",
+        "nombre": "Calleja, Susana"
+      }
+    ],
+    "emailsList": [
+      "lorentelucas@hotmail.com"
+    ],
     "nombre": "Grupo 416 - Calleja, Susana",
     "nombre_socio": "Calleja, Susana",
     "lineas": "2257536952, 2257612218",
@@ -551,6 +710,15 @@
     "id": "fase2_grupo_70076",
     "grupo": "70076",
     "email": "lorentelucas@hotmail.com",
+    "representantes": [
+      {
+        "email": "lorentelucas@hotmail.com",
+        "nombre": "Lorente, Lucas"
+      }
+    ],
+    "emailsList": [
+      "lorentelucas@hotmail.com"
+    ],
     "nombre": "Grupo 70076 - Lorente, Lucas",
     "nombre_socio": "Lorente, Lucas",
     "lineas": "2257537311",
@@ -579,6 +747,15 @@
     "id": "fase2_grupo_70124",
     "grupo": "70124",
     "email": "jorgeboca.np@gmail.com",
+    "representantes": [
+      {
+        "email": "jorgeboca.np@gmail.com",
+        "nombre": "Paredes, Jorge Agustin"
+      }
+    ],
+    "emailsList": [
+      "jorgeboca.np@gmail.com"
+    ],
     "nombre": "Grupo 70124 - Paredes, Jorge Agustin",
     "nombre_socio": "Paredes, Jorge Agustin",
     "lineas": "2613403632",
@@ -607,6 +784,15 @@
     "id": "fase2_grupo_50094",
     "grupo": "50094",
     "email": "ltotonelli@gmail.com",
+    "representantes": [
+      {
+        "email": "ltotonelli@gmail.com",
+        "nombre": "Totonelli Parra, Jazmin"
+      }
+    ],
+    "emailsList": [
+      "ltotonelli@gmail.com"
+    ],
     "nombre": "Grupo 50094 - Totonelli Parra, Jazmin",
     "nombre_socio": "Totonelli Parra, Jazmin",
     "lineas": "2944330717, 2944330835, 2944503343, 2944504294",
@@ -665,11 +851,20 @@
     "id": "fase2_grupo_70099",
     "grupo": "70099",
     "email": "nataliaranalli@gmail.com",
-    "nombre": "Grupo 70099 - Gutierrez, Pablo ",
-    "nombre_socio": "Gutierrez, Pablo ",
-    "lineas": "2944811292",
-    "monto_adeudado": "31617.61",
-    "monto_cuota_cel": 31617.61,
+    "representantes": [
+      {
+        "email": "nataliaranalli@gmail.com",
+        "nombre": "Ranalli, Natalia"
+      }
+    ],
+    "emailsList": [
+      "nataliaranalli@gmail.com"
+    ],
+    "nombre": "Grupo 70099 - Ranalli, Natalia",
+    "nombre_socio": "Ranalli, Natalia",
+    "lineas": "2215377121, 2944811292",
+    "monto_adeudado": "51965.38",
+    "monto_cuota_cel": 20347.77,
     "periodo": "08-2026",
     "fpago": "D",
     "cbu": "0110463330046321649079",
@@ -677,6 +872,16 @@
     "cuit": "",
     "dias_mora": "0",
     "detalle_lineas": [
+      {
+        "numero_linea": "2215377121",
+        "nombre_socio": "Ranalli, Natalia",
+        "proveedor": "CLARO",
+        "nombre_plan": "Plan Corporativo",
+        "gb": 5,
+        "costo_abono_real": 20347.77,
+        "excedentes": 0,
+        "total_linea": 20347.77
+      },
       {
         "numero_linea": "2944811292",
         "nombre_socio": "Gutierrez, Pablo ",
@@ -693,6 +898,15 @@
     "id": "fase2_grupo_533",
     "grupo": "533",
     "email": "cristinacalleja@hotmail.com",
+    "representantes": [
+      {
+        "email": "cristinacalleja@hotmail.com",
+        "nombre": "Calleja, Cristina Ines"
+      }
+    ],
+    "emailsList": [
+      "cristinacalleja@hotmail.com"
+    ],
     "nombre": "Grupo 533 - Calleja, Cristina Ines",
     "nombre_socio": "Calleja, Cristina Ines",
     "lineas": "3434151933",
@@ -721,6 +935,15 @@
     "id": "fase2_grupo_580",
     "grupo": "580",
     "email": "g.beatrizdecalleja@gmail.com",
+    "representantes": [
+      {
+        "email": "g.beatrizdecalleja@gmail.com",
+        "nombre": "Franco de Calleja, Beatriz Susana"
+      }
+    ],
+    "emailsList": [
+      "g.beatrizdecalleja@gmail.com"
+    ],
     "nombre": "Grupo 580 - Franco de Calleja, Beatriz Susana",
     "nombre_socio": "Franco de Calleja, Beatriz Susana",
     "lineas": "3434511469",
