@@ -1,0 +1,1272 @@
+[
+  {
+    "id": "fase2a_603_0",
+    "grupo": "603",
+    "email": "sanarapri@hotmail.com",
+    "representantes": [
+      {
+        "email": "sanarapri@hotmail.com",
+        "nombre": "Prieto, Sandra Araceli"
+      }
+    ],
+    "emailsList": [
+      "sanarapri@hotmail.com"
+    ],
+    "nombre": "Grupo 603 - Prieto, Sandra Araceli",
+    "nombre_socio": "Prieto, Sandra Araceli",
+    "lineas": "2216260583, 2216262125",
+    "monto_adeudado": "55073.95",
+    "monto_cuota_cel": 55073.95,
+    "periodo": "08-2026",
+    "fpago": "BC",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2216260583",
+        "nombre_socio": "Lendaro, Dante",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC24R",
+        "gb": "30 GB",
+        "costo_abono_real": 30444.05,
+        "excedentes": 0,
+        "total_linea": 30444.05
+      },
+      {
+        "numero_linea": "2216262125",
+        "nombre_socio": "Prieto, Sandra Araceli",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC23R",
+        "gb": "10 GB",
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      }
+    ]
+  },
+  {
+    "id": "fase2a_206_1",
+    "grupo": "206",
+    "email": "melisa_7@hotmail.com",
+    "representantes": [
+      {
+        "email": "melisa_7@hotmail.com",
+        "nombre": "Evangelista, Enrique Julio"
+      }
+    ],
+    "emailsList": [
+      "melisa_7@hotmail.com"
+    ],
+    "nombre": "Grupo 206 - Evangelista, Enrique Julio",
+    "nombre_socio": "Evangelista, Enrique Julio",
+    "lineas": "2914120957, 2914688137, 2915327975",
+    "monto_adeudado": "68496.21",
+    "monto_cuota_cel": 60573.899999999994,
+    "periodo": "08-2026",
+    "fpago": "M",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2914120957",
+        "nombre_socio": "Evangelista, Melisa",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC24R",
+        "gb": "30 GB",
+        "costo_abono_real": 30444.179999999997,
+        "excedentes": 7922.31,
+        "total_linea": 38366.49
+      },
+      {
+        "numero_linea": "2914688137",
+        "nombre_socio": "Evangelista, Enrique Julio",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC10R",
+        "gb": "2 GB",
+        "costo_abono_real": 15064.86,
+        "excedentes": 0,
+        "total_linea": 15064.86
+      },
+      {
+        "numero_linea": "2915327975",
+        "nombre_socio": "Martinez, Clara",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC10R",
+        "gb": "2 GB",
+        "costo_abono_real": 15064.86,
+        "excedentes": 0,
+        "total_linea": 15064.86
+      }
+    ]
+  },
+  {
+    "id": "fase2a_566_2",
+    "grupo": "566",
+    "email": "visitalafarfalla@gmail.com",
+    "representantes": [
+      {
+        "email": "visitalafarfalla@gmail.com",
+        "nombre": "Saenz, Mariana"
+      }
+    ],
+    "emailsList": [
+      "visitalafarfalla@gmail.com"
+    ],
+    "nombre": "Grupo 566 - Saenz, Mariana",
+    "nombre_socio": "Saenz, Mariana",
+    "lineas": "1132367434, 1132750712, 2215527101, 1132334429, 2212239917, 2215365847, 2215427578, 2215428016, 2215715678, 2216824786",
+    "monto_adeudado": "197817.89",
+    "monto_cuota_cel": 197817.88999999998,
+    "periodo": "08-2026",
+    "fpago": "M",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "1132367434",
+        "nombre_socio": "Saenz, Mariana",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC10R",
+        "gb": "2 GB",
+        "costo_abono_real": 15064.86,
+        "excedentes": 0,
+        "total_linea": 15064.86
+      },
+      {
+        "numero_linea": "1132750712",
+        "nombre_socio": "Coleff, Ivan Matias",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC10R",
+        "gb": "2 GB",
+        "costo_abono_real": 15064.86,
+        "excedentes": 0,
+        "total_linea": 15064.86
+      },
+      {
+        "numero_linea": "2215527101",
+        "nombre_socio": "Coleff, Nicolas",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC11R",
+        "gb": "4 GB",
+        "costo_abono_real": 17981.8,
+        "excedentes": 0,
+        "total_linea": 17981.8
+      },
+      {
+        "numero_linea": "1132334429",
+        "nombre_socio": "Coleff, Joaquin",
+        "proveedor": "PERSONAL",
+        "nombre_plan": "Plan 30 GB",
+        "gb": "30 GB",
+        "costo_abono_real": 35164.75,
+        "excedentes": 0,
+        "total_linea": 35164.75
+      },
+      {
+        "numero_linea": "2212239917",
+        "nombre_socio": "Coleff, Ana Julia",
+        "proveedor": "PERSONAL",
+        "nombre_plan": "Plan 10 GB Control",
+        "gb": "10 GB",
+        "costo_abono_real": 15606.4,
+        "excedentes": 0,
+        "total_linea": 15606.4
+      },
+      {
+        "numero_linea": "2215365847",
+        "nombre_socio": "Coleff, Sofía",
+        "proveedor": "PERSONAL",
+        "nombre_plan": "Plan 8 GB",
+        "gb": "8 GB",
+        "costo_abono_real": 21079,
+        "excedentes": 0,
+        "total_linea": 21079
+      },
+      {
+        "numero_linea": "2215427578",
+        "nombre_socio": "Coleff, Ana Julia",
+        "proveedor": "PERSONAL",
+        "nombre_plan": "Plan 8 GB",
+        "gb": "8 GB",
+        "costo_abono_real": 21079,
+        "excedentes": 0,
+        "total_linea": 21079
+      },
+      {
+        "numero_linea": "2215428016",
+        "nombre_socio": "Calcagno, Monica",
+        "proveedor": "PERSONAL",
+        "nombre_plan": "Plan 4 GB",
+        "gb": "4 GB",
+        "costo_abono_real": 17628.69,
+        "excedentes": 0,
+        "total_linea": 17628.69
+      },
+      {
+        "numero_linea": "2215715678",
+        "nombre_socio": "Anchordoquy, Juan Patricio",
+        "proveedor": "PERSONAL",
+        "nombre_plan": "Plan 8 GB",
+        "gb": "8 GB",
+        "costo_abono_real": 21079,
+        "excedentes": 0,
+        "total_linea": 21079
+      },
+      {
+        "numero_linea": "2216824786",
+        "nombre_socio": "Anchordoquy, Paz",
+        "proveedor": "PERSONAL",
+        "nombre_plan": "Plan 4 GB",
+        "gb": "4 GB",
+        "costo_abono_real": 18069.53,
+        "excedentes": 0,
+        "total_linea": 18069.53
+      }
+    ]
+  },
+  {
+    "id": "fase2a_566_3",
+    "grupo": "566",
+    "email": "jcoleff@gmail.com",
+    "representantes": [
+      {
+        "email": "jcoleff@gmail.com",
+        "nombre": "Coleff, Joaquin"
+      }
+    ],
+    "emailsList": [
+      "jcoleff@gmail.com"
+    ],
+    "nombre": "Grupo 566 - Coleff, Joaquin",
+    "nombre_socio": "Coleff, Joaquin",
+    "lineas": "1132367434, 1132750712, 2215527101, 1132334429, 2212239917, 2215365847, 2215427578, 2215428016, 2215715678, 2216824786",
+    "monto_adeudado": "197817.89",
+    "monto_cuota_cel": 197817.88999999998,
+    "periodo": "08-2026",
+    "fpago": "M",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "1132367434",
+        "nombre_socio": "Saenz, Mariana",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC10R",
+        "gb": "2 GB",
+        "costo_abono_real": 15064.86,
+        "excedentes": 0,
+        "total_linea": 15064.86
+      },
+      {
+        "numero_linea": "1132750712",
+        "nombre_socio": "Coleff, Ivan Matias",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC10R",
+        "gb": "2 GB",
+        "costo_abono_real": 15064.86,
+        "excedentes": 0,
+        "total_linea": 15064.86
+      },
+      {
+        "numero_linea": "2215527101",
+        "nombre_socio": "Coleff, Nicolas",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC11R",
+        "gb": "4 GB",
+        "costo_abono_real": 17981.8,
+        "excedentes": 0,
+        "total_linea": 17981.8
+      },
+      {
+        "numero_linea": "1132334429",
+        "nombre_socio": "Coleff, Joaquin",
+        "proveedor": "PERSONAL",
+        "nombre_plan": "Plan 30 GB",
+        "gb": "30 GB",
+        "costo_abono_real": 35164.75,
+        "excedentes": 0,
+        "total_linea": 35164.75
+      },
+      {
+        "numero_linea": "2212239917",
+        "nombre_socio": "Coleff, Ana Julia",
+        "proveedor": "PERSONAL",
+        "nombre_plan": "Plan 10 GB Control",
+        "gb": "10 GB",
+        "costo_abono_real": 15606.4,
+        "excedentes": 0,
+        "total_linea": 15606.4
+      },
+      {
+        "numero_linea": "2215365847",
+        "nombre_socio": "Coleff, Sofía",
+        "proveedor": "PERSONAL",
+        "nombre_plan": "Plan 8 GB",
+        "gb": "8 GB",
+        "costo_abono_real": 21079,
+        "excedentes": 0,
+        "total_linea": 21079
+      },
+      {
+        "numero_linea": "2215427578",
+        "nombre_socio": "Coleff, Ana Julia",
+        "proveedor": "PERSONAL",
+        "nombre_plan": "Plan 8 GB",
+        "gb": "8 GB",
+        "costo_abono_real": 21079,
+        "excedentes": 0,
+        "total_linea": 21079
+      },
+      {
+        "numero_linea": "2215428016",
+        "nombre_socio": "Calcagno, Monica",
+        "proveedor": "PERSONAL",
+        "nombre_plan": "Plan 4 GB",
+        "gb": "4 GB",
+        "costo_abono_real": 17628.69,
+        "excedentes": 0,
+        "total_linea": 17628.69
+      },
+      {
+        "numero_linea": "2215715678",
+        "nombre_socio": "Anchordoquy, Juan Patricio",
+        "proveedor": "PERSONAL",
+        "nombre_plan": "Plan 8 GB",
+        "gb": "8 GB",
+        "costo_abono_real": 21079,
+        "excedentes": 0,
+        "total_linea": 21079
+      },
+      {
+        "numero_linea": "2216824786",
+        "nombre_socio": "Anchordoquy, Paz",
+        "proveedor": "PERSONAL",
+        "nombre_plan": "Plan 4 GB",
+        "gb": "4 GB",
+        "costo_abono_real": 18069.53,
+        "excedentes": 0,
+        "total_linea": 18069.53
+      }
+    ]
+  },
+  {
+    "id": "fase2a_251_4",
+    "grupo": "251",
+    "email": "marisagambone@hotmail.com",
+    "representantes": [
+      {
+        "email": "marisagambone@hotmail.com",
+        "nombre": "Gambone, Marisa Cecilia"
+      }
+    ],
+    "emailsList": [
+      "marisagambone@hotmail.com"
+    ],
+    "nombre": "Grupo 251 - Gambone, Marisa Cecilia",
+    "nombre_socio": "Gambone, Marisa Cecilia",
+    "lineas": "1133370835, 1133370987, 1160262736",
+    "monto_adeudado": "83272.49",
+    "monto_cuota_cel": 69931.86000000002,
+    "periodo": "08-2026",
+    "fpago": "R",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "1133370835",
+        "nombre_socio": "Bruno, Claudio Fabian",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC23R",
+        "gb": "10 GB",
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      },
+      {
+        "numero_linea": "1133370987",
+        "nombre_socio": "Gambone, Marisa Cecilia",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC23R",
+        "gb": "10 GB",
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      },
+      {
+        "numero_linea": "1160262736",
+        "nombre_socio": "Bruno, Martina",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC22R",
+        "gb": "7 GB",
+        "costo_abono_real": 20672.060000000005,
+        "excedentes": 13340.63,
+        "total_linea": 34012.69
+      }
+    ]
+  },
+  {
+    "id": "fase2a_50012_5",
+    "grupo": "50012",
+    "email": "alex@zlatar.com.ar",
+    "representantes": [
+      {
+        "email": "alex@zlatar.com.ar",
+        "nombre": "Zlatar, Alex"
+      }
+    ],
+    "emailsList": [
+      "alex@zlatar.com.ar"
+    ],
+    "nombre": "Grupo 50012 - Zlatar, Alex",
+    "nombre_socio": "Zlatar, Alex",
+    "lineas": "1154629496, 1157815218, 2215461764",
+    "monto_adeudado": "71787.73",
+    "monto_cuota_cel": 71787.73,
+    "periodo": "08-2026",
+    "fpago": "D",
+    "cbu": "0070316920000005972951",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "1154629496",
+        "nombre_socio": "Saino, Agustina",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC22R",
+        "gb": "7 GB",
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "1157815218",
+        "nombre_socio": "Zlatar, Alex",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC22R",
+        "gb": "7 GB",
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2215461764",
+        "nombre_socio": "Nario, Ramiro",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC24R",
+        "gb": "30 GB",
+        "costo_abono_real": 30444.05,
+        "excedentes": 0,
+        "total_linea": 30444.05
+      }
+    ]
+  },
+  {
+    "id": "fase2a_70070_6",
+    "grupo": "70070",
+    "email": "gastonsorlando@gmail.com",
+    "representantes": [
+      {
+        "email": "gastonsorlando@gmail.com",
+        "nombre": "Scelzo, Julia"
+      }
+    ],
+    "emailsList": [
+      "gastonsorlando@gmail.com"
+    ],
+    "nombre": "Grupo 70070 - Scelzo, Julia",
+    "nombre_socio": "Scelzo, Julia",
+    "lineas": "2212206669, 2213541111, 2215486732, 2216011111, 2216391111",
+    "monto_adeudado": "100750.41",
+    "monto_cuota_cel": 96310.55,
+    "periodo": "08-2026",
+    "fpago": "M",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2212206669",
+        "nombre_socio": "Scelzo, Julia",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC24R",
+        "gb": "30 GB",
+        "costo_abono_real": 30444.05,
+        "excedentes": 0,
+        "total_linea": 30444.05
+      },
+      {
+        "numero_linea": "2213541111",
+        "nombre_socio": "Orlando, Rafael",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC10R",
+        "gb": "2 GB",
+        "costo_abono_real": 15064.86,
+        "excedentes": 0,
+        "total_linea": 15064.86
+      },
+      {
+        "numero_linea": "2215486732",
+        "nombre_socio": "Scelzo, Julia",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC10R",
+        "gb": "2 GB",
+        "costo_abono_real": 15064.86,
+        "excedentes": 0,
+        "total_linea": 15064.86
+      },
+      {
+        "numero_linea": "2216011111",
+        "nombre_socio": "Orlando, Gastón",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC22R",
+        "gb": "7 GB",
+        "costo_abono_real": 20671.92,
+        "excedentes": 4439.86,
+        "total_linea": 25111.78
+      },
+      {
+        "numero_linea": "2216391111",
+        "nombre_socio": "Orlando, Catalina",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC10R",
+        "gb": "2 GB",
+        "costo_abono_real": 15064.86,
+        "excedentes": 0,
+        "total_linea": 15064.86
+      }
+    ]
+  },
+  {
+    "id": "fase2a_140_7",
+    "grupo": "140",
+    "email": "cgaspardi@hotmail.com",
+    "representantes": [
+      {
+        "email": "cgaspardi@hotmail.com",
+        "nombre": "Gaspardi, Carolina"
+      }
+    ],
+    "emailsList": [
+      "cgaspardi@hotmail.com"
+    ],
+    "nombre": "Grupo 140 - Gaspardi, Carolina",
+    "nombre_socio": "Gaspardi, Carolina",
+    "lineas": "2215310643, 2215423283, 2215423290, 2215461763, 2215475613, 2216215411",
+    "monto_adeudado": "175765.84",
+    "monto_cuota_cel": 173587.99,
+    "periodo": "08-2026",
+    "fpago": "M",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215310643",
+        "nombre_socio": "Gaspardi, Federico Angel",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC24R",
+        "gb": "30 GB",
+        "costo_abono_real": 30444.05,
+        "excedentes": 0,
+        "total_linea": 30444.05
+      },
+      {
+        "numero_linea": "2215423283",
+        "nombre_socio": "Gaspardi, Guillermina",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC24R",
+        "gb": "30 GB",
+        "costo_abono_real": 27181.890000000003,
+        "excedentes": 2177.85,
+        "total_linea": 29359.74
+      },
+      {
+        "numero_linea": "2215423290",
+        "nombre_socio": "Gaspardi, Carolina",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC24R",
+        "gb": "30 GB",
+        "costo_abono_real": 30444.05,
+        "excedentes": 0,
+        "total_linea": 30444.05
+      },
+      {
+        "numero_linea": "2215461763",
+        "nombre_socio": "Castellano, Liliana",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC24R",
+        "gb": "30 GB",
+        "costo_abono_real": 30444.05,
+        "excedentes": 0,
+        "total_linea": 30444.05
+      },
+      {
+        "numero_linea": "2215475613",
+        "nombre_socio": "Gaspardi, Guillermo",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC23R",
+        "gb": "10 GB",
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      },
+      {
+        "numero_linea": "2216215411",
+        "nombre_socio": "Gaspardi, Carolina",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC24R",
+        "gb": "30 GB",
+        "costo_abono_real": 30444.05,
+        "excedentes": 0,
+        "total_linea": 30444.05
+      }
+    ]
+  },
+  {
+    "id": "fase2a_115_8",
+    "grupo": "115",
+    "email": "mariaestermaccarone@gmail.com",
+    "representantes": [
+      {
+        "email": "mariaestermaccarone@gmail.com",
+        "nombre": "Maccarone, Maria"
+      }
+    ],
+    "emailsList": [
+      "mariaestermaccarone@gmail.com"
+    ],
+    "nombre": "Grupo 115 - Maccarone, Maria",
+    "nombre_socio": "Maccarone, Maria",
+    "lineas": "2215421557, 2215525137",
+    "monto_adeudado": "41343.68",
+    "monto_cuota_cel": 41343.68,
+    "periodo": "08-2026",
+    "fpago": "M",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215421557",
+        "nombre_socio": "Rivero, Abelardo",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC22R",
+        "gb": "7 GB",
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "2215525137",
+        "nombre_socio": "Maccarone, Maria",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC22R",
+        "gb": "7 GB",
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      }
+    ]
+  },
+  {
+    "id": "fase2a_5035_9",
+    "grupo": "5035",
+    "email": "juliaerbetta@gmail.com",
+    "representantes": [
+      {
+        "email": "juliaerbetta@gmail.com",
+        "nombre": "Garriz, Francisco Pedro"
+      }
+    ],
+    "emailsList": [
+      "juliaerbetta@gmail.com"
+    ],
+    "nombre": "Grupo 5035 - Garriz, Francisco Pedro",
+    "nombre_socio": "Garriz, Francisco Pedro",
+    "lineas": "2215427332, 2215437159",
+    "monto_adeudado": "60888.10",
+    "monto_cuota_cel": 60888.1,
+    "periodo": "08-2026",
+    "fpago": "D",
+    "cbu": "0170093040000032466274",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215427332",
+        "nombre_socio": "Erbetta, Julia Sofia",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC24R",
+        "gb": "30 GB",
+        "costo_abono_real": 30444.05,
+        "excedentes": 0,
+        "total_linea": 30444.05
+      },
+      {
+        "numero_linea": "2215437159",
+        "nombre_socio": "Garriz, Francisco Pedro",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC24R",
+        "gb": "30 GB",
+        "costo_abono_real": 30444.05,
+        "excedentes": 0,
+        "total_linea": 30444.05
+      }
+    ]
+  },
+  {
+    "id": "fase2a_156_10",
+    "grupo": "156",
+    "email": "nicolashferreyra52@gmail.com",
+    "representantes": [
+      {
+        "email": "nicolashferreyra52@gmail.com",
+        "nombre": "Ferreyra, Nicolas"
+      }
+    ],
+    "emailsList": [
+      "nicolashferreyra52@gmail.com"
+    ],
+    "nombre": "Grupo 156 - Ferreyra, Nicolas",
+    "nombre_socio": "Ferreyra, Nicolas",
+    "lineas": "2215368581, 2215474632",
+    "monto_adeudado": "60888.10",
+    "monto_cuota_cel": 60888.1,
+    "periodo": "08-2026",
+    "fpago": "R",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215368581",
+        "nombre_socio": "Pozzer, Luciana",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC24R",
+        "gb": "30 GB",
+        "costo_abono_real": 30444.05,
+        "excedentes": 0,
+        "total_linea": 30444.05
+      },
+      {
+        "numero_linea": "2215474632",
+        "nombre_socio": "Ferreyra, Nicolas",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC24R",
+        "gb": "30 GB",
+        "costo_abono_real": 30444.05,
+        "excedentes": 0,
+        "total_linea": 30444.05
+      }
+    ]
+  },
+  {
+    "id": "fase2a_709_11",
+    "grupo": "709",
+    "email": "chaski_lt@hotmail.com",
+    "representantes": [
+      {
+        "email": "chaski_lt@hotmail.com",
+        "nombre": "Chicatun, Augusto"
+      }
+    ],
+    "emailsList": [
+      "chaski_lt@hotmail.com"
+    ],
+    "nombre": "Grupo 709 - Chicatun, Augusto",
+    "nombre_socio": "Chicatun, Augusto",
+    "lineas": "2215476199, 2215478574, 2215478584",
+    "monto_adeudado": "73889.70",
+    "monto_cuota_cel": 73889.70000000001,
+    "periodo": "08-2026",
+    "fpago": "M",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215476199",
+        "nombre_socio": "Chicatun, Maria Angeles",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC23R",
+        "gb": "10 GB",
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      },
+      {
+        "numero_linea": "2215478574",
+        "nombre_socio": "Chicatun, Augusto",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC23R",
+        "gb": "10 GB",
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      },
+      {
+        "numero_linea": "2215478584",
+        "nombre_socio": "Chicatun, Ricardo",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC23R",
+        "gb": "10 GB",
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      }
+    ]
+  },
+  {
+    "id": "fase2a_70027_12",
+    "grupo": "70027",
+    "email": "porotototo@hotmail.com",
+    "representantes": [
+      {
+        "email": "porotototo@hotmail.com",
+        "nombre": "Fagni, Martin Cristian"
+      }
+    ],
+    "emailsList": [
+      "porotototo@hotmail.com"
+    ],
+    "nombre": "Grupo 70027 - Fagni, Martin Cristian",
+    "nombre_socio": "Fagni, Martin Cristian",
+    "lineas": "2214384192, 2215527421",
+    "monto_adeudado": "49259.80",
+    "monto_cuota_cel": 49259.8,
+    "periodo": "08-2026",
+    "fpago": "B",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2214384192",
+        "nombre_socio": "Jureit, Maria Celeste",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC23R",
+        "gb": "10 GB",
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      },
+      {
+        "numero_linea": "2215527421",
+        "nombre_socio": "Fagni, Martin Cristian",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC23R",
+        "gb": "10 GB",
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      }
+    ]
+  },
+  {
+    "id": "fase2a_325_13",
+    "grupo": "325",
+    "email": "antonelacatena@live.com.ar",
+    "representantes": [
+      {
+        "email": "antonelacatena@live.com.ar",
+        "nombre": "Catena, Antonela"
+      }
+    ],
+    "emailsList": [
+      "antonelacatena@live.com.ar"
+    ],
+    "nombre": "Grupo 325 - Catena, Antonela",
+    "nombre_socio": "Catena, Antonela",
+    "lineas": "2215480621, 2216115758",
+    "monto_adeudado": "49259.80",
+    "monto_cuota_cel": 49259.8,
+    "periodo": "08-2026",
+    "fpago": "E",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215480621",
+        "nombre_socio": "Lorenzo, Pablo Jose",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC23R",
+        "gb": "10 GB",
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      },
+      {
+        "numero_linea": "2216115758",
+        "nombre_socio": "Catena, Antonela",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC23R",
+        "gb": "10 GB",
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      }
+    ]
+  },
+  {
+    "id": "fase2a_412_14",
+    "grupo": "412",
+    "email": "flaviaviviana22@hotmail.com",
+    "representantes": [
+      {
+        "email": "flaviaviviana22@hotmail.com",
+        "nombre": "Rodriguez, Flavia Viviana"
+      }
+    ],
+    "emailsList": [
+      "flaviaviviana22@hotmail.com"
+    ],
+    "nombre": "Grupo 412 - Rodriguez, Flavia Viviana",
+    "nombre_socio": "Rodriguez, Flavia Viviana",
+    "lineas": "2215315818, 2216205270",
+    "monto_adeudado": "47929.94",
+    "monto_cuota_cel": 41343.78999999999,
+    "periodo": "08-2026",
+    "fpago": "R",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215315818",
+        "nombre_socio": "Madueño, Nahuel",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC22R",
+        "gb": "7 GB",
+        "costo_abono_real": 20671.949999999997,
+        "excedentes": 6586.15,
+        "total_linea": 27258.1
+      },
+      {
+        "numero_linea": "2216205270",
+        "nombre_socio": "Rodriguez, Flavia Viviana",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC22R",
+        "gb": "7 GB",
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      }
+    ]
+  },
+  {
+    "id": "fase2a_194_15",
+    "grupo": "194",
+    "email": "lautaro_pincha04@hotmail.com",
+    "representantes": [
+      {
+        "email": "lautaro_pincha04@hotmail.com",
+        "nombre": "Arrecigor, Lautaro"
+      }
+    ],
+    "emailsList": [
+      "lautaro_pincha04@hotmail.com"
+    ],
+    "nombre": "Grupo 194 - Arrecigor, Lautaro",
+    "nombre_socio": "Arrecigor, Lautaro",
+    "lineas": "2212202036, 2216224788, 2214082305, 2215429587",
+    "monto_adeudado": "81220.36",
+    "monto_cuota_cel": 81220.36,
+    "periodo": "08-2026",
+    "fpago": "M",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2212202036",
+        "nombre_socio": "Arrecigor, Alejandro",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC11R",
+        "gb": "4 GB",
+        "costo_abono_real": 17981.8,
+        "excedentes": 0,
+        "total_linea": 17981.8
+      },
+      {
+        "numero_linea": "2216224788",
+        "nombre_socio": "Arrecigor, Lautaro",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC11R",
+        "gb": "4 GB",
+        "costo_abono_real": 17981.8,
+        "excedentes": 0,
+        "total_linea": 17981.8
+      },
+      {
+        "numero_linea": "2214082305",
+        "nombre_socio": "Ilewicki, Carolina",
+        "proveedor": "MOVISTAR",
+        "nombre_plan": "Control Empresas 8 GB G",
+        "gb": "8 GB",
+        "costo_abono_real": 20502.9,
+        "excedentes": 0,
+        "total_linea": 20502.9
+      },
+      {
+        "numero_linea": "2215429587",
+        "nombre_socio": "Arrecigor, Alejandro",
+        "proveedor": "MOVISTAR",
+        "nombre_plan": "Control Empresas 8 GB G",
+        "gb": "8 GB",
+        "costo_abono_real": 24753.86,
+        "excedentes": 0,
+        "total_linea": 24753.86
+      }
+    ]
+  },
+  {
+    "id": "fase2a_5032_16",
+    "grupo": "5032",
+    "email": "florencia113@hotmail.com",
+    "representantes": [
+      {
+        "email": "florencia113@hotmail.com",
+        "nombre": "Labado, Maria Florencia"
+      }
+    ],
+    "emailsList": [
+      "florencia113@hotmail.com"
+    ],
+    "nombre": "Grupo 5032 - Labado, Maria Florencia",
+    "nombre_socio": "Labado, Maria Florencia",
+    "lineas": "2215727627, 2216238995",
+    "monto_adeudado": "51115.89",
+    "monto_cuota_cel": 51115.89,
+    "periodo": "08-2026",
+    "fpago": "D",
+    "cbu": "0110716830071602787751",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2215727627",
+        "nombre_socio": "Racioppe, Daniel",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC24R",
+        "gb": "30 GB",
+        "costo_abono_real": 30444.05,
+        "excedentes": 0,
+        "total_linea": 30444.05
+      },
+      {
+        "numero_linea": "2216238995",
+        "nombre_socio": "Labado, Maria Florencia",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC22R",
+        "gb": "7 GB",
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      }
+    ]
+  },
+  {
+    "id": "fase2a_165_17",
+    "grupo": "165",
+    "email": "gimenavas@hotmail.com",
+    "representantes": [
+      {
+        "email": "gimenavas@hotmail.com",
+        "nombre": "Navas, Carla (hijo)"
+      }
+    ],
+    "emailsList": [
+      "gimenavas@hotmail.com"
+    ],
+    "nombre": "Grupo 165 - Navas, Carla (hijo)",
+    "nombre_socio": "Navas, Carla (hijo)",
+    "lineas": "2914720075, 2914754937, 2915327734, 2915758281",
+    "monto_adeudado": "94561.54",
+    "monto_cuota_cel": 94561.54000000001,
+    "periodo": "08-2026",
+    "fpago": "R",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2914720075",
+        "nombre_socio": "Navas, Carla Gimena",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC23R",
+        "gb": "10 GB",
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      },
+      {
+        "numero_linea": "2914754937",
+        "nombre_socio": "Navas, Carla Gimena (Hijo)",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC23R",
+        "gb": "10 GB",
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      },
+      {
+        "numero_linea": "2915327734",
+        "nombre_socio": "Navas, Carla (hijo)",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC23R",
+        "gb": "10 GB",
+        "costo_abono_real": 24629.9,
+        "excedentes": 0,
+        "total_linea": 24629.9
+      },
+      {
+        "numero_linea": "2915758281",
+        "nombre_socio": "Falcon, Alfredo Angel",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC22R",
+        "gb": "7 GB",
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      }
+    ]
+  },
+  {
+    "id": "fase2a_113_18",
+    "grupo": "113",
+    "email": "fliafisher@ciudad.com.ar",
+    "representantes": [
+      {
+        "email": "fliafisher@ciudad.com.ar",
+        "nombre": "Garcia Bourimborde, Graciela"
+      }
+    ],
+    "emailsList": [
+      "fliafisher@ciudad.com.ar"
+    ],
+    "nombre": "Grupo 113 - Garcia Bourimborde, Graciela",
+    "nombre_socio": "Garcia Bourimborde, Graciela",
+    "lineas": "1154241450, 1156418181",
+    "monto_adeudado": "38300.53",
+    "monto_cuota_cel": 38300.53,
+    "periodo": "08-2026",
+    "fpago": "M",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "1154241450",
+        "nombre_socio": "Fisher Garcia, Maria de la Paz",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC22R",
+        "gb": "7 GB",
+        "costo_abono_real": 20671.84,
+        "excedentes": 0,
+        "total_linea": 20671.84
+      },
+      {
+        "numero_linea": "1156418181",
+        "nombre_socio": "Garcia Bourimborde, Graciela",
+        "proveedor": "PERSONAL",
+        "nombre_plan": "Plan 4 GB",
+        "gb": "4 GB",
+        "costo_abono_real": 17628.69,
+        "excedentes": 0,
+        "total_linea": 17628.69
+      }
+    ]
+  },
+  {
+    "id": "fase2a_117_19",
+    "grupo": "117",
+    "email": "carolina.m94@hotmail.com",
+    "representantes": [
+      {
+        "email": "carolina.m94@hotmail.com",
+        "nombre": "Mendez, Carolina"
+      }
+    ],
+    "emailsList": [
+      "carolina.m94@hotmail.com"
+    ],
+    "nombre": "Grupo 117 - Mendez, Carolina",
+    "nombre_socio": "Mendez, Carolina",
+    "lineas": "2212211029, 2215436758, 2215461142, 2215961280",
+    "monto_adeudado": "123863.23",
+    "monto_cuota_cel": 114888.82,
+    "periodo": "08-2026",
+    "fpago": "M",
+    "cbu": "",
+    "dni": "",
+    "cuit": "",
+    "dias_mora": "0",
+    "detalle_lineas": [
+      {
+        "numero_linea": "2212211029",
+        "nombre_socio": "Mendez, Anabella",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC22R",
+        "gb": "7 GB",
+        "costo_abono_real": 33172.82,
+        "excedentes": 0,
+        "total_linea": 33172.82
+      },
+      {
+        "numero_linea": "2215436758",
+        "nombre_socio": "Mendez, Ruben Alfredo",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC24R",
+        "gb": "30 GB",
+        "costo_abono_real": 30444.05,
+        "excedentes": 0,
+        "total_linea": 30444.05
+      },
+      {
+        "numero_linea": "2215461142",
+        "nombre_socio": "Mendez, Ruben Alfredo",
+        "proveedor": "CLARO",
+        "nombre_plan": "CC23R",
+        "gb": "10 GB",
+        "costo_abono_real": 24630.05,
+        "excedentes": 8974.41,
+        "total_linea": 33604.46
+      },
+      {
+        "numero_linea": "2215961280",
+        "nombre_socio": "Mendez, Carolina",
+        "proveedor": "PERSONAL",
+        "nombre_plan": "Plan 15 GB",
+        "gb": "15 GB",
+        "costo_abono_real": 26641.9,
+        "excedentes": 0,
+        "total_linea": 26641.9
+      }
+    ]
+  }
+]

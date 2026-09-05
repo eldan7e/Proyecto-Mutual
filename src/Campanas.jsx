@@ -17,6 +17,7 @@ import DOMPurify from 'dompurify';
 import * as XLSX from 'xlsx';
 import RECTIFICACION_PRESET from './rectificacionData.json';
 import FASE2_PRESET from './fase2Data.json';
+import FASE3_PRESET from './fase3Data.json';
 
 export default function Campanas() {
   const { addToast } = useToast();
@@ -81,6 +82,8 @@ export default function Campanas() {
   const [debouncedRectificacionSearch, setDebouncedRectificacionSearch] = useState('');
   const [fase2Search, setFase2Search] = useState('');
   const [debouncedFase2Search, setDebouncedFase2Search] = useState('');
+  const [fase3Search, setFase3Search] = useState('');
+  const [debouncedFase3Search, setDebouncedFase3Search] = useState('');
   
   // Cupo Brevo y Filtro de Grupos / Socios Notificados
   const [enviosHoy, setEnviosHoy] = useState(0);
@@ -196,6 +199,11 @@ export default function Campanas() {
   }, [fase2Search]);
 
   useEffect(() => {
+    const timer = setTimeout(() => setDebouncedFase3Search(fase3Search), 300);
+    return () => clearTimeout(timer);
+  }, [fase3Search]);
+
+  useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearchLog(searchLog), 300);
     return () => clearTimeout(timer);
   }, [searchLog]);
@@ -208,8 +216,9 @@ export default function Campanas() {
       else if (effectiveCampaignType === 'lineas') fetchLineas();
       else if (effectiveCampaignType === 'rectificacion') fetchRectificacion();
       else if (effectiveCampaignType === 'fase2') fetchFase2();
+      else if (effectiveCampaignType === 'fase3') fetchFase3();
     }
-  }, [debouncedSearch, filterPago, filterGrupoNumero, filterDeuda, campaignType, effectiveCampaignType, currentStep, debouncedGrupalSearch, debouncedLineasSearch, debouncedRectificacionSearch, debouncedFase2Search]);
+  }, [debouncedSearch, filterPago, filterGrupoNumero, filterDeuda, campaignType, effectiveCampaignType, currentStep, debouncedGrupalSearch, debouncedLineasSearch, debouncedRectificacionSearch, debouncedFase2Search, debouncedFase3Search]);
 
   // Consultar cupo diario consumido hoy en Brevo
   const fetchEnviosHoy = async () => {
@@ -1893,6 +1902,65 @@ export default function Campanas() {
     }
   }
 
+  async function fetchFase3(overrideSearch) {
+    setLoading(true);
+    try {
+      const term = (typeof overrideSearch === 'string' ? overrideSearch : (fase3Search || debouncedFase3Search || '')).trim().toLowerCase();
+      let list = FASE3_PRESET.map(item => ({
+        ...item,
+        detalle_lineas: (item.detalle_lineas || []).map(l => ({ ...l }))
+      }));
+
+      if (term) {
+        list = list.filter(i => 
+          String(i.grupo).toLowerCase().includes(term) ||
+          (i.nombre_socio && i.nombre_socio.toLowerCase().includes(term)) ||
+          (i.email && i.email.toLowerCase().includes(term)) ||
+          (i.lineas && i.lineas.includes(term))
+        );
+      }
+
+      // Verificar si alguno ya fue notificado recientemente
+      try {
+        const { data: logsData } = await supabase
+          .from('campanas_logs')
+          .select('destinatario_email, created_at, estado, asunto')
+          .neq('estado', 'error')
+          .order('created_at', { ascending: false });
+
+        if (logsData && logsData.length > 0) {
+          list.forEach(item => {
+            const found = logsData.find(l => 
+              (l.destinatario_email || '').trim().toLowerCase() === (item.email || '').trim().toLowerCase()
+            );
+            if (found) {
+              item.notificado = true;
+              item.ultimo_envio = found.created_at;
+              item.ultimo_estado = found.estado;
+            } else {
+              item.notificado = false;
+            }
+          });
+        }
+      } catch (e) {
+        console.warn('Error al verificar logs de fase 3:', e);
+      }
+
+      setCampaignName('Comunicación Grupal Reps. Omitidos - Septiembre 2026');
+      setSubject('Aunar - Detalle de tu abono grupal, {{nombre_socio}} - Líneas: {{lineas}}');
+      setSelectedTemplateKey('aunar');
+
+      const notifCount = list.filter(i => i.notificado).length;
+      const pendCount = list.filter(i => !i.notificado).length;
+      applySelectionAndFilters(list, notifCount, pendCount, false, 'fase3');
+    } catch (err) {
+      console.error(err);
+      addToast('Error al cargar datos de Fase 3', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function fetchLogs(overrideSearch) {
     setLoadingLogs(true);
     try {
@@ -1947,7 +2015,7 @@ export default function Campanas() {
 
     const selectedItems = items.filter(i => selectedIds.has(i.id));
 
-    const isGrupo = (campaignType === 'excel' && excelMode === 'grupo_email') || (campaignType === 'personalizada' && (personalizadaMode === 'grupal' || personalizadaMode === 'rectificacion' || personalizadaMode === 'fase2'));
+    const isGrupo = (campaignType === 'excel' && excelMode === 'grupo_email') || (campaignType === 'personalizada' && (personalizadaMode === 'grupal' || personalizadaMode === 'rectificacion' || personalizadaMode === 'fase2' || personalizadaMode === 'fase3'));
     const isLineasIndividual = (campaignType === 'excel' && excelMode === 'lineas_individual');
     const currentSendingMode = isGrupo ? 'grupo_email' : (isLineasIndividual ? 'lineas_individual' : 'lineas_email');
 
@@ -2496,9 +2564,11 @@ export default function Campanas() {
     const mesAnio = now.toLocaleString('es-AR', { month: 'long', year: 'numeric' });
     const mesAnioCapitalized = mesAnio.charAt(0).toUpperCase() + mesAnio.slice(1);
 
-    const isGrupo = (campaignType === 'excel' && excelMode === 'grupo_email') || (campaignType === 'personalizada' && (personalizadaMode === 'grupal' || personalizadaMode === 'rectificacion' || personalizadaMode === 'fase2'));
+    const isGrupo = (campaignType === 'excel' && excelMode === 'grupo_email') || (campaignType === 'personalizada' && (personalizadaMode === 'grupal' || personalizadaMode === 'rectificacion' || personalizadaMode === 'fase2' || personalizadaMode === 'fase3'));
     const defaultCampName = (campaignType === 'personalizada' && personalizadaMode === 'fase2')
       ? `Comunicación Grupal Pendientes - ${mesAnioCapitalized}`
+      : (campaignType === 'personalizada' && personalizadaMode === 'fase3')
+      ? `Comunicación Grupal Reps. Omitidos - ${mesAnioCapitalized}`
       : (isGrupo 
         ? `Comunicación Grupal - ${mesAnioCapitalized}`
         : `Comunicación Individual - ${mesAnioCapitalized}`);
@@ -2761,8 +2831,9 @@ export default function Campanas() {
     if (currentStep === 2) {
       const isRect = campaignType === 'personalizada' && personalizadaMode === 'rectificacion';
       const isFase2 = campaignType === 'personalizada' && personalizadaMode === 'fase2';
+      const isFase3 = campaignType === 'personalizada' && personalizadaMode === 'fase3';
 
-      if (!bodyHtml || (isRect && selectedTemplateKey !== 'rectificacion') || (isFase2 && selectedTemplateKey === 'rectificacion')) {
+      if (!bodyHtml || (isRect && selectedTemplateKey !== 'rectificacion') || ((isFase2 || isFase3) && selectedTemplateKey === 'rectificacion')) {
         if (isRect) {
           handleLoadTemplate('rectificacion');
         } else {
@@ -2824,7 +2895,7 @@ export default function Campanas() {
   }, [selectedRecipientsList]);
 
   const isGrupoMode = (campaignType === 'excel' && excelMode === 'grupo_email') || 
-    (campaignType === 'personalizada' && (personalizadaMode === 'grupal' || personalizadaMode === 'rectificacion' || personalizadaMode === 'fase2'));
+    (campaignType === 'personalizada' && (personalizadaMode === 'grupal' || personalizadaMode === 'rectificacion' || personalizadaMode === 'fase2' || personalizadaMode === 'fase3'));
   const isLineasIndividualMode = campaignType === 'excel' && excelMode === 'lineas_individual';
   const effectiveEmailsToSend = isLineasIndividualMode 
     ? totalSelected 
@@ -3795,6 +3866,18 @@ export default function Campanas() {
                     title="Cargar Fase 2: 22 grupos pendientes de notificación por límite diario"
                   >
                     ⏳ Fase 2: Pendientes (22)
+                  </span>
+                  <span 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCampaignType('personalizada');
+                      setPersonalizadaMode('fase3');
+                      fetchFase3();
+                    }}
+                    style={{ fontSize: '11.5px', fontWeight: 700, padding: '3px 10px', borderRadius: '8px', background: 'rgba(59, 130, 246, 0.16)', color: '#1d4ed8', border: '1px solid rgba(59, 130, 246, 0.35)', cursor: 'pointer' }}
+                    title="Cargar Fase 3: 20 representantes secundarios o adicionales omitidos en grupos multirrepresentante"
+                  >
+                    👥 Fase 3: Reps. Omitidos (20)
                   </span>
                   <span style={{ fontSize: '11.5px', fontWeight: 700, padding: '3px 10px', borderRadius: '8px', background: 'rgba(59, 130, 246, 0.12)', color: '#1d4ed8' }}>
                     # Por Grupos
@@ -4932,6 +5015,7 @@ export default function Campanas() {
                   {campaignType === 'personalizada' && `Campaña Personalizada – ${
                     personalizadaMode === 'rectificacion' ? '⚠️ Fase 1: Rectificación Sep 2026 (20 Casos / 44 Grupos)' :
                     personalizadaMode === 'fase2' ? '⏳ Fase 2: Grupos Pendientes (22 Grupos No Notificados)' :
+                    personalizadaMode === 'fase3' ? '👥 Fase 3: Representantes Omitidos (20 Contactos)' :
                     personalizadaMode === 'grupal' ? 'Por Grupos' : 
                     (personalizadaMode === 'lineas' ? 'Por Líneas Individuales' : 'Base de Socios')
                   }`}
@@ -5042,6 +5126,45 @@ export default function Campanas() {
                       <button
                         type="button"
                         onClick={() => {
+                          if (personalizadaMode !== 'fase3') {
+                            setPersonalizadaMode('fase3');
+                            setItems([]);
+                            setSelectedIds(new Set());
+                            fetchFase3();
+                          }
+                        }}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '7px 16px',
+                          borderRadius: '9px',
+                          border: 'none',
+                          fontSize: '13px',
+                          fontWeight: personalizadaMode === 'fase3' ? 800 : 500,
+                          background: personalizadaMode === 'fase3' ? '#fff' : 'transparent',
+                          color: personalizadaMode === 'fase3' ? '#2563eb' : '#64748b',
+                          boxShadow: personalizadaMode === 'fase3' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <Users size={15} color={personalizadaMode === 'fase3' ? '#2563eb' : 'currentColor'} />
+                        <span>Fase 3: Reps. Omitidos</span>
+                        <span style={{
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          padding: '1px 6px',
+                          borderRadius: '6px',
+                          background: personalizadaMode === 'fase3' ? 'rgba(37,99,235,0.15)' : '#e2e8f0',
+                          color: personalizadaMode === 'fase3' ? '#2563eb' : '#64748b'
+                        }}>
+                          20 contactos
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
                           if (personalizadaMode !== 'grupal') {
                             setPersonalizadaMode('grupal');
                             setItems([]);
@@ -5131,6 +5254,7 @@ export default function Campanas() {
                   <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                     {personalizadaMode === 'rectificacion' && 'Fase 1: Rectificación oficial para los 20 contactos que recibieron líneas mezcladas de varios grupos. Grupos 100% aislados con montos exactos.'}
                     {personalizadaMode === 'fase2' && 'Fase 2: Notificación oficial para los 22 grupos que quedaron pendientes por alcanzar el límite diario de envíos.'}
+                    {personalizadaMode === 'fase3' && 'Fase 3: Notificación oficial para los 20 representantes secundarios o adicionales omitidos en grupos multirrepresentante (ej: Sandra Prieto en Grupo 603, Enrique Evangelista en Grupo 206, etc.).'}
                     {personalizadaMode === 'grupal' && 'Solo emails asignados a cabezas o representantes de cada grupo comercial'}
                     {personalizadaMode === 'lineas' && 'Emails asignados directamente a cada línea de celular individual'}
                     {personalizadaMode === 'nueva' && 'Todos los socios registrados con filtros por forma de pago y deuda'}
@@ -5637,6 +5761,78 @@ export default function Campanas() {
                 </div>
               )}
 
+              {effectiveCampaignType === 'fase3' && (
+                <div style={{ marginBottom: '16px' }}>
+                  <div style={S.label}>Buscar representante omitido (Fase 3)</div>
+                  <div style={{ position: 'relative', maxWidth: '400px' }}>
+                    <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+                    <input
+                      value={fase3Search}
+                      onChange={e => setFase3Search(e.target.value)}
+                      placeholder="Buscar por grupo, socio, email o línea..."
+                      style={{ ...S.input, paddingLeft: '36px', paddingRight: fase3Search ? '32px' : '12px' }}
+                    />
+                    {fase3Search && (
+                      <button
+                        type="button"
+                        onClick={() => setFase3Search('')}
+                        style={{
+                          position: 'absolute',
+                          right: '10px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          border: 'none',
+                          background: 'transparent',
+                          cursor: 'pointer',
+                          color: 'var(--text-secondary)',
+                          padding: 0
+                        }}
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {effectiveCampaignType === 'fase3' && (
+                <div style={{
+                  background: 'linear-gradient(135deg, rgba(239, 246, 255, 0.75) 0%, rgba(219, 234, 254, 0.55) 100%)',
+                  border: '1px solid rgba(59, 130, 246, 0.4)',
+                  borderRadius: '14px',
+                  padding: '14px 18px',
+                  marginBottom: '18px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                  boxShadow: '0 2px 6px rgba(59, 130, 246, 0.06)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: '260px', flex: 1 }}>
+                    <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'rgba(59, 130, 246, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#1d4ed8', flexShrink: 0 }}>
+                      <Users size={22} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '13.5px', fontWeight: 800, color: '#1e40af' }}>
+                        Fase 3: Representantes Secundarios Omitidos — Septiembre 2026
+                      </div>
+                      <div style={{ fontSize: '12.5px', color: '#1d4ed8', marginTop: '2px', lineHeight: 1.4 }}>
+                        Estos <strong>20 destinatarios</strong> corresponden a los representantes de grupos que no recibieron el correo anterior por tener múltiples emails registrados en el grupo (ej: Sandra Prieto en Grupo 603, Enrique Evangelista en Grupo 206, etc.). Recibirán el <strong>detalle oficial de su grupo comercial</strong>.
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '11.5px', fontWeight: 700, padding: '4px 10px', borderRadius: '8px', background: '#fff', color: '#1d4ed8', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
+                      20 Destinatarios listos
+                    </span>
+                    <span style={{ fontSize: '11.5px', fontWeight: 700, padding: '4px 10px', borderRadius: '8px', background: '#fff', color: '#059669', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+                      Plantilla Oficial Aunar
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {/* Selección y tabla */}
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
@@ -5862,9 +6058,9 @@ export default function Campanas() {
                         <th style={{ ...S.th, textAlign: 'center', width: '80px' }}>
                           {isGrupoMode || effectiveCampaignType === 'grupal' || campaignType === 'excel' ? 'Grupo' : 'Línea'}
                         </th>
-                        {(campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2') && <th style={{ ...S.th, textAlign: 'center' }}>Líneas</th>}
-                        <th style={{ ...S.th, textAlign: 'right', width: (campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2') ? '120px' : '80px' }}>
-                          {(campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2') ? 'Total Facturado' : (effectiveCampaignType === 'nueva' ? 'Cuotas' : 'Monto')}
+                        {(campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2' || effectiveCampaignType === 'fase3') && <th style={{ ...S.th, textAlign: 'center' }}>Líneas</th>}
+                        <th style={{ ...S.th, textAlign: 'right', width: (campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2' || effectiveCampaignType === 'fase3') ? '120px' : '80px' }}>
+                          {(campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2' || effectiveCampaignType === 'fase3') ? 'Total Facturado' : (effectiveCampaignType === 'nueva' ? 'Cuotas' : 'Monto')}
                         </th>
                       </tr>
                     </thead>
@@ -5938,13 +6134,13 @@ export default function Campanas() {
                             <td style={{ ...S.td, textAlign: 'center' }}>
                               {isGrupoMode || effectiveCampaignType === 'grupal' || campaignType === 'excel' ? `#${item.grupo}` : item.lineas}
                             </td>
-                            {(campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2') && (
+                            {(campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2' || effectiveCampaignType === 'fase3') && (
                               <td style={{ ...S.td, textAlign: 'center', fontSize: '11.5px' }}>
                                 <span style={{ color: 'var(--text-secondary)' }}>{item.lineas}</span>
                               </td>
                             )}
-                            <td style={{ ...S.td, textAlign: 'right', fontWeight: (campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2') ? 800 : 500, color: (campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2') ? '#059669' : (item.total_cuotas > 0 ? 'var(--danger)' : 'var(--accent)') }}>
-                              {(campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2') 
+                            <td style={{ ...S.td, textAlign: 'right', fontWeight: (campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2' || effectiveCampaignType === 'fase3') ? 800 : 500, color: (campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2' || effectiveCampaignType === 'fase3') ? '#059669' : (item.total_cuotas > 0 ? 'var(--danger)' : 'var(--accent)') }}>
+                              {(campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2' || effectiveCampaignType === 'fase3') 
                                 ? `$ ${Number(item.monto_adeudado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
                                 : (effectiveCampaignType === 'nueva' ? item.total_cuotas || 0 : `$ ${item.monto_adeudado || 0}`)
                               }
