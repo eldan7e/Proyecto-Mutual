@@ -39,20 +39,15 @@
   {
     "id": "fase2_grupo_19",
     "grupo": "19",
-    "email": "surfruit_sa@yahoo.com.ar, gio66z@hotmail.com",
+    "email": "surfruit_sa@yahoo.com.ar",
     "representantes": [
       {
         "email": "surfruit_sa@yahoo.com.ar",
         "nombre": "Martinez, Jorge Hernan"
-      },
-      {
-        "email": "gio66z@hotmail.com",
-        "nombre": "Martinez, Jorge Hernan"
       }
     ],
     "emailsList": [
-      "surfruit_sa@yahoo.com.ar",
-      "gio66z@hotmail.com"
+      "surfruit_sa@yahoo.com.ar"
     ],
     "nombre": "Grupo 19 - Martinez, Jorge Hernan",
     "nombre_socio": "Martinez, Jorge Hernan",
@@ -854,7 +849,7 @@
     "representantes": [
       {
         "email": "nataliaranalli@gmail.com",
-        "nombre": "Ranalli, Natalia"
+        "nombre": "Gutierrez, Pablo"
       }
     ],
     "emailsList": [
