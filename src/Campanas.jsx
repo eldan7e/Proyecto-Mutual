@@ -147,11 +147,13 @@ export default function Campanas() {
   const [expandedGroups, setExpandedGroups] = useState(new Set());
   const [isConfirmPublishModalOpen, setIsConfirmPublishModalOpen] = useState(false);
   const [publishingBot, setPublishingBot] = useState(false);
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+  const [previewRecipientId, setPreviewRecipientId] = useState('');
   
   // Campaña desde Excel (TODOS)
   const [excelFile, setExcelFile] = useState(null);
   const [excelRawRows, setExcelRawRows] = useState([]);
-  const [excelMode, setExcelMode] = useState('lineas_individual'); // 'lineas_individual' | 'lineas_email' | 'grupo_email'
+  const [excelMode, setExcelMode] = useState('lineas_email'); // 'lineas_email' | 'lineas_individual' | 'grupo_email'
   const [excelSearch, setExcelSearch] = useState('');
   const [excelEmpresa, setExcelEmpresa] = useState('ALL');
   const [excelPeriodo, setExcelPeriodo] = useState('08-2026');
@@ -1232,6 +1234,18 @@ export default function Campanas() {
         }
 
         const target = emailMap.get(key);
+
+        // Si el titular guardado no coincide con el usuario del email pero esta fila sí, actualizar titular
+        const emailUser = key.split('@')[0].replace(/[^a-z0-9]/gi, '');
+        if (target.nombre && r.nombre && emailUser.length >= 3) {
+          const curNorm = target.nombre.toLowerCase().replace(/[^a-z0-9]/gi, '');
+          const rowNorm = r.nombre.toLowerCase().replace(/[^a-z0-9]/gi, '');
+          if (!curNorm.includes(emailUser) && rowNorm.includes(emailUser)) {
+            target.nombre = r.nombre;
+            target.nombre_socio = r.nombre;
+          }
+        }
+
         target.lineasSet.add(r.numero);
         target.monto_adeudado_num += r.tarifaAunar;
         target.monto_cuota_cel += r.abonoBase;
@@ -1245,13 +1259,15 @@ export default function Campanas() {
           proveedor: r.empresa,
           costo_abono_real: r.abonoBase,
           excedentes: r.excedentes,
-          total_linea: r.tarifaAunar
+          total_linea: r.tarifaAunar,
+          nombre_socio: r.nombre
         });
       });
 
       resultItems = Array.from(emailMap.values()).map(item => ({
         ...item,
         lineas: Array.from(item.lineasSet).join(', '),
+        total_cuotas: item.lineasSet.size,
         monto_adeudado: item.monto_adeudado_num.toFixed(2),
         monto_cuota_cel: item.monto_cuota_cel.toFixed(2),
         display_detalle: `${item.nombre} (${item.lineasSet.size} ${item.lineasSet.size === 1 ? 'línea' : 'líneas'})`
@@ -1375,8 +1391,8 @@ export default function Campanas() {
     }
     setLoading(true);
     setExcelFile(file);
-    setModeSelections({ lineas_email: null, grupo_email: null });
-    setModeFilters({ lineas_email: null, grupo_email: null });
+    setModeSelections({ lineas_email: null, lineas_individual: null, grupo_email: null });
+    setModeFilters({ lineas_email: null, lineas_individual: null, grupo_email: null });
 
     const nameMatch = file.name.match(/\(?(\d{2}[-_]\d{4})\)?/);
     const detectado = nameMatch ? nameMatch[1].replace('_', '-') : excelPeriodo;
@@ -2016,8 +2032,7 @@ export default function Campanas() {
     const selectedItems = items.filter(i => selectedIds.has(i.id));
 
     const isGrupo = (campaignType === 'excel' && excelMode === 'grupo_email') || (campaignType === 'personalizada' && (personalizadaMode === 'grupal' || personalizadaMode === 'rectificacion' || personalizadaMode === 'fase2' || personalizadaMode === 'fase3'));
-    const isLineasIndividual = (campaignType === 'excel' && excelMode === 'lineas_individual');
-    const currentSendingMode = isGrupo ? 'grupo_email' : (isLineasIndividual ? 'lineas_individual' : 'lineas_email');
+    const currentSendingMode = isGrupo ? 'grupo_email' : 'lineas_email';
 
     let recipients = [];
 
@@ -2071,42 +2086,14 @@ export default function Campanas() {
           });
         });
       });
-    } else if (isLineasIndividual) {
-      // MODO LÍNEA INDIVIDUAL (1 a 1):
-      // Cada línea física seleccionada se despacha directamente en su propio correo independiente a su EMAIL INDIVIDUAL.
-      // 0 riesgo de mezclar líneas de distintas personas o grupos.
-      selectedItems.forEach(item => {
-        const cleanEmail = (item.email || '').trim();
-        if (!cleanEmail || !cleanEmail.includes('@')) return;
-
-        recipients.push({
-          socio_id: item.id,
-          nombre_completo: item.nombre_socio || item.nombre,
-          nombre_socio: item.nombre_socio || item.nombre,
-          nombre: item.nombre_socio || item.nombre,
-          email: cleanEmail,
-          dni: item.dni || '',
-          cuit: item.cuit || '',
-          fpago: item.fpago || '',
-          cbu: item.cbu || '',
-          grupo: item.grupo || 'Sin Grupo',
-          modo_envio: currentSendingMode,
-          lineas: item.lineas || 'Sin Línea',
-          monto_cuota_cel: item.monto_cuota_cel || 0,
-          total_cuotas: 1,
-          monto_adeudado: item.monto_adeudado || '0.00',
-          dias_mora: item.dias_mora || '0',
-          periodo: item.periodo || excelPeriodo || '08-2026',
-          detalle_lineas: item.detalle_lineas || []
-        });
-      });
     } else {
-      // MODO CONSOLIDADO POR EMAIL (LÍNEAS):
-      // Consolidar destinatarios por email para que si una persona tiene múltiples líneas reciba un único correo agrupado
+      // MODO LÍNEAS (CONSOLIDADO POR EMAIL):
+      // Si varias líneas comparten el mismo correo individual, se consolidan automáticamente en 1 solo correo.
+      // Cada correo contiene la tabla con todas sus líneas, planes y excedentes detallados.
       const emailGroups = new Map();
       selectedItems.forEach(item => {
         const emailKey = (item.email || '').trim().toLowerCase();
-        if (!emailKey) return;
+        if (!emailKey || !emailKey.includes('@')) return;
 
         if (!emailGroups.has(emailKey)) {
           emailGroups.set(emailKey, {
@@ -2121,8 +2108,8 @@ export default function Campanas() {
             cbu: item.cbu || '',
             grupo: item.grupo || 'Sin Grupo',
             lineasSet: new Set(),
-            monto_cuota_cel: item.monto_cuota_cel || 0,
-            total_cuotas: item.total_cuotas || 0,
+            monto_cuota_cel_num: 0,
+            total_cuotas: 0,
             monto_adeudado_num: 0,
             dias_mora: item.dias_mora || '0',
             periodo: item.periodo || '',
@@ -2132,6 +2119,18 @@ export default function Campanas() {
 
         const g = emailGroups.get(emailKey);
 
+        // Si el titular guardado no coincide con el usuario del email pero este item sí, actualizar nombre
+        const emailUser = emailKey.split('@')[0].replace(/[^a-z0-9]/gi, '');
+        if (g.nombre && item.nombre && emailUser.length >= 3) {
+          const curNorm = g.nombre.toLowerCase().replace(/[^a-z0-9]/gi, '');
+          const rowNorm = item.nombre.toLowerCase().replace(/[^a-z0-9]/gi, '');
+          if (!curNorm.includes(emailUser) && rowNorm.includes(emailUser)) {
+            g.nombre = item.nombre;
+            g.nombre_socio = item.nombre;
+            g.nombre_completo = item.nombre;
+          }
+        }
+
         // Agregar números de línea
         if (item.lineas) {
           String(item.lineas).split(',').forEach(l => {
@@ -2140,8 +2139,9 @@ export default function Campanas() {
           });
         }
 
-        // Sumar monto adeudado
+        // Sumar montos
         g.monto_adeudado_num += Number(item.monto_adeudado || 0);
+        g.monto_cuota_cel_num += Number(item.monto_cuota_cel || 0);
 
         // Consolidar detalles de líneas evitando duplicados
         if (item.detalle_lineas && item.detalle_lineas.length > 0) {
@@ -2171,8 +2171,8 @@ export default function Campanas() {
         grupo: g.grupo,
         modo_envio: currentSendingMode,
         lineas: Array.from(g.lineasSet).join(', ') || 'Sin Línea',
-        monto_cuota_cel: g.monto_cuota_cel,
-        total_cuotas: g.total_cuotas,
+        monto_cuota_cel: g.monto_cuota_cel_num.toFixed(2),
+        total_cuotas: g.lineasSet.size || g.total_cuotas || 1,
         monto_adeudado: g.monto_adeudado_num.toFixed(2),
         dias_mora: g.dias_mora,
         periodo: g.periodo || excelPeriodo || '08-2026',
@@ -2433,6 +2433,7 @@ export default function Campanas() {
       '<< Test Last Name >>': lastName,
       '<< Test Address >>': grupoStr !== 'Sin Grupo' ? `Grupo #${grupoStr}` : lineasStr,
       '{{lineas}}': lineasStr,
+      '{{linea}}': lineasStr,
       '{{periodo}}': periodoStr,
       '{{monto_adeudado}}': montoStr,
       '{{vencimiento}}': vencimientoStr,
@@ -2577,7 +2578,7 @@ export default function Campanas() {
       const name = defaultCampName;
       const subj = isGrupo 
         ? 'Aunar - Detalle de tu abono grupal, {{nombre_socio}} - Líneas: {{lineas}}'
-        : 'Aunar - Detalle de tu abono, {{nombre_socio}} - Linea: {{lineas}}';
+        : 'Aunar - Detalle de tu abono, {{nombre_socio}} - Líneas: {{lineas}}';
       const body = buildAunarChassis();
       setCampaignName(name);
       setSubject(subj);
@@ -2613,7 +2614,7 @@ export default function Campanas() {
         name: defaultCampName,
         subject: isGrupo 
           ? 'Aunar - Detalle de tu abono grupal, {{nombre_socio}} - Líneas: {{lineas}}'
-          : 'Aunar - Detalle de tu abono, {{nombre_socio}} - Linea: {{lineas}}',
+          : 'Aunar - Detalle de tu abono, {{nombre_socio}} - Líneas: {{lineas}}',
         body: `<div style="font-family: Arial, sans-serif; max-width: 600px; background-color: #ffffff; margin: 0 auto; padding: 20px; border-radius: 8px; border: 1px solid #ddd; color: #333; line-height: 1.5;">
 
   <!-- Logo AUNAR -->
@@ -2893,13 +2894,14 @@ export default function Campanas() {
     const emails = new Set(selectedRecipientsList.map(i => (i.email || '').trim().toLowerCase()).filter(Boolean));
     return emails.size;
   }, [selectedRecipientsList]);
+  const selectedTotalLines = useMemo(() => {
+    return selectedRecipientsList.reduce((acc, i) => acc + (i.detalle_lineas?.length || (i.lineas ? i.lineas.split(',').length : 1)), 0);
+  }, [selectedRecipientsList]);
 
   const isGrupoMode = (campaignType === 'excel' && excelMode === 'grupo_email') || 
     (campaignType === 'personalizada' && (personalizadaMode === 'grupal' || personalizadaMode === 'rectificacion' || personalizadaMode === 'fase2' || personalizadaMode === 'fase3'));
   const isLineasIndividualMode = campaignType === 'excel' && excelMode === 'lineas_individual';
-  const effectiveEmailsToSend = isLineasIndividualMode 
-    ? totalSelected 
-    : (campaignType === 'excel' && excelMode === 'lineas_email' ? uniqueEmailsCount : totalSelected);
+  const effectiveEmailsToSend = isGrupoMode ? totalSelected : uniqueEmailsCount;
 
   /* ─────────────────────── Inline Styles ─────────────────────── */
 
@@ -5379,23 +5381,6 @@ export default function Campanas() {
                         <div style={{ display: 'inline-flex', background: 'rgba(0,0,0,0.05)', padding: '3px', borderRadius: '10px' }}>
                           <button
                             type="button"
-                            onClick={() => handleSwitchExcelMode('lineas_individual')}
-                            style={{
-                              border: 'none',
-                              padding: '6px 14px',
-                              borderRadius: '8px',
-                              fontSize: '12px',
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                              background: excelMode === 'lineas_individual' ? '#059669' : 'transparent',
-                              color: excelMode === 'lineas_individual' ? '#ffffff' : 'var(--text-primary)',
-                              transition: 'all 0.2s'
-                            }}
-                          >
-                            📞 Por Línea Individual (1 a 1)
-                          </button>
-                          <button
-                            type="button"
                             onClick={() => handleSwitchExcelMode('lineas_email')}
                             style={{
                               border: 'none',
@@ -5409,7 +5394,24 @@ export default function Campanas() {
                               transition: 'all 0.2s'
                             }}
                           >
-                            👤 Consolidado por Email
+                            👤 Consolidado por Email (Recomendado)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSwitchExcelMode('lineas_individual')}
+                            style={{
+                              border: 'none',
+                              padding: '6px 14px',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              background: excelMode === 'lineas_individual' ? '#059669' : 'transparent',
+                              color: excelMode === 'lineas_individual' ? '#ffffff' : 'var(--text-primary)',
+                              transition: 'all 0.2s'
+                            }}
+                          >
+                            📞 Vista por Línea (Desglosada)
                           </button>
                           <button
                             type="button"
@@ -5485,9 +5487,9 @@ export default function Campanas() {
 
                       <div style={{
                         fontSize: '11.5px',
-                        color: excelMode === 'grupo_email' ? '#065f46' : (excelMode === 'lineas_individual' ? '#065f46' : '#1e40af'),
-                        background: excelMode === 'grupo_email' ? 'rgba(16, 185, 129, 0.08)' : (excelMode === 'lineas_individual' ? 'rgba(16, 185, 129, 0.08)' : 'rgba(59, 130, 246, 0.08)'),
-                        border: excelMode === 'grupo_email' ? '1px solid rgba(16, 185, 129, 0.25)' : (excelMode === 'lineas_individual' ? '1px solid rgba(16, 185, 129, 0.25)' : '1px solid rgba(59, 130, 246, 0.25)'),
+                        color: excelMode === 'grupo_email' ? '#065f46' : '#065f46',
+                        background: 'rgba(16, 185, 129, 0.08)',
+                        border: '1px solid rgba(16, 185, 129, 0.25)',
                         padding: '7px 12px',
                         borderRadius: '9px',
                         display: 'flex',
@@ -5499,15 +5501,15 @@ export default function Campanas() {
                             <Users size={14} style={{ flexShrink: 0 }} />
                             <span><strong>Modo Por Grupo (Representantes):</strong> Notificación consolidada enviada al titular/representante de cada grupo con el detalle de todas sus líneas.</span>
                           </>
-                        ) : excelMode === 'lineas_individual' ? (
+                        ) : excelMode === 'lineas_email' ? (
                           <>
                             <Smartphone size={14} style={{ flexShrink: 0 }} />
-                            <span><strong>Modo Por Línea Individual (1 a 1):</strong> Cada línea física se despacha en su propio correo independiente únicamente a su EMAIL INDIVIDUAL. No mezcla líneas ni notifica a representantes de grupo.</span>
+                            <span><strong>Modo Consolidado por Email (Recomendado):</strong> Agrupa automáticamente las líneas individuales que comparten el mismo correo en 1 solo email. Cada socio recibe 1 único correo con la tabla detallada de todas sus líneas, planes y excedentes.</span>
                           </>
                         ) : (
                           <>
                             <Smartphone size={14} style={{ flexShrink: 0 }} />
-                            <span><strong>Modo Consolidado por Email:</strong> Agrupa todas las líneas de un mismo socio/email personal en un único correo consolidado.</span>
+                            <span><strong>Vista por Línea (Desglosada):</strong> Muestra cada línea física en una fila separada. Al despachar, las líneas que compartan correo se unifican de forma segura en un solo envío.</span>
                           </>
                         )}
                       </div>
@@ -5837,6 +5839,22 @@ export default function Campanas() {
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                   <span style={S.badge}>{totalSelected} seleccionados</span>
+                  {totalSelected > 0 && campaignType === 'excel' && excelMode === 'lineas_email' && (
+                    <span style={{
+                      fontSize: '12px',
+                      color: '#059669',
+                      background: 'rgba(16, 185, 129, 0.12)',
+                      border: '1px solid rgba(16, 185, 129, 0.3)',
+                      padding: '4px 12px',
+                      borderRadius: '16px',
+                      fontWeight: 700,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}>
+                      👤 Consolidado: <strong>{totalSelected} {totalSelected === 1 ? 'correo único' : 'correos únicos'}</strong> ({selectedTotalLines} {selectedTotalLines === 1 ? 'línea' : 'líneas'} cubiertas)
+                    </span>
+                  )}
                   {totalSelected > 0 && isLineasIndividualMode && (
                     <span style={{
                       fontSize: '12px',
@@ -5850,23 +5868,7 @@ export default function Campanas() {
                       alignItems: 'center',
                       gap: '5px'
                     }}>
-                      📞 Envío 1 a 1: <strong>{totalSelected} correos individuales</strong> (1 por cada línea)
-                    </span>
-                  )}
-                  {totalSelected > 0 && campaignType === 'excel' && excelMode === 'lineas_email' && uniqueEmailsCount < totalSelected && (
-                    <span style={{
-                      fontSize: '12px',
-                      color: '#059669',
-                      background: 'rgba(16, 185, 129, 0.12)',
-                      border: '1px solid rgba(16, 185, 129, 0.3)',
-                      padding: '4px 12px',
-                      borderRadius: '16px',
-                      fontWeight: 700,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px'
-                    }}>
-                      ⚡ Se consolidarán en <strong>{uniqueEmailsCount}</strong> {uniqueEmailsCount === 1 ? 'único correo' : 'correos únicos'}
+                      ⚡ {totalSelected} líneas seleccionadas → se enviarán en <strong>{uniqueEmailsCount} {uniqueEmailsCount === 1 ? 'correo consolidado' : 'correos consolidados'}</strong>
                     </span>
                   )}
 
@@ -6159,7 +6161,7 @@ export default function Campanas() {
                   disabled={totalSelected === 0}
                   style={{ ...S.btnPrimary, opacity: totalSelected === 0 ? 0.5 : 1, cursor: totalSelected === 0 ? 'not-allowed' : 'pointer' }}
                 >
-                  Configurar Mensaje ({isGrupoMode ? `${totalSelected} grupos` : (isLineasIndividualMode ? `${totalSelected} líneas (1 a 1)` : (campaignType === 'excel' && excelMode === 'lineas_email' && uniqueEmailsCount < totalSelected ? `${uniqueEmailsCount} correos (${totalSelected} líneas)` : `${totalSelected} destinatarios`))}) <ChevronRight size={16} />
+                  Configurar Mensaje ({isGrupoMode ? `${totalSelected} grupos` : (campaignType === 'excel' && excelMode === 'lineas_email' ? `${totalSelected} correos (${selectedTotalLines} líneas)` : `${effectiveEmailsToSend} correos (${totalSelected} líneas)`)}) <ChevronRight size={16} />
                 </button>
               </div>
             </>
@@ -6185,8 +6187,10 @@ export default function Campanas() {
                     <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '12.5px' }}>{s.nombre}</div>
                     <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>{s.email}</div>
                   </div>
-                  <span style={{ fontSize: '11px', fontWeight: 600, color: s.total_cuotas > 0 ? 'var(--danger)' : 'var(--accent)', whiteSpace: 'nowrap' }}>
-                    {s.total_cuotas > 0 ? `${s.total_cuotas} cuotas` : 'Al día'}
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: (campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2' || effectiveCampaignType === 'fase3') ? '#059669' : (s.total_cuotas > 0 ? 'var(--danger)' : 'var(--accent)'), whiteSpace: 'nowrap' }}>
+                    {(campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2' || effectiveCampaignType === 'fase3') 
+                      ? `$ ${Number(s.monto_adeudado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
+                      : (s.total_cuotas > 0 ? `${s.total_cuotas} cuotas` : 'Al día')}
                   </span>
                 </div>
               ))}
@@ -6290,7 +6294,21 @@ export default function Campanas() {
                   <span>Base AUNAR</span>
                 </button>
 
-                {/* Botón para guardar plantilla actual */}
+                {/* Botón para previsualizar correo renderizado */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedRecipientsList.length > 0) {
+                      setPreviewRecipientId(selectedRecipientsList[0].id);
+                    }
+                    setIsPreviewModalOpen(true);
+                  }}
+                  style={{ ...S.btnSecondary, padding: '6px 12px', fontSize: '12px', gap: '6px', background: 'rgba(59, 130, 246, 0.1)', borderColor: 'rgba(59, 130, 246, 0.3)', color: '#1d4ed8' }}
+                  title="Ver exactamente cómo recibirá el correo el destinatario seleccionado con su tabla de líneas"
+                >
+                  <Eye size={13} />
+                  <span>Previsualizar</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -6792,6 +6810,68 @@ export default function Campanas() {
               Guardar Configuración
             </button>
           </div>
+        </div>
+      </Modal>
+
+      {/* Modal: Previsualización de Correo Renderizado */}
+      <Modal
+        isOpen={isPreviewModalOpen}
+        onClose={() => setIsPreviewModalOpen(false)}
+        title="Previsualización de Correo Personalizado"
+        maxWidth="750px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {selectedRecipientsList.length === 0 ? (
+            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+              No hay destinatarios seleccionados para previsualizar.
+            </div>
+          ) : (() => {
+            const currentPreviewItem = selectedRecipientsList.find(s => s.id === previewRecipientId) || selectedRecipientsList[0];
+            const rendered = currentPreviewItem 
+              ? renderEmailForRecipient(DOMPurify.sanitize(bodyHtml), subject.trim(), currentPreviewItem)
+              : { body: '', subj: '' };
+
+            return (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', background: 'rgba(0,0,0,0.03)', padding: '10px 14px', borderRadius: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>Destinatario:</span>
+                    <select
+                      value={currentPreviewItem?.id || ''}
+                      onChange={(e) => setPreviewRecipientId(e.target.value)}
+                      style={{ ...S.input, minWidth: '280px', padding: '5px 10px', fontSize: '12.5px', fontWeight: 600 }}
+                    >
+                      {selectedRecipientsList.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.nombre} ({s.email}) - {s.detalle_lineas?.length ? `${s.detalle_lineas.length} líneas` : (s.lineas || '1 línea')}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#059669' }}>
+                    Total: $ {Number(currentPreviewItem?.monto_adeudado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+
+                <div style={{ background: '#f8fafc', border: '1px solid var(--border-light)', borderRadius: '8px', padding: '10px 14px' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Asunto Renderizado:</div>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '3px' }}>
+                    {rendered.subj || '(Sin asunto)'}
+                  </div>
+                </div>
+
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', maxHeight: '520px', overflowY: 'auto', background: '#fff', padding: '16px' }}>
+                  <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(rendered.body) }} />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
+                  <button type="button" onClick={() => setIsPreviewModalOpen(false)} style={S.btnPrimary}>
+                    Cerrar Previsualización
+                  </button>
+                </div>
+              </>
+            );
+          })()}
         </div>
       </Modal>
 
