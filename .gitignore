@@ -48,9 +48,6 @@ logs/
 !package.json
 !package-lock.json
 !vercel.json
-!src/rectificacionData.json
-!src/fase2Data.json
-!src/fase3Data.json
 
 # Ignore all scratch & script folders
 scratch/

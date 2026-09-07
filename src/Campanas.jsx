@@ -15,10 +15,6 @@ import { useToast } from './components/ui/ToastProvider';
 import Modal from './components/Modal';
 import DOMPurify from 'dompurify';
 import * as XLSX from 'xlsx';
-import RECTIFICACION_PRESET from './rectificacionData.json';
-import FASE2_PRESET from './fase2Data.json';
-import FASE3_PRESET from './fase3Data.json';
-
 export default function Campanas() {
   const { addToast } = useToast();
   
@@ -27,7 +23,7 @@ export default function Campanas() {
   
   // Tipo de campaña en paso 1 ('excel' | 'personalizada' | 'bot_wsp')
   const [campaignType, setCampaignType] = useState(null);
-  const [personalizadaMode, setPersonalizadaMode] = useState('grupal'); // 'grupal' | 'lineas' | 'nueva' | 'rectificacion' | 'fase2'
+  const [personalizadaMode, setPersonalizadaMode] = useState('grupal'); // 'grupal' | 'lineas' | 'nueva'
   const effectiveCampaignType = campaignType === 'personalizada' ? personalizadaMode : campaignType;
 
   // Campaña activa en despacho con monitoreo en tiempo real
@@ -78,12 +74,6 @@ export default function Campanas() {
   const [debouncedGrupalSearch, setDebouncedGrupalSearch] = useState('');
   const [lineasSearch, setLineasSearch] = useState('');
   const [debouncedLineasSearch, setDebouncedLineasSearch] = useState('');
-  const [rectificacionSearch, setRectificacionSearch] = useState('');
-  const [debouncedRectificacionSearch, setDebouncedRectificacionSearch] = useState('');
-  const [fase2Search, setFase2Search] = useState('');
-  const [debouncedFase2Search, setDebouncedFase2Search] = useState('');
-  const [fase3Search, setFase3Search] = useState('');
-  const [debouncedFase3Search, setDebouncedFase3Search] = useState('');
   
   // Cupo Brevo y Filtro de Grupos / Socios Notificados
   const [enviosHoy, setEnviosHoy] = useState(0);
@@ -191,21 +181,6 @@ export default function Campanas() {
   }, [lineasSearch]);
 
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedRectificacionSearch(rectificacionSearch), 300);
-    return () => clearTimeout(timer);
-  }, [rectificacionSearch]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedFase2Search(fase2Search), 300);
-    return () => clearTimeout(timer);
-  }, [fase2Search]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedFase3Search(fase3Search), 300);
-    return () => clearTimeout(timer);
-  }, [fase3Search]);
-
-  useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearchLog(searchLog), 300);
     return () => clearTimeout(timer);
   }, [searchLog]);
@@ -216,11 +191,8 @@ export default function Campanas() {
       if (effectiveCampaignType === 'nueva') fetchSocios();
       else if (effectiveCampaignType === 'grupal') fetchGrupos();
       else if (effectiveCampaignType === 'lineas') fetchLineas();
-      else if (effectiveCampaignType === 'rectificacion') fetchRectificacion();
-      else if (effectiveCampaignType === 'fase2') fetchFase2();
-      else if (effectiveCampaignType === 'fase3') fetchFase3();
     }
-  }, [debouncedSearch, filterPago, filterGrupoNumero, filterDeuda, campaignType, effectiveCampaignType, currentStep, debouncedGrupalSearch, debouncedLineasSearch, debouncedRectificacionSearch, debouncedFase2Search, debouncedFase3Search]);
+  }, [debouncedSearch, filterPago, filterGrupoNumero, filterDeuda, campaignType, effectiveCampaignType, currentStep, debouncedGrupalSearch, debouncedLineasSearch]);
 
   // Consultar cupo diario consumido hoy en Brevo
   const fetchEnviosHoy = async () => {
@@ -1798,185 +1770,6 @@ export default function Campanas() {
     }
   }
 
-  async function fetchRectificacion(overrideSearch) {
-    setLoading(true);
-    try {
-      const term = (typeof overrideSearch === 'string' ? overrideSearch : (rectificacionSearch || debouncedRectificacionSearch || '')).trim().toLowerCase();
-      let list = RECTIFICACION_PRESET.map(item => ({
-        ...item,
-        detalle_lineas: (item.detalle_lineas || []).map(l => ({ ...l }))
-      }));
-
-      if (term) {
-        list = list.filter(i => 
-          String(i.grupo).toLowerCase().includes(term) ||
-          (i.nombre_socio && i.nombre_socio.toLowerCase().includes(term)) ||
-          (i.email && i.email.toLowerCase().includes(term)) ||
-          (i.lineas && i.lineas.includes(term))
-        );
-      }
-
-      // Verificar si alguno ya fue rectificado en campanas_logs
-      try {
-        const { data: logsData } = await supabase
-          .from('campanas_logs')
-          .select('destinatario_email, created_at, estado, asunto')
-          .ilike('asunto', '%RECTIFICACIÓN%')
-          .order('created_at', { ascending: false });
-
-        if (logsData && logsData.length > 0) {
-          list.forEach(item => {
-            const found = logsData.find(l => 
-              (l.destinatario_email || '').trim().toLowerCase() === (item.email || '').trim().toLowerCase() && 
-              (l.asunto || '').includes(`Grupo ${item.grupo}`)
-            );
-            if (found) {
-              item.notificado = true;
-              item.ultimo_envio = found.created_at;
-              item.ultimo_estado = found.estado;
-            } else {
-              item.notificado = false;
-            }
-          });
-        }
-      } catch (e) {
-        console.warn('Error al verificar logs de rectificación:', e);
-      }
-
-      setCampaignName('Rectificación Oficial - Septiembre 2026');
-      setSubject('Mutual Aunar - RECTIFICACIÓN: Detalle de tu abono Grupo {{grupo}} - {{nombre_socio}}');
-      setSelectedTemplateKey('rectificacion');
-
-      const notifCount = list.filter(i => i.notificado).length;
-      const pendCount = list.filter(i => !i.notificado).length;
-      applySelectionAndFilters(list, notifCount, pendCount, false, 'rectificacion');
-    } catch (err) {
-      console.error(err);
-      addToast('Error al cargar datos de rectificación', 'error');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function fetchFase2(overrideSearch) {
-    setLoading(true);
-    try {
-      const term = (typeof overrideSearch === 'string' ? overrideSearch : (fase2Search || debouncedFase2Search || '')).trim().toLowerCase();
-      let list = FASE2_PRESET.map(item => ({
-        ...item,
-        detalle_lineas: (item.detalle_lineas || []).map(l => ({ ...l }))
-      }));
-
-      if (term) {
-        list = list.filter(i => 
-          String(i.grupo).toLowerCase().includes(term) ||
-          (i.nombre_socio && i.nombre_socio.toLowerCase().includes(term)) ||
-          (i.email && i.email.toLowerCase().includes(term)) ||
-          (i.lineas && i.lineas.includes(term))
-        );
-      }
-
-      // Verificar si alguno ya fue notificado recientemente
-      try {
-        const { data: logsData } = await supabase
-          .from('campanas_logs')
-          .select('destinatario_email, created_at, estado, asunto')
-          .neq('estado', 'error')
-          .order('created_at', { ascending: false });
-
-        if (logsData && logsData.length > 0) {
-          list.forEach(item => {
-            const found = logsData.find(l => 
-              (l.destinatario_email || '').trim().toLowerCase() === (item.email || '').trim().toLowerCase() && 
-              (l.asunto || '').includes(`Grupo ${item.grupo}`)
-            );
-            if (found) {
-              item.notificado = true;
-              item.ultimo_envio = found.created_at;
-              item.ultimo_estado = found.estado;
-            } else {
-              item.notificado = false;
-            }
-          });
-        }
-      } catch (e) {
-        console.warn('Error al verificar logs de fase 2:', e);
-      }
-
-      setCampaignName('Comunicación Grupal Pendientes - Septiembre 2026');
-      setSubject('Aunar - Detalle de tu abono grupal, {{nombre_socio}} - Líneas: {{lineas}}');
-      setSelectedTemplateKey('aunar');
-
-      const notifCount = list.filter(i => i.notificado).length;
-      const pendCount = list.filter(i => !i.notificado).length;
-      applySelectionAndFilters(list, notifCount, pendCount, false, 'fase2');
-    } catch (err) {
-      console.error(err);
-      addToast('Error al cargar datos de Fase 2', 'error');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function fetchFase3(overrideSearch) {
-    setLoading(true);
-    try {
-      const term = (typeof overrideSearch === 'string' ? overrideSearch : (fase3Search || debouncedFase3Search || '')).trim().toLowerCase();
-      let list = FASE3_PRESET.map(item => ({
-        ...item,
-        detalle_lineas: (item.detalle_lineas || []).map(l => ({ ...l }))
-      }));
-
-      if (term) {
-        list = list.filter(i => 
-          String(i.grupo).toLowerCase().includes(term) ||
-          (i.nombre_socio && i.nombre_socio.toLowerCase().includes(term)) ||
-          (i.email && i.email.toLowerCase().includes(term)) ||
-          (i.lineas && i.lineas.includes(term))
-        );
-      }
-
-      // Verificar si alguno ya fue notificado recientemente
-      try {
-        const { data: logsData } = await supabase
-          .from('campanas_logs')
-          .select('destinatario_email, created_at, estado, asunto')
-          .neq('estado', 'error')
-          .order('created_at', { ascending: false });
-
-        if (logsData && logsData.length > 0) {
-          list.forEach(item => {
-            const found = logsData.find(l => 
-              (l.destinatario_email || '').trim().toLowerCase() === (item.email || '').trim().toLowerCase()
-            );
-            if (found) {
-              item.notificado = true;
-              item.ultimo_envio = found.created_at;
-              item.ultimo_estado = found.estado;
-            } else {
-              item.notificado = false;
-            }
-          });
-        }
-      } catch (e) {
-        console.warn('Error al verificar logs de fase 3:', e);
-      }
-
-      setCampaignName('Comunicación Grupal Reps. Omitidos - Septiembre 2026');
-      setSubject('Aunar - Detalle de tu abono grupal, {{nombre_socio}} - Líneas: {{lineas}}');
-      setSelectedTemplateKey('aunar');
-
-      const notifCount = list.filter(i => i.notificado).length;
-      const pendCount = list.filter(i => !i.notificado).length;
-      applySelectionAndFilters(list, notifCount, pendCount, false, 'fase3');
-    } catch (err) {
-      console.error(err);
-      addToast('Error al cargar datos de Fase 3', 'error');
-    } finally {
-      setLoading(false);
-    }
-  }
-
   async function fetchLogs(overrideSearch) {
     setLoadingLogs(true);
     try {
@@ -2031,7 +1824,7 @@ export default function Campanas() {
 
     const selectedItems = items.filter(i => selectedIds.has(i.id));
 
-    const isGrupo = (campaignType === 'excel' && excelMode === 'grupo_email') || (campaignType === 'personalizada' && (personalizadaMode === 'grupal' || personalizadaMode === 'rectificacion' || personalizadaMode === 'fase2' || personalizadaMode === 'fase3'));
+    const isGrupo = (campaignType === 'excel' && excelMode === 'grupo_email') || (campaignType === 'personalizada' && personalizadaMode === 'grupal');
     const currentSendingMode = isGrupo ? 'grupo_email' : 'lineas_email';
 
     let recipients = [];
@@ -2565,14 +2358,10 @@ export default function Campanas() {
     const mesAnio = now.toLocaleString('es-AR', { month: 'long', year: 'numeric' });
     const mesAnioCapitalized = mesAnio.charAt(0).toUpperCase() + mesAnio.slice(1);
 
-    const isGrupo = (campaignType === 'excel' && excelMode === 'grupo_email') || (campaignType === 'personalizada' && (personalizadaMode === 'grupal' || personalizadaMode === 'rectificacion' || personalizadaMode === 'fase2' || personalizadaMode === 'fase3'));
-    const defaultCampName = (campaignType === 'personalizada' && personalizadaMode === 'fase2')
-      ? `Comunicación Grupal Pendientes - ${mesAnioCapitalized}`
-      : (campaignType === 'personalizada' && personalizadaMode === 'fase3')
-      ? `Comunicación Grupal Reps. Omitidos - ${mesAnioCapitalized}`
-      : (isGrupo 
-        ? `Comunicación Grupal - ${mesAnioCapitalized}`
-        : `Comunicación Individual - ${mesAnioCapitalized}`);
+    const isGrupo = (campaignType === 'excel' && excelMode === 'grupo_email') || (campaignType === 'personalizada' && personalizadaMode === 'grupal');
+    const defaultCampName = isGrupo 
+      ? `Comunicación Grupal - ${mesAnioCapitalized}`
+      : `Comunicación Individual - ${mesAnioCapitalized}`;
 
     if (type === 'aunar_base') {
       const name = defaultCampName;
@@ -2628,89 +2417,6 @@ export default function Campanas() {
   </p>
   <p style="font-size: 14px; line-height: 1.5; margin-bottom: 15px;">
     Te enviamos el detalle de tu facturación y el saldo de tu cuenta.
-  </p>
-  <p style="font-size: 13px; color: #666; margin-bottom: 15px;">Grupo: #{{grupo}} · Período: {{periodo}}</p>
-
-  <!-- Tabla de líneas -->
-  <div style="background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #e0e0e0;">
-    <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 15px;">
-      <thead>
-        <tr>
-          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: left; color: #555;">Línea</th>
-          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: left; color: #555;">Compañía</th>
-          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: center; color: #555;">GB Contratados</th>
-          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: right; color: #555;">Abono</th>
-          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: right; color: #555;">Excedentes</th>
-        </tr>
-      </thead>
-      <tbody>
-        <!-- DETALLE_LINEAS_START -->
-        <tr data-lineas-placeholder="true">
-          <td colspan="5" style="padding: 12px; text-align: center; color: #999; font-size: 13px; font-style: italic;">
-            (El detalle de líneas se insertará automáticamente aquí)
-          </td>
-        </tr>
-        <!-- DETALLE_LINEAS_END -->
-      </tbody>
-    </table>
-    <div style="font-size: 16px; font-weight: bold; color: #d9534f; text-align: right; margin-bottom: 5px;">Total a abonar: $ {{monto_adeudado}}</div>
-    <div style="font-size: 14px; text-align: right; color: #555; font-weight: bold;">Vencimiento: {{vencimiento}}</div>
-  </div>
-
-  <!-- Sección informativa -->
-  <div style="font-size: 13px; color: #666; margin-top: 20px; line-height: 1.4; border-top: 1px solid #eee; padding-top: 15px;">
-    <p style="margin-bottom: 12px;"><strong style="color: #444;">&#129300; ¿Tenés dudas sobre tu factura o tu plan?</strong><br>Estamos para ayudarte y asesorarte sobre las opciones disponibles en Claro, Personal y Movistar.</p>
-    <p style="margin-bottom: 12px;"><strong style="color: #444;">&#10084;&#65039; Beneficios y descuentos para vos</strong><br>Contamos con beneficios de portabilidad para nuestros asociados y sus referidos.</p>
-    <p style="margin-bottom: 12px;"><strong style="color: #444;">&#9992;&#65039; ¿Vas a viajar al exterior?</strong><br>Avisanos con anticipación y te asesoramos sobre las opciones de roaming para tu línea.</p>
-    <p style="margin-bottom: 12px;"><strong style="color: #444;">&#128201; ¿Tu factura vino más alta de lo habitual?</strong><br>Si tenés excedentes de internet, consultanos. Podemos revisar tu plan y ayudarte a encontrar el que mejor se adapte a vos.</p>
-    <p style="text-align: center; font-weight: bold; color: #0056b3; margin-top: 20px;">¡Gracias por seguir eligiendo Aunar! &#129309;</p>
-    <p style="background-color: #e9ecef; padding: 10px; border-radius: 5px; text-align: center; margin-top: 15px;">
-      <strong>&#128161; ¿Sabías que también tenemos internet y TV para tu hogar?</strong><br>
-      Consultá por tu zona y te cotizamos en el instante. Resolvé tu conectividad en un solo lugar.
-    </p>
-  </div>
-
-  <!-- Footer -->
-  <div style="font-size: 11px; text-align: center; color: #888; margin-top: 30px; line-height: 1.4;">
-    <p style="margin-bottom: 8px;">
-      <a href="https://twitter.com/aunar" target="_blank" style="color: #0056b3; text-decoration: none;">Twitter</a> |
-      <a href="https://facebook.com/aunar" target="_blank" style="color: #0056b3; text-decoration: none;">Facebook</a> |
-      <a href="https://aunar.com.ar" target="_blank" style="color: #0056b3; text-decoration: none;">Website</a>
-    </p>
-    <p style="margin: 0 0 4px 0;">Copyright &copy; 2026 AUNAR MUTUAL. Todos los derechos reservados.</p>
-    <p style="margin: 0 0 4px 0;">AUNAR MUTUAL · 46 Diag. 76 · La Plata, Buenos Aires · Argentina</p>
-    <p style="margin-top: 15px;">Recibís este correo porque sos asociado activo de Mutual Aunar.<br>Si deseás modificar tus preferencias de contacto, por favor respondé este correo.</p>
-  </div>
-
-</div>`
-      },
-      rectificacion: {
-        name: 'Rectificación Oficial - Septiembre 2026',
-        subject: 'Mutual Aunar - RECTIFICACIÓN: Detalle de tu abono Grupo {{grupo}} - {{nombre_socio}}',
-        body: `<div style="font-family: Arial, sans-serif; max-width: 600px; background-color: #ffffff; margin: 0 auto; padding: 20px; border-radius: 8px; border: 1px solid #ddd; color: #333; line-height: 1.5;">
-
-  <!-- Logo AUNAR -->
-  <div style="text-align: center; margin-bottom: 20px;">
-    <img src="https://zwncyaviinmfzvminytv.supabase.co/storage/v1/object/public/public_assets/logo_aunar.png" alt="Aunar Asociación" style="width: 160px; max-width: 100%; height: auto; display: inline-block;" />
-  </div>
-
-  <!-- AVISO DE RECTIFICACIÓN OFICIAL (Banner destacado) -->
-  <div style="background-color: #fffbeb; border: 2px solid #f59e0b; border-radius: 8px; padding: 16px; margin-bottom: 20px; text-align: left;">
-    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
-      <span style="font-size: 18px;">⚠️</span>
-      <strong style="color: #b45309; font-size: 14.5px; text-transform: uppercase; letter-spacing: 0.5px;">Aviso Importante: Rectificación de Liquidación</strong>
-    </div>
-    <p style="font-size: 13.5px; color: #92400e; margin: 0; line-height: 1.5;">
-      Estimado/a socio/a, le enviamos este correo para <strong>rectificar la información enviada previamente</strong>. Por favor, <strong>desestime cualquier correo anterior</strong> si contenía líneas o montos que no correspondían a su grupo comercial. A continuación le presentamos el detalle <strong>corregido y definitivo</strong> perteneciente de manera exclusiva a su <strong>Grupo #{{grupo}}</strong>.
-    </p>
-  </div>
-
-  <!-- Saludo -->
-  <p style="font-size: 14px; line-height: 1.5; margin-bottom: 15px;">
-    &#128075; ¡Hola, <strong>{{nombre_socio}}</strong>!
-  </p>
-  <p style="font-size: 14px; line-height: 1.5; margin-bottom: 15px;">
-    Te enviamos el detalle corregido de tu facturación y el saldo correspondiente a tu cuenta.
   </p>
   <p style="font-size: 13px; color: #666; margin-bottom: 15px;">Grupo: #{{grupo}} · Período: {{periodo}}</p>
 
@@ -2830,16 +2536,8 @@ export default function Campanas() {
   // Sincronizar editor y actualizar estructura de tabla con columna Excedentes al entrar en Paso 2
   useEffect(() => {
     if (currentStep === 2) {
-      const isRect = campaignType === 'personalizada' && personalizadaMode === 'rectificacion';
-      const isFase2 = campaignType === 'personalizada' && personalizadaMode === 'fase2';
-      const isFase3 = campaignType === 'personalizada' && personalizadaMode === 'fase3';
-
-      if (!bodyHtml || (isRect && selectedTemplateKey !== 'rectificacion') || ((isFase2 || isFase3) && selectedTemplateKey === 'rectificacion')) {
-        if (isRect) {
-          handleLoadTemplate('rectificacion');
-        } else {
-          handleLoadTemplate('aunar');
-        }
+      if (!bodyHtml) {
+        handleLoadTemplate('aunar');
       } else {
         let upgraded = bodyHtml;
         if (!/<th[^>]*>Excedentes<\/th>/i.test(upgraded) && /<th[^>]*>Abono<\/th>/i.test(upgraded)) {
@@ -2899,7 +2597,7 @@ export default function Campanas() {
   }, [selectedRecipientsList]);
 
   const isGrupoMode = (campaignType === 'excel' && excelMode === 'grupo_email') || 
-    (campaignType === 'personalizada' && (personalizadaMode === 'grupal' || personalizadaMode === 'rectificacion' || personalizadaMode === 'fase2' || personalizadaMode === 'fase3'));
+    (campaignType === 'personalizada' && personalizadaMode === 'grupal');
   const isLineasIndividualMode = campaignType === 'excel' && excelMode === 'lineas_individual';
   const effectiveEmailsToSend = isGrupoMode ? totalSelected : uniqueEmailsCount;
 
@@ -3842,45 +3540,9 @@ export default function Campanas() {
                   Campaña de mail personalizada
                 </h3>
                 <p style={{ textAlign: 'center', fontSize: '13px', margin: 0, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                  Envíos directos preparados para <strong>Fase 1 (Rectificación)</strong> y <strong>Fase 2 (Grupos Pendientes)</strong>, o filtrado por grupos y líneas.
+                  Envío a medida desde la base del sistema con opciones para filtrar por <strong>Grupos</strong> o por <strong>Líneas individuales</strong>.
                 </p>
                 <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                  <span 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setCampaignType('personalizada');
-                      setPersonalizadaMode('rectificacion');
-                      fetchRectificacion();
-                    }}
-                    style={{ fontSize: '11.5px', fontWeight: 700, padding: '3px 10px', borderRadius: '8px', background: 'rgba(245, 158, 11, 0.18)', color: '#b45309', border: '1px solid rgba(245, 158, 11, 0.35)', cursor: 'pointer' }}
-                    title="Cargar Fase 1: Rectificación para los 20 contactos con líneas mezcladas (44 grupos)"
-                  >
-                    ⚠️ Fase 1: Rectificación (44)
-                  </span>
-                  <span 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setCampaignType('personalizada');
-                      setPersonalizadaMode('fase2');
-                      fetchFase2();
-                    }}
-                    style={{ fontSize: '11.5px', fontWeight: 700, padding: '3px 10px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.16)', color: '#047857', border: '1px solid rgba(16, 185, 129, 0.35)', cursor: 'pointer' }}
-                    title="Cargar Fase 2: 22 grupos pendientes de notificación por límite diario"
-                  >
-                    ⏳ Fase 2: Pendientes (22)
-                  </span>
-                  <span 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setCampaignType('personalizada');
-                      setPersonalizadaMode('fase3');
-                      fetchFase3();
-                    }}
-                    style={{ fontSize: '11.5px', fontWeight: 700, padding: '3px 10px', borderRadius: '8px', background: 'rgba(59, 130, 246, 0.16)', color: '#1d4ed8', border: '1px solid rgba(59, 130, 246, 0.35)', cursor: 'pointer' }}
-                    title="Cargar Fase 3: 20 representantes secundarios o adicionales omitidos en grupos multirrepresentante"
-                  >
-                    👥 Fase 3: Reps. Omitidos (20)
-                  </span>
                   <span style={{ fontSize: '11.5px', fontWeight: 700, padding: '3px 10px', borderRadius: '8px', background: 'rgba(59, 130, 246, 0.12)', color: '#1d4ed8' }}>
                     # Por Grupos
                   </span>
@@ -5015,9 +4677,6 @@ export default function Campanas() {
                 <span style={{ fontWeight: 700 }}>
                   {campaignType === 'excel' && 'Campaña desde Excel – Facturación Oficial (TODOS)'}
                   {campaignType === 'personalizada' && `Campaña Personalizada – ${
-                    personalizadaMode === 'rectificacion' ? '⚠️ Fase 1: Rectificación Sep 2026 (20 Casos / 44 Grupos)' :
-                    personalizadaMode === 'fase2' ? '⏳ Fase 2: Grupos Pendientes (22 Grupos No Notificados)' :
-                    personalizadaMode === 'fase3' ? '👥 Fase 3: Representantes Omitidos (20 Contactos)' :
                     personalizadaMode === 'grupal' ? 'Por Grupos' : 
                     (personalizadaMode === 'lineas' ? 'Por Líneas Individuales' : 'Base de Socios')
                   }`}
@@ -5047,123 +4706,6 @@ export default function Campanas() {
                       Destinatarios:
                     </span>
                     <div style={{ display: 'inline-flex', gap: '6px', background: '#f1f5f9', padding: '4px', borderRadius: '12px', border: '1px solid #e2e8f0', flexWrap: 'wrap' }}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (personalizadaMode !== 'rectificacion') {
-                            setPersonalizadaMode('rectificacion');
-                            setItems([]);
-                            setSelectedIds(new Set());
-                            fetchRectificacion();
-                          }
-                        }}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          padding: '7px 16px',
-                          borderRadius: '9px',
-                          border: 'none',
-                          fontSize: '13px',
-                          fontWeight: personalizadaMode === 'rectificacion' ? 800 : 500,
-                          background: personalizadaMode === 'rectificacion' ? '#fff' : 'transparent',
-                          color: personalizadaMode === 'rectificacion' ? '#b45309' : '#64748b',
-                          boxShadow: personalizadaMode === 'rectificacion' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease'
-                        }}
-                      >
-                        <AlertTriangle size={15} color={personalizadaMode === 'rectificacion' ? '#f59e0b' : 'currentColor'} />
-                        <span>Fase 1: Rectificación</span>
-                        <span style={{
-                          fontSize: '11px',
-                          fontWeight: 700,
-                          padding: '1px 6px',
-                          borderRadius: '6px',
-                          background: personalizadaMode === 'rectificacion' ? '#fef3c7' : '#e2e8f0',
-                          color: personalizadaMode === 'rectificacion' ? '#b45309' : '#64748b'
-                        }}>
-                          44 grupos
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (personalizadaMode !== 'fase2') {
-                            setPersonalizadaMode('fase2');
-                            setItems([]);
-                            setSelectedIds(new Set());
-                            fetchFase2();
-                          }
-                        }}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          padding: '7px 16px',
-                          borderRadius: '9px',
-                          border: 'none',
-                          fontSize: '13px',
-                          fontWeight: personalizadaMode === 'fase2' ? 800 : 500,
-                          background: personalizadaMode === 'fase2' ? '#fff' : 'transparent',
-                          color: personalizadaMode === 'fase2' ? '#047857' : '#64748b',
-                          boxShadow: personalizadaMode === 'fase2' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease'
-                        }}
-                      >
-                        <Clock size={15} color={personalizadaMode === 'fase2' ? '#10b981' : 'currentColor'} />
-                        <span>Fase 2: Pendientes</span>
-                        <span style={{
-                          fontSize: '11px',
-                          fontWeight: 700,
-                          padding: '1px 6px',
-                          borderRadius: '6px',
-                          background: personalizadaMode === 'fase2' ? 'rgba(16,185,129,0.15)' : '#e2e8f0',
-                          color: personalizadaMode === 'fase2' ? '#047857' : '#64748b'
-                        }}>
-                          22 grupos
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (personalizadaMode !== 'fase3') {
-                            setPersonalizadaMode('fase3');
-                            setItems([]);
-                            setSelectedIds(new Set());
-                            fetchFase3();
-                          }
-                        }}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          padding: '7px 16px',
-                          borderRadius: '9px',
-                          border: 'none',
-                          fontSize: '13px',
-                          fontWeight: personalizadaMode === 'fase3' ? 800 : 500,
-                          background: personalizadaMode === 'fase3' ? '#fff' : 'transparent',
-                          color: personalizadaMode === 'fase3' ? '#2563eb' : '#64748b',
-                          boxShadow: personalizadaMode === 'fase3' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease'
-                        }}
-                      >
-                        <Users size={15} color={personalizadaMode === 'fase3' ? '#2563eb' : 'currentColor'} />
-                        <span>Fase 3: Reps. Omitidos</span>
-                        <span style={{
-                          fontSize: '11px',
-                          fontWeight: 700,
-                          padding: '1px 6px',
-                          borderRadius: '6px',
-                          background: personalizadaMode === 'fase3' ? 'rgba(37,99,235,0.15)' : '#e2e8f0',
-                          color: personalizadaMode === 'fase3' ? '#2563eb' : '#64748b'
-                        }}>
-                          20 contactos
-                        </span>
-                      </button>
                       <button
                         type="button"
                         onClick={() => {
@@ -5254,9 +4796,6 @@ export default function Campanas() {
                     </div>
                   </div>
                   <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    {personalizadaMode === 'rectificacion' && 'Fase 1: Rectificación oficial para los 20 contactos que recibieron líneas mezcladas de varios grupos. Grupos 100% aislados con montos exactos.'}
-                    {personalizadaMode === 'fase2' && 'Fase 2: Notificación oficial para los 22 grupos que quedaron pendientes por alcanzar el límite diario de envíos.'}
-                    {personalizadaMode === 'fase3' && 'Fase 3: Notificación oficial para los 20 representantes secundarios o adicionales omitidos en grupos multirrepresentante (ej: Sandra Prieto en Grupo 603, Enrique Evangelista en Grupo 206, etc.).'}
                     {personalizadaMode === 'grupal' && 'Solo emails asignados a cabezas o representantes de cada grupo comercial'}
                     {personalizadaMode === 'lineas' && 'Emails asignados directamente a cada línea de celular individual'}
                     {personalizadaMode === 'nueva' && 'Todos los socios registrados con filtros por forma de pago y deuda'}
@@ -5619,222 +5158,6 @@ export default function Campanas() {
                 </div>
               )}
 
-              {effectiveCampaignType === 'rectificacion' && (
-                <div style={{ marginBottom: '16px' }}>
-                  <div style={S.label}>Buscar en rectificación</div>
-                  <div style={{ position: 'relative', maxWidth: '400px' }}>
-                    <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
-                    <input
-                      value={rectificacionSearch}
-                      onChange={e => setRectificacionSearch(e.target.value)}
-                      placeholder="Buscar por grupo, socio, email o línea..."
-                      style={{ ...S.input, paddingLeft: '36px', paddingRight: rectificacionSearch ? '32px' : '12px' }}
-                    />
-                    {rectificacionSearch && (
-                      <button
-                        type="button"
-                        onClick={() => setRectificacionSearch('')}
-                        style={{
-                          position: 'absolute',
-                          right: '10px',
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          border: 'none',
-                          background: 'transparent',
-                          cursor: 'pointer',
-                          color: 'var(--text-secondary)',
-                          padding: 0
-                        }}
-                      >
-                        <X size={14} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {effectiveCampaignType === 'rectificacion' && (
-                <div style={{
-                  background: 'linear-gradient(135deg, rgba(254, 243, 199, 0.6) 0%, rgba(253, 230, 138, 0.4) 100%)',
-                  border: '1px solid rgba(245, 158, 11, 0.4)',
-                  borderRadius: '14px',
-                  padding: '14px 18px',
-                  marginBottom: '18px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  flexWrap: 'wrap',
-                  gap: '12px',
-                  boxShadow: '0 2px 6px rgba(245, 158, 11, 0.06)'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: '260px', flex: 1 }}>
-                    <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'rgba(245, 158, 11, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#b45309', flexShrink: 0 }}>
-                      <AlertTriangle size={22} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '13.5px', fontWeight: 800, color: '#92400e' }}>
-                        Campaña de Rectificación Oficial — Septiembre 2026
-                      </div>
-                      <div style={{ fontSize: '12.5px', color: '#b45309', marginTop: '2px', lineHeight: 1.4 }}>
-                        Aislamos de forma estricta los <strong>20 contactos</strong> que habían recibido notificaciones mezcladas entre grupos. Cada grupo comercial se enviará con su <strong>correo de rectificación independiente</strong>, con sus líneas y montos exactos de la planilla oficial.
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '11.5px', fontWeight: 700, padding: '4px 10px', borderRadius: '8px', background: '#fff', color: '#b45309', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
-                      44 Grupos listos
-                    </span>
-                    <span style={{ fontSize: '11.5px', fontWeight: 700, padding: '4px 10px', borderRadius: '8px', background: '#fff', color: '#047857', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                      Plantilla oficial precargada
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {effectiveCampaignType === 'fase2' && (
-                <div style={{ marginBottom: '16px' }}>
-                  <div style={S.label}>Buscar grupo pendiente (Fase 2)</div>
-                  <div style={{ position: 'relative', maxWidth: '400px' }}>
-                    <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
-                    <input
-                      value={fase2Search}
-                      onChange={e => setFase2Search(e.target.value)}
-                      placeholder="Buscar por grupo, socio, email o línea..."
-                      style={{ ...S.input, paddingLeft: '36px', paddingRight: fase2Search ? '32px' : '12px' }}
-                    />
-                    {fase2Search && (
-                      <button
-                        type="button"
-                        onClick={() => setFase2Search('')}
-                        style={{
-                          position: 'absolute',
-                          right: '10px',
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          border: 'none',
-                          background: 'transparent',
-                          cursor: 'pointer',
-                          color: 'var(--text-secondary)',
-                          padding: 0
-                        }}
-                      >
-                        <X size={14} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {effectiveCampaignType === 'fase2' && (
-                <div style={{
-                  background: 'linear-gradient(135deg, rgba(236, 253, 245, 0.7) 0%, rgba(209, 250, 229, 0.5) 100%)',
-                  border: '1px solid rgba(16, 185, 129, 0.4)',
-                  borderRadius: '14px',
-                  padding: '14px 18px',
-                  marginBottom: '18px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  flexWrap: 'wrap',
-                  gap: '12px',
-                  boxShadow: '0 2px 6px rgba(16, 185, 129, 0.06)'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: '260px', flex: 1 }}>
-                    <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'rgba(16, 185, 129, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#047857', flexShrink: 0 }}>
-                      <Clock size={22} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '13.5px', fontWeight: 800, color: '#065f46' }}>
-                        Fase 2: Grupos Pendientes de Notificación — Septiembre 2026
-                      </div>
-                      <div style={{ fontSize: '12.5px', color: '#047857', marginTop: '2px', lineHeight: 1.4 }}>
-                        Estos <strong>22 grupos comerciales</strong> no recibieron su correo en el despacho anterior porque se alcanzó el cupo diario de 300 en Brevo. Recibirán la <strong>notificación oficial estándar</strong> con sus líneas, GB y abonos.
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '11.5px', fontWeight: 700, padding: '4px 10px', borderRadius: '8px', background: '#fff', color: '#047857', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                      22 Grupos listos
-                    </span>
-                    <span style={{ fontSize: '11.5px', fontWeight: 700, padding: '4px 10px', borderRadius: '8px', background: '#fff', color: '#1d4ed8', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
-                      Plantilla Oficial Aunar
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {effectiveCampaignType === 'fase3' && (
-                <div style={{ marginBottom: '16px' }}>
-                  <div style={S.label}>Buscar representante omitido (Fase 3)</div>
-                  <div style={{ position: 'relative', maxWidth: '400px' }}>
-                    <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
-                    <input
-                      value={fase3Search}
-                      onChange={e => setFase3Search(e.target.value)}
-                      placeholder="Buscar por grupo, socio, email o línea..."
-                      style={{ ...S.input, paddingLeft: '36px', paddingRight: fase3Search ? '32px' : '12px' }}
-                    />
-                    {fase3Search && (
-                      <button
-                        type="button"
-                        onClick={() => setFase3Search('')}
-                        style={{
-                          position: 'absolute',
-                          right: '10px',
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          border: 'none',
-                          background: 'transparent',
-                          cursor: 'pointer',
-                          color: 'var(--text-secondary)',
-                          padding: 0
-                        }}
-                      >
-                        <X size={14} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {effectiveCampaignType === 'fase3' && (
-                <div style={{
-                  background: 'linear-gradient(135deg, rgba(239, 246, 255, 0.75) 0%, rgba(219, 234, 254, 0.55) 100%)',
-                  border: '1px solid rgba(59, 130, 246, 0.4)',
-                  borderRadius: '14px',
-                  padding: '14px 18px',
-                  marginBottom: '18px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  flexWrap: 'wrap',
-                  gap: '12px',
-                  boxShadow: '0 2px 6px rgba(59, 130, 246, 0.06)'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: '260px', flex: 1 }}>
-                    <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'rgba(59, 130, 246, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#1d4ed8', flexShrink: 0 }}>
-                      <Users size={22} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '13.5px', fontWeight: 800, color: '#1e40af' }}>
-                        Fase 3: Representantes Secundarios Omitidos — Septiembre 2026
-                      </div>
-                      <div style={{ fontSize: '12.5px', color: '#1d4ed8', marginTop: '2px', lineHeight: 1.4 }}>
-                        Estos <strong>20 destinatarios</strong> corresponden a los representantes de grupos que no recibieron el correo anterior por tener múltiples emails registrados en el grupo (ej: Sandra Prieto en Grupo 603, Enrique Evangelista en Grupo 206, etc.). Recibirán el <strong>detalle oficial de su grupo comercial</strong>.
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '11.5px', fontWeight: 700, padding: '4px 10px', borderRadius: '8px', background: '#fff', color: '#1d4ed8', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
-                      20 Destinatarios listos
-                    </span>
-                    <span style={{ fontSize: '11.5px', fontWeight: 700, padding: '4px 10px', borderRadius: '8px', background: '#fff', color: '#059669', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                      Plantilla Oficial Aunar
-                    </span>
-                  </div>
-                </div>
-              )}
-
               {/* Selección y tabla */}
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
@@ -6060,9 +5383,9 @@ export default function Campanas() {
                         <th style={{ ...S.th, textAlign: 'center', width: '80px' }}>
                           {isGrupoMode || effectiveCampaignType === 'grupal' || campaignType === 'excel' ? 'Grupo' : 'Línea'}
                         </th>
-                        {(campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2' || effectiveCampaignType === 'fase3') && <th style={{ ...S.th, textAlign: 'center' }}>Líneas</th>}
-                        <th style={{ ...S.th, textAlign: 'right', width: (campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2' || effectiveCampaignType === 'fase3') ? '120px' : '80px' }}>
-                          {(campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2' || effectiveCampaignType === 'fase3') ? 'Total Facturado' : (effectiveCampaignType === 'nueva' ? 'Cuotas' : 'Monto')}
+                        {campaignType === 'excel' && <th style={{ ...S.th, textAlign: 'center' }}>Líneas</th>}
+                        <th style={{ ...S.th, textAlign: 'right', width: campaignType === 'excel' ? '120px' : '80px' }}>
+                          {campaignType === 'excel' ? 'Total Facturado' : (effectiveCampaignType === 'nueva' ? 'Cuotas' : 'Monto')}
                         </th>
                       </tr>
                     </thead>
@@ -6136,13 +5459,13 @@ export default function Campanas() {
                             <td style={{ ...S.td, textAlign: 'center' }}>
                               {isGrupoMode || effectiveCampaignType === 'grupal' || campaignType === 'excel' ? `#${item.grupo}` : item.lineas}
                             </td>
-                            {(campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2' || effectiveCampaignType === 'fase3') && (
+                            {campaignType === 'excel' && (
                               <td style={{ ...S.td, textAlign: 'center', fontSize: '11.5px' }}>
                                 <span style={{ color: 'var(--text-secondary)' }}>{item.lineas}</span>
                               </td>
                             )}
-                            <td style={{ ...S.td, textAlign: 'right', fontWeight: (campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2' || effectiveCampaignType === 'fase3') ? 800 : 500, color: (campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2' || effectiveCampaignType === 'fase3') ? '#059669' : (item.total_cuotas > 0 ? 'var(--danger)' : 'var(--accent)') }}>
-                              {(campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2' || effectiveCampaignType === 'fase3') 
+                            <td style={{ ...S.td, textAlign: 'right', fontWeight: campaignType === 'excel' ? 800 : 500, color: campaignType === 'excel' ? '#059669' : (item.total_cuotas > 0 ? 'var(--danger)' : 'var(--accent)') }}>
+                              {campaignType === 'excel' 
                                 ? `$ ${Number(item.monto_adeudado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
                                 : (effectiveCampaignType === 'nueva' ? item.total_cuotas || 0 : `$ ${item.monto_adeudado || 0}`)
                               }
@@ -6187,8 +5510,8 @@ export default function Campanas() {
                     <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '12.5px' }}>{s.nombre}</div>
                     <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>{s.email}</div>
                   </div>
-                  <span style={{ fontSize: '11px', fontWeight: 600, color: (campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2' || effectiveCampaignType === 'fase3') ? '#059669' : (s.total_cuotas > 0 ? 'var(--danger)' : 'var(--accent)'), whiteSpace: 'nowrap' }}>
-                    {(campaignType === 'excel' || effectiveCampaignType === 'rectificacion' || effectiveCampaignType === 'fase2' || effectiveCampaignType === 'fase3') 
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: campaignType === 'excel' ? '#059669' : (s.total_cuotas > 0 ? 'var(--danger)' : 'var(--accent)'), whiteSpace: 'nowrap' }}>
+                    {campaignType === 'excel' 
                       ? `$ ${Number(s.monto_adeudado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
                       : (s.total_cuotas > 0 ? `${s.total_cuotas} cuotas` : 'Al día')}
                   </span>
@@ -6263,7 +5586,6 @@ export default function Campanas() {
                 >
                   <optgroup label="🏛️ Plantillas Oficiales AUNAR">
                     <option value="aunar">Oficial Completa (Factura + FAQ + Banner)</option>
-                    <option value="rectificacion">⚠️ Rectificación Oficial (Factura Corregida + Desestimar Previa)</option>
                     <option value="aunar_base">Chasis Base AUNAR (Logo + Factura + Texto Libre)</option>
                     <option value="deuda">Aviso de Deuda / Cobro de Cuota</option>
                     <option value="bienvenida">Bienvenida Nuevos Socios</option>
