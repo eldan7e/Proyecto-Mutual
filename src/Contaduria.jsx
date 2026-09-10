@@ -4,7 +4,7 @@ import {
   Loader2, RefreshCw, Plus, CheckCircle2, ChevronDown, ChevronUp, 
   Download, Settings, Building, 
   FileText, Eye, Edit3, X, Receipt,
-  AlertCircle, Phone
+  AlertCircle, Phone, Printer
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import Modal from './components/Modal';
@@ -421,6 +421,59 @@ export default function Contaduria() {
       setObservacionesCobro('');
     }
     setCobroModalOpen(true);
+  }
+
+  // Abrir comprobante oficial de pago para una factura cancelada o abonada
+  function handleAbrirComprobanteFactura(group) {
+    if (!group) return;
+    const titular = group.socio?.nombre_completo || group.items?.[0]?.socios?.nombre_completo || `Grupo ${group.numero_grupo}`;
+    const montoCobrado = Number(group.monto_abonado || group.monto_total_facturado || 0);
+    const desgloses = (group.items || []).map(it => ({
+      observaciones: `Facturación Período ${it.periodo} (${it.proveedores?.nombre || 'MUTUAL'})`,
+      pagoAplicadoCapital: Number(it.monto_abonado || it.monto_total_facturado || 0),
+      pagoAplicadoInteres: 0
+    }));
+
+    setComprobanteData({
+      reciboNumero: `REC-${group.periodo}-${group.numero_grupo}`,
+      fecha: new Date().toISOString().slice(0, 10),
+      numero_grupo: group.numero_grupo,
+      nombre_titular: titular,
+      monto_cobrado: montoCobrado,
+      medio_pago: 'TRANSFERENCIA / DÉBITO BANCARIO',
+      observaciones: `Comprobante Oficial de Pago - Liquidación Período ${group.periodo}`,
+      desgloses: desgloses.length > 0 ? desgloses : [{
+        observaciones: `Liquidación Período ${group.periodo}`,
+        pagoAplicadoCapital: montoCobrado,
+        pagoAplicadoInteres: 0
+      }],
+      saldo_restante: Number(group.saldo_impago || 0)
+    });
+    setComprobanteModalOpen(true);
+  }
+
+  // Abrir comprobante oficial de pago para un movimiento del libro mayor
+  function handleAbrirComprobanteMovimiento(m) {
+    if (!m) return;
+    const titular = titularSeleccionadoInfo?.nombre || m.nombre || `Grupo ${selectedGrupo}`;
+    const monto = Math.abs(Number(m.importe || 0));
+    
+    setComprobanteData({
+      reciboNumero: `REC-${m.periodo || (m.fecha ? m.fecha.slice(0, 7) : '2026')}-${selectedGrupo}-${m.id}`,
+      fecha: m.fecha || new Date().toISOString().slice(0, 10),
+      numero_grupo: selectedGrupo,
+      nombre_titular: titular,
+      monto_cobrado: monto,
+      medio_pago: m.medio_pago || 'TRANSFERENCIA BANCARIA',
+      observaciones: m.observaciones || `Cobro acreditado e imputado en cuenta corriente`,
+      desgloses: [{
+        observaciones: m.observaciones || `Pago Período ${m.periodo || 'General'} (${m.empresa || 'MUTUAL'})`,
+        pagoAplicadoCapital: Number(m.pago_aplicado_capital || monto),
+        pagoAplicadoInteres: Number(m.pago_aplicado_interes || 0)
+      }],
+      saldo_restante: Number(m.saldo_final || 0)
+    });
+    setComprobanteModalOpen(true);
   }
 
   // --- CÁLCULO DE FIFO Y COBRO ---
@@ -1429,45 +1482,89 @@ export default function Contaduria() {
                           <td style={{ padding: '14px 16px', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
                             <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
                               {isCobrada ? (
-                                <span style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                  padding: '5px 10px',
-                                  borderRadius: '8px',
-                                  fontSize: '11px',
-                                  fontWeight: 800,
-                                  background: 'rgba(16, 185, 129, 0.1)',
-                                  color: '#10b981',
-                                  border: '1px solid rgba(16, 185, 129, 0.2)'
-                                }}>
-                                  <CheckCircle2 size={13} /> Cobrada
-                                </span>
-                              ) : (
-                                <button
-                                  onClick={() => {
-                                    // Para multi-operadora, abrir cobro con el total consolidado
-                                    if (group.isMultiProvider) {
-                                      handleOpenCobroModal(null, group.numero_grupo);
-                                    } else {
-                                      handleOpenCobroModal(group.items[0], group.numero_grupo);
-                                    }
-                                  }}
-                                  className="air-btn-primary"
-                                  style={{ 
-                                    padding: '6px 12px', 
-                                    fontSize: '11px', 
-                                    borderRadius: '8px', 
-                                    fontWeight: 800,
+                                <>
+                                  <span style={{
                                     display: 'inline-flex',
                                     alignItems: 'center',
                                     gap: '4px',
-                                    background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)'
-                                  }}
-                                  title="Registrar cobro a este grupo"
-                                >
-                                  <DollarSign size={13} /> Cobrar
-                                </button>
+                                    padding: '5px 8px',
+                                    borderRadius: '8px',
+                                    fontSize: '11px',
+                                    fontWeight: 800,
+                                    background: 'rgba(16, 185, 129, 0.1)',
+                                    color: '#10b981',
+                                    border: '1px solid rgba(16, 185, 129, 0.2)'
+                                  }}>
+                                    <CheckCircle2 size={12} /> Cobrada
+                                  </span>
+                                  <button
+                                    onClick={() => handleAbrirComprobanteFactura(group)}
+                                    className="air-btn"
+                                    style={{
+                                      padding: '5px 10px',
+                                      fontSize: '11px',
+                                      borderRadius: '8px',
+                                      fontWeight: 700,
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      background: 'rgba(16, 185, 129, 0.1)',
+                                      color: '#10b981',
+                                      border: '1px solid rgba(16, 185, 129, 0.25)'
+                                    }}
+                                    title="Generar e imprimir comprobante oficial de pago"
+                                  >
+                                    <Printer size={12} /> Recibo
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => {
+                                      // Para multi-operadora, abrir cobro con el total consolidado
+                                      if (group.isMultiProvider) {
+                                        handleOpenCobroModal(null, group.numero_grupo);
+                                      } else {
+                                        handleOpenCobroModal(group.items[0], group.numero_grupo);
+                                      }
+                                    }}
+                                    className="air-btn-primary"
+                                    style={{ 
+                                      padding: '6px 12px', 
+                                      fontSize: '11px', 
+                                      borderRadius: '8px', 
+                                      fontWeight: 800,
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)'
+                                    }}
+                                    title="Registrar cobro a este grupo"
+                                  >
+                                    <DollarSign size={13} /> Cobrar
+                                  </button>
+                                  {Number(group.monto_abonado || 0) > 0 && (
+                                    <button
+                                      onClick={() => handleAbrirComprobanteFactura(group)}
+                                      className="air-btn"
+                                      style={{
+                                        padding: '5px 8px',
+                                        fontSize: '11px',
+                                        borderRadius: '8px',
+                                        fontWeight: 700,
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        background: 'rgba(16, 185, 129, 0.1)',
+                                        color: '#10b981',
+                                        border: '1px solid rgba(16, 185, 129, 0.25)'
+                                      }}
+                                      title="Generar comprobante de pago parcial"
+                                    >
+                                      <Printer size={12} /> Recibo
+                                    </button>
+                                  )}
+                                </>
                               )}
                               <button
                                 onClick={() => {
@@ -1880,6 +1977,25 @@ export default function Contaduria() {
                 >
                   <Download size={14} /> Exportar .xlsx
                 </button>
+
+                <button 
+                  onClick={() => {
+                    const ultPago = [...movimientos].reverse().find(m => m.tipo === 'PAGO');
+                    if (ultPago) {
+                      handleAbrirComprobanteMovimiento(ultPago);
+                    } else {
+                      addToast('Este grupo no tiene pagos registrados para emitir comprobante', 'info');
+                    }
+                  }}
+                  className="air-btn"
+                  style={{ 
+                    display: 'flex', alignItems: 'center', gap: '6px', padding: '12px 16px', borderRadius: '12px', fontWeight: 700, fontSize: '13px',
+                    background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.3)'
+                  }}
+                  title="Generar comprobante oficial de pago para imprimir o enviar"
+                >
+                  <Printer size={15} /> Imprimir Comprobante
+                </button>
               </div>
             </div>
           </div>
@@ -1904,18 +2020,19 @@ export default function Contaduria() {
                     <th style={{ padding: '12px 14px' }}>OPERADORA / CONCEPTO</th>
                     <th style={{ padding: '12px 14px', textAlign: 'right' }}>IMPORTE</th>
                     <th style={{ padding: '12px 14px', textAlign: 'right' }}>SALDO ACUMULADO</th>
+                    <th style={{ padding: '12px 14px', textAlign: 'center' }}>COMPROBANTE</th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan="6" style={{ textAlign: 'center', padding: '30px' }}>
+                      <td colSpan="7" style={{ textAlign: 'center', padding: '30px' }}>
                         <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto', color: 'var(--accent)' }} />
                       </td>
                     </tr>
                   ) : movimientos.length === 0 ? (
                     <tr>
-                      <td colSpan="6" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary)' }}>
+                      <td colSpan="7" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary)' }}>
                         Este grupo no registra movimientos de cuenta corriente aún.
                       </td>
                     </tr>
@@ -1947,6 +2064,31 @@ export default function Contaduria() {
                           </td>
                           <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 900, fontSize: '13.5px', color: m.saldo_capital > 5 ? '#ef4444' : 'var(--accent)' }}>
                             {formatMoney(m.saldo_capital)}
+                          </td>
+                          <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                            {isPago ? (
+                              <button
+                                onClick={() => handleAbrirComprobanteMovimiento(m)}
+                                className="air-btn"
+                                style={{
+                                  padding: '5px 10px',
+                                  fontSize: '11px',
+                                  borderRadius: '8px',
+                                  fontWeight: 700,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  background: 'rgba(16, 185, 129, 0.1)',
+                                  color: '#10b981',
+                                  border: '1px solid rgba(16, 185, 129, 0.25)'
+                                }}
+                                title="Generar e imprimir comprobante de este cobro"
+                              >
+                                <Printer size={12} /> Recibo
+                              </button>
+                            ) : (
+                              <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>—</span>
+                            )}
                           </td>
                         </tr>
                       );
