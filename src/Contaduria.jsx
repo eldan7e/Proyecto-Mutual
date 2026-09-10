@@ -94,6 +94,18 @@ export default function Contaduria() {
   const [editTitularNombre, setEditTitularNombre] = useState('');
   const [savingGrupoEdit, setSavingGrupoEdit] = useState(false);
 
+  // Información del titular del grupo seleccionado
+  const titularSeleccionadoInfo = useMemo(() => {
+    if (!selectedGrupo) return null;
+    return gruposList.find(g => g.numero_grupo === selectedGrupo) || null;
+  }, [selectedGrupo, gruposList]);
+
+  // Movimientos del grupo seleccionado (último movimiento para saldo acumulado)
+  const ultimoMovGrupo = useMemo(() => {
+    if (movimientos.length === 0) return null;
+    return movimientos[movimientos.length - 1];
+  }, [movimientos]);
+
   // --- CARGA INICIAL ---
   useEffect(() => {
     loadInicial();
@@ -1026,18 +1038,6 @@ export default function Contaduria() {
       totalComprobantes: liquidacionesBaseKPIs.length
     };
   }, [liquidacionesBaseKPIs, saldosData, periodoFilter, operadoraFilter, searchGrupo]);
-
-  // Informacion del titular del grupo seleccionado
-  const titularSeleccionadoInfo = useMemo(() => {
-    if (!selectedGrupo) return null;
-    return gruposList.find(g => g.numero_grupo === selectedGrupo) || null;
-  }, [selectedGrupo, gruposList]);
-
-  // Movimientos del grupo seleccionado
-  const ultimoMovGrupo = useMemo(() => {
-    if (movimientos.length === 0) return null;
-    return movimientos[movimientos.length - 1];
-  }, [movimientos]);
 
   return (
     <div className="page-container animate-fade" style={{ paddingBottom: '60px' }}>
