@@ -4,7 +4,7 @@ import {
   Loader2, RefreshCw, Plus, CheckCircle2, ChevronDown, ChevronUp, 
   Download, Settings, Building, 
   FileText, Eye, Edit3, X, Receipt,
-  AlertCircle, Phone, Printer
+  AlertCircle, Phone, Printer, Coins, Banknote, ArrowRightLeft, Check
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import Modal from './components/Modal';
@@ -67,11 +67,15 @@ export default function Contaduria() {
   const [cobroModalOpen, setCobroModalOpen] = useState(false);
   const [targetFactura, setTargetFactura] = useState(null); // Si se cobra una factura en particular
   const [montoCobro, setMontoCobro] = useState('');
-  const [medioPago, setMedioPago] = useState('TRANSFERENCIA');
+  const [medioPago, setMedioPago] = useState('EFECTIVO');
   const [observacionesCobro, setObservacionesCobro] = useState('');
   const [fechaCobro, setFechaCobro] = useState(getTodayISO());
   const [procesandoCobro, setProcesandoCobro] = useState(false);
   const [resultadoFifo, setResultadoFifo] = useState(null);
+
+  // Manejo de Efectivo en Oficina y Falta de Cambio
+  const [efectivoEntregado, setEfectivoEntregado] = useState('');
+  const [manejoCambio, setManejoCambio] = useState('saldo_favor'); // 'saldo_favor' | 'bonificar' | 'saldo_pendiente' | 'vuelto_exacto'
 
   // Modal de Nota de Crédito / Ajuste Contable (estilo Xubio)
   const [ajusteModalOpen, setAjusteModalOpen] = useState(false);
@@ -407,21 +411,50 @@ export default function Contaduria() {
   }
 
   // Abrir Cobro para Factura Específica o Libre
-  function handleOpenCobroModal(liq = null, grupoNum = null) {
-    if (liq) {
-      setTargetFactura(liq);
-      setSelectedGrupo(liq.numero_grupo);
-      const saldoPend = Math.max(0, Number(liq.monto_total_facturado) - Number(liq.monto_abonado || 0));
-      setMontoCobro(saldoPend > 0 ? String(saldoPend) : String(liq.monto_total_facturado));
-      setObservacionesCobro(`Cobro Facturación Período ${liq.periodo} (${liq.proveedores?.nombre || 'MUTUAL'})`);
+  function handleOpenCobroModal(target = null, grupoNum = null) {
+    const gNum = grupoNum || target?.numero_grupo || null;
+    setSelectedGrupo(gNum);
+    setTargetFactura(target);
+
+    let saldoPend = 0;
+    if (target) {
+      if (target.saldo_impago !== undefined) {
+        saldoPend = Math.max(0, Number(target.saldo_impago));
+      } else {
+        saldoPend = Math.max(0, Number(target.monto_total_facturado) - Number(target.monto_abonado || 0));
+      }
+      const montoInicial = saldoPend > 0 ? saldoPend : Number(target.monto_total_facturado || 0);
+      const strMonto = montoInicial > 0 ? String(montoInicial) : '';
+      setMontoCobro(strMonto);
+      setEfectivoEntregado(strMonto);
+      setObservacionesCobro(`Cobro Facturación Período ${target.periodo} (${target.proveedores?.nombre || 'MUTUAL'})`);
     } else {
-      setTargetFactura(null);
-      if (grupoNum) setSelectedGrupo(grupoNum);
       setMontoCobro('');
+      setEfectivoEntregado('');
       setObservacionesCobro('');
     }
+
+    setManejoCambio('saldo_favor');
+    setMedioPago('EFECTIVO');
+    setFechaCobro(getTodayISO());
     setCobroModalOpen(true);
   }
+
+  // Cálculos dinámicos de importe adeudado y diferencia de cambio
+  const montoTeoricoCobro = useMemo(() => {
+    if (targetFactura) {
+      if (targetFactura.saldo_impago !== undefined) {
+        return Math.max(0, Number(targetFactura.saldo_impago));
+      }
+      return Math.max(0, Number(targetFactura.monto_total_facturado || 0) - Number(targetFactura.monto_abonado || 0));
+    }
+    return Math.max(0, Number(ultimoMovGrupo?.saldo_final || 0));
+  }, [targetFactura, ultimoMovGrupo]);
+
+  const diferenciaCambio = useMemo(() => {
+    const entregado = parseFloat(efectivoEntregado) || 0;
+    return Math.round((entregado - montoTeoricoCobro) * 100) / 100;
+  }, [efectivoEntregado, montoTeoricoCobro]);
 
   // Abrir comprobante oficial de pago para una factura cancelada o abonada
   function handleAbrirComprobanteFactura(group) {
@@ -440,8 +473,9 @@ export default function Contaduria() {
       numero_grupo: group.numero_grupo,
       nombre_titular: titular,
       monto_cobrado: montoCobrado,
-      medio_pago: 'TRANSFERENCIA / DÉBITO BANCARIO',
+      medio_pago: 'EFECTIVO / TRANSFERENCIA',
       observaciones: `Comprobante Oficial de Pago - Liquidación Período ${group.periodo}`,
+      monto_factura: Number(group.monto_total_facturado || montoCobrado),
       desgloses: desgloses.length > 0 ? desgloses : [{
         observaciones: `Liquidación Período ${group.periodo}`,
         pagoAplicadoCapital: montoCobrado,
@@ -478,12 +512,18 @@ export default function Contaduria() {
 
   // --- CÁLCULO DE FIFO Y COBRO ---
   useEffect(() => {
-    if (!cobroModalOpen || !montoCobro || isNaN(parseFloat(montoCobro))) {
+    if (!cobroModalOpen) {
       setResultadoFifo(null);
       return;
     }
 
-    const val = Math.abs(parseFloat(montoCobro));
+    const rawVal = (medioPago === 'EFECTIVO') ? efectivoEntregado : montoCobro;
+    if (!rawVal || isNaN(parseFloat(rawVal))) {
+      setResultadoFifo(null);
+      return;
+    }
+
+    const val = Math.abs(parseFloat(rawVal));
     if (val <= 0) {
       setResultadoFifo(null);
       return;
@@ -504,50 +544,168 @@ export default function Contaduria() {
 
     const resultado = imputarCobroFIFO(facturasPendientes, val, tna, fechaCobro);
     setResultadoFifo(resultado);
-  }, [montoCobro, cobroModalOpen, movimientos, tna, fechaCobro]);
+  }, [montoCobro, efectivoEntregado, medioPago, cobroModalOpen, movimientos, tna, fechaCobro]);
 
   // Ejecutar Cobro
   async function handleConfirmarCobro(e) {
     e.preventDefault();
-    const val = parseFloat(montoCobro);
-    if (isNaN(val) || val <= 0) {
-      addToast('Ingrese un importe de cobro válido', 'warning');
-      return;
+
+    const isEfectivo = (medioPago === 'EFECTIVO');
+    let val = 0;
+    let saldoAFavorCambio = 0;
+    let bonificacionRedondeo = 0;
+    let saldoPendienteCambio = 0;
+
+    if (isEfectivo) {
+      const entregado = parseFloat(efectivoEntregado);
+      if (isNaN(entregado) || entregado <= 0) {
+        addToast('Ingrese el importe de efectivo entregado por el socio', 'warning');
+        return;
+      }
+
+      const dif = Math.round((entregado - montoTeoricoCobro) * 100) / 100;
+
+      if (dif > 0.009) {
+        if (manejoCambio === 'saldo_favor') {
+          // El socio entrega de más por falta de cambio: se toma el total recibido y la diferencia queda a su favor
+          val = entregado;
+          saldoAFavorCambio = dif;
+        } else {
+          // Se entregó el vuelto exacto en mano
+          val = montoTeoricoCobro > 0 ? montoTeoricoCobro : entregado;
+        }
+      } else if (dif < -0.009) {
+        if (manejoCambio === 'bonificar') {
+          // El socio entrega de menos por falta de cambio chico: la mutual bonifica la diferencia
+          val = entregado;
+          bonificacionRedondeo = Math.abs(dif);
+        } else {
+          // Se deja como saldo pendiente en cuenta corriente
+          val = entregado;
+          saldoPendienteCambio = Math.abs(dif);
+        }
+      } else {
+        val = entregado;
+      }
+    } else {
+      val = parseFloat(montoCobro);
+      if (isNaN(val) || val <= 0) {
+        addToast('Ingrese un importe de cobro válido', 'warning');
+        return;
+      }
     }
 
     const titularInfo = gruposList.find(g => g.numero_grupo === selectedGrupo);
     setProcesandoCobro(true);
 
     try {
+      let obsFinal = observacionesCobro.trim();
+      if (!obsFinal) {
+        obsFinal = `Cobro registrado en Contaduría - ${medioPago}`;
+      }
+      if (isEfectivo) {
+        if (saldoAFavorCambio > 0) {
+          obsFinal += ` (Efectivo en caja: ${formatMoney(parseFloat(efectivoEntregado))} | Saldo a favor por falta de cambio: +${formatMoney(saldoAFavorCambio)})`;
+        } else if (bonificacionRedondeo > 0) {
+          obsFinal += ` (Efectivo en caja: ${formatMoney(parseFloat(efectivoEntregado))} | Bonificación redondeo: ${formatMoney(bonificacionRedondeo)})`;
+        } else if (saldoPendienteCambio > 0) {
+          obsFinal += ` (Efectivo en caja: ${formatMoney(parseFloat(efectivoEntregado))} | Pendiente por falta de cambio: ${formatMoney(saldoPendienteCambio)})`;
+        }
+      }
+
+      // 1. Registrar el cobro en cuenta corriente
       const nuevoMov = await registrarCobroCuenta({
         numero_grupo: selectedGrupo,
         nombre: titularInfo?.nombre || `Grupo ${selectedGrupo}`,
         importe: val,
         medio_pago: medioPago,
-        observaciones: observacionesCobro || `Cobro registrado en Contaduría - ${medioPago}`,
+        observaciones: obsFinal,
         fecha: fechaCobro,
         periodo: targetFactura?.periodo || null,
         imputaciones: resultadoFifo?.desgloses || []
       });
 
+      // 2. Si hubo bonificación por redondeo por falta de cambio en oficina,
+      // registrar la Nota de Crédito correspondiente y marcar la factura como 100% ABONADA
+      if (bonificacionRedondeo > 0) {
+        const { data: ultData } = await supabase
+          .from('movimientos_cuenta')
+          .select('saldo_capital')
+          .eq('numero_grupo', selectedGrupo)
+          .order('fecha', { ascending: false })
+          .order('id', { ascending: false })
+          .limit(1);
+        const saldoActual = ultData && ultData.length > 0 ? Number(ultData[0].saldo_capital || 0) : 0;
+        const nuevoSaldo = Math.round((saldoActual - bonificacionRedondeo) * 100) / 100;
+
+        await supabase.from('movimientos_cuenta').insert({
+          fecha: fechaCobro,
+          numero_grupo: selectedGrupo,
+          nombre: titularInfo?.nombre || `Grupo ${selectedGrupo}`,
+          importe: -bonificacionRedondeo,
+          tipo: 'NOTA_CREDITO',
+          medio_pago: 'BONIFICACION_REDONDEO',
+          observaciones: `Bonificación por falta de cambio en oficina - Período ${targetFactura?.periodo || ''}`,
+          origen: 'CONTADURIA_CAJA',
+          saldo_capital_anterior: saldoActual,
+          saldo_capital: nuevoSaldo,
+          saldo_final: nuevoSaldo
+        });
+
+        // Asegurar que la liquidación quede en estado ABONADO
+        if (targetFactura) {
+          const items = targetFactura.items || [targetFactura];
+          for (const item of items) {
+            if (item.liquidacion_id) {
+              await supabase
+                .from('liquidaciones_grupos')
+                .update({
+                  monto_abonado: Number(item.monto_total_facturado || 0),
+                  estado_pago: 'ABONADO',
+                  updated_at: new Date().toISOString()
+                })
+                .eq('liquidacion_id', item.liquidacion_id);
+            }
+          }
+        }
+      }
+
       addToast(`Cobro de ${formatMoney(val)} registrado exitosamente.`, 'success');
 
+      // 3. Preparar los datos del Comprobante / Recibo Oficial
+      const reciboNum = `REC-${targetFactura?.periodo || new Date().toISOString().slice(0, 7)}-${selectedGrupo}-${Math.floor(1000 + Math.random() * 9000)}`;
       setComprobanteData({
+        reciboNumero: reciboNum,
         fecha: fechaCobro,
         numero_grupo: selectedGrupo,
         nombre_titular: titularInfo?.nombre || `Grupo ${selectedGrupo}`,
         monto_cobrado: val,
-        medio_pago: medioPago,
-        observaciones: observacionesCobro,
+        medio_pago: isEfectivo ? 'EFECTIVO' : medioPago,
+        observaciones: obsFinal,
         interesPagado: resultadoFifo?.totalInteresCancelado || 0,
-        capitalPagado: resultadoFifo?.totalCapitalCancelado || 0,
-        remanenteSaldoAFavor: resultadoFifo?.remanenteSaldoAFavor || 0,
-        desgloses: resultadoFifo?.desgloses || []
+        capitalPagado: val,
+        remanenteSaldoAFavor: saldoAFavorCambio > 0 ? saldoAFavorCambio : (resultadoFifo?.remanenteSaldoAFavor || 0),
+        monto_factura: isEfectivo ? montoTeoricoCobro : (targetFactura?.monto_total_facturado || val),
+        efectivo_entregado: isEfectivo ? parseFloat(efectivoEntregado) : null,
+        saldo_favor_cambio: saldoAFavorCambio,
+        bonificacion_redondeo: bonificacionRedondeo,
+        saldo_pendiente_cambio: saldoPendienteCambio,
+        desgloses: targetFactura ? [{
+          observaciones: `Facturación Período ${targetFactura.periodo} (${targetFactura.proveedores?.nombre || 'MUTUAL'})`,
+          pagoAplicadoCapital: val,
+          pagoAplicadoInteres: 0
+        }] : (resultadoFifo?.desgloses || [{
+          observaciones: `Cobro en cuenta corriente - ${medioPago}`,
+          pagoAplicadoCapital: val,
+          pagoAplicadoInteres: 0
+        }])
       });
 
+      // 4. Cerrar Modal de Cobro y Abrir Recibo Oficial
       setCobroModalOpen(false);
       setTargetFactura(null);
       setMontoCobro('');
+      setEfectivoEntregado('');
       setObservacionesCobro('');
       setResultadoFifo(null);
 
@@ -1482,89 +1640,43 @@ export default function Contaduria() {
                           <td style={{ padding: '14px 16px', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
                             <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
                               {isCobrada ? (
-                                <>
-                                  <span style={{
+                                <span 
+                                  onClick={() => handleAbrirComprobanteFactura(group)}
+                                  style={{
                                     display: 'inline-flex',
                                     alignItems: 'center',
-                                    gap: '4px',
-                                    padding: '5px 8px',
+                                    gap: '5px',
+                                    padding: '5px 11px',
                                     borderRadius: '8px',
                                     fontSize: '11px',
                                     fontWeight: 800,
-                                    background: 'rgba(16, 185, 129, 0.1)',
+                                    background: 'rgba(16, 185, 129, 0.12)',
                                     color: '#10b981',
-                                    border: '1px solid rgba(16, 185, 129, 0.2)'
-                                  }}>
-                                    <CheckCircle2 size={12} /> Cobrada
-                                  </span>
-                                  <button
-                                    onClick={() => handleAbrirComprobanteFactura(group)}
-                                    className="air-btn"
-                                    style={{
-                                      padding: '5px 10px',
-                                      fontSize: '11px',
-                                      borderRadius: '8px',
-                                      fontWeight: 700,
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '4px',
-                                      background: 'rgba(16, 185, 129, 0.1)',
-                                      color: '#10b981',
-                                      border: '1px solid rgba(16, 185, 129, 0.25)'
-                                    }}
-                                    title="Generar e imprimir comprobante oficial de pago"
-                                  >
-                                    <Printer size={12} /> Recibo
-                                  </button>
-                                </>
+                                    border: '1px solid rgba(16, 185, 129, 0.3)',
+                                    cursor: 'pointer'
+                                  }}
+                                  title="Factura 100% Cobrada — Clic para ver o imprimir comprobante oficial"
+                                >
+                                  <CheckCircle2 size={12} /> Cobrada
+                                </span>
                               ) : (
-                                <>
-                                  <button
-                                    onClick={() => {
-                                      // Para multi-operadora, abrir cobro con el total consolidado
-                                      if (group.isMultiProvider) {
-                                        handleOpenCobroModal(null, group.numero_grupo);
-                                      } else {
-                                        handleOpenCobroModal(group.items[0], group.numero_grupo);
-                                      }
-                                    }}
-                                    className="air-btn-primary"
-                                    style={{ 
-                                      padding: '6px 12px', 
-                                      fontSize: '11px', 
-                                      borderRadius: '8px', 
-                                      fontWeight: 800,
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '4px',
-                                      background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)'
-                                    }}
-                                    title="Registrar cobro a este grupo"
-                                  >
-                                    <DollarSign size={13} /> Cobrar
-                                  </button>
-                                  {Number(group.monto_abonado || 0) > 0 && (
-                                    <button
-                                      onClick={() => handleAbrirComprobanteFactura(group)}
-                                      className="air-btn"
-                                      style={{
-                                        padding: '5px 8px',
-                                        fontSize: '11px',
-                                        borderRadius: '8px',
-                                        fontWeight: 700,
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '4px',
-                                        background: 'rgba(16, 185, 129, 0.1)',
-                                        color: '#10b981',
-                                        border: '1px solid rgba(16, 185, 129, 0.25)'
-                                      }}
-                                      title="Generar comprobante de pago parcial"
-                                    >
-                                      <Printer size={12} /> Recibo
-                                    </button>
-                                  )}
-                                </>
+                                <button
+                                  onClick={() => handleOpenCobroModal(group, group.numero_grupo)}
+                                  className="air-btn-primary"
+                                  style={{ 
+                                    padding: '6px 12px', 
+                                    fontSize: '11px', 
+                                    borderRadius: '8px', 
+                                    fontWeight: 800,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)'
+                                  }}
+                                  title="Registrar cobro a este grupo"
+                                >
+                                  <DollarSign size={13} /> Cobrar
+                                </button>
                               )}
                               <button
                                 onClick={() => {
@@ -2243,7 +2355,7 @@ export default function Contaduria() {
         isOpen={cobroModalOpen} 
         onClose={() => setCobroModalOpen(false)} 
         title={targetFactura ? `Imputar Cobro a Factura ${targetFactura.periodo} - Grupo #${selectedGrupo}` : `Registrar Cobro ${selectedGrupo ? `- Grupo #${selectedGrupo}` : ''}`} 
-        maxWidth="600px"
+        maxWidth="640px"
       >
         <form onSubmit={handleConfirmarCobro} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           
@@ -2283,7 +2395,11 @@ export default function Contaduria() {
               {(ultimoMovGrupo?.saldo_final || 0) > 0 && (
                 <button 
                   type="button" 
-                  onClick={() => setMontoCobro(String((ultimoMovGrupo?.saldo_final || 0).toFixed(2)))} 
+                  onClick={() => {
+                    const s = String((ultimoMovGrupo?.saldo_final || 0).toFixed(2));
+                    setMontoCobro(s);
+                    setEfectivoEntregado(s);
+                  }} 
                   className="air-btn"
                   style={{ padding: '8px 14px', fontSize: '12px', fontWeight: 800, background: 'var(--accent-light)', color: 'var(--accent)', borderRadius: '10px' }}
                 >
@@ -2295,55 +2411,243 @@ export default function Contaduria() {
 
           {targetFactura && (
             <div style={{ background: 'var(--accent-light)', color: 'var(--accent)', padding: '12px 16px', borderRadius: '12px', fontSize: '13px', fontWeight: 700 }}>
-              Factura Seleccionada: Período {targetFactura.periodo} ({targetFactura.proveedores?.nombre || 'MUTUAL'}) — Total: {formatMoney(targetFactura.monto_total_facturado)} | Abonado: {formatMoney(targetFactura.monto_abonado || 0)}
+              Factura Seleccionada: Período {targetFactura.periodo} ({targetFactura.proveedores?.nombre || 'MUTUAL'}) — Total: {formatMoney(targetFactura.monto_total_facturado)} | Abonado: {formatMoney(targetFactura.monto_abonado || 0)} | Pendiente: {formatMoney(montoTeoricoCobro)}
             </div>
           )}
 
-          <div>
-            <label className="form-label">Fecha del Pago</label>
-            <input 
-              type="date" 
-              value={fechaCobro} 
-              onChange={(e) => setFechaCobro(e.target.value)} 
-              className="form-input" 
-              required 
-            />
+          {/* FORMA DE PAGO Y FECHA */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+            <div>
+              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <CreditCard size={14} color="#10b981" /> Forma / Medio de Pago
+              </label>
+              <select 
+                value={medioPago} 
+                onChange={(e) => {
+                  const nuevo = e.target.value;
+                  setMedioPago(nuevo);
+                  if (nuevo === 'EFECTIVO' && !efectivoEntregado && montoTeoricoCobro > 0) {
+                    setEfectivoEntregado(String(montoTeoricoCobro.toFixed(2)));
+                  }
+                }} 
+                className="form-input"
+                style={{ fontWeight: 800 }}
+              >
+                <option value="EFECTIVO">💵 Efectivo (en Oficina)</option>
+                <option value="TRANSFERENCIA">🏦 Transferencia Bancaria</option>
+                <option value="DEBITO">💳 Débito Automático</option>
+                <option value="MERCADOPAGO">📱 MercadoPago / QR</option>
+                <option value="CHEQUE">📝 Cheque</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="form-label">Fecha del Pago</label>
+              <input 
+                type="date" 
+                value={fechaCobro} 
+                onChange={(e) => setFechaCobro(e.target.value)} 
+                className="form-input" 
+                required 
+              />
+            </div>
           </div>
 
-          <div>
-            <label className="form-label">Importe a Cobrar ($)</label>
-            <input 
-              type="number" 
-              step="0.01" 
-              placeholder="0.00" 
-              value={montoCobro} 
-              onChange={(e) => setMontoCobro(e.target.value)} 
-              className="form-input" 
-              autoFocus 
-              required 
-            />
-          </div>
+          {/* SECCIÓN ESPECIAL: CALCULADORA DE EFECTIVO Y FALTA DE CAMBIO EN OFICINA */}
+          {medioPago === 'EFECTIVO' ? (
+            <div style={{ background: 'rgba(16, 185, 129, 0.05)', border: '1.5px solid rgba(16, 185, 129, 0.3)', borderRadius: '14px', padding: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 900, fontSize: '13px', color: '#10b981' }}>
+                  <Coins size={16} /> Caja de Efectivo en Oficina — Control de Falta de Cambio
+                </div>
+                <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)' }}>
+                  Deuda: <strong style={{ color: 'var(--text-primary)' }}>{formatMoney(montoTeoricoCobro)}</strong>
+                </div>
+              </div>
 
-          <div>
-            <label className="form-label">Medio de Pago</label>
-            <select 
-              value={medioPago} 
-              onChange={(e) => setMedioPago(e.target.value)} 
-              className="form-input"
-            >
-              <option value="TRANSFERENCIA">Transferencia Bancaria</option>
-              <option value="DEBITO">Débito Automático</option>
-              <option value="EFECTIVO">Efectivo</option>
-              <option value="MERCADOPAGO">MercadoPago</option>
-              <option value="CHEQUE">Cheque</option>
-            </select>
-          </div>
+              <div>
+                <label className="form-label" style={{ fontWeight: 800 }}>Efectivo Entregado por el Socio ($)</label>
+                <input 
+                  type="number" 
+                  step="any" 
+                  placeholder="Ej: 33100 o 33000" 
+                  value={efectivoEntregado} 
+                  onChange={(e) => setEfectivoEntregado(e.target.value)} 
+                  className="form-input" 
+                  style={{ fontSize: '16px', fontWeight: 900 }}
+                  autoFocus 
+                  required 
+                />
+              </div>
+
+              {/* Botones de redondeo rápido */}
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '10px' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setEfectivoEntregado(String(montoTeoricoCobro.toFixed(2)))} 
+                  className="air-btn" 
+                  style={{ fontSize: '11px', padding: '4px 8px', borderRadius: '6px', fontWeight: 700 }}
+                >
+                  Exacto ({formatMoney(montoTeoricoCobro)})
+                </button>
+                {montoTeoricoCobro > 0 && (
+                  <>
+                    <button 
+                      type="button" 
+                      onClick={() => setEfectivoEntregado(String((Math.ceil(montoTeoricoCobro / 100) * 100).toFixed(0)))} 
+                      className="air-btn" 
+                      style={{ fontSize: '11px', padding: '4px 8px', borderRadius: '6px', fontWeight: 700 }}
+                    >
+                      Redondear +$100 ({formatMoney(Math.ceil(montoTeoricoCobro / 100) * 100)})
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={() => setEfectivoEntregado(String((Math.ceil(montoTeoricoCobro / 500) * 500).toFixed(0)))} 
+                      className="air-btn" 
+                      style={{ fontSize: '11px', padding: '4px 8px', borderRadius: '6px', fontWeight: 700 }}
+                    >
+                      Redondear +$500 ({formatMoney(Math.ceil(montoTeoricoCobro / 500) * 500)})
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={() => setEfectivoEntregado(String((Math.ceil(montoTeoricoCobro / 1000) * 1000).toFixed(0)))} 
+                      className="air-btn" 
+                      style={{ fontSize: '11px', padding: '4px 8px', borderRadius: '6px', fontWeight: 700 }}
+                    >
+                      Redondear +$1000 ({formatMoney(Math.ceil(montoTeoricoCobro / 1000) * 1000)})
+                    </button>
+                    {Math.floor(montoTeoricoCobro / 100) * 100 < montoTeoricoCobro && (
+                      <button 
+                        type="button" 
+                        onClick={() => setEfectivoEntregado(String((Math.floor(montoTeoricoCobro / 100) * 100).toFixed(0)))} 
+                        className="air-btn" 
+                        style={{ fontSize: '11px', padding: '4px 8px', borderRadius: '6px', fontWeight: 700 }}
+                      >
+                        Redondear -$100 ({formatMoney(Math.floor(montoTeoricoCobro / 100) * 100)})
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* ANÁLISIS EN VIVO DE DIFERENCIA POR FALTA DE CAMBIO */}
+              {diferenciaCambio > 0.009 ? (
+                <div style={{ marginTop: '14px', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '12px 14px', borderRadius: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 800, color: '#10b981', fontSize: '13px' }}>
+                    <span>🟢 Diferencia a favor del socio por falta de cambio:</span>
+                    <span>+{formatMoney(diferenciaCambio)}</span>
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: '4px 0 10px 0' }}>
+                    El socio entregó más efectivo que la deuda ({formatMoney(parseFloat(efectivoEntregado) || 0)} vs {formatMoney(montoTeoricoCobro)}).
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer', fontSize: '12px' }}>
+                      <input 
+                        type="radio" 
+                        name="manejoCambio" 
+                        value="saldo_favor" 
+                        checked={manejoCambio === 'saldo_favor'} 
+                        onChange={() => setManejoCambio('saldo_favor')} 
+                        style={{ marginTop: '3px' }}
+                      />
+                      <div>
+                        <strong style={{ color: '#10b981' }}>Acreditar como Saldo a Favor para la próxima factura (Recomendado)</strong>
+                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                          La factura queda 100% ABONADA. El remanente de +{formatMoney(diferenciaCambio)} queda acreditado en cuenta corriente para descontarse automáticamente el próximo mes.
+                        </div>
+                      </div>
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer', fontSize: '12px' }}>
+                      <input 
+                        type="radio" 
+                        name="manejoCambio" 
+                        value="vuelto_exacto" 
+                        checked={manejoCambio === 'vuelto_exacto'} 
+                        onChange={() => setManejoCambio('vuelto_exacto')} 
+                        style={{ marginTop: '3px' }}
+                      />
+                      <div>
+                        <strong>Se entregó vuelto exacto en mano ({formatMoney(diferenciaCambio)})</strong>
+                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                          Se cobra únicamente el importe exacto adeudado de {formatMoney(montoTeoricoCobro)}.
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              ) : diferenciaCambio < -0.009 ? (
+                <div style={{ marginTop: '14px', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', padding: '12px 14px', borderRadius: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 800, color: '#f59e0b', fontSize: '13px' }}>
+                    <span>🟡 Faltante por falta de cambio chico:</span>
+                    <span>-{formatMoney(Math.abs(diferenciaCambio))}</span>
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: '4px 0 10px 0' }}>
+                    El socio entregó menos efectivo que la deuda ({formatMoney(parseFloat(efectivoEntregado) || 0)} vs {formatMoney(montoTeoricoCobro)}) por falta de monedas o billetes chicos.
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer', fontSize: '12px' }}>
+                      <input 
+                        type="radio" 
+                        name="manejoCambio" 
+                        value="bonificar" 
+                        checked={manejoCambio === 'bonificar'} 
+                        onChange={() => setManejoCambio('bonificar')} 
+                        style={{ marginTop: '3px' }}
+                      />
+                      <div>
+                        <strong style={{ color: '#3b82f6' }}>Bonificar diferencia por redondeo de cambio (Recomendado)</strong>
+                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                          Mutual Aunar absorbe los {formatMoney(Math.abs(diferenciaCambio))} faltantes. La factura queda 100% ABONADA sin dejar deuda en cuenta corriente.
+                        </div>
+                      </div>
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer', fontSize: '12px' }}>
+                      <input 
+                        type="radio" 
+                        name="manejoCambio" 
+                        value="saldo_pendiente" 
+                        checked={manejoCambio === 'saldo_pendiente'} 
+                        onChange={() => setManejoCambio('saldo_pendiente')} 
+                        style={{ marginTop: '3px' }}
+                      />
+                      <div>
+                        <strong style={{ color: '#f59e0b' }}>Dejar como saldo pendiente en cuenta corriente</strong>
+                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                          Se registra cobro a cuenta de {formatMoney(parseFloat(efectivoEntregado) || 0)}. Los {formatMoney(Math.abs(diferenciaCambio))} quedan pendientes para la próxima factura.
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ marginTop: '12px', background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.25)', padding: '10px 14px', borderRadius: '10px', fontSize: '12px', color: '#3b82f6', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <CheckCircle2 size={15} color="#3b82f6" />
+                  Pago exacto entregado en ventanilla ({formatMoney(montoTeoricoCobro)})
+                </div>
+              )}
+
+            </div>
+          ) : (
+            <div>
+              <label className="form-label">Importe a Cobrar ($)</label>
+              <input 
+                type="number" 
+                step="0.01" 
+                placeholder="0.00" 
+                value={montoCobro} 
+                onChange={(e) => setMontoCobro(e.target.value)} 
+                className="form-input" 
+                autoFocus 
+                required 
+              />
+            </div>
+          )}
 
           <div>
             <label className="form-label">Observaciones / Referencia Contable</label>
             <input 
               type="text" 
-              placeholder="Ej: Nro de Transferencia Banco / Recibo Xubio" 
+              placeholder="Ej: Cobro en oficina / Transferencia Banco" 
               value={observacionesCobro} 
               onChange={(e) => setObservacionesCobro(e.target.value)} 
               className="form-input" 
@@ -2388,7 +2692,7 @@ export default function Contaduria() {
               className="air-btn-primary" 
               style={{ flex: 1, padding: '12px', fontWeight: 800 }}
             >
-              {procesandoCobro ? <Loader2 size={18} className="animate-spin" /> : 'Confirmar Cobro'}
+              {procesandoCobro ? <Loader2 size={18} className="animate-spin" /> : 'Confirmar Cobro y Ver Recibo'}
             </button>
           </div>
         </form>

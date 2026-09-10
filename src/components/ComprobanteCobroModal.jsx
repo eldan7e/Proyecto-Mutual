@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Modal from './Modal';
-import { Printer, Send, ShieldCheck, User, Calendar, CreditCard, DollarSign, Building } from 'lucide-react';
+import { Printer, Send, ShieldCheck, User, Calendar, CreditCard, DollarSign, Building, Coins, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { formatMoney, formatFecha } from '../utils/cuentaCorrienteEngine';
 
 export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
@@ -12,11 +12,22 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
     numero_grupo,
     nombre_titular,
     monto_cobrado,
-    medio_pago,
+    medio_pago = 'EFECTIVO',
     observaciones,
     desgloses = [],
-    saldo_restante = 0
+    saldo_restante = 0,
+    monto_factura,
+    efectivo_entregado,
+    saldo_favor_cambio = 0,
+    bonificacion_redondeo = 0,
+    saldo_pendiente_cambio = 0
   } = cobroData;
+
+  const [currentMedioPago, setCurrentMedioPago] = useState(medio_pago || 'EFECTIVO');
+
+  useEffect(() => {
+    setCurrentMedioPago(medio_pago || 'EFECTIVO');
+  }, [medio_pago]);
 
   function handleImprimir() {
     window.print();
@@ -28,9 +39,21 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
     text += `📅 *Fecha de Cobro:* ${formatFecha(fecha)}\n`;
     text += `👤 *Grupo Pagador:* Grupo ${numero_grupo} — ${nombre_titular || 'Socio'}\n`;
     text += `💰 *Monto Total Cobrado:* ${formatMoney(monto_cobrado)}\n`;
-    text += `💳 *Medio / Forma de Pago:* ${medio_pago}\n`;
+    text += `💳 *Medio / Forma de Pago:* ${currentMedioPago}\n`;
+    if (efectivo_entregado) {
+      text += `💵 *Efectivo en Caja:* ${formatMoney(efectivo_entregado)}\n`;
+    }
+    if (saldo_favor_cambio > 0) {
+      text += `🟢 *Saldo a Favor por falta de cambio:* +${formatMoney(saldo_favor_cambio)} (Acreditado a su cuenta corriente)\n`;
+    }
+    if (bonificacion_redondeo > 0) {
+      text += `🔵 *Bonificación por redondeo en caja:* ${formatMoney(bonificacion_redondeo)} (Factura 100% cancelada)\n`;
+    }
+    if (saldo_pendiente_cambio > 0) {
+      text += `🟡 *Saldo pendiente por falta de cambio:* -${formatMoney(saldo_pendiente_cambio)} (A regularizar en próxima factura)\n`;
+    }
     if (observaciones) text += `📝 *Ref / Obs:* ${observaciones}\n`;
-    text += `\n*DETALLE DE IMPUTACIÓN DE CONCEPTOS (FIFO):*\n`;
+    text += `\n*DETALLE DE IMPUTACIÓN DE CONCEPTOS:*\n`;
     desgloses.forEach(d => {
       text += `• ${d.observaciones || 'Factura'} → Capital: ${formatMoney(d.pagoAplicadoCapital)} | Interés Mora: ${formatMoney(d.pagoAplicadoInteres)}\n`;
     });
@@ -41,7 +64,7 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Comprobante Oficial de Cobro" maxWidth="680px">
+    <Modal isOpen={isOpen} onClose={onClose} title="Comprobante Oficial de Cobro" maxWidth="720px">
       
       {/* CSS para Garantizar Impresión Limpia de Página Completa A4 sin recortes */}
       <style>{`
@@ -117,6 +140,29 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
         }
       `}</style>
 
+      {/* Barra superior Interactiva (Solo en Pantalla, Oculta al Imprimir) */}
+      <div className="no-print" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', background: 'rgba(255,255,255,0.03)', padding: '10px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', flexWrap: 'wrap', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <CreditCard size={16} color="#10b981" />
+          <span style={{ fontSize: '13px', fontWeight: 800 }}>Forma de Pago del Recibo:</span>
+          <select 
+            value={currentMedioPago} 
+            onChange={(e) => setCurrentMedioPago(e.target.value)}
+            className="form-input"
+            style={{ padding: '4px 10px', height: '34px', fontSize: '12px', fontWeight: 800, width: 'auto', background: 'var(--surface)' }}
+          >
+            <option value="EFECTIVO">Efectivo en Oficina</option>
+            <option value="TRANSFERENCIA">Transferencia Bancaria</option>
+            <option value="DEBITO">Débito Automático</option>
+            <option value="MERCADOPAGO">MercadoPago / QR</option>
+            <option value="CHEQUE">Cheque</option>
+          </select>
+        </div>
+        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Printer size={13} /> Listo para imprimir en A4
+        </div>
+      </div>
+
       {/* Wrapper imprimible */}
       <div id="print-recibo-wrapper">
         <div id="print-recibo" style={{ background: 'var(--surface)', padding: '28px', borderRadius: '18px', border: '1px solid var(--border-light)' }}>
@@ -155,7 +201,7 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
           </div>
 
           {/* Grilla Principal de Datos de Cobro */}
-          <div className="print-bg-card" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '18px', marginBottom: '22px', background: 'rgba(255,255,255,0.03)', padding: '18px', borderRadius: '14px', border: '1px solid var(--border-light)' }}>
+          <div className="print-bg-card" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '18px', marginBottom: '18px', background: 'rgba(255,255,255,0.03)', padding: '18px', borderRadius: '14px', border: '1px solid var(--border-light)' }}>
             
             {/* Persona Pagadora y Grupo */}
             <div>
@@ -176,7 +222,7 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
                 <CreditCard size={12} color="#10b981" /> Forma / Medio de Pago
               </span>
               <p className="print-text-accent" style={{ fontSize: '18px', fontWeight: 900, margin: '4px 0 0 0', color: '#10b981' }}>
-                {medio_pago}
+                {currentMedioPago}
               </p>
               <p style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
                 {observaciones || 'Cobro imputado en cuenta corriente'}
@@ -185,10 +231,62 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
 
           </div>
 
+          {/* TARJETAS ESPECIALES DE CAJA: SALDO A FAVOR / BONIFICACIÓN / SALDO PENDIENTE POR FALTA DE CAMBIO */}
+          {saldo_favor_cambio > 0 && (
+            <div className="print-bg-card" style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1.5px solid rgba(16, 185, 129, 0.35)', borderRadius: '12px', padding: '12px 16px', marginBottom: '18px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '13px', fontWeight: 900, color: '#10b981', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <CheckCircle2 size={16} color="#10b981" /> Saldo a Favor por Falta de Cambio en Oficina
+                </span>
+                <span style={{ fontSize: '16px', fontWeight: 900, color: '#10b981' }}>
+                  +{formatMoney(saldo_favor_cambio)}
+                </span>
+              </div>
+              <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
+                {efectivo_entregado ? `Efectivo recibido en caja: ${formatMoney(efectivo_entregado)}. ` : ''}
+                La diferencia a favor queda acreditada en la cuenta corriente del grupo para descontarse automáticamente en su próxima liquidación mensual.
+              </p>
+            </div>
+          )}
+
+          {bonificacion_redondeo > 0 && (
+            <div className="print-bg-card" style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1.5px solid rgba(59, 130, 246, 0.35)', borderRadius: '12px', padding: '12px 16px', marginBottom: '18px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '13px', fontWeight: 900, color: '#3b82f6', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Coins size={16} color="#3b82f6" /> Bonificación por Redondeo de Cambio en Caja
+                </span>
+                <span style={{ fontSize: '16px', fontWeight: 900, color: '#3b82f6' }}>
+                  {formatMoney(bonificacion_redondeo)}
+                </span>
+              </div>
+              <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
+                {efectivo_entregado ? `Efectivo recibido en caja: ${formatMoney(efectivo_entregado)}. ` : ''}
+                Diferencia absorbida por Mutual Aunar por falta de cambio chico en ventanilla. Factura 100% CANCELADA sin deuda remanente.
+              </p>
+            </div>
+          )}
+
+          {saldo_pendiente_cambio > 0 && (
+            <div className="print-bg-card" style={{ background: 'rgba(245, 158, 11, 0.08)', border: '1.5px solid rgba(245, 158, 11, 0.35)', borderRadius: '12px', padding: '12px 16px', marginBottom: '18px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '13px', fontWeight: 900, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <AlertTriangle size={16} color="#f59e0b" /> Saldo Pendiente por Falta de Cambio
+                </span>
+                <span style={{ fontSize: '16px', fontWeight: 900, color: '#f59e0b' }}>
+                  -{formatMoney(saldo_pendiente_cambio)}
+                </span>
+              </div>
+              <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
+                {efectivo_entregado ? `Efectivo recibido a cuenta: ${formatMoney(efectivo_entregado)}. ` : ''}
+                El saldo remanente queda pendiente en la cuenta corriente del grupo para regularizarse en la próxima factura mensual.
+              </p>
+            </div>
+          )}
+
           {/* Tabla de Imputaciones FIFO */}
           <div style={{ marginBottom: '22px' }}>
             <h4 style={{ fontSize: '14px', fontWeight: 800, marginBottom: '10px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <ShieldCheck size={16} color="#10b981" /> Detalle de Imputación de Conceptos (FIFO)
+              <ShieldCheck size={16} color="#10b981" /> Detalle de Imputación de Conceptos
             </h4>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
               <thead>
@@ -211,7 +309,7 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
                     const subtotal = Number(d.pagoAplicadoCapital || 0) + Number(d.pagoAplicadoInteres || 0);
                     return (
                       <tr key={idx} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                        <td style={{ padding: '10px 12px', fontWeight: 700 }}>{d.observaciones || `Factura ${d.fecha}`}</td>
+                        <td style={{ padding: '10px 12px', fontWeight: 700 }}>{d.observaciones || `Factura ${d.fecha || ''}`}</td>
                         <td className="print-text-danger" style={{ padding: '10px 12px', textAlign: 'right', color: '#ef4444', fontWeight: 600 }}>{formatMoney(d.pagoAplicadoInteres)}</td>
                         <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600 }}>{formatMoney(d.pagoAplicadoCapital)}</td>
                         <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 900, color: 'var(--text-primary)' }}>{formatMoney(subtotal)}</td>
@@ -224,9 +322,24 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
           </div>
 
           {/* Resumen Total Cobrado */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', paddingTop: '18px', borderTop: '2px solid var(--border-light)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '18px', borderTop: '2px solid var(--border-light)' }}>
+            <div>
+              {efectivo_entregado && (
+                <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 700 }}>
+                  Efectivo entregado en mano: <strong style={{ color: 'var(--text-primary)' }}>{formatMoney(efectivo_entregado)}</strong>
+                </div>
+              )}
+              {monto_factura && monto_factura !== monto_cobrado && (
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  Total factura adeudada: {formatMoney(monto_factura)}
+                </div>
+              )}
+            </div>
+
             <div style={{ textAlign: 'right' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 800, textTransform: 'uppercase', display: 'block' }}>MONTO TOTAL PAGADO</span>
+              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 800, textTransform: 'uppercase', display: 'block' }}>
+                MONTO TOTAL IMPUTADO
+              </span>
               <span className="print-text-accent" style={{ fontSize: '26px', fontWeight: 900, color: '#10b981' }}>
                 {formatMoney(monto_cobrado)}
               </span>
