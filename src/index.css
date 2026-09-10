@@ -1378,3 +1378,73 @@ body.modal-open {
 [role="dialog"] {
   overscroll-behavior: contain;
 }
+
+/* Botones estilo Air / Glassmorphism */
+.air-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  box-shadow: var(--shadow-soft);
+  text-decoration: none;
+  user-select: none;
+}
+
+.air-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.air-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.air-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.air-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  color: #ffffff !important;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 10px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  box-shadow: 0 4px 14px -3px rgba(16, 185, 129, 0.4);
+  text-decoration: none;
+  user-select: none;
+}
+
+.air-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #047857 0%, #059669 100%);
+  box-shadow: 0 6px 20px -3px rgba(16, 185, 129, 0.5);
+  transform: translateY(-1px);
+  color: #ffffff !important;
+}
+
+.air-btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.air-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

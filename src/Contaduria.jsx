@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
-  Calculator, Search, DollarSign, TrendingUp, AlertTriangle, 
-  Loader2, RefreshCw, Plus, CheckCircle2, ChevronRight, ChevronDown, ChevronUp, ShieldCheck, 
-  Download, ArrowUpRight, ArrowDownLeft, Settings, Building, Calendar, 
-  FileText, Users, Eye, Edit3, X, Receipt, Filter, Clock, Sparkles,
-  FileCheck, AlertCircle, Phone, ArrowRight, CornerDownRight, Percent, Sliders
+  Calculator, Search, DollarSign, TrendingUp, 
+  Loader2, RefreshCw, Plus, CheckCircle2, ChevronDown, ChevronUp, 
+  Download, Settings, Building, 
+  FileText, Eye, Edit3, X, Receipt,
+  AlertCircle, Phone
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import Modal from './components/Modal';
@@ -20,6 +20,9 @@ import {
   recalcularSaldosGrupo, imputarCobroFIFO, formatMoney, formatFecha,
   calcularDiasMora, calcularInteresMora, DEFAULT_TNA 
 } from './utils/cuentaCorrienteEngine';
+import { 
+  exportFacturasXLSX, exportSaldosXLSX, exportExtractoXLSX, exportLineasXLSX 
+} from './utils/exportContaduria';
 
 export default function Contaduria() {
   const { addToast } = useToast();
@@ -40,7 +43,7 @@ export default function Contaduria() {
   const [liquidacionesAll, setLiquidacionesAll] = useState([]);
   const [liquidacionesGrupo, setLiquidacionesGrupo] = useState([]);
   const [lineasGrupo, setLineasGrupo] = useState([]);
-  const [lineasPeriodoFiltro, setLineasPeriodoFiltro] = useState('2026-01');
+  const [lineasPeriodoFiltro, setLineasPeriodoFiltro] = useState(null);
   const [periodosDisponiblesState, setPeriodosDisponiblesState] = useState([]);
 
   // Loaders
@@ -86,10 +89,6 @@ export default function Contaduria() {
   const [grupoEditData, setGrupoEditData] = useState(null);
   const [editTitularNombre, setEditTitularNombre] = useState('');
   const [savingGrupoEdit, setSavingGrupoEdit] = useState(false);
-
-  // Modal de Desglose de Líneas de una Liquidación
-  const [desgloseLiqModalOpen, setDesgloseLiqModalOpen] = useState(false);
-  const [selectedLiqDesglose, setSelectedLiqDesglose] = useState(null);
 
   // --- CARGA INICIAL ---
   useEffect(() => {
@@ -171,6 +170,8 @@ export default function Contaduria() {
       }
       if (periodos && periodos.length > 0) {
         setPeriodosDisponiblesState(periodos);
+        // Inicializar período de líneas con el más reciente disponible
+        setLineasPeriodoFiltro(prev => prev || periodos[0]);
       }
     } catch (err) {
       console.error('Error al cargar datos iniciales de contaduría:', err);
@@ -480,10 +481,10 @@ export default function Contaduria() {
 
       setComprobanteData({
         fecha: fechaCobro,
-        grupo: selectedGrupo,
-        titular: titularInfo?.nombre || `Grupo ${selectedGrupo}`,
-        importe: val,
-        medioPago,
+        numero_grupo: selectedGrupo,
+        nombre_titular: titularInfo?.nombre || `Grupo ${selectedGrupo}`,
+        monto_cobrado: val,
+        medio_pago: medioPago,
         observaciones: observacionesCobro,
         interesPagado: resultadoFifo?.totalInteresCancelado || 0,
         capitalPagado: resultadoFifo?.totalCapitalCancelado || 0,
@@ -887,6 +888,26 @@ export default function Contaduria() {
 
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
           <button 
+            onClick={() => setIsTnaModalOpen(true)}
+            className="air-btn"
+            style={{ 
+              background: 'var(--surface)', 
+              border: '1px solid var(--border-light)', 
+              color: 'var(--text-secondary)', 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '6px', 
+              padding: '10px 14px', 
+              borderRadius: '12px', 
+              fontSize: '12px', 
+              fontWeight: 700,
+              boxShadow: 'var(--shadow-soft)'
+            }}
+            title={`Tasa TNA vigente: ${tna}%`}
+          >
+            <Settings size={15} /> TNA {tna}%
+          </button>
+          <button 
             onClick={() => {
               if (selectedGrupo) setAjusteModalOpen(true);
               else addToast('Seleccione un grupo primero para aplicar un ajuste', 'warning');
@@ -1216,6 +1237,35 @@ export default function Contaduria() {
               >
                 <RefreshCw size={14} className={loadingLiqs ? 'animate-spin' : ''} />
               </button>
+
+              <button 
+                onClick={() => {
+                  try {
+                    exportFacturasXLSX(facturasAgrupadas, periodoFilter, statsGlobales);
+                    addToast('Exportación de facturas descargada exitosamente', 'success');
+                  } catch (err) {
+                    addToast('Error al exportar: ' + err.message, 'error');
+                  }
+                }}
+                className="air-btn"
+                style={{ 
+                  padding: '8px 14px', 
+                  height: '40px', 
+                  borderRadius: '10px', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '6px', 
+                  fontSize: '12px', 
+                  fontWeight: 700,
+                  background: 'rgba(16, 185, 129, 0.08)',
+                  color: '#10b981',
+                  border: '1px solid rgba(16, 185, 129, 0.2)'
+                }}
+                title="Exportar facturas a Excel (.xlsx)"
+                disabled={facturasAgrupadas.length === 0}
+              >
+                <Download size={14} /> Exportar .xlsx
+              </button>
             </div>
           </div>
 
@@ -1377,10 +1427,32 @@ export default function Contaduria() {
 
                           {/* 8. ACCIONES */}
                           <td style={{ padding: '14px 16px', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
-                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
-                              {!isCobrada && (
+                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
+                              {isCobrada ? (
+                                <span style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  padding: '5px 10px',
+                                  borderRadius: '8px',
+                                  fontSize: '11px',
+                                  fontWeight: 800,
+                                  background: 'rgba(16, 185, 129, 0.1)',
+                                  color: '#10b981',
+                                  border: '1px solid rgba(16, 185, 129, 0.2)'
+                                }}>
+                                  <CheckCircle2 size={13} /> Cobrada
+                                </span>
+                              ) : (
                                 <button
-                                  onClick={() => handleOpenCobroModal(group.items[0], group.numero_grupo)}
+                                  onClick={() => {
+                                    // Para multi-operadora, abrir cobro con el total consolidado
+                                    if (group.isMultiProvider) {
+                                      handleOpenCobroModal(null, group.numero_grupo);
+                                    } else {
+                                      handleOpenCobroModal(group.items[0], group.numero_grupo);
+                                    }
+                                  }}
                                   className="air-btn-primary"
                                   style={{ 
                                     padding: '6px 12px', 
@@ -1411,12 +1483,13 @@ export default function Contaduria() {
                                   display: 'inline-flex',
                                   alignItems: 'center',
                                   gap: '4px',
-                                  background: 'var(--surface)',
+                                  background: 'var(--accent-light)',
+                                  color: 'var(--accent)',
                                   border: '1px solid var(--border-light)'
                                 }}
                                 title="Ver extracto de la cuenta corriente"
                               >
-                                <FileText size={13} /> Extracto
+                                <Eye size={13} /> Extracto
                               </button>
                             </div>
                           </td>
@@ -1613,6 +1686,26 @@ export default function Contaduria() {
             >
               <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Actualizar Saldos
             </button>
+
+            <button 
+              onClick={() => {
+                try {
+                  exportSaldosXLSX(saldosFiltrados);
+                  addToast('Exportación de saldos descargada exitosamente', 'success');
+                } catch (err) {
+                  addToast('Error al exportar: ' + err.message, 'error');
+                }
+              }}
+              className="air-btn"
+              style={{ 
+                display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '10px', fontSize: '12px', fontWeight: 700,
+                background: 'rgba(16, 185, 129, 0.08)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.2)'
+              }}
+              title="Exportar saldos a Excel (.xlsx)"
+              disabled={saldosFiltrados.length === 0}
+            >
+              <Download size={14} /> Exportar .xlsx
+            </button>
           </div>
 
           <div className="table-responsive" style={{ overflowX: 'auto' }}>
@@ -1767,6 +1860,26 @@ export default function Contaduria() {
                 >
                   <Plus size={16} /> Imputar Cobro
                 </button>
+
+                <button 
+                  onClick={() => {
+                    try {
+                      exportExtractoXLSX(movimientos, selectedGrupo, titularSeleccionadoInfo?.nombre);
+                      addToast('Extracto exportado exitosamente', 'success');
+                    } catch (err) {
+                      addToast('Error al exportar: ' + err.message, 'error');
+                    }
+                  }}
+                  className="air-btn"
+                  style={{ 
+                    display: 'flex', alignItems: 'center', gap: '6px', padding: '12px 16px', borderRadius: '12px', fontWeight: 700, fontSize: '13px',
+                    background: 'rgba(16, 185, 129, 0.08)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.2)'
+                  }}
+                  title="Exportar extracto a Excel (.xlsx)"
+                  disabled={movimientos.length === 0}
+                >
+                  <Download size={14} /> Exportar .xlsx
+                </button>
               </div>
             </div>
           </div>
@@ -1888,6 +2001,26 @@ export default function Contaduria() {
                   </option>
                 ))}
               </select>
+
+              <button 
+                onClick={() => {
+                  try {
+                    exportLineasXLSX(lineasGrupo, selectedGrupo, lineasPeriodoFiltro);
+                    addToast('Líneas exportadas exitosamente', 'success');
+                  } catch (err) {
+                    addToast('Error al exportar: ' + err.message, 'error');
+                  }
+                }}
+                className="air-btn"
+                style={{ 
+                  display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', borderRadius: '10px', fontSize: '12px', fontWeight: 700,
+                  background: 'rgba(16, 185, 129, 0.08)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.2)'
+                }}
+                title="Exportar líneas a Excel (.xlsx)"
+                disabled={lineasGrupo.length === 0}
+              >
+                <Download size={14} /> Exportar .xlsx
+              </button>
             </div>
           </div>
 
@@ -2253,7 +2386,7 @@ export default function Contaduria() {
       <ComprobanteCobroModal 
         isOpen={comprobanteModalOpen}
         onClose={() => setComprobanteModalOpen(false)}
-        data={comprobanteData}
+        cobroData={comprobanteData}
       />
 
     </div>
