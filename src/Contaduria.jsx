@@ -2006,9 +2006,9 @@ export default function Contaduria() {
                             <button
                               onClick={() => handleOpenCobroModal(null, row.numero_grupo)}
                               className="air-btn-primary"
-                              style={{ padding: '6px 12px', fontSize: '11px', fontWeight: 800, borderRadius: '8px' }}
+                              style={{ padding: '6px 12px', fontSize: '11px', fontWeight: 800, borderRadius: '8px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                             >
-                              Cobrar
+                              <DollarSign size={13} /> Cobrar
                             </button>
                           </div>
                         </td>
