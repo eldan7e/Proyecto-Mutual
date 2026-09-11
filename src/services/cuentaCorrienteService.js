@@ -276,7 +276,8 @@ export async function registrarCobroCuenta({
   observaciones,
   fecha = new Date().toISOString().slice(0, 10),
   periodo = null,
-  imputaciones = []
+  imputaciones = [],
+  numero_linea = null
 }) {
   const monto = parseFloat(importe);
   if (isNaN(monto) || monto <= 0) throw new Error('El importe ingresado es inválido.');
@@ -345,6 +346,7 @@ export async function registrarCobroCuenta({
     importe: -monto, // Pagos siempre negativos
     tipo: 'PAGO',
     medio_pago,
+    numero_linea: numero_linea || null,
     observaciones: observaciones || `Pago registrado vía web - Ref: ${medio_pago}`,
     origen: 'REGISTRO_WEB_CUENTA_CORRIENTE',
     periodo: periodo || null,

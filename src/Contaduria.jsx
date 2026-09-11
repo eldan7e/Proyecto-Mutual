@@ -69,6 +69,7 @@ export default function Contaduria() {
   // Modal de cobro FIFO / Factura Específica
   const [cobroModalOpen, setCobroModalOpen] = useState(false);
   const [targetFactura, setTargetFactura] = useState(null); // Si se cobra una factura en particular
+  const [targetLinea, setTargetLinea] = useState(null); // Si se cobra una línea móvil en particular
   const [montoCobro, setMontoCobro] = useState('');
   const [medioPago, setMedioPago] = useState('EFECTIVO EN MUT');
   const [observacionesCobro, setObservacionesCobro] = useState('');
@@ -465,6 +466,7 @@ export default function Contaduria() {
     const gNum = grupoNum || target?.numero_grupo || null;
     setSelectedGrupo(gNum);
     setTargetFactura(target);
+    setTargetLinea(null);
     // Cargar notas internas del grupo al abrir el modal
     loadNotasGrupo(gNum);
 
@@ -498,6 +500,7 @@ export default function Contaduria() {
     const gNum = grupoNum || targetLiq?.numero_grupo || null;
     setSelectedGrupo(gNum);
     setTargetFactura(targetLiq);
+    setTargetLinea(linea.numero_linea);
     loadNotasGrupo(gNum);
 
     const val = Number(linea.total_linea || 0);
@@ -645,7 +648,8 @@ export default function Contaduria() {
         observaciones: obsFinal,
         fecha: fechaCobro,
         periodo: targetFactura?.periodo || null,
-        imputaciones: resultadoFifo?.desgloses || []
+        imputaciones: resultadoFifo?.desgloses || [],
+        numero_linea: targetLinea || null
       });
 
       addToast(`Cobro de ${formatMoney(val)} registrado exitosamente.`, 'success');
@@ -675,9 +679,19 @@ export default function Contaduria() {
         }])
       });
 
+      // 3. Limpiar cache de lineas del grupo para forzar recarga en vivo de pagos
+      const gNumRef = selectedGrupo;
+      const perRef = targetFactura?.periodo || 'ALL';
+      setExpandedGrupoLineasCache(prev => {
+        const next = { ...prev };
+        delete next[`${gNumRef}_${perRef}`];
+        return next;
+      });
+
       // 4. Cerrar Modal de Cobro y Abrir Recibo Oficial
       setCobroModalOpen(false);
       setTargetFactura(null);
+      setTargetLinea(null);
       setMontoCobro('');
       setEfectivoEntregado('');
       setObservacionesCobro('');
@@ -872,11 +886,12 @@ export default function Contaduria() {
     facturasFiltradas.forEach(liq => {
       const groupKey = `${liq.periodo}-${liq.numero_grupo}`;
       if (!map.has(groupKey)) {
+        const titularActual = gruposList.find(gl => gl.numero_grupo === liq.numero_grupo);
         map.set(groupKey, {
           key: groupKey,
           periodo: liq.periodo,
           numero_grupo: liq.numero_grupo,
-          socio: liq.socios,
+          socio: (titularActual && titularActual.nombre) ? { nombre_completo: titularActual.nombre } : liq.socios,
           socio_id: liq.socio_id,
           total_lineas: 0,
           monto_total_facturado: 0,
@@ -907,7 +922,7 @@ export default function Contaduria() {
         isMultiProvider: g.items.length > 1
       };
     });
-  }, [facturasFiltradas]);
+  }, [facturasFiltradas, gruposList]);
 
   const toggleExpandGrupo = useCallback(async (key, numeroGrupo, periodo) => {
     setExpandedGruposFacturas(prev => {
@@ -956,9 +971,28 @@ export default function Contaduria() {
           }
         }
 
+        let pagosData = [];
+        if (periodo) {
+          const { data: pData } = await supabase
+            .from('movimientos_cuenta')
+            .select('numero_linea, importe, observaciones')
+            .eq('numero_grupo', numeroGrupo)
+            .eq('periodo', periodo)
+            .eq('tipo', 'PAGO');
+          pagosData = pData || [];
+        }
+
         const enriched = activas.map(l => {
           const b = billingMap[l.numero_linea];
           const rawLineVal = b ? parseFloat(b.total_linea) : (parseFloat(l.planes_abonos?.precio) || 0);
+
+          // Verificar si esta línea fue cobrada específicamente
+          const estaAbonada = pagosData.some(p => {
+            if (p.numero_linea && p.numero_linea === l.numero_linea) return true;
+            if (p.observaciones && p.observaciones.includes(l.numero_linea)) return true;
+            return false;
+          });
+
           return {
             numero_linea: l.numero_linea,
             socio_nombre: b?.nombre_completo || l.socios?.nombre_completo || 'Sin socio asignado',
@@ -966,7 +1000,8 @@ export default function Contaduria() {
             nombre_plan: b?.nombre_plan || l.planes_abonos?.nombre_plan || 'Plan Estándar',
             total_linea: rawLineVal,
             costo_abono_real: b ? parseFloat(b.costo_abono_real) : (parseFloat(l.planes_abonos?.precio) || 0),
-            excedentes: b ? parseFloat(b.excedentes) : 0
+            excedentes: b ? parseFloat(b.excedentes) : 0,
+            esta_abonada: estaAbonada
           };
         });
 
@@ -1928,7 +1963,7 @@ export default function Contaduria() {
                                                     {formatMoney(linea.total_linea)}
                                                   </td>
                                                   <td style={{ padding: '10px 18px', textAlign: 'center' }}>
-                                                    {!subIsCobrada ? (
+                                                    {!(subIsCobrada || linea.esta_abonada) ? (
                                                       <button
                                                         type="button"
                                                         onClick={(e) => {
@@ -1954,8 +1989,19 @@ export default function Contaduria() {
                                                         <DollarSign size={11} /> Cobrar esta línea
                                                       </button>
                                                     ) : (
-                                                      <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 700 }}>
-                                                        ✓ Abonada
+                                                      <span style={{
+                                                        fontSize: '11px',
+                                                        color: '#059669',
+                                                        fontWeight: 800,
+                                                        padding: '3px 8px',
+                                                        borderRadius: '6px',
+                                                        background: 'rgba(16,185,129,0.12)',
+                                                        border: '1px solid rgba(16,185,129,0.25)',
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: '4px'
+                                                      }}>
+                                                        <Check size={11} /> Abonada
                                                       </span>
                                                     )}
                                                   </td>

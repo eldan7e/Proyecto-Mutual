@@ -162,4 +162,12 @@ export async function setGrupoTitular(numeroGrupo, socioId) {
       
     if (insertErr) throw insertErr;
   }
+
+  // 3. Sincronizar también liquidaciones_grupos para que el cambio de titular se refleje en Facturas y Contaduría
+  try {
+    await supabase
+      .from('liquidaciones_grupos')
+      .update({ socio_id: socioId })
+      .eq('numero_grupo', numeroGrupo);
+  } catch { /* no bloqueante */ }
 }
