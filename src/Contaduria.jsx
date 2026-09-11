@@ -787,18 +787,62 @@ export default function Contaduria() {
     e.preventDefault();
     if (!grupoEditData || !editTitularNombre.trim()) return;
 
+    const nuevoNombre = editTitularNombre.trim();
+    const gNum = grupoEditData.numero_grupo;
     setSavingGrupoEdit(true);
+
     try {
+      // 1. Actualizar alias del grupo en la tabla grupos
+      await supabase
+        .from('grupos')
+        .update({ alias_grupo: nuevoNombre })
+        .eq('numero_grupo', gNum);
+
+      // 2. Actualizar nombre en movimientos_cuenta
       await supabase
         .from('movimientos_cuenta')
-        .update({ nombre: editTitularNombre.trim() })
-        .eq('numero_grupo', grupoEditData.numero_grupo);
+        .update({ nombre: nuevoNombre })
+        .eq('numero_grupo', gNum);
 
-      addToast(`Nombre del Grupo ${grupoEditData.numero_grupo} actualizado a "${editTitularNombre.trim()}"`, 'success');
+      // 3. Buscar si coincide con algún socio del grupo para designarlo titular en grupo_socio
+      const { data: sociosGrupo } = await supabase
+        .from('grupo_socio')
+        .select('socio_id, socios:socio_id(nombre_completo)')
+        .eq('numero_grupo', gNum);
+
+      const socioMatch = (sociosGrupo || []).find(s => {
+        const nom = (s.socios?.nombre_completo || '').toLowerCase();
+        const busq = nuevoNombre.toLowerCase();
+        return nom.includes(busq) || busq.includes(nom);
+      });
+
+      if (socioMatch) {
+        await supabase
+          .from('grupo_socio')
+          .update({ es_titular: false })
+          .eq('numero_grupo', gNum);
+
+        await supabase
+          .from('grupo_socio')
+          .update({ es_titular: true })
+          .eq('numero_grupo', gNum)
+          .eq('socio_id', socioMatch.socio_id);
+
+        await supabase
+          .from('liquidaciones_grupos')
+          .update({ socio_id: socioMatch.socio_id })
+          .eq('numero_grupo', gNum);
+      }
+
+      // 4. Actualizar inmediatamente el estado en memoria para reflejo instantáneo en la UI
+      setGruposList(prev => prev.map(g => g.numero_grupo === gNum ? { ...g, nombre: nuevoNombre } : g));
+      setSaldosData(prev => prev.map(s => s.numero_grupo === gNum ? { ...s, nombre: nuevoNombre } : s));
+
+      addToast(`Nombre del Grupo ${gNum} actualizado a "${nuevoNombre}"`, 'success');
       setEditGrupoModalOpen(false);
-      loadInicial();
-      loadSaldosGeneral();
-      if (selectedGrupo) loadMovimientos(selectedGrupo);
+      await loadInicial();
+      await loadSaldosGeneral();
+      if (selectedGrupo) await loadMovimientos(selectedGrupo);
     } catch (err) {
       addToast('Error al actualizar nombre: ' + err.message, 'error');
     } finally {

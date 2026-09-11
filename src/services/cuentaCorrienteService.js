@@ -54,7 +54,8 @@ export async function fetchGruposUnicos() {
   const [
     { data: gsData },
     { data: lineasData },
-    { data: mcData }
+    { data: mcData },
+    { data: grpData }
   ] = await Promise.all([
     supabase
       .from('grupo_socio')
@@ -67,6 +68,10 @@ export async function fetchGruposUnicos() {
     supabase
       .from('movimientos_cuenta')
       .select('numero_grupo, nombre')
+      .not('numero_grupo', 'is', null),
+    supabase
+      .from('grupos')
+      .select('numero_grupo, alias_grupo')
       .not('numero_grupo', 'is', null)
   ]);
 
@@ -106,6 +111,17 @@ export async function fetchGruposUnicos() {
           nombre: row.nombre || `Grupo ${g}`
         };
       }
+    }
+  });
+
+  // 4. Si el grupo tiene alias_grupo explícito en tabla grupos, usarlo como máxima prioridad
+  (grpData || []).forEach(row => {
+    const g = row.numero_grupo;
+    if (g && row.alias_grupo && row.alias_grupo.trim()) {
+      mapa[g] = {
+        numero_grupo: g,
+        nombre: row.alias_grupo.trim()
+      };
     }
   });
 
