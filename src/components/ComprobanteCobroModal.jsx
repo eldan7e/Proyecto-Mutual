@@ -3,6 +3,16 @@ import Modal from './Modal';
 import { Printer, Send, ShieldCheck, User, Calendar, CreditCard, DollarSign, Building, Coins, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { formatMoney, formatFecha } from '../utils/cuentaCorrienteEngine';
 
+function normalizeMedioPago(val) {
+  if (!val) return 'EFECTIVO EN MUT';
+  const u = String(val).toUpperCase();
+  if (u.includes('CREDICOOP')) return 'TRANSFERENCIA A CREDICOOP';
+  if (u.includes('NACION') || u.includes('NACIÓN')) return 'TRANSFERENCIA A NACION';
+  if (u.includes('TRANSF') || u.includes('BANCO') || u.includes('DEBITO') || u.includes('MERCADO') || u.includes('CHEQUE')) return 'TRANSFERENCIA A NACION';
+  if (u.includes('EFECT') || u.includes('MUT') || u.includes('CAJA')) return 'EFECTIVO EN MUT';
+  return val;
+}
+
 export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
   if (!cobroData) return null;
 
@@ -12,7 +22,7 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
     numero_grupo,
     nombre_titular,
     monto_cobrado,
-    medio_pago = 'EFECTIVO',
+    medio_pago = 'EFECTIVO EN MUT',
     observaciones,
     desgloses = [],
     saldo_restante = 0,
@@ -23,10 +33,10 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
     saldo_pendiente_cambio = 0
   } = cobroData;
 
-  const [currentMedioPago, setCurrentMedioPago] = useState(medio_pago || 'EFECTIVO');
+  const [currentMedioPago, setCurrentMedioPago] = useState(() => normalizeMedioPago(medio_pago));
 
   useEffect(() => {
-    setCurrentMedioPago(medio_pago || 'EFECTIVO');
+    setCurrentMedioPago(normalizeMedioPago(medio_pago));
   }, [medio_pago]);
 
   function handleImprimir() {
@@ -151,11 +161,9 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
             className="form-input"
             style={{ padding: '4px 10px', height: '34px', fontSize: '12px', fontWeight: 800, width: 'auto', background: 'var(--surface)' }}
           >
-            <option value="EFECTIVO">Efectivo en Oficina</option>
-            <option value="TRANSFERENCIA">Transferencia Bancaria</option>
-            <option value="DEBITO">Débito Automático</option>
-            <option value="MERCADOPAGO">MercadoPago / QR</option>
-            <option value="CHEQUE">Cheque</option>
+            <option value="EFECTIVO EN MUT">EFECTIVO EN MUT</option>
+            <option value="TRANSFERENCIA A NACION">TRANSFERENCIA A NACION</option>
+            <option value="TRANSFERENCIA A CREDICOOP">TRANSFERENCIA A CREDICOOP</option>
           </select>
         </div>
         <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>

@@ -69,7 +69,7 @@ export default function Contaduria() {
   const [cobroModalOpen, setCobroModalOpen] = useState(false);
   const [targetFactura, setTargetFactura] = useState(null); // Si se cobra una factura en particular
   const [montoCobro, setMontoCobro] = useState('');
-  const [medioPago, setMedioPago] = useState('EFECTIVO');
+  const [medioPago, setMedioPago] = useState('EFECTIVO EN MUT');
   const [observacionesCobro, setObservacionesCobro] = useState('');
   const [fechaCobro, setFechaCobro] = useState(getTodayISO());
   const [procesandoCobro, setProcesandoCobro] = useState(false);
@@ -486,7 +486,7 @@ export default function Contaduria() {
     }
 
     setManejoCambio('saldo_favor');
-    setMedioPago('TRANSFERENCIA');
+    setMedioPago('EFECTIVO EN MUT');
 
     setFechaCobro(getTodayISO());
     setCobroModalOpen(true);
@@ -525,7 +525,7 @@ export default function Contaduria() {
       numero_grupo: group.numero_grupo,
       nombre_titular: titular,
       monto_cobrado: montoCobrado,
-      medio_pago: 'EFECTIVO / TRANSFERENCIA',
+      medio_pago: 'EFECTIVO EN MUT',
       observaciones: `Comprobante Oficial de Pago - Liquidación Período ${group.periodo}`,
       monto_factura: Number(group.monto_total_facturado || montoCobrado),
       desgloses: desgloses.length > 0 ? desgloses : [{
@@ -550,7 +550,7 @@ export default function Contaduria() {
       numero_grupo: selectedGrupo,
       nombre_titular: titular,
       monto_cobrado: monto,
-      medio_pago: m.medio_pago || 'TRANSFERENCIA BANCARIA',
+      medio_pago: m.medio_pago || 'EFECTIVO EN MUT',
       observaciones: m.observaciones || `Cobro acreditado e imputado en cuenta corriente`,
       desgloses: [{
         observaciones: m.observaciones || `Pago Período ${m.periodo || 'General'} (${m.empresa || 'MUTUAL'})`,
@@ -569,7 +569,7 @@ export default function Contaduria() {
       return;
     }
 
-    const rawVal = (medioPago === 'EFECTIVO') ? efectivoEntregado : montoCobro;
+    const rawVal = montoCobro;
     if (!rawVal || isNaN(parseFloat(rawVal))) {
       setResultadoFifo(null);
       return;
@@ -602,49 +602,10 @@ export default function Contaduria() {
   async function handleConfirmarCobro(e) {
     e.preventDefault();
 
-    const isEfectivo = (medioPago === 'EFECTIVO');
-    let val = 0;
-    let saldoAFavorCambio = 0;
-    let bonificacionRedondeo = 0;
-    let saldoPendienteCambio = 0;
-
-    if (isEfectivo) {
-      const entregado = parseFloat(efectivoEntregado);
-      if (isNaN(entregado) || entregado <= 0) {
-        addToast('Ingrese el importe de efectivo entregado por el socio', 'warning');
-        return;
-      }
-
-      const dif = Math.round((entregado - montoTeoricoCobro) * 100) / 100;
-
-      if (dif > 0.009) {
-        if (manejoCambio === 'saldo_favor') {
-          // El socio entrega de más por falta de cambio: se toma el total recibido y la diferencia queda a su favor
-          val = entregado;
-          saldoAFavorCambio = dif;
-        } else {
-          // Se entregó el vuelto exacto en mano
-          val = montoTeoricoCobro > 0 ? montoTeoricoCobro : entregado;
-        }
-      } else if (dif < -0.009) {
-        if (manejoCambio === 'bonificar') {
-          // El socio entrega de menos por falta de cambio chico: la mutual bonifica la diferencia
-          val = entregado;
-          bonificacionRedondeo = Math.abs(dif);
-        } else {
-          // Se deja como saldo pendiente en cuenta corriente
-          val = entregado;
-          saldoPendienteCambio = Math.abs(dif);
-        }
-      } else {
-        val = entregado;
-      }
-    } else {
-      val = parseFloat(montoCobro);
-      if (isNaN(val) || val <= 0) {
-        addToast('Ingrese un importe de cobro válido', 'warning');
-        return;
-      }
+    const val = parseFloat(montoCobro);
+    if (isNaN(val) || val <= 0) {
+      addToast('Ingrese un importe de cobro válido', 'warning');
+      return;
     }
 
     const titularInfo = gruposList.find(g => g.numero_grupo === selectedGrupo);
@@ -654,15 +615,6 @@ export default function Contaduria() {
       let obsFinal = observacionesCobro.trim();
       if (!obsFinal) {
         obsFinal = `Cobro registrado en Contaduría - ${medioPago}`;
-      }
-      if (isEfectivo) {
-        if (saldoAFavorCambio > 0) {
-          obsFinal += ` (Efectivo en caja: ${formatMoney(parseFloat(efectivoEntregado))} | Saldo a favor por falta de cambio: +${formatMoney(saldoAFavorCambio)})`;
-        } else if (bonificacionRedondeo > 0) {
-          obsFinal += ` (Efectivo en caja: ${formatMoney(parseFloat(efectivoEntregado))} | Bonificación redondeo: ${formatMoney(bonificacionRedondeo)})`;
-        } else if (saldoPendienteCambio > 0) {
-          obsFinal += ` (Efectivo en caja: ${formatMoney(parseFloat(efectivoEntregado))} | Pendiente por falta de cambio: ${formatMoney(saldoPendienteCambio)})`;
-        }
       }
 
       // 1. Registrar el cobro en cuenta corriente
@@ -677,54 +629,9 @@ export default function Contaduria() {
         imputaciones: resultadoFifo?.desgloses || []
       });
 
-      // 2. Si hubo bonificación por redondeo por falta de cambio en oficina,
-      // registrar la Nota de Crédito correspondiente y marcar la factura como 100% ABONADA
-      if (bonificacionRedondeo > 0) {
-        const { data: ultData } = await supabase
-          .from('movimientos_cuenta')
-          .select('saldo_capital')
-          .eq('numero_grupo', selectedGrupo)
-          .order('fecha', { ascending: false })
-          .order('id', { ascending: false })
-          .limit(1);
-        const saldoActual = ultData && ultData.length > 0 ? Number(ultData[0].saldo_capital || 0) : 0;
-        const nuevoSaldo = Math.round((saldoActual - bonificacionRedondeo) * 100) / 100;
-
-        await supabase.from('movimientos_cuenta').insert({
-          fecha: fechaCobro,
-          numero_grupo: selectedGrupo,
-          nombre: titularInfo?.nombre || `Grupo ${selectedGrupo}`,
-          importe: -bonificacionRedondeo,
-          tipo: 'NOTA_CREDITO',
-          medio_pago: 'BONIFICACION_REDONDEO',
-          observaciones: `Bonificación por falta de cambio en oficina - Período ${targetFactura?.periodo || ''}`,
-          origen: 'CONTADURIA_CAJA',
-          saldo_capital_anterior: saldoActual,
-          saldo_capital: nuevoSaldo,
-          saldo_final: nuevoSaldo
-        });
-
-        // Asegurar que la liquidación quede en estado ABONADO
-        if (targetFactura) {
-          const items = targetFactura.items || [targetFactura];
-          for (const item of items) {
-            if (item.liquidacion_id) {
-              await supabase
-                .from('liquidaciones_grupos')
-                .update({
-                  monto_abonado: Number(item.monto_total_facturado || 0),
-                  estado_pago: 'ABONADO',
-                  updated_at: new Date().toISOString()
-                })
-                .eq('liquidacion_id', item.liquidacion_id);
-            }
-          }
-        }
-      }
-
       addToast(`Cobro de ${formatMoney(val)} registrado exitosamente.`, 'success');
 
-      // 3. Preparar los datos del Comprobante / Recibo Oficial
+      // 2. Preparar los datos del Comprobante / Recibo Oficial
       const reciboNum = `REC-${targetFactura?.periodo || new Date().toISOString().slice(0, 7)}-${selectedGrupo}-${Math.floor(1000 + Math.random() * 9000)}`;
       setComprobanteData({
         reciboNumero: reciboNum,
@@ -732,16 +639,12 @@ export default function Contaduria() {
         numero_grupo: selectedGrupo,
         nombre_titular: titularInfo?.nombre || `Grupo ${selectedGrupo}`,
         monto_cobrado: val,
-        medio_pago: isEfectivo ? 'EFECTIVO' : medioPago,
+        medio_pago: medioPago,
         observaciones: obsFinal,
         interesPagado: resultadoFifo?.totalInteresCancelado || 0,
         capitalPagado: val,
-        remanenteSaldoAFavor: saldoAFavorCambio > 0 ? saldoAFavorCambio : (resultadoFifo?.remanenteSaldoAFavor || 0),
-        monto_factura: isEfectivo ? montoTeoricoCobro : (targetFactura?.monto_total_facturado || val),
-        efectivo_entregado: isEfectivo ? parseFloat(efectivoEntregado) : null,
-        saldo_favor_cambio: saldoAFavorCambio,
-        bonificacion_redondeo: bonificacionRedondeo,
-        saldo_pendiente_cambio: saldoPendienteCambio,
+        remanenteSaldoAFavor: resultadoFifo?.remanenteSaldoAFavor || 0,
+        monto_factura: targetFactura?.monto_total_facturado || val,
         desgloses: targetFactura ? [{
           observaciones: `Facturación Período ${targetFactura.periodo} (${targetFactura.proveedores?.nombre || 'MUTUAL'})`,
           pagoAplicadoCapital: val,
@@ -2527,11 +2430,9 @@ export default function Contaduria() {
                 className="form-input"
                 style={{ fontWeight: 800 }}
               >
-                <option value="TRANSFERENCIA">🏦 Transferencia Bancaria</option>
-                <option value="EFECTIVO">💵 Efectivo (en Oficina)</option>
-                <option value="DEBITO">💳 Débito Automático</option>
-                <option value="MERCADOPAGO">📱 MercadoPago / QR</option>
-                <option value="CHEQUE">📝 Cheque</option>
+                <option value="EFECTIVO EN MUT">💵 EFECTIVO EN MUT</option>
+                <option value="TRANSFERENCIA A NACION">🏛️ TRANSFERENCIA A NACION</option>
+                <option value="TRANSFERENCIA A CREDICOOP">🏦 TRANSFERENCIA A CREDICOOP</option>
               </select>
             </div>
             <div>
