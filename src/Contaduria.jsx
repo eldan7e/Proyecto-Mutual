@@ -35,7 +35,9 @@ export default function Contaduria() {
   const [estadoFilter, setEstadoFilter] = useState('TODAS'); // 'TODAS' | 'IMPAGAS' | 'PARCIALES' | 'COBRADAS'
   const [operadoraFilter, setOperadoraFilter] = useState('TODAS'); // 'TODAS' | 'CLARO' | 'MOVISTAR' | 'PERSONAL'
   const [expandedGruposFacturas, setExpandedGruposFacturas] = useState(new Set());
-  
+  // Cache de líneas por grupo expandido { [numero_grupo]: lineas[] }
+  const [expandedGrupoLineasCache, setExpandedGrupoLineasCache] = useState({});
+
   // Listas de Datos
   const [gruposList, setGruposList] = useState([]);
   const [selectedGrupo, setSelectedGrupo] = useState(null);
@@ -985,14 +987,27 @@ export default function Contaduria() {
     });
   }, [facturasFiltradas]);
 
-  const toggleExpandGrupo = (key) => {
+  const toggleExpandGrupo = useCallback(async (key, numeroGrupo, periodo) => {
     setExpandedGruposFacturas(prev => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(key)) { next.delete(key); return next; }
+      next.add(key);
       return next;
     });
-  };
+    // Cargar líneas del grupo si no están en caché
+    if (!expandedGrupoLineasCache[numeroGrupo] && numeroGrupo) {
+      try {
+        const { data } = await supabase
+          .from('lineas')
+          .select('numero_linea, proveedor_id, proveedores:proveedor_id(nombre), planes_abonos:plan_id(nombre_plan)')
+          .eq('numero_grupo', numeroGrupo)
+          .not('estado', 'eq', 'BAJA');
+        if (data && data.length > 0) {
+          setExpandedGrupoLineasCache(prev => ({ ...prev, [numeroGrupo]: data }));
+        }
+      } catch { /* silencioso */ }
+    }
+  }, [expandedGrupoLineasCache]);
 
   const totalPagesFacturas = Math.ceil(facturasAgrupadas.length / pageSizeFacturas) || 1;
 
@@ -1556,20 +1571,20 @@ export default function Contaduria() {
                     return (
                       <React.Fragment key={group.key}>
                         {/* FILA PRINCIPAL CONSOLIDADA */}
-                        <tr 
-                          onClick={() => group.isMultiProvider && toggleExpandGrupo(group.key)}
-                          style={{ 
-                            borderBottom: isExpanded ? 'none' : '1px solid var(--border-light)', 
+                        <tr
+                          onClick={() => toggleExpandGrupo(group.key, group.numero_grupo, group.periodo)}
+                          style={{
+                            borderBottom: isExpanded ? 'none' : '1px solid var(--border-light)',
                             background: selectedGrupo === group.numero_grupo ? 'rgba(16,185,129,0.03)' : isExpanded ? 'rgba(255,255,255,0.015)' : 'transparent',
-                            cursor: group.isMultiProvider ? 'pointer' : 'default',
+                            cursor: 'pointer',
                             transition: 'all 0.15s ease'
                           }}
                         >
-                          {/* 1. PERÍODO / ID */}
+                          {/* 1. PERÍODO */}
                           <td style={{ padding: '14px 16px', fontWeight: 800, whiteSpace: 'nowrap' }}>
                             <div style={{ color: 'var(--text-primary)', fontSize: '13px' }}>{group.periodo}</div>
                             <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 500, marginTop: '2px' }}>
-                              {group.isMultiProvider ? `${group.items.length} liquidaciones` : `#LIQ-${group.items[0]?.liquidacion_id}`}
+                              {group.isMultiProvider ? `${group.items.length} liquidaciones` : `${group.total_lineas} ${group.total_lineas === 1 ? 'línea' : 'líneas'}`}
                             </div>
                           </td>
 
@@ -1579,19 +1594,19 @@ export default function Contaduria() {
                               {group.socio?.nombre_completo || `Grupo ${group.numero_grupo}`}
                             </div>
                             <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                              <span>Grupo #{group.numero_grupo} · {group.total_lineas} {group.total_lineas === 1 ? 'línea' : 'líneas'}</span>
+                              <span>Grupo #{group.numero_grupo}</span>
                               {/* Mostrar teléfono directamente si hay 1 sola línea */}
                               {group.total_lineas === 1 && group.items[0]?.numero_linea && (
                                 <span style={{ color: 'var(--accent)', fontWeight: 800, fontSize: '11px', fontFamily: 'monospace' }}>
                                   📞 {group.items[0].numero_linea}
                                 </span>
                               )}
-                              {/* Botón desglose para todos los grupos */}
+                              {/* Botón desglose */}
                               <button
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  toggleExpandGrupo(group.key);
+                                  toggleExpandGrupo(group.key, group.numero_grupo, group.periodo);
                                 }}
                                 style={{
                                   background: 'transparent',
@@ -1787,15 +1802,19 @@ export default function Contaduria() {
                                   const opColor = isClaro ? { bg: 'rgba(239,68,68,0.1)', text: '#dc2626', border: 'rgba(239,68,68,0.25)' }
                                                : isMovistar ? { bg: 'rgba(16,185,129,0.1)', text: '#059669', border: 'rgba(16,185,129,0.25)' }
                                                : { bg: 'rgba(59,130,246,0.1)', text: '#2563eb', border: 'rgba(59,130,246,0.25)' };
-                                  const numLineas = subLiq.total_lineas_lote || 1;
-                                  const numTel = subLiq.numero_linea;
+
+                                  // Líneas del caché filtradas por esta operadora
+                                  const lineasCache = expandedGrupoLineasCache[group.numero_grupo] || [];
+                                  const lineasDeEstaOp = lineasCache.filter(l =>
+                                    (l.proveedores?.nombre || '').toUpperCase() === subOp.toUpperCase()
+                                  );
 
                                   return (
                                     <div
                                       key={subLiq.liquidacion_id}
                                       style={{
                                         display: 'flex',
-                                        alignItems: 'center',
+                                        alignItems: 'flex-start',
                                         justifyContent: 'space-between',
                                         padding: '12px 16px',
                                         borderBottom: idx < group.items.length - 1 ? '1px solid var(--border-light)' : 'none',
@@ -1804,7 +1823,7 @@ export default function Contaduria() {
                                       }}
                                     >
                                       {/* LEFT: operadora + líneas */}
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: '200px' }}>
+                                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', minWidth: '220px', flex: 1 }}>
                                         <span style={{
                                           padding: '4px 10px',
                                           borderRadius: '6px',
@@ -1814,18 +1833,34 @@ export default function Contaduria() {
                                           color: opColor.text,
                                           border: `1px solid ${opColor.border}`,
                                           letterSpacing: '0.3px',
-                                          flexShrink: 0
+                                          flexShrink: 0,
+                                          marginTop: '2px'
                                         }}>
                                           {subOp}
                                         </span>
-                                        <div>
-                                          <div style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                                            {numLineas === 1 && numTel
-                                              ? <span style={{ fontFamily: 'monospace', color: 'var(--accent)', fontWeight: 900 }}>📞 {numTel}</span>
-                                              : `${numLineas} ${numLineas === 1 ? 'línea' : 'líneas'}`
-                                            }
-                                          </div>
-                                          <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)', marginTop: '1px' }}>
+                                        <div style={{ flex: 1 }}>
+                                          {/* Mostrar líneas individuales si están en caché */}
+                                          {lineasDeEstaOp.length > 0 ? (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                              {lineasDeEstaOp.map(l => (
+                                                <div key={l.numero_linea} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                  <span style={{ fontFamily: 'monospace', fontSize: '12.5px', fontWeight: 800, color: 'var(--accent)' }}>
+                                                    📞 {l.numero_linea}
+                                                  </span>
+                                                  {l.planes_abonos?.nombre_plan && (
+                                                    <span style={{ fontSize: '10.5px', color: 'var(--text-secondary)', background: 'var(--bg-tertiary, #f1f5f9)', border: '1px solid var(--border-light)', borderRadius: '4px', padding: '1px 6px' }}>
+                                                      {l.planes_abonos.nombre_plan}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              ))}
+                                            </div>
+                                          ) : (
+                                            <div style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                                              {subLiq.total_lineas_lote || 1} {(subLiq.total_lineas_lote || 1) === 1 ? 'línea' : 'líneas'}
+                                            </div>
+                                          )}
+                                          <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)', marginTop: '3px' }}>
                                             LIQ-{subLiq.liquidacion_id}
                                           </div>
                                         </div>
@@ -1859,7 +1894,7 @@ export default function Contaduria() {
                                         </span>
                                         {!subIsCobrada && (
                                           <button
-                                            onClick={() => handleOpenCobroModal(subLiq, group.numero_grupo)}
+                                            onClick={(e) => { e.stopPropagation(); handleOpenCobroModal(subLiq, group.numero_grupo); }}
                                             className="air-btn-primary"
                                             style={{
                                               padding: '6px 12px',
