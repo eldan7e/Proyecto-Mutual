@@ -4,7 +4,7 @@ import {
   Loader2, RefreshCw, Plus, CheckCircle2, ChevronDown, ChevronUp, 
   Download, Settings, Building, 
   FileText, Eye, Edit3, X, Receipt,
-  AlertCircle, Phone, Printer, Coins, Banknote, ArrowRightLeft, Check
+  AlertCircle, Phone, Printer, Coins, Banknote, ArrowRightLeft, Check, CreditCard
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import Modal from './components/Modal';
