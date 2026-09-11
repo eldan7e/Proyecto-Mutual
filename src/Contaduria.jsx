@@ -94,6 +94,10 @@ export default function Contaduria() {
   const [editTitularNombre, setEditTitularNombre] = useState('');
   const [savingGrupoEdit, setSavingGrupoEdit] = useState(false);
 
+  // Notas internas del grupo (para empleados, persistentes en Supabase)
+  const [notasGrupo, setNotasGrupo] = useState('');
+  const [savingNotas, setSavingNotas] = useState(false);
+
   // Información del titular del grupo seleccionado
   const titularSeleccionadoInfo = useMemo(() => {
     if (!selectedGrupo) return null;
@@ -207,7 +211,7 @@ export default function Contaduria() {
       while (true) {
         const { data: liqsData, error: liqsError } = await supabase
           .from('liquidaciones_grupos')
-          .select('*, proveedores(nombre), socios(nombre_completo)')
+          .select('*, proveedores(nombre), socios(nombre_completo), numero_linea')
           .range(from, from + pageSize - 1)
           .order('periodo', { ascending: false })
           .order('numero_grupo', { ascending: true });
@@ -232,6 +236,7 @@ export default function Contaduria() {
           proveedores: l.proveedores || { nombre: 'MUTUAL' },
           socios: l.socios || { nombre_completo: l.nombre || `Grupo ${l.numero_grupo}` },
           total_lineas_lote: l.total_lineas_lote || 1,
+          numero_linea: l.numero_linea || null,
           origen: 'LIQUIDACION'
         }))
         .sort((a, b) => {
@@ -422,11 +427,43 @@ export default function Contaduria() {
     }
   }
 
+  // Cargar notas internas del grupo desde Supabase
+  async function loadNotasGrupo(numeroGrupo) {
+    if (!numeroGrupo) { setNotasGrupo(''); return; }
+    try {
+      const { data } = await supabase
+        .from('grupos')
+        .select('notas_internas')
+        .eq('numero_grupo', numeroGrupo)
+        .maybeSingle();
+      setNotasGrupo(data?.notas_internas || '');
+    } catch { setNotasGrupo(''); }
+  }
+
+  // Guardar notas internas del grupo
+  async function handleSaveNotasGrupo() {
+    if (!selectedGrupo) return;
+    setSavingNotas(true);
+    try {
+      await supabase
+        .from('grupos')
+        .update({ notas_internas: notasGrupo })
+        .eq('numero_grupo', selectedGrupo);
+      addToast('Nota interna guardada', 'success');
+    } catch (err) {
+      addToast('Error al guardar nota: ' + err.message, 'error');
+    } finally {
+      setSavingNotas(false);
+    }
+  }
+
   // Abrir Cobro para Factura Específica o Libre
   function handleOpenCobroModal(target = null, grupoNum = null) {
     const gNum = grupoNum || target?.numero_grupo || null;
     setSelectedGrupo(gNum);
     setTargetFactura(target);
+    // Cargar notas internas del grupo al abrir el modal
+    loadNotasGrupo(gNum);
 
     let saldoPend = 0;
     if (target) {
@@ -447,7 +484,8 @@ export default function Contaduria() {
     }
 
     setManejoCambio('saldo_favor');
-    setMedioPago('EFECTIVO');
+    setMedioPago('TRANSFERENCIA');
+
     setFechaCobro(getTodayISO());
     setCobroModalOpen(true);
   }
@@ -1540,32 +1578,37 @@ export default function Contaduria() {
                             <div style={{ fontWeight: 800, fontSize: '13.5px', color: 'var(--text-primary)' }}>
                               {group.socio?.nombre_completo || `Grupo ${group.numero_grupo}`}
                             </div>
-                            <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                               <span>Grupo #{group.numero_grupo} · {group.total_lineas} {group.total_lineas === 1 ? 'línea' : 'líneas'}</span>
-                              {group.isMultiProvider && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleExpandGrupo(group.key);
-                                  }}
-                                  style={{
-                                    background: 'transparent',
-                                    border: 'none',
-                                    color: 'var(--accent)',
-                                    cursor: 'pointer',
-                                    fontSize: '11.5px',
-                                    fontWeight: 700,
-                                    padding: '0',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '3px'
-                                  }}
-                                >
-                                  {isExpanded ? 'Ocultar' : 'Ver desglose'}
-                                  {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-                                </button>
+                              {/* Mostrar teléfono directamente si hay 1 sola línea */}
+                              {group.total_lineas === 1 && group.items[0]?.numero_linea && (
+                                <span style={{ color: 'var(--accent)', fontWeight: 800, fontSize: '11px', fontFamily: 'monospace' }}>
+                                  📞 {group.items[0].numero_linea}
+                                </span>
                               )}
+                              {/* Botón desglose para todos los grupos */}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleExpandGrupo(group.key);
+                                }}
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: 'var(--accent)',
+                                  cursor: 'pointer',
+                                  fontSize: '11.5px',
+                                  fontWeight: 700,
+                                  padding: '0',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px'
+                                }}
+                              >
+                                {isExpanded ? 'Ocultar' : 'Ver desglose'}
+                                {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                              </button>
                             </div>
                           </td>
 
@@ -1704,119 +1747,141 @@ export default function Contaduria() {
                           </td>
                         </tr>
 
-                        {/* PANEL DESPLEGABLE ELEGANTE POR PROVEEDOR */}
+                        {/* PANEL DESPLEGABLE — DESGLOSE POR OPERADORA */}
                         {isExpanded && (
                           <tr style={{ background: 'transparent' }}>
-                            <td colSpan="8" style={{ padding: '0 16px 14px 16px', borderBottom: '1px solid var(--border-light)' }}>
+                            <td colSpan="8" style={{ padding: '0 12px 12px 12px', borderBottom: '1px solid var(--border-light)' }}>
                               <div style={{
-                                background: 'rgba(0, 0, 0, 0.25)',
-                                borderRadius: '12px',
-                                border: '1px solid rgba(255, 255, 255, 0.08)',
-                                padding: '14px 18px',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: '10px'
+                                background: 'var(--bg-secondary, #f8fafc)',
+                                borderRadius: '10px',
+                                border: '1px solid var(--border-light)',
+                                overflow: 'hidden'
                               }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255, 255, 255, 0.05)', paddingBottom: '8px' }}>
-                                  <span style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.4px' }}>
-                                    Desglose por Operadora · Grupo #{group.numero_grupo} ({group.periodo})
+                                {/* Header del panel */}
+                                <div style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  padding: '10px 16px',
+                                  borderBottom: '1px solid var(--border-light)',
+                                  background: 'var(--bg-tertiary, #f1f5f9)'
+                                }}>
+                                  <span style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.5px' }}>
+                                    Detalle del período {group.periodo}
                                   </span>
                                   <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                                    {group.items.length} operadoras en este período
+                                    {group.items.length} {group.items.length === 1 ? 'liquidación' : 'liquidaciones'}
                                   </span>
                                 </div>
 
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                  {group.items.map(subLiq => {
-                                    const subFact = Number(subLiq.monto_total_facturado || 0);
-                                    const subAbonado = Number(subLiq.monto_abonado || 0);
-                                    const subPendiente = Math.max(0, subFact - subAbonado);
-                                    const subIsCobrada = subLiq.estado_pago === 'ABONADO' || subPendiente <= 1;
-                                    const subIsParcial = subLiq.estado_pago === 'PARCIAL' || (subAbonado > 0 && subPendiente > 1);
-                                    const subOp = subLiq.proveedores?.nombre || 'OPERADORA';
-                                    const isClaro = subOp === 'CLARO';
-                                    const isMovistar = subOp === 'MOVISTAR';
+                                {/* Filas por sub-liquidación */}
+                                {group.items.map((subLiq, idx) => {
+                                  const subFact = Number(subLiq.monto_total_facturado || 0);
+                                  const subAbonado = Number(subLiq.monto_abonado || 0);
+                                  const subPendiente = Math.max(0, subFact - subAbonado);
+                                  const subIsCobrada = subLiq.estado_pago === 'ABONADO' || subPendiente <= 1;
+                                  const subIsParcial = subLiq.estado_pago === 'PARCIAL' || (subAbonado > 0 && subPendiente > 1);
+                                  const subOp = subLiq.proveedores?.nombre || 'OPERADORA';
+                                  const isClaro = subOp === 'CLARO';
+                                  const isMovistar = subOp === 'MOVISTAR';
+                                  const opColor = isClaro ? { bg: 'rgba(239,68,68,0.1)', text: '#dc2626', border: 'rgba(239,68,68,0.25)' }
+                                               : isMovistar ? { bg: 'rgba(16,185,129,0.1)', text: '#059669', border: 'rgba(16,185,129,0.25)' }
+                                               : { bg: 'rgba(59,130,246,0.1)', text: '#2563eb', border: 'rgba(59,130,246,0.25)' };
+                                  const numLineas = subLiq.total_lineas_lote || 1;
+                                  const numTel = subLiq.numero_linea;
 
-                                    return (
-                                      <div 
-                                        key={subLiq.liquidacion_id}
-                                        style={{
-                                          display: 'flex',
-                                          justifyContent: 'space-between',
-                                          alignItems: 'center',
-                                          padding: '10px 14px',
-                                          background: 'rgba(255, 255, 255, 0.02)',
-                                          borderRadius: '8px',
-                                          border: '1px solid rgba(255, 255, 255, 0.04)',
-                                          flexWrap: 'wrap',
-                                          gap: '12px'
-                                        }}
-                                      >
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                          <span 
-                                            style={{
-                                              padding: '3px 9px',
-                                              borderRadius: '6px',
-                                              fontSize: '11px',
-                                              fontWeight: 900,
-                                              background: isClaro ? 'rgba(239, 68, 68, 0.15)' : isMovistar ? 'rgba(16, 185, 129, 0.15)' : 'rgba(59, 130, 246, 0.15)',
-                                              color: isClaro ? '#f87171' : isMovistar ? '#34d399' : '#60a5fa',
-                                              border: isClaro ? '1px solid rgba(239, 68, 68, 0.3)' : isMovistar ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(59, 130, 246, 0.3)'
-                                            }}
-                                          >
-                                            {subOp}
-                                          </span>
-                                          <div>
-                                            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                                              {subLiq.total_lineas_lote || 1} {subLiq.total_lineas_lote === 1 ? 'línea' : 'líneas'} asignadas
-                                            </div>
-                                            <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>
-                                              Liquidación #LIQ-{subLiq.liquidacion_id}
-                                            </div>
+                                  return (
+                                    <div
+                                      key={subLiq.liquidacion_id}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        padding: '12px 16px',
+                                        borderBottom: idx < group.items.length - 1 ? '1px solid var(--border-light)' : 'none',
+                                        flexWrap: 'wrap',
+                                        gap: '10px'
+                                      }}
+                                    >
+                                      {/* LEFT: operadora + líneas */}
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: '200px' }}>
+                                        <span style={{
+                                          padding: '4px 10px',
+                                          borderRadius: '6px',
+                                          fontSize: '11px',
+                                          fontWeight: 900,
+                                          background: opColor.bg,
+                                          color: opColor.text,
+                                          border: `1px solid ${opColor.border}`,
+                                          letterSpacing: '0.3px',
+                                          flexShrink: 0
+                                        }}>
+                                          {subOp}
+                                        </span>
+                                        <div>
+                                          <div style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                            {numLineas === 1 && numTel
+                                              ? <span style={{ fontFamily: 'monospace', color: 'var(--accent)', fontWeight: 900 }}>📞 {numTel}</span>
+                                              : `${numLineas} ${numLineas === 1 ? 'línea' : 'líneas'}`
+                                            }
                                           </div>
-                                        </div>
-
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                                          <div style={{ textAlign: 'right' }}>
-                                            <div style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Facturado</div>
-                                            <div style={{ fontSize: '13px', fontWeight: 800 }}>{formatMoney(subFact)}</div>
+                                          <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)', marginTop: '1px' }}>
+                                            LIQ-{subLiq.liquidacion_id}
                                           </div>
-
-                                          <div style={{ textAlign: 'right' }}>
-                                            <div style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Abonado</div>
-                                            <div style={{ fontSize: '13px', fontWeight: 800, color: '#10b981' }}>{formatMoney(subAbonado)}</div>
-                                          </div>
-
-                                          <div style={{ textAlign: 'right', minWidth: '90px' }}>
-                                            <div style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Saldo</div>
-                                            <div style={{ fontSize: '13px', fontWeight: 900, color: subPendiente > 5 ? '#ef4444' : 'var(--text-primary)' }}>
-                                              {formatMoney(subPendiente)}
-                                            </div>
-                                          </div>
-
-                                          <span style={{
-                                            background: subIsCobrada ? 'rgba(16, 185, 129, 0.1)' : subIsParcial ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                                            color: subIsCobrada ? '#10b981' : subIsParcial ? '#f59e0b' : '#ef4444',
-                                            padding: '3px 8px', borderRadius: '6px', fontWeight: 800, fontSize: '10px'
-                                          }}>
-                                            {subIsCobrada ? 'COBRADA' : subIsParcial ? 'PARCIAL' : 'IMPAGA'}
-                                          </span>
-
-                                          {!subIsCobrada && (
-                                            <button
-                                              onClick={() => handleOpenCobroModal(subLiq, group.numero_grupo)}
-                                              className="air-btn"
-                                              style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '6px', fontWeight: 700, borderColor: 'rgba(255,255,255,0.1)' }}
-                                              title={`Imputar a ${subOp}`}
-                                            >
-                                              Imputar a {subOp}
-                                            </button>
-                                          )}
                                         </div>
                                       </div>
-                                    );
-                                  })}
-                                </div>
+
+                                      {/* RIGHT: montos + estado + cobrar */}
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
+                                        <div style={{ textAlign: 'right' }}>
+                                          <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '2px' }}>Facturado</div>
+                                          <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>{formatMoney(subFact)}</div>
+                                        </div>
+                                        <div style={{ textAlign: 'right' }}>
+                                          <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '2px' }}>Abonado</div>
+                                          <div style={{ fontSize: '13px', fontWeight: 800, color: '#10b981' }}>{formatMoney(subAbonado)}</div>
+                                        </div>
+                                        <div style={{ textAlign: 'right', minWidth: '85px' }}>
+                                          <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '2px' }}>Saldo</div>
+                                          <div style={{ fontSize: '13px', fontWeight: 900, color: subPendiente > 5 ? '#ef4444' : '#10b981' }}>{formatMoney(subPendiente)}</div>
+                                        </div>
+                                        <span style={{
+                                          padding: '4px 10px',
+                                          borderRadius: '20px',
+                                          fontSize: '10px',
+                                          fontWeight: 800,
+                                          background: subIsCobrada ? 'rgba(16,185,129,0.12)' : subIsParcial ? 'rgba(245,158,11,0.12)' : 'rgba(239,68,68,0.12)',
+                                          color: subIsCobrada ? '#059669' : subIsParcial ? '#d97706' : '#dc2626',
+                                          border: `1px solid ${subIsCobrada ? 'rgba(16,185,129,0.25)' : subIsParcial ? 'rgba(245,158,11,0.25)' : 'rgba(239,68,68,0.25)'}`,
+                                          whiteSpace: 'nowrap'
+                                        }}>
+                                          {subIsCobrada ? '✓ COBRADA' : subIsParcial ? 'PARCIAL' : 'IMPAGA'}
+                                        </span>
+                                        {!subIsCobrada && (
+                                          <button
+                                            onClick={() => handleOpenCobroModal(subLiq, group.numero_grupo)}
+                                            className="air-btn-primary"
+                                            style={{
+                                              padding: '6px 12px',
+                                              fontSize: '11px',
+                                              borderRadius: '8px',
+                                              fontWeight: 800,
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: '4px',
+                                              background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                                              border: 'none',
+                                              cursor: 'pointer',
+                                              whiteSpace: 'nowrap'
+                                            }}
+                                          >
+                                            <DollarSign size={12} /> Cobrar {subOp}
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             </td>
                           </tr>
@@ -2419,242 +2484,99 @@ export default function Contaduria() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
             <div>
               <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <CreditCard size={14} color="#10b981" /> Forma / Medio de Pago
+                <CreditCard size={14} color="#10b981" /> Medio de Pago
               </label>
-              <select 
-                value={medioPago} 
-                onChange={(e) => {
-                  const nuevo = e.target.value;
-                  setMedioPago(nuevo);
-                  if (nuevo === 'EFECTIVO' && !efectivoEntregado && montoTeoricoCobro > 0) {
-                    setEfectivoEntregado(String(montoTeoricoCobro.toFixed(2)));
-                  }
-                }} 
+              <select
+                value={medioPago}
+                onChange={(e) => setMedioPago(e.target.value)}
                 className="form-input"
                 style={{ fontWeight: 800 }}
               >
-                <option value="EFECTIVO">💵 Efectivo (en Oficina)</option>
                 <option value="TRANSFERENCIA">🏦 Transferencia Bancaria</option>
+                <option value="EFECTIVO">💵 Efectivo (en Oficina)</option>
                 <option value="DEBITO">💳 Débito Automático</option>
                 <option value="MERCADOPAGO">📱 MercadoPago / QR</option>
                 <option value="CHEQUE">📝 Cheque</option>
               </select>
             </div>
-
             <div>
               <label className="form-label">Fecha del Pago</label>
-              <input 
-                type="date" 
-                value={fechaCobro} 
-                onChange={(e) => setFechaCobro(e.target.value)} 
-                className="form-input" 
-                required 
+              <input
+                type="date"
+                value={fechaCobro}
+                onChange={(e) => setFechaCobro(e.target.value)}
+                className="form-input"
+                required
               />
             </div>
           </div>
 
-          {/* SECCIÓN ESPECIAL: CALCULADORA DE EFECTIVO Y FALTA DE CAMBIO EN OFICINA */}
-          {medioPago === 'EFECTIVO' ? (
-            <div style={{ background: 'rgba(16, 185, 129, 0.05)', border: '1.5px solid rgba(16, 185, 129, 0.3)', borderRadius: '14px', padding: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 900, fontSize: '13px', color: '#10b981' }}>
-                  <Coins size={16} /> Caja de Efectivo en Oficina — Control de Falta de Cambio
-                </div>
-                <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)' }}>
-                  Deuda: <strong style={{ color: 'var(--text-primary)' }}>{formatMoney(montoTeoricoCobro)}</strong>
-                </div>
-              </div>
-
-              <div>
-                <label className="form-label" style={{ fontWeight: 800 }}>Efectivo Entregado por el Socio ($)</label>
-                <input 
-                  type="number" 
-                  step="any" 
-                  placeholder="Ej: 33100 o 33000" 
-                  value={efectivoEntregado} 
-                  onChange={(e) => setEfectivoEntregado(e.target.value)} 
-                  className="form-input" 
-                  style={{ fontSize: '16px', fontWeight: 900 }}
-                  autoFocus 
-                  required 
-                />
-              </div>
-
-              {/* Botones de redondeo rápido */}
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '10px' }}>
-                <button 
-                  type="button" 
-                  onClick={() => setEfectivoEntregado(String(montoTeoricoCobro.toFixed(2)))} 
-                  className="air-btn" 
-                  style={{ fontSize: '11px', padding: '4px 8px', borderRadius: '6px', fontWeight: 700 }}
-                >
-                  Exacto ({formatMoney(montoTeoricoCobro)})
-                </button>
-                {montoTeoricoCobro > 0 && (
-                  <>
-                    <button 
-                      type="button" 
-                      onClick={() => setEfectivoEntregado(String((Math.ceil(montoTeoricoCobro / 100) * 100).toFixed(0)))} 
-                      className="air-btn" 
-                      style={{ fontSize: '11px', padding: '4px 8px', borderRadius: '6px', fontWeight: 700 }}
-                    >
-                      Redondear +$100 ({formatMoney(Math.ceil(montoTeoricoCobro / 100) * 100)})
-                    </button>
-                    <button 
-                      type="button" 
-                      onClick={() => setEfectivoEntregado(String((Math.ceil(montoTeoricoCobro / 500) * 500).toFixed(0)))} 
-                      className="air-btn" 
-                      style={{ fontSize: '11px', padding: '4px 8px', borderRadius: '6px', fontWeight: 700 }}
-                    >
-                      Redondear +$500 ({formatMoney(Math.ceil(montoTeoricoCobro / 500) * 500)})
-                    </button>
-                    <button 
-                      type="button" 
-                      onClick={() => setEfectivoEntregado(String((Math.ceil(montoTeoricoCobro / 1000) * 1000).toFixed(0)))} 
-                      className="air-btn" 
-                      style={{ fontSize: '11px', padding: '4px 8px', borderRadius: '6px', fontWeight: 700 }}
-                    >
-                      Redondear +$1000 ({formatMoney(Math.ceil(montoTeoricoCobro / 1000) * 1000)})
-                    </button>
-                    {Math.floor(montoTeoricoCobro / 100) * 100 < montoTeoricoCobro && (
-                      <button 
-                        type="button" 
-                        onClick={() => setEfectivoEntregado(String((Math.floor(montoTeoricoCobro / 100) * 100).toFixed(0)))} 
-                        className="air-btn" 
-                        style={{ fontSize: '11px', padding: '4px 8px', borderRadius: '6px', fontWeight: 700 }}
-                      >
-                        Redondear -$100 ({formatMoney(Math.floor(montoTeoricoCobro / 100) * 100)})
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-
-              {/* ANÁLISIS EN VIVO DE DIFERENCIA POR FALTA DE CAMBIO */}
-              {diferenciaCambio > 0.009 ? (
-                <div style={{ marginTop: '14px', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '12px 14px', borderRadius: '10px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 800, color: '#10b981', fontSize: '13px' }}>
-                    <span>🟢 Diferencia a favor del socio por falta de cambio:</span>
-                    <span>+{formatMoney(diferenciaCambio)}</span>
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: '4px 0 10px 0' }}>
-                    El socio entregó más efectivo que la deuda ({formatMoney(parseFloat(efectivoEntregado) || 0)} vs {formatMoney(montoTeoricoCobro)}).
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer', fontSize: '12px' }}>
-                      <input 
-                        type="radio" 
-                        name="manejoCambio" 
-                        value="saldo_favor" 
-                        checked={manejoCambio === 'saldo_favor'} 
-                        onChange={() => setManejoCambio('saldo_favor')} 
-                        style={{ marginTop: '3px' }}
-                      />
-                      <div>
-                        <strong style={{ color: '#10b981' }}>Acreditar como Saldo a Favor para la próxima factura (Recomendado)</strong>
-                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                          La factura queda 100% ABONADA. El remanente de +{formatMoney(diferenciaCambio)} queda acreditado en cuenta corriente para descontarse automáticamente el próximo mes.
-                        </div>
-                      </div>
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer', fontSize: '12px' }}>
-                      <input 
-                        type="radio" 
-                        name="manejoCambio" 
-                        value="vuelto_exacto" 
-                        checked={manejoCambio === 'vuelto_exacto'} 
-                        onChange={() => setManejoCambio('vuelto_exacto')} 
-                        style={{ marginTop: '3px' }}
-                      />
-                      <div>
-                        <strong>Se entregó vuelto exacto en mano ({formatMoney(diferenciaCambio)})</strong>
-                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                          Se cobra únicamente el importe exacto adeudado de {formatMoney(montoTeoricoCobro)}.
-                        </div>
-                      </div>
-                    </label>
-                  </div>
-                </div>
-              ) : diferenciaCambio < -0.009 ? (
-                <div style={{ marginTop: '14px', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', padding: '12px 14px', borderRadius: '10px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 800, color: '#f59e0b', fontSize: '13px' }}>
-                    <span>🟡 Faltante por falta de cambio chico:</span>
-                    <span>-{formatMoney(Math.abs(diferenciaCambio))}</span>
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: '4px 0 10px 0' }}>
-                    El socio entregó menos efectivo que la deuda ({formatMoney(parseFloat(efectivoEntregado) || 0)} vs {formatMoney(montoTeoricoCobro)}) por falta de monedas o billetes chicos.
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer', fontSize: '12px' }}>
-                      <input 
-                        type="radio" 
-                        name="manejoCambio" 
-                        value="bonificar" 
-                        checked={manejoCambio === 'bonificar'} 
-                        onChange={() => setManejoCambio('bonificar')} 
-                        style={{ marginTop: '3px' }}
-                      />
-                      <div>
-                        <strong style={{ color: '#3b82f6' }}>Bonificar diferencia por redondeo de cambio (Recomendado)</strong>
-                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                          Mutual Aunar absorbe los {formatMoney(Math.abs(diferenciaCambio))} faltantes. La factura queda 100% ABONADA sin dejar deuda en cuenta corriente.
-                        </div>
-                      </div>
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer', fontSize: '12px' }}>
-                      <input 
-                        type="radio" 
-                        name="manejoCambio" 
-                        value="saldo_pendiente" 
-                        checked={manejoCambio === 'saldo_pendiente'} 
-                        onChange={() => setManejoCambio('saldo_pendiente')} 
-                        style={{ marginTop: '3px' }}
-                      />
-                      <div>
-                        <strong style={{ color: '#f59e0b' }}>Dejar como saldo pendiente en cuenta corriente</strong>
-                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                          Se registra cobro a cuenta de {formatMoney(parseFloat(efectivoEntregado) || 0)}. Los {formatMoney(Math.abs(diferenciaCambio))} quedan pendientes para la próxima factura.
-                        </div>
-                      </div>
-                    </label>
-                  </div>
-                </div>
-              ) : (
-                <div style={{ marginTop: '12px', background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.25)', padding: '10px 14px', borderRadius: '10px', fontSize: '12px', color: '#3b82f6', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <CheckCircle2 size={15} color="#3b82f6" />
-                  Pago exacto entregado en ventanilla ({formatMoney(montoTeoricoCobro)})
-                </div>
-              )}
-
-            </div>
-          ) : (
-            <div>
-              <label className="form-label">Importe a Cobrar ($)</label>
-              <input 
-                type="number" 
-                step="0.01" 
-                placeholder="0.00" 
-                value={montoCobro} 
-                onChange={(e) => setMontoCobro(e.target.value)} 
-                className="form-input" 
-                autoFocus 
-                required 
-              />
-            </div>
-          )}
-
+          {/* IMPORTE */}
           <div>
-            <label className="form-label">Observaciones / Referencia Contable</label>
-            <input 
-              type="text" 
-              placeholder="Ej: Cobro en oficina / Transferencia Banco" 
-              value={observacionesCobro} 
-              onChange={(e) => setObservacionesCobro(e.target.value)} 
-              className="form-input" 
+            <label className="form-label">Importe a Cobrar ($)</label>
+            <input
+              type="number"
+              step="0.01"
+              placeholder="0.00"
+              value={montoCobro}
+              onChange={(e) => setMontoCobro(e.target.value)}
+              className="form-input"
+              style={{ fontSize: '18px', fontWeight: 900 }}
+              autoFocus
+              required
             />
           </div>
 
+          {/* REFERENCIA CONTABLE DEL COBRO */}
+          <div>
+            <label className="form-label">Referencia del Cobro</label>
+            <input
+              type="text"
+              placeholder="Ej: Transferencia CBU / Nro. de recibo / Referencia bancaria"
+              value={observacionesCobro}
+              onChange={(e) => setObservacionesCobro(e.target.value)}
+              className="form-input"
+            />
+          </div>
+
+          {/* NOTAS INTERNAS DEL GRUPO — PERSISTENTES */}
+          <div style={{ background: 'rgba(245, 158, 11, 0.06)', border: '1.5px solid rgba(245, 158, 11, 0.25)', borderRadius: '12px', padding: '14px 16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <label style={{ fontSize: '12px', fontWeight: 800, color: '#b45309', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                📌 Notas internas del Grupo #{selectedGrupo}
+              </label>
+              <button
+                type="button"
+                onClick={handleSaveNotasGrupo}
+                disabled={savingNotas}
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  padding: '4px 10px',
+                  borderRadius: '6px',
+                  background: savingNotas ? 'var(--border-light)' : 'rgba(245,158,11,0.15)',
+                  color: '#b45309',
+                  border: '1px solid rgba(245,158,11,0.3)',
+                  cursor: savingNotas ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {savingNotas ? 'Guardando…' : 'Guardar nota'}
+              </button>
+            </div>
+            <textarea
+              value={notasGrupo}
+              onChange={(e) => setNotasGrupo(e.target.value)}
+              placeholder="Ej: Solo cobrar 2 líneas este mes. El socio debe traer DNI. Próximo pago: solo CLARO..."
+              className="form-input"
+              style={{ minHeight: '72px', resize: 'vertical', fontSize: '12.5px', lineHeight: '1.5' }}
+            />
+            <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              Esta nota es visible para todos los empleados cada vez que se abre el modal de cobro de este grupo.
+            </div>
+          </div>
+
           {/* DESGLOSE FIFO EN VIVO */}
+
           {resultadoFifo && (
             <div style={{ background: 'rgba(0,0,0,0.03)', padding: '16px', borderRadius: '12px', fontSize: '12px' }}>
               <div style={{ fontWeight: 800, marginBottom: '8px', color: 'var(--accent)' }}>
