@@ -35,8 +35,9 @@ export default function Contaduria() {
   const [estadoFilter, setEstadoFilter] = useState('TODAS'); // 'TODAS' | 'IMPAGAS' | 'PARCIALES' | 'COBRADAS'
   const [operadoraFilter, setOperadoraFilter] = useState('TODAS'); // 'TODAS' | 'CLARO' | 'MOVISTAR' | 'PERSONAL'
   const [expandedGruposFacturas, setExpandedGruposFacturas] = useState(new Set());
-  // Cache de líneas por grupo expandido { [numero_grupo]: lineas[] }
+  // Cache de líneas por grupo expandido { [cacheKey]: lineas[] }
   const [expandedGrupoLineasCache, setExpandedGrupoLineasCache] = useState({});
+  const [loadingExpandedGrupo, setLoadingExpandedGrupo] = useState(null);
 
   // Listas de Datos
   const [gruposList, setGruposList] = useState([]);
@@ -492,6 +493,24 @@ export default function Contaduria() {
     setCobroModalOpen(true);
   }
 
+  // Abrir Cobro para una Línea Específica dentro de un grupo/liquidación
+  function handleOpenCobroLinea(linea, targetLiq, grupoNum) {
+    const gNum = grupoNum || targetLiq?.numero_grupo || null;
+    setSelectedGrupo(gNum);
+    setTargetFactura(targetLiq);
+    loadNotasGrupo(gNum);
+
+    const val = Number(linea.total_linea || 0);
+    const strMonto = val > 0 ? String(val.toFixed(2)) : '';
+    setMontoCobro(strMonto);
+    setEfectivoEntregado(strMonto);
+    setObservacionesCobro(`Cobro Línea ${linea.numero_linea} (${linea.socio_nombre}) - Período ${targetLiq?.periodo || ''} (${linea.proveedor_nombre})`);
+    setManejoCambio('saldo_favor');
+    setMedioPago('EFECTIVO EN MUT');
+    setFechaCobro(getTodayISO());
+    setCobroModalOpen(true);
+  }
+
   // Cálculos dinámicos de importe adeudado y diferencia de cambio
   const montoTeoricoCobro = useMemo(() => {
     if (targetFactura) {
@@ -897,18 +916,66 @@ export default function Contaduria() {
       next.add(key);
       return next;
     });
-    // Cargar líneas del grupo si no están en caché
-    if (!expandedGrupoLineasCache[numeroGrupo] && numeroGrupo) {
+
+    const cacheKey = `${numeroGrupo}_${periodo || 'ALL'}`;
+    if (!expandedGrupoLineasCache[cacheKey] && numeroGrupo) {
+      setLoadingExpandedGrupo(cacheKey);
       try {
-        const { data } = await supabase
-          .from('lineas')
-          .select('numero_linea, proveedor_id, proveedores:proveedor_id(nombre), planes_abonos:plan_id(nombre_plan)')
-          .eq('numero_grupo', numeroGrupo)
-          .not('estado', 'eq', 'BAJA');
-        if (data && data.length > 0) {
-          setExpandedGrupoLineasCache(prev => ({ ...prev, [numeroGrupo]: data }));
+        // 1. Obtener socios del grupo desde v_socios_busqueda
+        const { data: sociosGrupo } = await supabase
+          .from('v_socios_busqueda')
+          .select('socio_id')
+          .filter('grupo_codigo_str', 'imatch', '\\y' + numeroGrupo + '\\y');
+        const socioIds = (sociosGrupo || []).map(s => s.socio_id).filter(Boolean);
+
+        let orConds = [`numero_grupo.eq.${numeroGrupo}`];
+        if (socioIds.length > 0) {
+          orConds.push(`socio_id.in.(${socioIds.join(',')})`);
         }
-      } catch { /* silencioso */ }
+
+        const { data: rawLineas } = await supabase
+          .from('lineas')
+          .select('numero_linea, proveedor_id, proveedores:proveedor_id(nombre), socio_id, socios:socio_id(nombre_completo), planes_abonos:plan_id(nombre_plan, precio), estado')
+          .or(orConds.join(','));
+
+        const activas = (rawLineas || []).filter(l => (l.estado || 'ACTIVA').toUpperCase() !== 'BAJA');
+        const lineNums = activas.map(l => l.numero_linea).filter(Boolean);
+
+        let billingMap = {};
+        if (lineNums.length > 0 && periodo) {
+          const { data: billingData } = await supabase
+            .from('v_historial_facturacion_socio')
+            .select('numero_linea, total_linea, nombre_plan, costo_abono_real, nombre_completo, excedentes')
+            .eq('periodo', periodo)
+            .in('numero_linea', lineNums);
+
+          if (billingData) {
+            billingData.forEach(b => {
+              billingMap[b.numero_linea] = b;
+            });
+          }
+        }
+
+        const enriched = activas.map(l => {
+          const b = billingMap[l.numero_linea];
+          const rawLineVal = b ? parseFloat(b.total_linea) : (parseFloat(l.planes_abonos?.precio) || 0);
+          return {
+            numero_linea: l.numero_linea,
+            socio_nombre: b?.nombre_completo || l.socios?.nombre_completo || 'Sin socio asignado',
+            proveedor_nombre: l.proveedores?.nombre || 'MUTUAL',
+            nombre_plan: b?.nombre_plan || l.planes_abonos?.nombre_plan || 'Plan Estándar',
+            total_linea: rawLineVal,
+            costo_abono_real: b ? parseFloat(b.costo_abono_real) : (parseFloat(l.planes_abonos?.precio) || 0),
+            excedentes: b ? parseFloat(b.excedentes) : 0
+          };
+        });
+
+        setExpandedGrupoLineasCache(prev => ({ ...prev, [cacheKey]: enriched }));
+      } catch (err) {
+        console.error('Error al cargar detalle de líneas expandidas:', err);
+      } finally {
+        setLoadingExpandedGrupo(null);
+      }
     }
   }, [expandedGrupoLineasCache]);
 
@@ -1665,14 +1732,15 @@ export default function Contaduria() {
                           </td>
                         </tr>
 
-                        {/* PANEL DESPLEGABLE — DESGLOSE POR OPERADORA */}
+                        {/* PANEL DESPLEGABLE — DETALLE DE LÍNEAS Y LIQUIDACIÓN */}
                         {isExpanded && (
                           <tr style={{ background: 'transparent' }}>
-                            <td colSpan="8" style={{ padding: '0 12px 12px 12px', borderBottom: '1px solid var(--border-light)' }}>
+                            <td colSpan="8" style={{ padding: '0 14px 14px 14px', borderBottom: '1px solid var(--border-light)' }}>
                               <div style={{
-                                background: 'var(--bg-secondary, #f8fafc)',
-                                borderRadius: '10px',
+                                background: 'var(--card-bg, #ffffff)',
+                                borderRadius: '12px',
                                 border: '1px solid var(--border-light)',
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
                                 overflow: 'hidden'
                               }}>
                                 {/* Header del panel */}
@@ -1680,15 +1748,18 @@ export default function Contaduria() {
                                   display: 'flex',
                                   justifyContent: 'space-between',
                                   alignItems: 'center',
-                                  padding: '10px 16px',
+                                  padding: '12px 18px',
                                   borderBottom: '1px solid var(--border-light)',
-                                  background: 'var(--bg-tertiary, #f1f5f9)'
+                                  background: 'var(--bg-tertiary, #f8fafc)'
                                 }}>
-                                  <span style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.5px' }}>
-                                    Detalle del período {group.periodo}
-                                  </span>
-                                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                                    {group.items.length} {group.items.length === 1 ? 'liquidación' : 'liquidaciones'}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <Phone size={15} color="var(--accent)" />
+                                    <span style={{ fontSize: '12px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-primary)', letterSpacing: '0.4px' }}>
+                                      Detalle del Período {group.periodo} · Grupo #{group.numero_grupo}
+                                    </span>
+                                  </div>
+                                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                                    {group.total_lineas} {group.total_lineas === 1 ? 'línea' : 'líneas'} asignadas
                                   </span>
                                 </div>
 
@@ -1706,117 +1777,198 @@ export default function Contaduria() {
                                                : isMovistar ? { bg: 'rgba(16,185,129,0.1)', text: '#059669', border: 'rgba(16,185,129,0.25)' }
                                                : { bg: 'rgba(59,130,246,0.1)', text: '#2563eb', border: 'rgba(59,130,246,0.25)' };
 
-                                  // Líneas del caché filtradas por esta operadora
-                                  const lineasCache = expandedGrupoLineasCache[group.numero_grupo] || [];
-                                  const lineasDeEstaOp = lineasCache.filter(l =>
-                                    (l.proveedores?.nombre || '').toUpperCase() === subOp.toUpperCase()
-                                  );
+                                  const cacheKey = `${group.numero_grupo}_${group.periodo || 'ALL'}`;
+                                  const todasLineas = expandedGrupoLineasCache[cacheKey] || [];
+                                  // Filtrar líneas de esta operadora (con fallback si es 1 sola operadora en el lote)
+                                  let lineasOp = todasLineas.filter(l => {
+                                    const pName = (l.proveedor_nombre || '').toUpperCase();
+                                    const sName = subOp.toUpperCase();
+                                    return pName.includes(sName) || sName.includes(pName);
+                                  });
+                                  if (lineasOp.length === 0 && group.items.length === 1 && todasLineas.length > 0) {
+                                    lineasOp = todasLineas;
+                                  }
+                                  const isLoadingLines = loadingExpandedGrupo === cacheKey;
 
                                   return (
                                     <div
                                       key={subLiq.liquidacion_id}
                                       style={{
-                                        display: 'flex',
-                                        alignItems: 'flex-start',
-                                        justifyContent: 'space-between',
-                                        padding: '12px 16px',
-                                        borderBottom: idx < group.items.length - 1 ? '1px solid var(--border-light)' : 'none',
-                                        flexWrap: 'wrap',
-                                        gap: '10px'
+                                        borderBottom: idx < group.items.length - 1 ? '2px solid var(--border-light)' : 'none'
                                       }}
                                     >
-                                      {/* LEFT: operadora + líneas */}
-                                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', minWidth: '220px', flex: 1 }}>
-                                        <span style={{
-                                          padding: '4px 10px',
-                                          borderRadius: '6px',
-                                          fontSize: '11px',
-                                          fontWeight: 900,
-                                          background: opColor.bg,
-                                          color: opColor.text,
-                                          border: `1px solid ${opColor.border}`,
-                                          letterSpacing: '0.3px',
-                                          flexShrink: 0,
-                                          marginTop: '2px'
-                                        }}>
-                                          {subOp}
-                                        </span>
-                                        <div style={{ flex: 1 }}>
-                                          {/* Mostrar líneas individuales si están en caché */}
-                                          {lineasDeEstaOp.length > 0 ? (
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                              {lineasDeEstaOp.map(l => (
-                                                <div key={l.numero_linea} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                  <span style={{ fontFamily: 'monospace', fontSize: '12.5px', fontWeight: 800, color: 'var(--accent)' }}>
-                                                    📞 {l.numero_linea}
-                                                  </span>
-                                                  {l.planes_abonos?.nombre_plan && (
-                                                    <span style={{ fontSize: '10.5px', color: 'var(--text-secondary)', background: 'var(--bg-tertiary, #f1f5f9)', border: '1px solid var(--border-light)', borderRadius: '4px', padding: '1px 6px' }}>
-                                                      {l.planes_abonos.nombre_plan}
-                                                    </span>
-                                                  )}
-                                                </div>
-                                              ))}
-                                            </div>
-                                          ) : (
-                                            <div style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                                              {subLiq.total_lineas_lote || 1} {(subLiq.total_lineas_lote || 1) === 1 ? 'línea' : 'líneas'}
-                                            </div>
-                                          )}
-                                          <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)', marginTop: '3px' }}>
-                                            LIQ-{subLiq.liquidacion_id}
+                                      {/* Barra Resumen de la Liquidación */}
+                                      <div style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        padding: '10px 18px',
+                                        background: 'rgba(0,0,0,0.015)',
+                                        borderBottom: '1px solid var(--border-light)',
+                                        flexWrap: 'wrap',
+                                        gap: '12px'
+                                      }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                          <span style={{
+                                            padding: '3px 10px',
+                                            borderRadius: '6px',
+                                            fontSize: '11px',
+                                            fontWeight: 900,
+                                            background: opColor.bg,
+                                            color: opColor.text,
+                                            border: `1px solid ${opColor.border}`,
+                                            letterSpacing: '0.4px'
+                                          }}>
+                                            {subOp}
+                                          </span>
+                                          <span style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                                            LIQ-{subLiq.liquidacion_id} · {lineasOp.length > 0 ? `${lineasOp.length} ${lineasOp.length === 1 ? 'línea' : 'líneas'}` : `${subLiq.total_lineas_lote || 1} líneas`}
+                                          </span>
+                                        </div>
+
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '18px', flexWrap: 'wrap' }}>
+                                          <div style={{ textAlign: 'right' }}>
+                                            <span style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Facturado Total</span>
+                                            <span style={{ fontSize: '13px', fontWeight: 800 }}>{formatMoney(subFact)}</span>
                                           </div>
+                                          <div style={{ textAlign: 'right' }}>
+                                            <span style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Abonado</span>
+                                            <span style={{ fontSize: '13px', fontWeight: 800, color: '#10b981' }}>{formatMoney(subAbonado)}</span>
+                                          </div>
+                                          <div style={{ textAlign: 'right' }}>
+                                            <span style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Saldo</span>
+                                            <span style={{ fontSize: '13px', fontWeight: 900, color: subPendiente > 5 ? '#ef4444' : '#10b981' }}>{formatMoney(subPendiente)}</span>
+                                          </div>
+
+                                          <span style={{
+                                            padding: '4px 10px',
+                                            borderRadius: '20px',
+                                            fontSize: '10px',
+                                            fontWeight: 800,
+                                            background: subIsCobrada ? 'rgba(16,185,129,0.12)' : subIsParcial ? 'rgba(245,158,11,0.12)' : 'rgba(239,68,68,0.12)',
+                                            color: subIsCobrada ? '#059669' : subIsParcial ? '#d97706' : '#dc2626',
+                                            border: `1px solid ${subIsCobrada ? 'rgba(16,185,129,0.25)' : subIsParcial ? 'rgba(245,158,11,0.25)' : 'rgba(239,68,68,0.25)'}`,
+                                            whiteSpace: 'nowrap'
+                                          }}>
+                                            {subIsCobrada ? '✓ COBRADA' : subIsParcial ? 'PARCIAL' : 'IMPAGA'}
+                                          </span>
+
+                                          {!subIsCobrada && (
+                                            <button
+                                              type="button"
+                                              onClick={(e) => { e.stopPropagation(); handleOpenCobroModal(subLiq, group.numero_grupo); }}
+                                              className="air-btn-primary"
+                                              style={{
+                                                padding: '6px 12px',
+                                                fontSize: '11px',
+                                                borderRadius: '8px',
+                                                fontWeight: 800,
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '4px',
+                                                background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                                                border: 'none',
+                                                cursor: 'pointer',
+                                                whiteSpace: 'nowrap'
+                                              }}
+                                            >
+                                              <DollarSign size={12} /> Cobrar Total {subOp}
+                                            </button>
+                                          )}
                                         </div>
                                       </div>
 
-                                      {/* RIGHT: montos + estado + cobrar */}
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
-                                        <div style={{ textAlign: 'right' }}>
-                                          <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '2px' }}>Facturado</div>
-                                          <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>{formatMoney(subFact)}</div>
+                                      {/* Sub-tabla limpia de líneas de esta liquidación */}
+                                      {isLoadingLines ? (
+                                        <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '12px' }}>
+                                          <Loader2 size={16} className="animate-spin" style={{ display: 'inline', marginRight: '8px' }} />
+                                          Cargando detalle de líneas y socios...
                                         </div>
-                                        <div style={{ textAlign: 'right' }}>
-                                          <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '2px' }}>Abonado</div>
-                                          <div style={{ fontSize: '13px', fontWeight: 800, color: '#10b981' }}>{formatMoney(subAbonado)}</div>
+                                      ) : lineasOp.length > 0 ? (
+                                        <div style={{ overflowX: 'auto' }}>
+                                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                                            <thead>
+                                              <tr style={{ background: 'var(--bg-tertiary, #f8fafc)', borderBottom: '1px solid var(--border-light)', color: 'var(--text-secondary)', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                                <th style={{ padding: '8px 18px', textAlign: 'left' }}>Línea / Teléfono</th>
+                                                <th style={{ padding: '8px 14px', textAlign: 'left' }}>Socio Asignado</th>
+                                                <th style={{ padding: '8px 14px', textAlign: 'left' }}>Plan</th>
+                                                <th style={{ padding: '8px 18px', textAlign: 'right' }}>Consumo Período</th>
+                                                <th style={{ padding: '8px 18px', textAlign: 'center' }}>Acción</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {lineasOp.map((linea, lIdx) => (
+                                                <tr
+                                                  key={linea.numero_linea}
+                                                  style={{
+                                                    borderBottom: lIdx < lineasOp.length - 1 ? '1px solid var(--border-light)' : 'none',
+                                                    background: lIdx % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.012)'
+                                                  }}
+                                                >
+                                                  <td style={{ padding: '10px 18px', fontWeight: 900, fontFamily: 'monospace', fontSize: '13px', color: 'var(--accent)' }}>
+                                                    📞 {linea.numero_linea}
+                                                  </td>
+                                                  <td style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                                    {linea.socio_nombre}
+                                                  </td>
+                                                  <td style={{ padding: '10px 14px' }}>
+                                                    <span style={{
+                                                      background: 'var(--bg-tertiary, #f1f5f9)',
+                                                      border: '1px solid var(--border-light)',
+                                                      borderRadius: '4px',
+                                                      padding: '2px 8px',
+                                                      fontSize: '11px',
+                                                      fontWeight: 700,
+                                                      color: 'var(--text-secondary)'
+                                                    }}>
+                                                      {linea.nombre_plan}
+                                                    </span>
+                                                  </td>
+                                                  <td style={{ padding: '10px 18px', textAlign: 'right', fontWeight: 800, fontSize: '13px', color: 'var(--text-primary)' }}>
+                                                    {formatMoney(linea.total_linea)}
+                                                  </td>
+                                                  <td style={{ padding: '10px 18px', textAlign: 'center' }}>
+                                                    {!subIsCobrada ? (
+                                                      <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          handleOpenCobroLinea(linea, subLiq, group.numero_grupo);
+                                                        }}
+                                                        className="air-btn"
+                                                        style={{
+                                                          padding: '4px 10px',
+                                                          fontSize: '11px',
+                                                          fontWeight: 700,
+                                                          borderRadius: '6px',
+                                                          display: 'inline-flex',
+                                                          alignItems: 'center',
+                                                          gap: '4px',
+                                                          color: '#10b981',
+                                                          borderColor: 'rgba(16,185,129,0.3)',
+                                                          background: 'rgba(16,185,129,0.06)',
+                                                          cursor: 'pointer'
+                                                        }}
+                                                        title={`Cobrar únicamente la línea ${linea.numero_linea}`}
+                                                      >
+                                                        <DollarSign size={11} /> Cobrar esta línea
+                                                      </button>
+                                                    ) : (
+                                                      <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 700 }}>
+                                                        ✓ Abonada
+                                                      </span>
+                                                    )}
+                                                  </td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                          </table>
                                         </div>
-                                        <div style={{ textAlign: 'right', minWidth: '85px' }}>
-                                          <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '2px' }}>Saldo</div>
-                                          <div style={{ fontSize: '13px', fontWeight: 900, color: subPendiente > 5 ? '#ef4444' : '#10b981' }}>{formatMoney(subPendiente)}</div>
+                                      ) : (
+                                        <div style={{ padding: '14px 18px', color: 'var(--text-secondary)', fontSize: '12px' }}>
+                                          Sin detalle de líneas registrado.
                                         </div>
-                                        <span style={{
-                                          padding: '4px 10px',
-                                          borderRadius: '20px',
-                                          fontSize: '10px',
-                                          fontWeight: 800,
-                                          background: subIsCobrada ? 'rgba(16,185,129,0.12)' : subIsParcial ? 'rgba(245,158,11,0.12)' : 'rgba(239,68,68,0.12)',
-                                          color: subIsCobrada ? '#059669' : subIsParcial ? '#d97706' : '#dc2626',
-                                          border: `1px solid ${subIsCobrada ? 'rgba(16,185,129,0.25)' : subIsParcial ? 'rgba(245,158,11,0.25)' : 'rgba(239,68,68,0.25)'}`,
-                                          whiteSpace: 'nowrap'
-                                        }}>
-                                          {subIsCobrada ? '✓ COBRADA' : subIsParcial ? 'PARCIAL' : 'IMPAGA'}
-                                        </span>
-                                        {!subIsCobrada && (
-                                          <button
-                                            onClick={(e) => { e.stopPropagation(); handleOpenCobroModal(subLiq, group.numero_grupo); }}
-                                            className="air-btn-primary"
-                                            style={{
-                                              padding: '6px 12px',
-                                              fontSize: '11px',
-                                              borderRadius: '8px',
-                                              fontWeight: 800,
-                                              display: 'inline-flex',
-                                              alignItems: 'center',
-                                              gap: '4px',
-                                              background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
-                                              border: 'none',
-                                              cursor: 'pointer',
-                                              whiteSpace: 'nowrap'
-                                            }}
-                                          >
-                                            <DollarSign size={12} /> Cobrar {subOp}
-                                          </button>
-                                        )}
-                                      </div>
+                                      )}
                                     </div>
                                   );
                                 })}
