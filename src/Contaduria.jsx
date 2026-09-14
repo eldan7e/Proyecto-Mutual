@@ -608,6 +608,7 @@ export default function Contaduria() {
       .map(m => ({
         id: m.id,
         fecha: m.fecha,
+        periodo: m.periodo,
         numero_linea: m.numero_linea,
         empresa: m.empresa,
         observaciones: m.observaciones,
@@ -2772,6 +2773,71 @@ export default function Contaduria() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: '#3b82f6', fontWeight: 800, marginTop: '6px', paddingTop: '6px', borderTop: '1px solid var(--border-light)' }}>
                   <span>Saldo a Favor del Grupo:</span>
                   <span>{formatMoney(resultadoFifo.remanenteSaldoAFavor)}</span>
+                </div>
+              )}
+
+              {/* TABLA DETALLADA POR FACTURA */}
+              {resultadoFifo.desgloses && resultadoFifo.desgloses.length > 0 && (
+                <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border-light)' }}>
+                  <div style={{ fontWeight: 800, marginBottom: '8px', fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    📋 Detalle por factura pendiente:
+                  </div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                      <thead>
+                        <tr style={{ background: 'rgba(0,0,0,0.04)', textAlign: 'left' }}>
+                          <th style={{ padding: '8px 6px', fontWeight: 800, fontSize: '10px', color: 'var(--text-secondary)' }}>PERÍODO</th>
+                          <th style={{ padding: '8px 6px', fontWeight: 800, fontSize: '10px', color: 'var(--text-secondary)' }}>VENC.</th>
+                          <th style={{ padding: '8px 6px', fontWeight: 800, fontSize: '10px', color: 'var(--text-secondary)', textAlign: 'center' }}>DÍAS ATRASO</th>
+                          <th style={{ padding: '8px 6px', fontWeight: 800, fontSize: '10px', color: 'var(--text-secondary)', textAlign: 'right' }}>CAPITAL PEND.</th>
+                          <th style={{ padding: '8px 6px', fontWeight: 800, fontSize: '10px', color: 'var(--text-secondary)', textAlign: 'right' }}>INTERÉS MORA</th>
+                          <th style={{ padding: '8px 6px', fontWeight: 800, fontSize: '10px', color: 'var(--text-secondary)', textAlign: 'right' }}>PAGO → INT.</th>
+                          <th style={{ padding: '8px 6px', fontWeight: 800, fontSize: '10px', color: 'var(--text-secondary)', textAlign: 'right' }}>PAGO → CAP.</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {resultadoFifo.desgloses.map((d, idx) => (
+                          <tr key={idx} style={{ borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
+                            <td style={{ padding: '7px 6px', fontWeight: 700 }}>
+                              {d.periodo || '—'}
+                              {d.empresa ? <span style={{ fontSize: '10px', color: 'var(--text-secondary)', marginLeft: '4px' }}>({d.empresa})</span> : ''}
+                            </td>
+                            <td style={{ padding: '7px 6px', fontSize: '10.5px' }}>
+                              {d.fechaVencimiento || '—'}
+                            </td>
+                            <td style={{ padding: '7px 6px', textAlign: 'center', fontWeight: 800 }}>
+                              <span style={{
+                                display: 'inline-block',
+                                padding: '2px 8px',
+                                borderRadius: '10px',
+                                fontSize: '11px',
+                                background: d.diasMora > 30 ? 'rgba(239,68,68,0.1)' : d.diasMora > 0 ? 'rgba(245,158,11,0.1)' : 'rgba(16,185,129,0.1)',
+                                color: d.diasMora > 30 ? '#ef4444' : d.diasMora > 0 ? '#f59e0b' : '#10b981',
+                                fontWeight: 800
+                              }}>
+                                {d.diasMora > 0 ? `${d.diasMora} días` : 'En plazo'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '7px 6px', textAlign: 'right', fontWeight: 700 }}>
+                              {formatMoney(d.capitalPendiente)}
+                            </td>
+                            <td style={{ padding: '7px 6px', textAlign: 'right', fontWeight: 700, color: d.interesCalculado > 0 ? '#f59e0b' : 'var(--text-secondary)' }}>
+                              {d.interesCalculado > 0 ? formatMoney(d.interesCalculado) : '—'}
+                            </td>
+                            <td style={{ padding: '7px 6px', textAlign: 'right', fontWeight: 700, color: d.pagoAplicadoInteres > 0 ? '#10b981' : 'var(--text-secondary)' }}>
+                              {d.pagoAplicadoInteres > 0 ? formatMoney(d.pagoAplicadoInteres) : '—'}
+                            </td>
+                            <td style={{ padding: '7px 6px', textAlign: 'right', fontWeight: 700, color: d.pagoAplicadoCapital > 0 ? '#10b981' : 'var(--text-secondary)' }}>
+                              {d.pagoAplicadoCapital > 0 ? formatMoney(d.pagoAplicadoCapital) : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ marginTop: '8px', fontSize: '10px', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                    TNA aplicada: {tna}% · Vencimiento: día 12 de cada mes · Interés diario: {(tna / 365).toFixed(4)}%
+                  </div>
                 </div>
               )}
             </div>

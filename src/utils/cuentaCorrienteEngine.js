@@ -16,7 +16,7 @@
 
 // TASA ANUAL DEFAULT: 0% (sin cálculo de intereses por mora para períodos históricos)
 export const DEFAULT_TNA = 0;
-export const DIA_TOPE_PAGO = 15;
+export const DIA_TOPE_PAGO = 12;
 
 /**
  * Formatea fechas ISO (YYYY-MM-DD) a formato día-mes-año (DD/MM/YYYY)
@@ -243,14 +243,29 @@ export function imputarCobroFIFO(movimientosPendientes, montoPago, tnaPct = DEFA
     totalCapitalCancelado += pagoCapital;
     totalInteresCancelado += pagoInteres;
 
+    // Compute vencimiento date for display
+    const fFact = new Date(mov.fecha);
+    let anoVenc = fFact.getFullYear();
+    let mesVenc = fFact.getMonth();
+    if (fFact.getDate() > DIA_TOPE_PAGO) {
+      mesVenc += 1;
+      if (mesVenc > 11) { mesVenc = 0; anoVenc += 1; }
+    }
+    const fVenc = new Date(anoVenc, mesVenc, DIA_TOPE_PAGO);
+    const fechaVencStr = `${String(fVenc.getDate()).padStart(2,'0')}/${String(fVenc.getMonth()+1).padStart(2,'0')}/${fVenc.getFullYear()}`;
+
     desgloses.push({
       movimiento_id: mov.id,
       fecha: mov.fecha,
+      periodo: mov.periodo || (mov.fecha ? mov.fecha.slice(0, 7) : ''),
       numero_linea: mov.numero_linea,
       empresa: mov.empresa,
       observaciones: mov.observaciones,
       capitalPendiente: capitalPend,
       interesPendiente: interesPend,
+      diasMora,
+      fechaVencimiento: fechaVencStr,
+      interesCalculado,
       pagoAplicadoInteres: pagoInteres,
       pagoAplicadoCapital: pagoCapital,
       saldoRestanteMovimiento: Math.max(0, totalMovimiento - (pagoInteres + pagoCapital)),
