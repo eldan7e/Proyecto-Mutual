@@ -34,38 +34,40 @@ export function formatFecha(isoDate) {
 
 /**
  * Función de ordenamiento canónico de movimientos de cuenta corriente:
- * 1° Por PERÍODO contable ascendente (2026-01, 2026-02...)
- * 2° FACTURAS antes que PAGOS (las facturas del período generan la deuda y los pagos la cancelan)
- * 3° Por FECHA ascendente dentro del mismo tipo
+ * 1° Por FECHA cronológica real ascendente (YYYY-MM-DD)
+ * 2° En la misma fecha: FACTURAS antes que PAGOS (las facturas generan deuda y los pagos imputan)
+ * 3° Por PERÍODO contable ascendente
  * 4° Por ID ascendente
  */
 export function sortMovimientosCuenta(a, b) {
-  const pA = a.periodo || (a.fecha ? a.fecha.slice(0, 7) : '9999-99');
-  const pB = b.periodo || (b.fecha ? b.fecha.slice(0, 7) : '9999-99');
-  if (pA !== pB) return pA.localeCompare(pB);
+  // 1° Fecha cronológica real (fallback a período si falta la fecha)
+  const fA = a.fecha ? String(a.fecha).split('T')[0] : (a.periodo ? `${a.periodo}-01` : '9999-99-99');
+  const fB = b.fecha ? String(b.fecha).split('T')[0] : (b.periodo ? `${b.periodo}-01` : '9999-99-99');
+  if (fA !== fB) return fA.localeCompare(fB);
 
+  // 2° En la misma fecha: FACTURAS antes que NOTA_DEBITO, NOTA_CREDITO y PAGOS
   const orderA = a.tipo === 'FACTURA' ? 1 : a.tipo === 'NOTA_DEBITO' ? 2 : a.tipo === 'NOTA_CREDITO' ? 3 : 4;
   const orderB = b.tipo === 'FACTURA' ? 1 : b.tipo === 'NOTA_DEBITO' ? 2 : b.tipo === 'NOTA_CREDITO' ? 3 : 4;
   if (orderA !== orderB) return orderA - orderB;
 
-  const fA = a.fecha || '';
-  const fB = b.fecha || '';
-  if (fA !== fB) return fA.localeCompare(fB);
+  // 3° Período contable
+  const pA = a.periodo || '';
+  const pB = b.periodo || '';
+  if (pA !== pB) return pA.localeCompare(pB);
 
   return (a.id || 0) - (b.id || 0);
 }
 
 /**
- * Recalcula los saldos de un grupo EXACTAMENTE como lo hace el Excel AUNAR.
- * Procesa los movimientos de UN grupo en orden contable canónico (por período, FACTURA antes que PAGO)
- * y produce las 9 columnas calculadas del Excel.
+ * Recalcula los saldos de un grupo cronológicamente.
+ * Procesa los movimientos de UN grupo en orden contable canónico (por fecha, FACTURA antes que PAGO)
+ * y produce las columnas calculadas del extracto contable.
  * 
  * @param {Array} movimientos - Movimientos de UN grupo
  * @param {number} [tnaPct=0] - Tasa nominal anual en PORCENTAJE
- * @returns {Array} Movimientos enriquecidos con las columnas de cálculo del Excel
+ * @returns {Array} Movimientos enriquecidos con las columnas de cálculo del extracto
  */
 export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA) {
-  // Convertir TNA porcentaje a decimal (120% → 1.20) para coincidir con el Excel
   const tnaDecimal = tnaPct / 100;
   const tasaDiaria = tnaDecimal / 365;
 
@@ -73,52 +75,51 @@ export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA) {
   let intPendAnt = 0;
   let fechaAnt = null;
 
-  // Ordenar canónicamente por período, tipo (FACTURA antes que PAGO) y fecha
+  // Ordenar canónicamente por fecha cronológica real y tipo
   const sortedMovs = [...(movimientos || [])].sort(sortMovimientosCuenta);
 
   return sortedMovs.map((m) => {
-
-
-    // Determinar tipo de movimiento
     const isPago = m.tipo === 'PAGO';
-    // Importe: positivo para facturas, negativo para pagos (tal cual viene del Excel)
+    const isNC = m.tipo === 'NOTA_CREDITO';
     const importeOriginal = Number(m.importe) || 0;
 
-    // 1. Plazo Dias: diferencia en días entre esta fila y la anterior
+    // 1. Plazo Días: diferencia en días entre esta fila y la anterior
     let plazoDias = 0;
-    if (fechaAnt) {
-      const dAnt = new Date(fechaAnt);
-      const dAct = new Date(m.fecha);
-      const diffMs = dAct - dAnt;
+    if (fechaAnt && m.fecha) {
+      const dAnt = parseDateOnly(fechaAnt);
+      const dAct = parseDateOnly(m.fecha);
+      const diffMs = dAct.getTime() - dAnt.getTime();
       plazoDias = diffMs > 0 ? Math.floor(diffMs / (1000 * 60 * 60 * 24)) : 0;
     }
 
-    // 2. Interes % (tasa diaria × plazo)
+    // 2. Interés % (tasa diaria × plazo)
     const interesPct = tasaDiaria * plazoDias;
 
-    // 3. Intereses $ (SaldoCapitalAnterior × Interes%)
-    const interesMora = saldoCapAnt * interesPct;
+    // 3. Intereses $ (SaldoCapitalAnterior × Interes%, solo si hay deuda)
+    const interesMora = saldoCapAnt > 0 ? (saldoCapAnt * interesPct) : 0;
 
-    // 4. Interes Pendiente Acumulado = interés anterior + interés nuevo
+    // 4. Interés Pendiente Acumulado
     const intPendAcum = intPendAnt + interesMora;
 
-    // 5 & 6. Imputación de pagos: primero a interés, luego a capital
+    // 5 & 6. Imputación de pagos
     let pagoAInteres = 0;
     let pagoACapital = 0;
 
-    if (isPago) {
+    if (isPago || isNC) {
       const montoAbsoluto = Math.abs(importeOriginal);
       pagoAInteres = Math.min(montoAbsoluto, intPendAcum);
       pagoACapital = montoAbsoluto - pagoAInteres;
     }
 
-    // 7. Saldo Capital = anterior + importe + pagoAInteres (para facturas suma importe, para pagos resta solo pagoACapital)
-    const saldoCapital = isPago ? (saldoCapAnt - pagoACapital) : (saldoCapAnt + importeOriginal);
+    // 7. Saldo Capital
+    const saldoCapital = (isPago || isNC) 
+      ? (saldoCapAnt - pagoACapital) 
+      : (saldoCapAnt + importeOriginal);
 
-    // 8. Interes Pendiente Final = acumulado - lo que se pagó de interés
-    const intPendFinal = intPendAcum - pagoAInteres;
+    // 8. Interés Pendiente Final
+    const intPendFinal = Math.max(0, intPendAcum - pagoAInteres);
 
-    // 9. Saldo Final = capital + interés pendiente
+    // 9. Saldo Final
     const saldoFinal = saldoCapital + intPendFinal;
 
     // Guardar acumuladores para la siguiente fila
@@ -142,36 +143,84 @@ export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA) {
 }
 
 /**
- * Calcula los días de mora entre la fecha de la factura/vencimiento y la fecha en que se realiza el pago.
- * @param {string|Date} fechaEmisionOFactura - Fecha de presentación/emisión de la factura
- * @param {string|Date} [fechaPagoOCalculo] - Fecha en que se abonó el pago (o fecha de corte si está pendiente)
- * @param {number} [diaTope=15] - Día tope de pago del mes
- * @returns {number} Días de mora reales (>= 0)
+ * Parsea una fecha ISO o string YYYY-MM-DD de forma segura evitando problemas de huso horario (GMT-3)
  */
-export function calcularDiasMora(fechaEmisionOFactura, fechaPagoOCalculo = new Date(), diaTope = DIA_TOPE_PAGO) {
-  if (!fechaEmisionOFactura || !fechaPagoOCalculo) return 0;
-  
-  const fFactura = new Date(fechaEmisionOFactura);
-  const fPago = new Date(fechaPagoOCalculo);
-  
-  // Establecer vencimiento (día 15 del mes de la factura o mes siguiente si se emite después del día 15)
-  let anoVenc = fFactura.getFullYear();
-  let mesVenc = fFactura.getMonth();
-  
-  if (fFactura.getDate() > diaTope) {
-    mesVenc += 1;
-    if (mesVenc > 11) {
-      mesVenc = 0;
-      anoVenc += 1;
+export function parseDateOnly(dateInput) {
+  if (!dateInput) return new Date();
+  if (dateInput instanceof Date) return new Date(dateInput.getTime());
+  const str = String(dateInput).trim().split('T')[0];
+  const parts = str.split('-');
+  if (parts.length >= 3) {
+    return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+  }
+  return new Date(dateInput);
+}
+
+/**
+ * Obtiene la fecha exacta de vencimiento canónica (día 12 de cada mes).
+ * Si la fecha de emisión es posterior al día 12, vence el día 12 del mes siguiente.
+ */
+export function getFechaVencimiento(fechaOrPeriodo, diaTope = DIA_TOPE_PAGO) {
+  if (!fechaOrPeriodo) return null;
+  const str = String(fechaOrPeriodo).trim().split('T')[0];
+  const parts = str.split('-');
+
+  let ano = 0;
+  let mes = 0; // 0-indexed
+  let dia = 1;
+
+  if (parts.length >= 2) {
+    ano = parseInt(parts[0], 10);
+    mes = parseInt(parts[1], 10) - 1;
+    if (parts.length >= 3) {
+      dia = parseInt(parts[2], 10);
+    }
+  } else {
+    const d = new Date(fechaOrPeriodo);
+    ano = d.getFullYear();
+    mes = d.getMonth();
+    dia = d.getDate();
+  }
+
+  // Si tiene día específico y se emitió después del día tope del mes, vence el mes siguiente
+  if (parts.length >= 3 && dia > diaTope) {
+    mes += 1;
+    if (mes > 11) {
+      mes = 0;
+      ano += 1;
     }
   }
-  
-  const fVencimiento = new Date(anoVenc, mesVenc, diaTope, 23, 59, 59);
-  
-  // Si la fecha de pago ocurrió dentro del plazo o antes del vencimiento -> 0 días de mora
-  const diffMs = fPago - fVencimiento;
+
+  return new Date(ano, mes, diaTope, 23, 59, 59);
+}
+
+/**
+ * Formatea la fecha de vencimiento a formato día/mes/año (ej: 12/08/2026)
+ */
+export function formatFechaVencimiento(fechaOrPeriodo, diaTope = DIA_TOPE_PAGO) {
+  const fVenc = getFechaVencimiento(fechaOrPeriodo, diaTope);
+  if (!fVenc || isNaN(fVenc.getTime())) return '—';
+  return `${String(fVenc.getDate()).padStart(2, '0')}/${String(fVenc.getMonth() + 1).padStart(2, '0')}/${fVenc.getFullYear()}`;
+}
+
+/**
+ * Calcula los días de mora entre el vencimiento de la factura (día 12) y la fecha del cobro.
+ * @param {string|Date} fechaEmisionOFactura - Fecha o período de la factura
+ * @param {string|Date} [fechaPagoOCalculo] - Fecha en que se abona o calcula el pago
+ * @param {number} [diaTope=12] - Día tope de vencimiento (por defecto 12)
+ * @returns {number} Días de atraso reales (>= 0)
+ */
+export function calcularDiasMora(fechaEmisionOFactura, fechaPagoOCalculo = new Date(), diaTope = DIA_TOPE_PAGO) {
+  if (!fechaEmisionOFactura) return 0;
+  const fVencimiento = getFechaVencimiento(fechaEmisionOFactura, diaTope);
+  if (!fVencimiento) return 0;
+
+  const fPago = parseDateOnly(fechaPagoOCalculo);
+  fPago.setHours(23, 59, 59, 999);
+
+  const diffMs = fPago.getTime() - fVencimiento.getTime();
   if (diffMs <= 0) return 0;
-  
+
   return Math.floor(diffMs / (1000 * 60 * 60 * 24));
 }
 
@@ -244,15 +293,7 @@ export function imputarCobroFIFO(movimientosPendientes, montoPago, tnaPct = DEFA
     totalInteresCancelado += pagoInteres;
 
     // Compute vencimiento date for display
-    const fFact = new Date(mov.fecha);
-    let anoVenc = fFact.getFullYear();
-    let mesVenc = fFact.getMonth();
-    if (fFact.getDate() > DIA_TOPE_PAGO) {
-      mesVenc += 1;
-      if (mesVenc > 11) { mesVenc = 0; anoVenc += 1; }
-    }
-    const fVenc = new Date(anoVenc, mesVenc, DIA_TOPE_PAGO);
-    const fechaVencStr = `${String(fVenc.getDate()).padStart(2,'0')}/${String(fVenc.getMonth()+1).padStart(2,'0')}/${fVenc.getFullYear()}`;
+    const fechaVencStr = formatFechaVencimiento(mov.fecha || mov.periodo, DIA_TOPE_PAGO);
 
     desgloses.push({
       movimiento_id: mov.id,

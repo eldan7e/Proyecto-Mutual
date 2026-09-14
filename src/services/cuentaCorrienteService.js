@@ -136,9 +136,8 @@ export async function fetchMovimientosGrupo(numeroGrupo) {
     .from('movimientos_cuenta')
     .select('*')
     .eq('numero_grupo', numeroGrupo)
-    .order('periodo', { ascending: true })
-    .order('tipo', { ascending: true })
     .order('fecha', { ascending: true })
+    .order('tipo', { ascending: true })
     .order('id', { ascending: true });
 
   if (error) throw error;

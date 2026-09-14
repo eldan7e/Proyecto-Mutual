@@ -18,7 +18,7 @@ import {
 import { fetchPeriods } from './services/conciliacionService';
 import { 
   recalcularSaldosGrupo, imputarCobroFIFO, formatMoney, formatFecha,
-  calcularDiasMora, calcularInteresMora, DEFAULT_TNA 
+  formatFechaVencimiento, calcularDiasMora, calcularInteresMora, DEFAULT_TNA 
 } from './utils/cuentaCorrienteEngine';
 import { 
   exportFacturasXLSX, exportSaldosXLSX, exportExtractoXLSX, exportLineasXLSX 
@@ -529,6 +529,35 @@ export default function Contaduria() {
     const entregado = parseFloat(efectivoEntregado) || 0;
     return Math.round((entregado - montoTeoricoCobro) * 100) / 100;
   }, [efectivoEntregado, montoTeoricoCobro]);
+
+  // Detección de deudas pendientes en períodos anteriores al de la factura seleccionada
+  const deudasPreviasInfo = useMemo(() => {
+    if (!targetFactura || !movimientos || movimientos.length === 0) return null;
+    const targetPeriodo = targetFactura.periodo;
+    if (!targetPeriodo) return null;
+
+    // Movimientos tipo FACTURA con período anterior al seleccionado y saldo impago
+    const anteriores = movimientos.filter(m => 
+      m.tipo === 'FACTURA' && 
+      m.periodo && 
+      m.periodo < targetPeriodo && 
+      (m.saldo_final > 1 || (Number(m.importe) - Number(m.pago_aplicado_capital || 0)) > 1)
+    );
+
+    if (anteriores.length === 0) return null;
+
+    const periodos = [...new Set(anteriores.map(m => m.periodo))].sort();
+    const totalDeudaAnterior = anteriores.reduce((sum, m) => {
+      const pend = Math.max(0, Number(m.importe) - Number(m.pago_aplicado_capital || 0));
+      return sum + pend;
+    }, 0);
+
+    return {
+      periodos,
+      totalDeudaAnterior,
+      cantidadFacturas: anteriores.length
+    };
+  }, [targetFactura, movimientos]);
 
   // Abrir comprobante oficial de pago para una factura cancelada o abonada
   function handleAbrirComprobanteFactura(group) {
@@ -1657,6 +1686,8 @@ export default function Contaduria() {
                     const isExpanded = expandedGruposFacturas.has(group.key);
                     const isCobrada = group.estado_consolidado === 'ABONADO';
                     const isParcial = group.estado_consolidado === 'PARCIAL';
+                    const diasMora = !isCobrada ? calcularDiasMora(group.items[0]?.fecha_emision || group.periodo) : 0;
+                    const fechaVenc = !isCobrada ? formatFechaVencimiento(group.items[0]?.fecha_emision || group.periodo) : '';
 
                     return (
                       <React.Fragment key={group.key}>
@@ -1782,6 +1813,41 @@ export default function Contaduria() {
                               }} />
                               {isCobrada ? 'ABONADA' : isParcial ? 'PARCIAL' : 'IMPAGA'}
                             </span>
+
+                            {!isCobrada && (
+                              <div style={{ marginTop: '5px' }}>
+                                {diasMora > 0 ? (
+                                  <span 
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '3px',
+                                      background: diasMora > 30 ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                                      color: diasMora > 30 ? '#ef4444' : '#f59e0b',
+                                      border: diasMora > 30 ? '1px solid rgba(239, 68, 68, 0.25)' : '1px solid rgba(245, 158, 11, 0.25)',
+                                      padding: '2px 7px',
+                                      borderRadius: '10px',
+                                      fontWeight: 800,
+                                      fontSize: '10px'
+                                    }} 
+                                    title={`Vencimiento: ${fechaVenc}`}
+                                  >
+                                    ⏱️ {diasMora}d atraso
+                                  </span>
+                                ) : (
+                                  <span 
+                                    style={{
+                                      fontSize: '10px',
+                                      color: '#10b981',
+                                      fontWeight: 700
+                                    }}
+                                    title={`Vencimiento: ${fechaVenc}`}
+                                  >
+                                    En plazo (vence {fechaVenc})
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </td>
 
                           {/* 8. ACCIONES */}
@@ -1960,18 +2026,40 @@ export default function Contaduria() {
                                             <span style={{ fontSize: '13px', fontWeight: 900, color: subPendiente > 5 ? '#ef4444' : '#10b981' }}>{formatMoney(subPendiente)}</span>
                                           </div>
 
-                                          <span style={{
-                                            padding: '4px 10px',
-                                            borderRadius: '20px',
-                                            fontSize: '10px',
-                                            fontWeight: 800,
-                                            background: subIsCobrada ? 'rgba(16,185,129,0.12)' : subIsParcial ? 'rgba(245,158,11,0.12)' : 'rgba(239,68,68,0.12)',
-                                            color: subIsCobrada ? '#059669' : subIsParcial ? '#d97706' : '#dc2626',
-                                            border: `1px solid ${subIsCobrada ? 'rgba(16,185,129,0.25)' : subIsParcial ? 'rgba(245,158,11,0.25)' : 'rgba(239,68,68,0.25)'}`,
-                                            whiteSpace: 'nowrap'
-                                          }}>
-                                            {subIsCobrada ? '✓ COBRADA' : subIsParcial ? 'PARCIAL' : 'IMPAGA'}
-                                          </span>
+                                          {(() => {
+                                            const subDiasMora = !subIsCobrada ? calcularDiasMora(subLiq.fecha_emision || group.periodo) : 0;
+                                            return (
+                                              <>
+                                                <span style={{
+                                                  padding: '4px 10px',
+                                                  borderRadius: '20px',
+                                                  fontSize: '10px',
+                                                  fontWeight: 800,
+                                                  background: subIsCobrada ? 'rgba(16,185,129,0.12)' : subIsParcial ? 'rgba(245,158,11,0.12)' : 'rgba(239,68,68,0.12)',
+                                                  color: subIsCobrada ? '#059669' : subIsParcial ? '#d97706' : '#dc2626',
+                                                  border: `1px solid ${subIsCobrada ? 'rgba(16,185,129,0.25)' : subIsParcial ? 'rgba(245,158,11,0.25)' : 'rgba(239,68,68,0.25)'}`,
+                                                  whiteSpace: 'nowrap'
+                                                }}>
+                                                  {subIsCobrada ? '✓ COBRADA' : subIsParcial ? 'PARCIAL' : 'IMPAGA'}
+                                                </span>
+
+                                                {!subIsCobrada && subDiasMora > 0 && (
+                                                  <span style={{
+                                                    padding: '3px 8px',
+                                                    borderRadius: '10px',
+                                                    fontSize: '9.5px',
+                                                    fontWeight: 800,
+                                                    background: subDiasMora > 30 ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)',
+                                                    color: subDiasMora > 30 ? '#ef4444' : '#f59e0b',
+                                                    border: subDiasMora > 30 ? '1px solid rgba(239,68,68,0.2)' : '1px solid rgba(245,158,11,0.2)',
+                                                    whiteSpace: 'nowrap'
+                                                  }}>
+                                                    ⏱️ {subDiasMora}d
+                                                  </span>
+                                                )}
+                                              </>
+                                            );
+                                          })()}
 
                                           {!subIsCobrada && (
                                             <button
@@ -2698,6 +2786,58 @@ export default function Contaduria() {
           {targetFactura && (
             <div style={{ background: 'var(--accent-light)', color: 'var(--accent)', padding: '12px 16px', borderRadius: '12px', fontSize: '13px', fontWeight: 700 }}>
               Factura Seleccionada: Período {targetFactura.periodo} ({targetFactura.proveedores?.nombre || 'MUTUAL'}) — Total: {formatMoney(targetFactura.monto_total_facturado)} | Abonado: {formatMoney(targetFactura.monto_abonado || 0)} | Pendiente: {formatMoney(montoTeoricoCobro)}
+            </div>
+          )}
+
+          {/* ALERTA DE DEUDA PREVIA DE PERÍODOS ANTERIORES */}
+          {targetFactura && deudasPreviasInfo && (
+            <div style={{
+              background: 'rgba(239, 68, 68, 0.08)',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              padding: '12px 16px',
+              borderRadius: '12px',
+              fontSize: '12.5px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <AlertCircle size={16} color="#ef4444" style={{ flexShrink: 0 }} />
+                <span style={{ fontWeight: 800, color: '#ef4444' }}>
+                  ⚠️ Atención: Este grupo tiene deuda pendiente de períodos anteriores
+                </span>
+              </div>
+              <div style={{ color: 'var(--text-primary)', fontSize: '12px', lineHeight: 1.4 }}>
+                Registra deuda impaga por un total de <strong>{formatMoney(deudasPreviasInfo.totalDeudaAnterior)}</strong> en los períodos: <strong>{deudasPreviasInfo.periodos.join(', ')}</strong>.
+              </div>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginTop: '2px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTargetFactura(null);
+                    const s = String((ultimoMovGrupo?.saldo_final || 0).toFixed(2));
+                    setMontoCobro(s);
+                    setEfectivoEntregado(s);
+                    setObservacionesCobro(`Cobro Total Deuda Acumulada - Grupo #${selectedGrupo}`);
+                  }}
+                  className="air-btn"
+                  style={{
+                    background: '#ef4444',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '6px 12px',
+                    borderRadius: '8px',
+                    fontSize: '11.5px',
+                    fontWeight: 800,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cambiar a Cobro de Deuda Total
+                </button>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                  (Aplica imputación FIFO desde la deuda más antigua)
+                </span>
+              </div>
             </div>
           )}
 
