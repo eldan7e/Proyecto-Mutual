@@ -603,23 +603,63 @@ export default function Contaduria() {
       return;
     }
 
-    const facturasPendientes = movimientos
-      .filter(m => m.tipo === 'FACTURA' && (m.saldo_final > 0 || (m.importe - (m.pago_aplicado_capital || 0)) > 0))
-      .map(m => ({
-        id: m.id,
-        fecha: m.fecha,
-        periodo: m.periodo,
-        numero_linea: m.numero_linea,
-        empresa: m.empresa,
-        observaciones: m.observaciones,
-        importe: m.importe,
-        pago_aplicado_capital: m.pago_aplicado_capital || 0,
-        pago_aplicado_interes: m.pago_aplicado_interes || 0
-      }));
+    let facturasPendientes;
+
+    if (targetFactura) {
+      // Factura específica seleccionada: buscar el movimiento correspondiente a esa factura
+      const movTarget = movimientos.find(m => 
+        m.tipo === 'FACTURA' && 
+        m.periodo === targetFactura.periodo && 
+        (m.empresa === (targetFactura.proveedores?.nombre || targetFactura.empresa) || !targetFactura.proveedores?.nombre)
+      );
+      
+      if (movTarget) {
+        facturasPendientes = [{
+          id: movTarget.id,
+          fecha: movTarget.fecha,
+          periodo: movTarget.periodo,
+          numero_linea: movTarget.numero_linea,
+          empresa: movTarget.empresa,
+          observaciones: movTarget.observaciones,
+          importe: movTarget.importe,
+          pago_aplicado_capital: movTarget.pago_aplicado_capital || 0,
+          pago_aplicado_interes: movTarget.pago_aplicado_interes || 0
+        }];
+      } else {
+        // Fallback: usar datos del targetFactura directamente
+        const saldoPend = Math.max(0, Number(targetFactura.monto_total_facturado || targetFactura.saldo_impago || 0) - Number(targetFactura.monto_abonado || 0));
+        facturasPendientes = [{
+          id: targetFactura.id || 0,
+          fecha: targetFactura.fecha_emision || targetFactura.fecha || (targetFactura.periodo ? targetFactura.periodo + '-10' : ''),
+          periodo: targetFactura.periodo,
+          numero_linea: targetFactura.numero_linea,
+          empresa: targetFactura.proveedores?.nombre || targetFactura.empresa || 'MUTUAL',
+          observaciones: `Facturación Período ${targetFactura.periodo}`,
+          importe: saldoPend,
+          pago_aplicado_capital: 0,
+          pago_aplicado_interes: 0
+        }];
+      }
+    } else {
+      // Deuda Total: procesar TODAS las facturas pendientes (FIFO)
+      facturasPendientes = movimientos
+        .filter(m => m.tipo === 'FACTURA' && (m.saldo_final > 0 || (m.importe - (m.pago_aplicado_capital || 0)) > 0))
+        .map(m => ({
+          id: m.id,
+          fecha: m.fecha,
+          periodo: m.periodo,
+          numero_linea: m.numero_linea,
+          empresa: m.empresa,
+          observaciones: m.observaciones,
+          importe: m.importe,
+          pago_aplicado_capital: m.pago_aplicado_capital || 0,
+          pago_aplicado_interes: m.pago_aplicado_interes || 0
+        }));
+    }
 
     const resultado = imputarCobroFIFO(facturasPendientes, val, tna, fechaCobro);
     setResultadoFifo(resultado);
-  }, [montoCobro, efectivoEntregado, medioPago, cobroModalOpen, movimientos, tna, fechaCobro]);
+  }, [montoCobro, efectivoEntregado, medioPago, cobroModalOpen, movimientos, tna, fechaCobro, targetFactura]);
 
   // Ejecutar Cobro
   async function handleConfirmarCobro(e) {
