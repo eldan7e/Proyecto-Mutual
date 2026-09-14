@@ -158,7 +158,8 @@ export function parseDateOnly(dateInput) {
 
 /**
  * Obtiene la fecha exacta de vencimiento canónica (día 12 de cada mes).
- * Si la fecha de emisión es posterior al día 12, vence el día 12 del mes siguiente.
+ * - Si es un período ("YYYY-MM"), el servicio mensual vence el día 12 del MES SIGUIENTE (ej: 2026-08 vence el 12/09/2026).
+ * - Si es una fecha ("YYYY-MM-DD") y se emitió después del día 12, vence el día 12 del mes siguiente.
  */
 export function getFechaVencimiento(fechaOrPeriodo, diaTope = DIA_TOPE_PAGO) {
   if (!fechaOrPeriodo) return null;
@@ -166,24 +167,42 @@ export function getFechaVencimiento(fechaOrPeriodo, diaTope = DIA_TOPE_PAGO) {
   const parts = str.split('-');
 
   let ano = 0;
-  let mes = 0; // 0-indexed
-  let dia = 1;
+  let mes = 0; // 0-indexed (0=Enero ... 11=Diciembre)
 
-  if (parts.length >= 2) {
+  // Formato PERÍODO ("YYYY-MM"): vence el día 12 del mes siguiente al de consumo
+  if (parts.length === 2) {
     ano = parseInt(parts[0], 10);
-    mes = parseInt(parts[1], 10) - 1;
-    if (parts.length >= 3) {
-      dia = parseInt(parts[2], 10);
+    const mesPeriodo = parseInt(parts[1], 10); // 1-12
+    // En Date 0-indexed, mesPeriodo equivale directamente al mes siguiente (ej: 8 -> mes 8 = Septiembre)
+    mes = mesPeriodo;
+    if (mes > 11) {
+      mes = 0;
+      ano += 1;
     }
-  } else {
-    const d = new Date(fechaOrPeriodo);
-    ano = d.getFullYear();
-    mes = d.getMonth();
-    dia = d.getDate();
+    return new Date(ano, mes, diaTope, 23, 59, 59);
   }
 
-  // Si tiene día específico y se emitió después del día tope del mes, vence el mes siguiente
-  if (parts.length >= 3 && dia > diaTope) {
+  // Formato FECHA COMPLETA ("YYYY-MM-DD")
+  if (parts.length >= 3) {
+    ano = parseInt(parts[0], 10);
+    mes = parseInt(parts[1], 10) - 1; // 0-indexed
+    const dia = parseInt(parts[2], 10);
+
+    // Si se emitió después del día 12 del mes, vence el día 12 del mes siguiente
+    if (dia > diaTope) {
+      mes += 1;
+      if (mes > 11) {
+        mes = 0;
+        ano += 1;
+      }
+    }
+    return new Date(ano, mes, diaTope, 23, 59, 59);
+  }
+
+  const d = new Date(fechaOrPeriodo);
+  ano = d.getFullYear();
+  mes = d.getMonth();
+  if (d.getDate() > diaTope) {
     mes += 1;
     if (mes > 11) {
       mes = 0;
@@ -263,7 +282,7 @@ export function imputarCobroFIFO(movimientosPendientes, montoPago, tnaPct = DEFA
     if (remanente <= 0) break;
 
     const capitalPend = Math.max(0, Number(mov.importe) - Number(mov.pago_aplicado_capital || 0));
-    const diasMora = calcularDiasMora(mov.fecha, fechaCalculo);
+    const diasMora = calcularDiasMora(mov.periodo || mov.fecha, fechaCalculo);
     const interesCalculado = calcularInteresMora(capitalPend, diasMora, tnaPct);
     const interesPend = Math.max(0, interesCalculado - Number(mov.pago_aplicado_interes || 0));
     const totalMovimiento = capitalPend + interesPend;
@@ -293,7 +312,7 @@ export function imputarCobroFIFO(movimientosPendientes, montoPago, tnaPct = DEFA
     totalInteresCancelado += pagoInteres;
 
     // Compute vencimiento date for display
-    const fechaVencStr = formatFechaVencimiento(mov.fecha || mov.periodo, DIA_TOPE_PAGO);
+    const fechaVencStr = formatFechaVencimiento(mov.periodo || mov.fecha, DIA_TOPE_PAGO);
 
     desgloses.push({
       movimiento_id: mov.id,

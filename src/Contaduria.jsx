@@ -1686,8 +1686,8 @@ export default function Contaduria() {
                     const isExpanded = expandedGruposFacturas.has(group.key);
                     const isCobrada = group.estado_consolidado === 'ABONADO';
                     const isParcial = group.estado_consolidado === 'PARCIAL';
-                    const diasMora = !isCobrada ? calcularDiasMora(group.items[0]?.fecha_emision || group.periodo) : 0;
-                    const fechaVenc = !isCobrada ? formatFechaVencimiento(group.items[0]?.fecha_emision || group.periodo) : '';
+                    const diasMora = !isCobrada ? calcularDiasMora(group.periodo || group.items[0]?.fecha_emision) : 0;
+                    const fechaVenc = !isCobrada ? formatFechaVencimiento(group.periodo || group.items[0]?.fecha_emision) : '';
 
                     return (
                       <React.Fragment key={group.key}>
@@ -2027,7 +2027,7 @@ export default function Contaduria() {
                                           </div>
 
                                           {(() => {
-                                            const subDiasMora = !subIsCobrada ? calcularDiasMora(subLiq.fecha_emision || group.periodo) : 0;
+                                            const subDiasMora = !subIsCobrada ? calcularDiasMora(group.periodo || subLiq.fecha_emision) : 0;
                                             return (
                                               <>
                                                 <span style={{
