@@ -76,6 +76,7 @@ export default function Contaduria() {
   const [fechaCobro, setFechaCobro] = useState(getTodayISO());
   const [procesandoCobro, setProcesandoCobro] = useState(false);
   const [resultadoFifo, setResultadoFifo] = useState(null);
+  const [eximirMora, setEximirMora] = useState(false); // Permite al cajero perdonar o eximir mora y cobrar solo capital
 
   // Manejo de Efectivo en Oficina y Falta de Cambio
   const [efectivoEntregado, setEfectivoEntregado] = useState('');
@@ -467,6 +468,7 @@ export default function Contaduria() {
     setSelectedGrupo(gNum);
     setTargetFactura(target);
     setTargetLinea(null);
+    setEximirMora(false);
     // Cargar notas internas del grupo al abrir el modal
     loadNotasGrupo(gNum);
 
@@ -477,11 +479,16 @@ export default function Contaduria() {
       } else {
         saldoPend = Math.max(0, Number(target.monto_total_facturado) - Number(target.monto_abonado || 0));
       }
-      const montoInicial = saldoPend > 0 ? saldoPend : Number(target.monto_total_facturado || 0);
+      // Calcular mora a fecha de cobro de hoy
+      const dias = calcularDiasMora(target.periodo || target.fecha_emision);
+      const intMora = (dias > 0 && tna > 0) ? calcularInteresMora(saldoPend, dias, tna) : 0;
+      const totalSugerido = Math.round((saldoPend + intMora) * 100) / 100;
+
+      const montoInicial = totalSugerido > 0 ? totalSugerido : saldoPend;
       const strMonto = montoInicial > 0 ? String(montoInicial) : '';
       setMontoCobro(strMonto);
       setEfectivoEntregado(strMonto);
-      setObservacionesCobro(`Cobro Facturación Período ${target.periodo} (${target.proveedores?.nombre || 'MUTUAL'})`);
+      setObservacionesCobro(`Cobro Facturación Período ${target.periodo} (${target.proveedores?.nombre || 'MUTUAL'})${intMora > 0 ? ` (incluye ${dias}d mora)` : ''}`);
     } else {
       setMontoCobro('');
       setEfectivoEntregado('');
@@ -501,6 +508,7 @@ export default function Contaduria() {
     setSelectedGrupo(gNum);
     setTargetFactura(targetLiq);
     setTargetLinea(linea.numero_linea);
+    setEximirMora(false);
     loadNotasGrupo(gNum);
 
     const val = Number(linea.total_linea || 0);
@@ -517,13 +525,15 @@ export default function Contaduria() {
   // Cálculos dinámicos de importe adeudado y diferencia de cambio
   const montoTeoricoCobro = useMemo(() => {
     if (targetFactura) {
-      if (targetFactura.saldo_impago !== undefined) {
-        return Math.max(0, Number(targetFactura.saldo_impago));
-      }
-      return Math.max(0, Number(targetFactura.monto_total_facturado || 0) - Number(targetFactura.monto_abonado || 0));
+      const base = targetFactura.saldo_impago !== undefined
+        ? Math.max(0, Number(targetFactura.saldo_impago))
+        : Math.max(0, Number(targetFactura.monto_total_facturado || 0) - Number(targetFactura.monto_abonado || 0));
+      const dias = calcularDiasMora(targetFactura.periodo || targetFactura.fecha_emision, fechaCobro);
+      const int = (!eximirMora && dias > 0 && tna > 0) ? calcularInteresMora(base, dias, tna) : 0;
+      return Math.round((base + int) * 100) / 100;
     }
     return Math.max(0, Number(ultimoMovGrupo?.saldo_final || 0));
-  }, [targetFactura, ultimoMovGrupo]);
+  }, [targetFactura, ultimoMovGrupo, fechaCobro, tna, eximirMora]);
 
   const diferenciaCambio = useMemo(() => {
     const entregado = parseFloat(efectivoEntregado) || 0;
@@ -686,9 +696,10 @@ export default function Contaduria() {
         }));
     }
 
-    const resultado = imputarCobroFIFO(facturasPendientes, val, tna, fechaCobro);
+    const tnaEfectiva = eximirMora ? 0 : tna;
+    const resultado = imputarCobroFIFO(facturasPendientes, val, tnaEfectiva, fechaCobro);
     setResultadoFifo(resultado);
-  }, [montoCobro, efectivoEntregado, medioPago, cobroModalOpen, movimientos, tna, fechaCobro, targetFactura]);
+  }, [montoCobro, efectivoEntregado, medioPago, cobroModalOpen, movimientos, tna, fechaCobro, targetFactura, eximirMora]);
 
   // Ejecutar Cobro
   async function handleConfirmarCobro(e) {
@@ -735,18 +746,14 @@ export default function Contaduria() {
         medio_pago: medioPago,
         observaciones: obsFinal,
         interesPagado: resultadoFifo?.totalInteresCancelado || 0,
-        capitalPagado: val,
+        capitalPagado: resultadoFifo?.totalCapitalCancelado || val,
         remanenteSaldoAFavor: resultadoFifo?.remanenteSaldoAFavor || 0,
         monto_factura: targetFactura?.monto_total_facturado || val,
-        desgloses: targetFactura ? [{
-          observaciones: `Facturación Período ${targetFactura.periodo} (${targetFactura.proveedores?.nombre || 'MUTUAL'})`,
-          pagoAplicadoCapital: val,
-          pagoAplicadoInteres: 0
-        }] : (resultadoFifo?.desgloses || [{
-          observaciones: `Cobro en cuenta corriente - ${medioPago}`,
-          pagoAplicadoCapital: val,
-          pagoAplicadoInteres: 0
-        }])
+        desgloses: (resultadoFifo?.desgloses && resultadoFifo.desgloses.length > 0) ? resultadoFifo.desgloses : [{
+          observaciones: targetFactura ? `Facturación Período ${targetFactura.periodo} (${targetFactura.proveedores?.nombre || 'MUTUAL'})` : `Cobro en cuenta corriente - ${medioPago}`,
+          pagoAplicadoCapital: resultadoFifo?.totalCapitalCancelado || val,
+          pagoAplicadoInteres: resultadoFifo?.totalInteresCancelado || 0
+        }]
       });
 
       // 3. Limpiar cache de lineas del grupo para forzar recarga en vivo de pagos
@@ -1688,6 +1695,8 @@ export default function Contaduria() {
                     const isParcial = group.estado_consolidado === 'PARCIAL';
                     const diasMora = !isCobrada ? calcularDiasMora(group.periodo || group.items[0]?.fecha_emision) : 0;
                     const fechaVenc = !isCobrada ? formatFechaVencimiento(group.periodo || group.items[0]?.fecha_emision) : '';
+                    const interesMora = (!isCobrada && diasMora > 0 && tna > 0) ? calcularInteresMora(group.saldo_impago, diasMora, tna) : 0;
+                    const totalConMora = group.saldo_impago + interesMora;
 
                     return (
                       <React.Fragment key={group.key}>
@@ -1787,8 +1796,20 @@ export default function Contaduria() {
                           </td>
 
                           {/* 6. SALDO IMPAGO */}
-                          <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 900, fontSize: '13.5px', color: group.saldo_impago > 5 ? '#ef4444' : 'var(--text-primary)' }}>
-                            {formatMoney(group.saldo_impago)}
+                          <td style={{ padding: '14px 16px', textAlign: 'right' }}>
+                            <div style={{ fontWeight: 900, fontSize: '13.5px', color: group.saldo_impago > 5 ? '#ef4444' : 'var(--text-primary)' }}>
+                              {formatMoney(group.saldo_impago)}
+                            </div>
+                            {interesMora > 0 && (
+                              <div style={{ fontSize: '11px', color: '#f59e0b', fontWeight: 800, marginTop: '2px' }} title={`Interés por ${diasMora} días de mora (TNA ${tna}%)`}>
+                                + {formatMoney(interesMora)} mora
+                              </div>
+                            )}
+                            {interesMora > 0 && (
+                              <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)', fontWeight: 700, marginTop: '1px' }}>
+                                Total: <strong style={{ color: '#ef4444' }}>{formatMoney(totalConMora)}</strong>
+                              </div>
+                            )}
                           </td>
 
                           {/* 7. ESTADO */}
@@ -1825,14 +1846,15 @@ export default function Contaduria() {
                                       background: diasMora > 30 ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.1)',
                                       color: diasMora > 30 ? '#ef4444' : '#f59e0b',
                                       border: diasMora > 30 ? '1px solid rgba(239, 68, 68, 0.25)' : '1px solid rgba(245, 158, 11, 0.25)',
-                                      padding: '2px 7px',
+                                      padding: '2px 8px',
                                       borderRadius: '10px',
                                       fontWeight: 800,
-                                      fontSize: '10px'
+                                      fontSize: '10px',
+                                      whiteSpace: 'nowrap'
                                     }} 
-                                    title={`Vencimiento: ${fechaVenc}`}
+                                    title={`Vencimiento: ${fechaVenc} • Interés acumulado: ${formatMoney(interesMora)} (TNA ${tna}%)`}
                                   >
-                                    ⏱️ {diasMora}d atraso
+                                    ⏱️ {diasMora}d atraso {interesMora > 0 ? `(+${formatMoney(interesMora)})` : ''}
                                   </span>
                                 ) : (
                                   <span 
@@ -2021,15 +2043,23 @@ export default function Contaduria() {
                                             <span style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Abonado</span>
                                             <span style={{ fontSize: '13px', fontWeight: 800, color: '#10b981' }}>{formatMoney(subAbonado)}</span>
                                           </div>
-                                          <div style={{ textAlign: 'right' }}>
-                                            <span style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Saldo</span>
-                                            <span style={{ fontSize: '13px', fontWeight: 900, color: subPendiente > 5 ? '#ef4444' : '#10b981' }}>{formatMoney(subPendiente)}</span>
-                                          </div>
-
                                           {(() => {
                                             const subDiasMora = !subIsCobrada ? calcularDiasMora(group.periodo || subLiq.fecha_emision) : 0;
+                                            const subInteresMora = (!subIsCobrada && subDiasMora > 0 && tna > 0) ? calcularInteresMora(subPendiente, subDiasMora, tna) : 0;
+                                            const subTotalConMora = subPendiente + subInteresMora;
+
                                             return (
                                               <>
+                                                <div style={{ textAlign: 'right' }}>
+                                                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Saldo</span>
+                                                  <span style={{ fontSize: '13px', fontWeight: 900, color: subPendiente > 5 ? '#ef4444' : '#10b981' }}>{formatMoney(subPendiente)}</span>
+                                                  {subInteresMora > 0 && (
+                                                    <span style={{ fontSize: '10px', fontWeight: 800, color: '#f59e0b', display: 'block', marginTop: '1px' }}>
+                                                      +{formatMoney(subInteresMora)} mora
+                                                    </span>
+                                                  )}
+                                                </div>
+
                                                 <span style={{
                                                   padding: '4px 10px',
                                                   borderRadius: '20px',
@@ -2054,35 +2084,35 @@ export default function Contaduria() {
                                                     border: subDiasMora > 30 ? '1px solid rgba(239,68,68,0.2)' : '1px solid rgba(245,158,11,0.2)',
                                                     whiteSpace: 'nowrap'
                                                   }}>
-                                                    ⏱️ {subDiasMora}d
+                                                    ⏱️ {subDiasMora}d {subInteresMora > 0 ? `(+${formatMoney(subInteresMora)})` : ''}
                                                   </span>
+                                                )}
+
+                                                {!subIsCobrada && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={(e) => { e.stopPropagation(); handleOpenCobroModal(subLiq, group.numero_grupo); }}
+                                                    className="air-btn-primary"
+                                                    style={{
+                                                      padding: '6px 12px',
+                                                      fontSize: '11px',
+                                                      borderRadius: '8px',
+                                                      fontWeight: 800,
+                                                      display: 'inline-flex',
+                                                      alignItems: 'center',
+                                                      gap: '4px',
+                                                      background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                                                      border: 'none',
+                                                      cursor: 'pointer',
+                                                      whiteSpace: 'nowrap'
+                                                    }}
+                                                  >
+                                                    <DollarSign size={12} /> Cobrar Total {subOp} {subInteresMora > 0 ? `(${formatMoney(subTotalConMora)})` : ''}
+                                                  </button>
                                                 )}
                                               </>
                                             );
                                           })()}
-
-                                          {!subIsCobrada && (
-                                            <button
-                                              type="button"
-                                              onClick={(e) => { e.stopPropagation(); handleOpenCobroModal(subLiq, group.numero_grupo); }}
-                                              className="air-btn-primary"
-                                              style={{
-                                                padding: '6px 12px',
-                                                fontSize: '11px',
-                                                borderRadius: '8px',
-                                                fontWeight: 800,
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                gap: '4px',
-                                                background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
-                                                border: 'none',
-                                                cursor: 'pointer',
-                                                whiteSpace: 'nowrap'
-                                              }}
-                                            >
-                                              <DollarSign size={12} /> Cobrar Total {subOp}
-                                            </button>
-                                          )}
                                         </div>
                                       </div>
 
@@ -2783,11 +2813,124 @@ export default function Contaduria() {
             </div>
           )}
 
-          {targetFactura && (
-            <div style={{ background: 'var(--accent-light)', color: 'var(--accent)', padding: '12px 16px', borderRadius: '12px', fontSize: '13px', fontWeight: 700 }}>
-              Factura Seleccionada: Período {targetFactura.periodo} ({targetFactura.proveedores?.nombre || 'MUTUAL'}) — Total: {formatMoney(targetFactura.monto_total_facturado)} | Abonado: {formatMoney(targetFactura.monto_abonado || 0)} | Pendiente: {formatMoney(montoTeoricoCobro)}
-            </div>
-          )}
+          {targetFactura && (() => {
+            const modalDiasMora = calcularDiasMora(targetFactura.periodo || targetFactura.fecha_emision, fechaCobro);
+            const modalSaldoBase = targetFactura.saldo_impago !== undefined
+              ? Math.max(0, Number(targetFactura.saldo_impago))
+              : Math.max(0, Number(targetFactura.monto_total_facturado || 0) - Number(targetFactura.monto_abonado || 0));
+            const modalInteresMora = (modalDiasMora > 0 && tna > 0) ? calcularInteresMora(modalSaldoBase, modalDiasMora, tna) : 0;
+            const modalTotalConMora = Math.round((modalSaldoBase + modalInteresMora) * 100) / 100;
+            const modalFechaVenc = formatFechaVencimiento(targetFactura.periodo || targetFactura.fecha_emision);
+
+            return (
+              <div style={{
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '14px',
+                padding: '14px 16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
+                  <span style={{ fontWeight: 800, fontSize: '13px', color: 'var(--text-primary)' }}>
+                    📄 Factura Seleccionada: Período {targetFactura.periodo} {targetFactura.proveedores?.nombre ? `(${targetFactura.proveedores.nombre})` : ''}
+                  </span>
+                  <span style={{
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    padding: '2px 8px',
+                    borderRadius: '8px',
+                    background: modalDiasMora > 0 ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                    color: modalDiasMora > 0 ? '#ef4444' : '#10b981'
+                  }}>
+                    📅 Vto: {modalFechaVenc} {modalDiasMora > 0 ? `· ⏱️ ${modalDiasMora}d atraso` : '· Al día'}
+                  </span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: modalInteresMora > 0 ? '1fr 1fr 1fr' : '1fr 1fr', gap: '10px' }}>
+                  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '10px 12px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Capital Adeudado</div>
+                    <div style={{ fontSize: '15px', fontWeight: 900, color: 'var(--text-primary)', marginTop: '2px' }}>{formatMoney(modalSaldoBase)}</div>
+                  </div>
+                  {modalInteresMora > 0 && (
+                    <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px', padding: '10px 12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '10px', fontWeight: 800, color: '#b45309', textTransform: 'uppercase' }}>Interés Mora ({modalDiasMora}d - {tna}%)</div>
+                      <div style={{ fontSize: '15px', fontWeight: 900, color: '#d97706', marginTop: '2px' }}>+{formatMoney(modalInteresMora)}</div>
+                    </div>
+                  )}
+                  <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '10px', padding: '10px 12px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 800, color: '#047857', textTransform: 'uppercase' }}>Total a Cobrar</div>
+                    <div style={{ fontSize: '15px', fontWeight: 900, color: '#059669', marginTop: '2px' }}>{formatMoney(eximirMora ? modalSaldoBase : modalTotalConMora)}</div>
+                  </div>
+                </div>
+
+                {/* OPCIÓN EXIMIR MORA Y BOTONES RÁPIDOS */}
+                {modalInteresMora > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', paddingTop: '4px' }}>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 700, color: eximirMora ? '#ef4444' : 'var(--text-secondary)' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={eximirMora} 
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setEximirMora(checked);
+                          const targetVal = checked ? modalSaldoBase : modalTotalConMora;
+                          setMontoCobro(String(targetVal.toFixed(2)));
+                          setEfectivoEntregado(String(targetVal.toFixed(2)));
+                        }}
+                        style={{ width: '16px', height: '16px', accentColor: '#ef4444', cursor: 'pointer' }}
+                      />
+                      <span>Eximir / Bonificar interés por mora</span>
+                    </label>
+
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEximirMora(false);
+                          setMontoCobro(String(modalTotalConMora.toFixed(2)));
+                          setEfectivoEntregado(String(modalTotalConMora.toFixed(2)));
+                        }}
+                        style={{
+                          padding: '5px 10px',
+                          borderRadius: '8px',
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          border: !eximirMora ? '2px solid #10b981' : '1px solid #e2e8f0',
+                          background: !eximirMora ? '#ecfdf5' : '#fff',
+                          color: !eximirMora ? '#059669' : 'var(--text-secondary)'
+                        }}
+                      >
+                        Con Mora ({formatMoney(modalTotalConMora)})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEximirMora(true);
+                          setMontoCobro(String(modalSaldoBase.toFixed(2)));
+                          setEfectivoEntregado(String(modalSaldoBase.toFixed(2)));
+                        }}
+                        style={{
+                          padding: '5px 10px',
+                          borderRadius: '8px',
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          border: eximirMora ? '2px solid #ef4444' : '1px solid #e2e8f0',
+                          background: eximirMora ? '#fef2f2' : '#fff',
+                          color: eximirMora ? '#dc2626' : 'var(--text-secondary)'
+                        }}
+                      >
+                        Solo Capital ({formatMoney(modalSaldoBase)})
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* ALERTA DE DEUDA PREVIA DE PERÍODOS ANTERIORES */}
           {targetFactura && deudasPreviasInfo && (

@@ -5,6 +5,7 @@
  * Utiliza la librería 'xlsx' (SheetJS) ya instalada en el proyecto.
  */
 import * as XLSX from 'xlsx';
+import { formatFechaVencimiento, calcularDiasMora, calcularInteresMora } from './cuentaCorrienteEngine';
 
 /**
  * Helper: formatea un número como moneda ARS (sin símbolo, con 2 decimales)
@@ -34,40 +35,59 @@ function autoFitColumns(ws, data, headers) {
  * @param {Array} facturasAgrupadas - Array de grupos de facturas filtrados
  * @param {string} periodo - Período seleccionado
  * @param {object} statsGlobales - KPIs calculados
+ * @param {number} [tna=120] - TNA para cálculo de mora
  */
-export function exportFacturasXLSX(facturasAgrupadas, periodo, statsGlobales) {
+export function exportFacturasXLSX(facturasAgrupadas, periodo, statsGlobales, tna = 120) {
   const rows = [];
 
   facturasAgrupadas.forEach(group => {
+    const isCobrada = group.estado_consolidado === 'ABONADO';
+    const diasMora = !isCobrada ? calcularDiasMora(group.periodo || group.items?.[0]?.fecha_emision) : 0;
+    const fechaVenc = formatFechaVencimiento(group.periodo || group.items?.[0]?.fecha_emision);
+
     if (group.items && group.items.length > 1) {
       // Multi-operadora: una fila por sub-liquidación
       group.items.forEach(item => {
+        const subFact = Number(item.monto_total_facturado || 0);
+        const subAbonado = Number(item.monto_abonado || 0);
+        const subPendiente = Math.max(0, subFact - subAbonado);
+        const subCobrada = subPendiente <= 1;
+        const subDias = !subCobrada ? calcularDiasMora(group.periodo || item.fecha_emision) : 0;
+        const subInteres = (!subCobrada && subDias > 0 && tna > 0) ? calcularInteresMora(subPendiente, subDias, tna) : 0;
+
         rows.push({
           'Período': group.periodo,
           'Grupo': group.numero_grupo,
           'Socio Titular': group.socio?.nombre_completo || `Grupo ${group.numero_grupo}`,
           'Operadora': item.proveedores?.nombre || 'N/D',
+          'Vencimiento': fechaVenc,
+          'Días Atraso': subDias > 0 ? subDias : 0,
           'ID Liquidación': item.liquidacion_id || '',
           'Cant. Líneas': item.total_lineas_lote || 1,
-          'Total Facturado': fmtMoney(item.monto_total_facturado),
-          'Abonado': fmtMoney(item.monto_abonado),
-          'Saldo Impago': fmtMoney(Math.max(0, Number(item.monto_total_facturado || 0) - Number(item.monto_abonado || 0))),
-          'Estado': item.estado_pago === 'ABONADO' || (Number(item.monto_total_facturado || 0) - Number(item.monto_abonado || 0)) <= 1
-            ? 'ABONADA' 
-            : (Number(item.monto_abonado || 0) > 0 ? 'PARCIAL' : 'IMPAGA')
+          'Total Facturado': fmtMoney(subFact),
+          'Abonado': fmtMoney(subAbonado),
+          'Saldo Impago': fmtMoney(subPendiente),
+          'Interés Mora': fmtMoney(subInteres),
+          'Total con Mora': fmtMoney(subPendiente + subInteres),
+          'Estado': subCobrada ? 'ABONADA' : (subAbonado > 0 ? 'PARCIAL' : 'IMPAGA')
         });
       });
     } else {
+      const interesMora = (!isCobrada && diasMora > 0 && tna > 0) ? calcularInteresMora(group.saldo_impago, diasMora, tna) : 0;
       rows.push({
         'Período': group.periodo,
         'Grupo': group.numero_grupo,
         'Socio Titular': group.socio?.nombre_completo || `Grupo ${group.numero_grupo}`,
         'Operadora': group.items?.[0]?.proveedores?.nombre || 'N/D',
+        'Vencimiento': fechaVenc,
+        'Días Atraso': diasMora > 0 ? diasMora : 0,
         'ID Liquidación': group.items?.[0]?.liquidacion_id || '',
         'Cant. Líneas': group.total_lineas,
         'Total Facturado': fmtMoney(group.monto_total_facturado),
         'Abonado': fmtMoney(group.monto_abonado),
         'Saldo Impago': fmtMoney(group.saldo_impago),
+        'Interés Mora': fmtMoney(interesMora),
+        'Total con Mora': fmtMoney(group.saldo_impago + interesMora),
         'Estado': group.estado_consolidado === 'ABONADO' ? 'ABONADA'
           : group.estado_consolidado === 'PARCIAL' ? 'PARCIAL' : 'IMPAGA'
       });
