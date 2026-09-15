@@ -174,24 +174,42 @@ export function exportSaldosXLSX(saldosFiltrados) {
  * @param {string} titular - Nombre del titular
  */
 export function exportExtractoXLSX(movimientos, grupoNum, titular) {
-  const rows = movimientos.map(m => ({
-    'Fecha': m.fecha || '',
-    'Tipo': m.tipo || '',
-    'Período': m.periodo || '',
-    'Operadora / Concepto': m.empresa || 'GENERAL',
-    'Observaciones': m.observaciones || '',
-    'Medio de Pago': m.medio_pago || '',
-    'Importe': fmtMoney(m.importe),
-    'Pago Aplicado Capital': fmtMoney(m.pago_aplicado_capital),
-    'Pago Aplicado Interés': fmtMoney(m.pago_aplicado_interes),
-    'Saldo Capital': fmtMoney(m.saldo_capital),
-    'Interés Pendiente': fmtMoney(m.interes_pend_final),
-    'Saldo Final Acumulado': fmtMoney(m.saldo_final)
-  }));
+  const rows = movimientos.map(m => {
+    const isPago = m.tipo === 'PAGO';
+    let diasStr = '—';
+    if (isPago) {
+      if (m.dias_desde_factura > 0) {
+        diasStr = `${m.dias_desde_factura} días (${m.fecha_factura_origen ? `${m.fecha_factura_origen} al ` : ''}${m.fecha})`;
+      } else {
+        diasStr = '0 días';
+      }
+    } else if (m.plazo_dias > 0) {
+      diasStr = `${m.plazo_dias} días`;
+    }
+
+    return {
+      'Fecha': m.fecha || '',
+      'Tipo': m.tipo || '',
+      'Período': m.periodo || '',
+      'Operadora / Concepto': m.empresa || 'GENERAL',
+      'Observaciones': m.observaciones || '',
+      'Medio de Pago': m.medio_pago || '',
+      'Importe': fmtMoney(m.importe),
+      'Días Interés (Factura a Pago)': diasStr,
+      'Interés Devengado': !isPago ? fmtMoney(m.interes_mora) : 0,
+      'Pago Aplicado Interés': fmtMoney(m.pago_aplicado_interes),
+      'Pago Aplicado Capital': fmtMoney(m.pago_aplicado_capital),
+      'Saldo Capital': fmtMoney(m.saldo_capital),
+      'Interés Pendiente': fmtMoney(m.interes_pend_final),
+      'Saldo Final Acumulado': fmtMoney(m.saldo_final)
+    };
+  });
 
   // Fila resumen
   const sumFacturas = movimientos.filter(m => m.tipo === 'FACTURA').reduce((s, m) => s + Math.abs(Number(m.importe || 0)), 0);
   const sumPagos = movimientos.filter(m => m.tipo === 'PAGO').reduce((s, m) => s + Math.abs(Number(m.importe || 0)), 0);
+  const sumIntCobrado = movimientos.filter(m => m.tipo === 'PAGO').reduce((s, m) => s + Number(m.pago_aplicado_interes || 0), 0);
+  const sumCapCobrado = movimientos.filter(m => m.tipo === 'PAGO').reduce((s, m) => s + Number(m.pago_aplicado_capital || 0), 0);
   const ultimo = movimientos.length > 0 ? movimientos[movimientos.length - 1] : null;
 
   rows.push({
@@ -199,11 +217,13 @@ export function exportExtractoXLSX(movimientos, grupoNum, titular) {
     'Tipo': '',
     'Período': '',
     'Operadora / Concepto': 'RESUMEN',
-    'Observaciones': `Total Facturas: $${fmtMoneyStr(sumFacturas)} | Total Pagos: $${fmtMoneyStr(sumPagos)}`,
+    'Observaciones': `Total Facturado: $${fmtMoney(sumFacturas)} | Total Cobrado: $${fmtMoney(sumPagos)} (Cap: $${fmtMoney(sumCapCobrado)} + Int: $${fmtMoney(sumIntCobrado)})`,
     'Medio de Pago': '',
     'Importe': '',
-    'Pago Aplicado Capital': '',
-    'Pago Aplicado Interés': '',
+    'Días Interés (Factura a Pago)': '',
+    'Interés Devengado': '',
+    'Pago Aplicado Interés': fmtMoney(sumIntCobrado),
+    'Pago Aplicado Capital': fmtMoney(sumCapCobrado),
     'Saldo Capital': fmtMoney(ultimo?.saldo_capital || 0),
     'Interés Pendiente': fmtMoney(ultimo?.interes_pend_final || 0),
     'Saldo Final Acumulado': fmtMoney(ultimo?.saldo_final || 0)

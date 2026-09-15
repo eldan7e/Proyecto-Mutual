@@ -133,11 +133,11 @@ export default function Contaduria() {
   // Cargar detalles cuando cambia el grupo seleccionado o el período de líneas
   useEffect(() => {
     if (selectedGrupo !== null) {
-      loadMovimientos(selectedGrupo);
+      loadMovimientos(selectedGrupo, tna);
       loadLiquidaciones(selectedGrupo);
       loadLineasGrupo(selectedGrupo, lineasPeriodoFiltro);
     }
-  }, [selectedGrupo, lineasPeriodoFiltro]);
+  }, [selectedGrupo, lineasPeriodoFiltro, tna]);
 
   // Suscripción Realtime para actualizar movimientos en vivo
   useEffect(() => {
@@ -277,11 +277,12 @@ export default function Contaduria() {
     }
   }
 
-  async function loadMovimientos(numeroGrupo) {
+  async function loadMovimientos(numeroGrupo, customTna) {
     setLoading(true);
     try {
       const rawMovs = await fetchMovimientosGrupo(numeroGrupo);
-      const procesados = recalcularSaldosGrupo(rawMovs, tna);
+      const effectiveTna = customTna !== undefined ? customTna : tna;
+      const procesados = recalcularSaldosGrupo(rawMovs, effectiveTna);
       setMovimientos(procesados);
     } catch (err) {
       console.error('Error al cargar movimientos:', err);
@@ -615,7 +616,7 @@ export default function Contaduria() {
       observaciones: m.observaciones || `Cobro acreditado e imputado en cuenta corriente`,
       desgloses: [{
         observaciones: m.observaciones || `Pago Período ${m.periodo || 'General'} (${m.empresa || 'MUTUAL'})`,
-        pagoAplicadoCapital: Number(m.pago_aplicado_capital || monto),
+        pagoAplicadoCapital: (m.pago_aplicado_capital !== undefined && m.pago_aplicado_capital !== null) ? Number(m.pago_aplicado_capital) : monto,
         pagoAplicadoInteres: Number(m.pago_aplicado_interes || 0)
       }],
       saldo_restante: Number(m.saldo_final || 0)
@@ -2458,9 +2459,25 @@ export default function Contaduria() {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SALDO ACUMULADO FINAL</div>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SALDO CAPITAL</div>
+                  <div style={{ fontSize: '18px', fontWeight: 900, color: (ultimoMovGrupo?.saldo_capital || 0) > 5 ? '#ef4444' : 'var(--accent)' }}>
+                    {formatMoney(ultimoMovGrupo?.saldo_capital || 0)}
+                  </div>
+                </div>
+
+                {(ultimoMovGrupo?.interes_pend_final || 0) > 1 && (
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 800, color: '#d97706', textTransform: 'uppercase' }}>INT. MORA PEND.</div>
+                    <div style={{ fontSize: '18px', fontWeight: 900, color: '#d97706' }}>
+                      +{formatMoney(ultimoMovGrupo?.interes_pend_final || 0)}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SALDO TOTAL CONSOLIDADO</div>
                   <div style={{ fontSize: '24px', fontWeight: 900, color: (ultimoMovGrupo?.saldo_final || 0) > 5 ? '#ef4444' : 'var(--accent)' }}>
                     {formatMoney(ultimoMovGrupo?.saldo_final || 0)}
                   </div>
@@ -2517,13 +2534,24 @@ export default function Contaduria() {
           </div>
 
           <div className="bento-card" style={{ padding: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: 900, margin: 0 }}>
-                Extracto / Libro Mayor de Cuenta (Grupo #{selectedGrupo})
-              </h3>
-              <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                Historial contable de Facturación y Cobros
-              </span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+              <div>
+                <h3 style={{ fontSize: '16px', fontWeight: 900, margin: 0 }}>
+                  Extracto / Libro Mayor de Cuenta (Grupo #{selectedGrupo})
+                </h3>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, display: 'block', marginTop: '2px' }}>
+                  Historial contable de Facturación, Cobros e Intereses desde la factura hasta el pago
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsTnaModalOpen(true)}
+                className="air-btn"
+                style={{ fontSize: '11px', fontWeight: 700, padding: '5px 12px', borderRadius: '8px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                title="Configurar Tasa Nominal Anual (TNA)"
+              >
+                <Settings size={13} /> TNA: {tna}%
+              </button>
             </div>
 
             <div className="table-responsive" style={{ overflowX: 'auto' }}>
@@ -2535,20 +2563,23 @@ export default function Contaduria() {
                     <th style={{ padding: '12px 14px' }}>PERÍODO</th>
                     <th style={{ padding: '12px 14px' }}>OPERADORA / CONCEPTO</th>
                     <th style={{ padding: '12px 14px', textAlign: 'right' }}>IMPORTE</th>
-                    <th style={{ padding: '12px 14px', textAlign: 'right' }}>SALDO ACUMULADO</th>
+                    <th style={{ padding: '12px 14px', textAlign: 'center' }}>DÍAS INT.</th>
+                    <th style={{ padding: '12px 14px', textAlign: 'right' }}>MONTO INTERÉS</th>
+                    <th style={{ padding: '12px 14px', textAlign: 'right' }}>SALDO CAPITAL</th>
+                    <th style={{ padding: '12px 14px', textAlign: 'right' }}>SALDO TOTAL</th>
                     <th style={{ padding: '12px 14px', textAlign: 'center' }}>COMPROBANTE</th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan="7" style={{ textAlign: 'center', padding: '30px' }}>
+                      <td colSpan="10" style={{ textAlign: 'center', padding: '30px' }}>
                         <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto', color: 'var(--accent)' }} />
                       </td>
                     </tr>
                   ) : movimientos.length === 0 ? (
                     <tr>
-                      <td colSpan="7" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary)' }}>
+                      <td colSpan="10" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary)' }}>
                         Este grupo no registra movimientos de cuenta corriente aún.
                       </td>
                     </tr>
@@ -2558,7 +2589,7 @@ export default function Contaduria() {
                       const isNC = m.tipo === 'NOTA_CREDITO';
                       return (
                         <tr key={m.id} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                          <td style={{ padding: '12px 14px', fontWeight: 700 }}>{formatFecha(m.fecha)}</td>
+                          <td style={{ padding: '12px 14px', fontWeight: 700, whiteSpace: 'nowrap' }}>{formatFecha(m.fecha)}</td>
                           <td style={{ padding: '12px 14px' }}>
                             <span style={{
                               background: isPago || isNC ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
@@ -2568,19 +2599,122 @@ export default function Contaduria() {
                               {m.tipo}
                             </span>
                           </td>
-                          <td style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '12px' }}>
+                          <td style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '12px', whiteSpace: 'nowrap' }}>
                             {m.periodo || '—'}
                           </td>
                           <td style={{ padding: '12px 14px' }}>
                             <div style={{ fontWeight: 700 }}>{m.empresa || 'GENERAL'}</div>
                             <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>{m.observaciones || ''}</div>
+                            {isPago && m.pago_aplicado_interes > 0 && (
+                              <div style={{ fontSize: '10.5px', color: '#059669', fontWeight: 700, marginTop: '3px' }}>
+                                ✓ Amortizó {formatMoney(m.pago_aplicado_capital)} cap. + {formatMoney(m.pago_aplicado_interes)} int.
+                              </div>
+                            )}
                           </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, fontSize: '13px', color: isPago || isNC ? '#10b981' : 'var(--text-primary)' }}>
+                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, fontSize: '13px', color: isPago || isNC ? '#10b981' : 'var(--text-primary)', whiteSpace: 'nowrap' }}>
                             {formatMoney(m.importe)}
                           </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 900, fontSize: '13.5px', color: m.saldo_capital > 5 ? '#ef4444' : 'var(--accent)' }}>
+
+                          {/* COLUMNA: DÍAS DE INTERÉS DESDE LA FACTURA HASTA EL PAGO */}
+                          <td style={{ padding: '12px 14px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                            {isPago ? (
+                              m.dias_desde_factura > 0 ? (
+                                <div>
+                                  <span style={{
+                                    background: 'rgba(245, 158, 11, 0.12)',
+                                    color: '#d97706',
+                                    border: '1px solid rgba(245, 158, 11, 0.28)',
+                                    padding: '3px 8px',
+                                    borderRadius: '8px',
+                                    fontWeight: 800,
+                                    fontSize: '11px',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px'
+                                  }}>
+                                    ⏱️ {m.dias_desde_factura}d
+                                  </span>
+                                  {m.fecha_factura_origen && (
+                                    <div style={{ fontSize: '9.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                      {formatFecha(m.fecha_factura_origen)} → {formatFecha(m.fecha)}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>0d</span>
+                              )
+                            ) : (
+                              m.plazo_dias > 0 ? (
+                                <div>
+                                  <span style={{
+                                    background: 'rgba(239, 68, 68, 0.08)',
+                                    color: '#ef4444',
+                                    border: '1px solid rgba(239, 68, 68, 0.18)',
+                                    padding: '2px 7px',
+                                    borderRadius: '6px',
+                                    fontWeight: 700,
+                                    fontSize: '10.5px'
+                                  }}>
+                                    {m.plazo_dias}d
+                                  </span>
+                                  <div style={{ fontSize: '9.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                    plazo
+                                  </div>
+                                </div>
+                              ) : (
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>—</span>
+                              )
+                            )}
+                          </td>
+
+                          {/* COLUMNA: MONTO DE LOS INTERESES */}
+                          <td style={{ padding: '12px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            {isPago ? (
+                              m.pago_aplicado_interes > 0 ? (
+                                <div>
+                                  <span style={{ color: '#d97706', fontWeight: 800, fontSize: '12.5px' }}>
+                                    {formatMoney(m.pago_aplicado_interes)}
+                                  </span>
+                                  <span style={{ display: 'block', fontSize: '10px', color: '#059669', fontWeight: 700 }}>
+                                    cobrado
+                                  </span>
+                                </div>
+                              ) : (
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>$ 0,00</span>
+                              )
+                            ) : (
+                              m.interes_mora > 0 ? (
+                                <div>
+                                  <span style={{ color: '#ef4444', fontWeight: 800, fontSize: '12.5px' }}>
+                                    +{formatMoney(m.interes_mora)}
+                                  </span>
+                                  <span style={{ display: 'block', fontSize: '9.5px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                                    devengado
+                                  </span>
+                                </div>
+                              ) : (
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>—</span>
+                              )
+                            )}
+                          </td>
+
+                          {/* COLUMNA: SALDO CAPITAL */}
+                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, fontSize: '13px', color: m.saldo_capital > 5 ? '#ef4444' : 'var(--accent)', whiteSpace: 'nowrap' }}>
                             {formatMoney(m.saldo_capital)}
                           </td>
+
+                          {/* COLUMNA: SALDO TOTAL ACUMULADO */}
+                          <td style={{ padding: '12px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            <span style={{ fontWeight: 900, fontSize: '13.5px', color: m.saldo_final > 5 ? '#ef4444' : 'var(--accent)' }}>
+                              {formatMoney(m.saldo_final)}
+                            </span>
+                            {m.interes_pend_final > 1 && (
+                              <div style={{ fontSize: '9.5px', color: '#d97706', fontWeight: 700, marginTop: '2px' }}>
+                                (+{formatMoney(m.interes_pend_final)} int. pend.)
+                              </div>
+                            )}
+                          </td>
+
                           <td style={{ padding: '12px 14px', textAlign: 'center' }}>
                             {isPago ? (
                               <button

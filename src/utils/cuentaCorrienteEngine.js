@@ -104,11 +104,35 @@ export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA) {
     // 5 & 6. Imputación de pagos
     let pagoAInteres = 0;
     let pagoACapital = 0;
+    let fechaFacturaOrigen = null;
+    let diasDesdeFactura = 0;
+    let diasMoraVencimiento = 0;
 
     if (isPago || isNC) {
       const montoAbsoluto = Math.abs(importeOriginal);
       pagoAInteres = Math.min(montoAbsoluto, intPendAcum);
       pagoACapital = montoAbsoluto - pagoAInteres;
+
+      // Buscar factura previa asociada a este pago (por período o la más reciente impaga)
+      const facturasPrevias = sortedMovs.filter(x => x.tipo === 'FACTURA' && (!m.fecha || !x.fecha || x.fecha <= m.fecha));
+      let factRelacionada = null;
+      if (m.periodo) {
+        factRelacionada = facturasPrevias.slice().reverse().find(x => x.periodo === m.periodo);
+      }
+      if (!factRelacionada && facturasPrevias.length > 0) {
+        factRelacionada = facturasPrevias[facturasPrevias.length - 1];
+      }
+
+      if (factRelacionada && factRelacionada.fecha) {
+        fechaFacturaOrigen = factRelacionada.fecha;
+        const dFact = parseDateOnly(factRelacionada.fecha);
+        const dPago = parseDateOnly(m.fecha);
+        const diffFactMs = dPago.getTime() - dFact.getTime();
+        diasDesdeFactura = diffFactMs > 0 ? Math.floor(diffFactMs / (1000 * 60 * 60 * 24)) : 0;
+        diasMoraVencimiento = calcularDiasMora(factRelacionada.periodo || factRelacionada.fecha, m.fecha);
+      } else {
+        diasDesdeFactura = plazoDias;
+      }
     }
 
     // 7. Saldo Capital
@@ -137,7 +161,10 @@ export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA) {
       pago_aplicado_capital: pagoACapital,
       saldo_capital: saldoCapital,
       interes_pend_final: intPendFinal,
-      saldo_final: saldoFinal
+      saldo_final: saldoFinal,
+      fecha_factura_origen: fechaFacturaOrigen,
+      dias_desde_factura: diasDesdeFactura,
+      dias_mora_vencimiento: diasMoraVencimiento
     };
   });
 }
