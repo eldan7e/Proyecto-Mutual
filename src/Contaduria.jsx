@@ -66,6 +66,7 @@ export default function Contaduria() {
   // Filtros de Búsqueda
   const [searchGrupo, setSearchGrupo] = useState('');
   const [soloDeudores, setSoloDeudores] = useState(false);
+  const [saldosPeriodoFilter, setSaldosPeriodoFilter] = useState('TODOS');
   const [saldosData, setSaldosData] = useState([]);
 
   // Modal de cobro FIFO / Factura Específica
@@ -1263,12 +1264,155 @@ export default function Contaduria() {
     return facturasAgrupadas.slice(start, start + pageSizeFacturas);
   }, [facturasAgrupadas, currentPageFacturas]);
 
+  // Etiqueta legible del filtro de período en cuentas corrientes y saldos
+  const saldosFiltroLabel = useMemo(() => {
+    if (!saldosPeriodoFilter || saldosPeriodoFilter === 'TODOS') return 'Histórico Completo';
+    if (saldosPeriodoFilter === 'LAST_3') return 'Últimos 3 Meses';
+    if (saldosPeriodoFilter === 'LAST_6') return 'Últimos 6 Meses';
+    if (saldosPeriodoFilter.startsWith('YEAR_')) return `Año ${saldosPeriodoFilter.replace('YEAR_', '')}`;
+    return `Período ${saldosPeriodoFilter}`;
+  }, [saldosPeriodoFilter]);
+
+  // Recalcular saldos de grupos según el período seleccionado
+  const saldosCalculados = useMemo(() => {
+    if (!saldosPeriodoFilter || saldosPeriodoFilter === 'TODOS') {
+      return saldosData;
+    }
+
+    // 1. Determinar el conjunto de períodos válidos
+    let allowedPeriods = null;
+    let anioFiltro = null;
+    let mesFiltro = null;
+
+    if (saldosPeriodoFilter === 'LAST_3' || saldosPeriodoFilter === 'LAST_6') {
+      allowedPeriods = getUltimosPeriodosSet(saldosPeriodoFilter === 'LAST_3' ? 3 : 6);
+    } else if (saldosPeriodoFilter.startsWith('YEAR_')) {
+      anioFiltro = saldosPeriodoFilter.replace('YEAR_', '');
+    } else {
+      mesFiltro = saldosPeriodoFilter;
+    }
+
+    // 2. Agrupar liquidaciones válidas por numero_grupo
+    const liqsPorGrupo = new Map();
+    liquidacionesAll.forEach(l => {
+      const per = l.periodo;
+      if (!per) return;
+      if (allowedPeriods && !allowedPeriods.has(per)) return;
+      if (anioFiltro && !per.startsWith(anioFiltro)) return;
+      if (mesFiltro && per !== mesFiltro) return;
+
+      if (!liqsPorGrupo.has(l.numero_grupo)) {
+        liqsPorGrupo.set(l.numero_grupo, []);
+      }
+      liqsPorGrupo.get(l.numero_grupo).push(l);
+    });
+
+    // 3. Crear base de todos los grupos conocidos
+    const baseGrupos = saldosData.length > 0 ? saldosData : gruposList;
+    const gruposMap = new Map();
+
+    baseGrupos.forEach(g => {
+      gruposMap.set(g.numero_grupo, {
+        numero_grupo: g.numero_grupo,
+        nombre: g.nombre || `Grupo ${g.numero_grupo}`,
+        total_lineas: g.total_lineas ?? 0,
+        empresas: g.empresas || 'N/D',
+        totalFacturas: 0,
+        totalPagos: 0,
+        saldoCapitalUltimo: 0,
+        interesPendUltimo: 0,
+        saldoFinalUltimo: 0,
+        movimientosCount: 0,
+        ultimoMovimientoFecha: 'Sin movimientos'
+      });
+    });
+
+    const fechaCalculo = new Date();
+
+    // 4. Calcular importes e intereses por grupo para el período filtrado
+    liqsPorGrupo.forEach((liqs, numGrupo) => {
+      let grupoObj = gruposMap.get(numGrupo);
+      if (!grupoObj) {
+        grupoObj = {
+          numero_grupo: numGrupo,
+          nombre: `Grupo ${numGrupo}`,
+          total_lineas: 0,
+          empresas: 'N/D',
+          totalFacturas: 0,
+          totalPagos: 0,
+          saldoCapitalUltimo: 0,
+          interesPendUltimo: 0,
+          saldoFinalUltimo: 0,
+          movimientosCount: 0,
+          ultimoMovimientoFecha: 'Sin movimientos'
+        };
+        gruposMap.set(numGrupo, grupoObj);
+      }
+
+      const periodosMap = new Map();
+      const empresasSet = new Set();
+
+      liqs.forEach(l => {
+        const p = l.periodo;
+        if (!periodosMap.has(p)) {
+          periodosMap.set(p, {
+            facturado: 0,
+            pagado: 0,
+            fecha_emision: l.fecha_emision || null
+          });
+        }
+        const pData = periodosMap.get(p);
+        pData.facturado += Number(l.monto_total_facturado || 0);
+        pData.pagado += Number(l.monto_abonado || 0);
+        if (l.proveedores?.nombre) empresasSet.add(l.proveedores.nombre);
+      });
+
+      let totalFact = 0;
+      let totalPag = 0;
+      let saldoCap = 0;
+      let intMora = 0;
+
+      periodosMap.forEach((pData, per) => {
+        totalFact += pData.facturado;
+        totalPag += pData.pagado;
+        const pendiente = Math.max(0, pData.facturado - pData.pagado);
+        if (pendiente > 1) {
+          saldoCap += pendiente;
+          const diasMora = calcularDiasMora(per, fechaCalculo, DIA_TOPE_PAGO);
+          if (diasMora > 0 && tna > 0) {
+            intMora += calcularInteresMora(pendiente, diasMora, tna);
+          }
+        }
+      });
+
+      grupoObj.totalFacturas = Math.round(totalFact * 100) / 100;
+      grupoObj.totalPagos = Math.round(totalPag * 100) / 100;
+      grupoObj.saldoCapitalUltimo = Math.round(saldoCap * 100) / 100;
+      grupoObj.interesPendUltimo = Math.round(intMora * 100) / 100;
+      grupoObj.saldoFinalUltimo = Math.round((saldoCap + intMora) * 100) / 100;
+      grupoObj.movimientosCount = liqs.length;
+      if (empresasSet.size > 0) {
+        grupoObj.empresas = Array.from(empresasSet).join(', ');
+      }
+    });
+
+    return Array.from(gruposMap.values()).sort((a, b) => a.numero_grupo - b.numero_grupo);
+  }, [saldosData, liquidacionesAll, gruposList, saldosPeriodoFilter, tna, periodosDisponibles]);
+
   // --- FILTRADO DE SALDOS / CUENTAS CORRIENTES ---
   const saldosFiltrados = useMemo(() => {
-    return saldosData.filter(row => {
+    return saldosCalculados.filter(row => {
       if (row.numero_grupo === 0) return false;
 
       if (soloDeudores && row.saldoFinalUltimo <= 5) return false;
+
+      // Si hay un filtro de período activo y no se busca un grupo específico,
+      // mostrar solo grupos que tengan facturación, pagos o saldo en este período
+      if (saldosPeriodoFilter !== 'TODOS' && !soloDeudores && !searchGrupo.trim()) {
+        if (row.totalFacturas <= 0 && row.totalPagos <= 0 && row.saldoFinalUltimo <= 0) {
+          return false;
+        }
+      }
 
       if (searchGrupo.trim()) {
         const s = searchGrupo.toLowerCase().trim();
@@ -1280,7 +1424,18 @@ export default function Contaduria() {
 
       return true;
     });
-  }, [saldosData, soloDeudores, searchGrupo]);
+  }, [saldosCalculados, soloDeudores, searchGrupo, saldosPeriodoFilter]);
+
+  // Totales consolidados de la vista de saldos actual
+  const totalesSaldos = useMemo(() => {
+    return saldosFiltrados.reduce((acc, row) => ({
+      facturado: acc.facturado + (Number(row.totalFacturas) || 0),
+      pagado: acc.pagado + (Number(row.totalPagos) || 0),
+      capital: acc.capital + (Number(row.saldoCapitalUltimo) || 0),
+      interes: acc.interes + (Number(row.interesPendUltimo) || 0),
+      saldo: acc.saldo + (Number(row.saldoFinalUltimo) || 0),
+    }), { facturado: 0, pagado: 0, capital: 0, interes: 0, saldo: 0 });
+  }, [saldosFiltrados]);
 
   // --- CÁLCULO DE KPIs GLOBALES DINÁMICOS (ACTUALIZADOS SEGÚN PERÍODO / OPERADORA) ---
   const statsGlobales = useMemo(() => {
@@ -2403,8 +2558,8 @@ export default function Contaduria() {
       {activeTab === 'saldos' && (
         <div className="bento-card" style={{ padding: '18px 20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: '260px' }}>
-              <div style={{ position: 'relative', width: '100%', maxWidth: '380px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: '260px', flexWrap: 'wrap' }}>
+              <div style={{ position: 'relative', width: '100%', maxWidth: '320px' }}>
                 <Search size={17} style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
                 <input
                   type="text"
@@ -2415,6 +2570,43 @@ export default function Contaduria() {
                   style={{ width: '100%', paddingLeft: '40px', height: '40px', fontSize: '13px' }}
                 />
               </div>
+
+              {/* SELECTOR DE PERÍODO / AÑO DE SALDOS */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Calendar size={15} style={{ color: 'var(--text-secondary)' }} />
+                <select
+                  value={saldosPeriodoFilter}
+                  onChange={(e) => setSaldosPeriodoFilter(e.target.value)}
+                  className="premium-input"
+                  style={{ 
+                    fontSize: '12.5px', fontWeight: 800, padding: '8px 12px', height: '40px', minWidth: '190px',
+                    borderColor: saldosPeriodoFilter !== 'TODOS' ? 'var(--accent)' : undefined,
+                    background: saldosPeriodoFilter !== 'TODOS' ? 'rgba(59, 130, 246, 0.04)' : undefined
+                  }}
+                  title="Filtrar cuentas y saldos por período o rango"
+                >
+                  <option value="TODOS">Todos los períodos (Histórico)</option>
+                  <optgroup label="Rangos Rápidos">
+                    <option value="LAST_3">Últimos 3 meses</option>
+                    <option value="LAST_6">Últimos 6 meses</option>
+                  </optgroup>
+                  <optgroup label="Filtrar por Año">
+                    {aniosDisponibles.map(anio => (
+                      <option key={anio} value={`YEAR_${anio}`}>
+                        Año {anio}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Filtrar por Mes / Período">
+                    {periodosDisponibles.map(p => (
+                      <option key={p} value={p}>
+                        Período {p}
+                      </option>
+                    ))}
+                  </optgroup>
+                </select>
+              </div>
+
               <label style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '12.5px', fontWeight: 700, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
                 <input
                   type="checkbox"
@@ -2438,8 +2630,8 @@ export default function Contaduria() {
               <button 
                 onClick={() => {
                   try {
-                    exportSaldosXLSX(saldosFiltrados);
-                    addToast('Exportación de saldos descargada exitosamente', 'success');
+                    exportSaldosXLSX(saldosFiltrados, saldosFiltroLabel);
+                    addToast(`Exportación de saldos (${saldosFiltroLabel}) descargada exitosamente`, 'success');
                   } catch (err) {
                     addToast('Error al exportar: ' + err.message, 'error');
                   }
@@ -2456,6 +2648,30 @@ export default function Contaduria() {
               </button>
             </div>
           </div>
+
+          {/* BANNER INFORMATIVO CUANDO HAY UN FILTRO DE PERÍODO ACTIVO */}
+          {saldosPeriodoFilter !== 'TODOS' && (
+            <div style={{
+              background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.25)',
+              borderRadius: '10px', padding: '10px 16px', display: 'flex', justifyContent: 'space-between',
+              alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px'
+            }}>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#1d4ed8', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <AlertCircle size={16} />
+                <span>
+                  Filtro activo: <strong>{saldosFiltroLabel}</strong> — {saldosFiltrados.length} cuentas ({saldosFiltrados.filter(g => g.saldoFinalUltimo > 5).length} con deuda) | Facturado: <strong>{formatMoney(totalesSaldos.facturado)}</strong> | Cobrado: <strong>{formatMoney(totalesSaldos.pagado)}</strong> | Deuda consolidada: <strong>{formatMoney(totalesSaldos.saldo)}</strong>
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSaldosPeriodoFilter('TODOS')}
+                className="air-btn"
+                style={{ padding: '5px 12px', fontSize: '11.5px', fontWeight: 800, color: '#1d4ed8', border: '1px solid rgba(59, 130, 246, 0.35)', borderRadius: '6px', background: '#ffffff', cursor: 'pointer' }}
+              >
+                Restablecer a Histórico Completo
+              </button>
+            </div>
+          )}
 
           <div className="table-responsive">
             <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '12.5px' }}>
@@ -2551,6 +2767,7 @@ export default function Contaduria() {
                             <button
                               onClick={() => {
                                 setSelectedGrupo(row.numero_grupo);
+                                setExtractoPeriodoFilter(saldosPeriodoFilter);
                                 setActiveTab('extracto');
                               }}
                               className="air-btn"

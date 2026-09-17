@@ -136,7 +136,7 @@ export function exportFacturasXLSX(facturasAgrupadas, periodo, statsGlobales, tn
  * Pestaña 2: Exportar Cuentas Corrientes y Saldos
  * @param {Array} saldosFiltrados - Array de saldos por grupo
  */
-export function exportSaldosXLSX(saldosFiltrados) {
+export function exportSaldosXLSX(saldosFiltrados, periodoLabel = 'Histórico') {
   const rows = saldosFiltrados.map(row => ({
     'Grupo': row.numero_grupo,
     'Titular / Nombre': row.nombre || `Grupo ${row.numero_grupo}`,
@@ -159,7 +159,7 @@ export function exportSaldosXLSX(saldosFiltrados) {
 
   rows.push({
     'Grupo': '',
-    'Titular / Nombre': `TOTALES (${saldosFiltrados.length} cuentas)`,
+    'Titular / Nombre': `TOTALES (${saldosFiltrados.length} cuentas - ${periodoLabel})`,
     'Compañías': '',
     'Total Facturas': fmtMoney(totalFacturado),
     'Total Pagos': fmtMoney(totalPagado),
@@ -178,7 +178,8 @@ export function exportSaldosXLSX(saldosFiltrados) {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Cuentas Corrientes y Saldos');
 
-  XLSX.writeFile(wb, `Contaduria_Saldos_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  const cleanLabel = (periodoLabel || 'General').replace(/[^a-zA-Z0-9_-]/g, '_');
+  XLSX.writeFile(wb, `Contaduria_Saldos_${cleanLabel}_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
 /**
