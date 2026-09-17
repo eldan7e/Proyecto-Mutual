@@ -396,10 +396,32 @@ export function obtenerMesesDeudaGrupo({
   periodoFiltro = 'TODOS',
   fechaCalculo = new Date()
 }) {
-  const anioFiltro = (periodoFiltro && (periodoFiltro.startsWith('YEAR_') || /^\d{4}$/.test(periodoFiltro)))
+  let allowedPeriods = null;
+  if (Array.isArray(periodoFiltro)) {
+    allowedPeriods = new Set(periodoFiltro);
+  } else if (periodoFiltro instanceof Set) {
+    allowedPeriods = periodoFiltro;
+  } else if (periodoFiltro === 'LAST_3' || periodoFiltro === 'LAST_6') {
+    const count = periodoFiltro === 'LAST_3' ? 3 : 6;
+    const allPers = new Set();
+    liquidacionesGrupo.forEach(l => { if (l.periodo) allPers.add(l.periodo); });
+    movimientos.forEach(m => {
+      if (m.periodo) allPers.add(m.periodo);
+      else if (m.fecha && m.fecha.length >= 7) allPers.add(m.fecha.slice(0, 7));
+    });
+    const hoy = new Date();
+    for (let i = 0; i < count; i++) {
+      const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
+      allPers.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    }
+    const sorted = Array.from(allPers).filter(Boolean).sort().reverse();
+    allowedPeriods = new Set(sorted.slice(0, count));
+  }
+
+  const anioFiltro = (!allowedPeriods && periodoFiltro && (periodoFiltro.startsWith('YEAR_') || /^\d{4}$/.test(periodoFiltro)))
     ? periodoFiltro.replace('YEAR_', '')
     : null;
-  const mesFiltro = (!anioFiltro && periodoFiltro && periodoFiltro !== 'TODOS')
+  const mesFiltro = (!allowedPeriods && !anioFiltro && periodoFiltro && periodoFiltro !== 'TODOS')
     ? periodoFiltro
     : null;
 
@@ -412,6 +434,7 @@ export function obtenerMesesDeudaGrupo({
       if (!per) return;
 
       // Filtrar según período / año seleccionado
+      if (allowedPeriods && !allowedPeriods.has(per)) return;
       if (anioFiltro && !per.startsWith(anioFiltro)) return;
       if (mesFiltro && per !== mesFiltro) return;
 
@@ -479,6 +502,7 @@ export function obtenerMesesDeudaGrupo({
 
     facturas.forEach(f => {
       const per = f.periodo || (f.fecha ? f.fecha.slice(0, 7) : '');
+      if (allowedPeriods && !allowedPeriods.has(per) && (!f.fecha || !allowedPeriods.has(f.fecha.slice(0, 7)))) return;
       if (anioFiltro && !per.startsWith(anioFiltro) && (!f.fecha || !f.fecha.startsWith(anioFiltro))) return;
       if (mesFiltro && per !== mesFiltro) return;
 

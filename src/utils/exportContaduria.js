@@ -128,7 +128,7 @@ export function exportFacturasXLSX(facturasAgrupadas, periodo, statsGlobales, tn
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Facturas y Comprobantes');
 
-  const periodoLabel = periodo === 'AUTO' || periodo === 'TODOS' ? 'General' : periodo;
+  const periodoLabel = periodo === 'AUTO' || periodo === 'TODOS' ? 'General' : periodo === 'LAST_3' ? 'Ultimos_3_Meses' : periodo === 'LAST_6' ? 'Ultimos_6_Meses' : periodo;
   XLSX.writeFile(wb, `Contaduria_Facturas_${periodoLabel}_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 

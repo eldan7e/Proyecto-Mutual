@@ -941,8 +941,24 @@ export default function Contaduria() {
     liquidacionesAll.forEach(l => {
       if (l.periodo) pSet.add(l.periodo);
     });
+    movimientos.forEach(m => {
+      if (m.periodo) pSet.add(m.periodo);
+      else if (m.fecha && m.fecha.length >= 7) pSet.add(m.fecha.slice(0, 7));
+    });
     return Array.from(pSet).filter(Boolean).sort().reverse();
-  }, [liquidacionesAll, periodosDisponiblesState]);
+  }, [liquidacionesAll, periodosDisponiblesState, movimientos]);
+
+  // Helper para obtener Set de períodos de los últimos N meses (combina disponibles y meses calendario actuales)
+  const getUltimosPeriodosSet = (n) => {
+    const pList = periodosDisponibles.slice(0, n);
+    const pSet = new Set(pList);
+    const hoy = new Date();
+    for (let i = 0; i < n; i++) {
+      const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
+      pSet.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    }
+    return pSet;
+  };
 
   // Años disponibles derivados de períodos y movimientos para el selector de extracto
   const aniosDisponibles = useMemo(() => {
@@ -961,6 +977,8 @@ export default function Contaduria() {
   // Etiqueta legible del filtro de período en extracto
   const extractoFiltroLabel = useMemo(() => {
     if (!extractoPeriodoFilter || extractoPeriodoFilter === 'TODOS') return 'Histórico Completo';
+    if (extractoPeriodoFilter === 'LAST_3') return 'Últimos 3 Meses';
+    if (extractoPeriodoFilter === 'LAST_6') return 'Últimos 6 Meses';
     if (extractoPeriodoFilter.startsWith('YEAR_')) return `Año ${extractoPeriodoFilter.replace('YEAR_', '')}`;
     return `Período ${extractoPeriodoFilter}`;
   }, [extractoPeriodoFilter]);
@@ -970,6 +988,13 @@ export default function Contaduria() {
     if (!extractoPeriodoFilter || extractoPeriodoFilter === 'TODOS') {
       return movimientos;
     }
+    if (extractoPeriodoFilter === 'LAST_3' || extractoPeriodoFilter === 'LAST_6') {
+      const targetPeriods = getUltimosPeriodosSet(extractoPeriodoFilter === 'LAST_3' ? 3 : 6);
+      return movimientos.filter(m => {
+        const per = m.periodo || (m.fecha ? m.fecha.slice(0, 7) : null);
+        return per && targetPeriods.has(per);
+      });
+    }
     const anio = extractoPeriodoFilter.startsWith('YEAR_') ? extractoPeriodoFilter.replace('YEAR_', '') : null;
     return movimientos.filter(m => {
       if (anio) {
@@ -977,7 +1002,7 @@ export default function Contaduria() {
       }
       return m.periodo === extractoPeriodoFilter || (m.fecha && m.fecha.startsWith(extractoPeriodoFilter));
     });
-  }, [movimientos, extractoPeriodoFilter]);
+  }, [movimientos, extractoPeriodoFilter, periodosDisponibles]);
 
   // Lista de meses que presentan deuda en el grupo según el período seleccionado, con interés ya aplicado
   const mesesDeudaExtracto = useMemo(() => {
@@ -1042,9 +1067,12 @@ export default function Contaduria() {
   const liquidacionesBaseKPIs = useMemo(() => {
     const hasSearch = Boolean(searchGrupo.trim());
     let targetPeriod = null;
+    let allowedPeriodsSet = null;
 
     if (periodoFilter === 'AUTO') {
       targetPeriod = periodosDisponibles.length > 0 ? periodosDisponibles[0] : null;
+    } else if (periodoFilter === 'LAST_3' || periodoFilter === 'LAST_6') {
+      allowedPeriodsSet = getUltimosPeriodosSet(periodoFilter === 'LAST_3' ? 3 : 6);
     } else if (periodoFilter !== 'TODOS') {
       targetPeriod = periodoFilter;
     }
@@ -1054,6 +1082,7 @@ export default function Contaduria() {
 
       // Filtro por Período
       if (targetPeriod && l.periodo !== targetPeriod) return false;
+      if (allowedPeriodsSet && (!l.periodo || !allowedPeriodsSet.has(l.periodo))) return false;
 
       // Filtro por Operadora
       const opNombre = (l.proveedores?.nombre || '').toUpperCase();
@@ -1358,7 +1387,7 @@ export default function Contaduria() {
                   fontSize: '11px',
                   fontWeight: 700
                 }}>
-                  Período: {periodoFilter === 'AUTO' ? (periodosDisponibles[0] || 'Actual') : periodoFilter === 'TODOS' ? 'Histórico General' : periodoFilter}
+                  Período: {periodoFilter === 'AUTO' ? (periodosDisponibles[0] || 'Actual') : periodoFilter === 'TODOS' ? 'Histórico General' : periodoFilter === 'LAST_3' ? 'Últimos 3 Meses' : periodoFilter === 'LAST_6' ? 'Últimos 6 Meses' : periodoFilter}
                 </span>
               </div>
               <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '4px 0 0', fontWeight: 500 }}>
@@ -1451,7 +1480,7 @@ export default function Contaduria() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '10px', fontSize: '11.5px', color: 'var(--text-secondary)', fontWeight: 600 }}>
             <span>{statsGlobales.totalComprobantes} comprobantes</span>
             <span style={{ background: 'rgba(255, 255, 255, 0.05)', padding: '2px 6px', borderRadius: '4px' }}>
-              {periodoFilter === 'AUTO' ? `Período ${periodosDisponibles[0] || ''}` : periodoFilter === 'TODOS' ? 'Histórico' : periodoFilter}
+              {periodoFilter === 'AUTO' ? `Período ${periodosDisponibles[0] || ''}` : periodoFilter === 'TODOS' ? 'Histórico' : periodoFilter === 'LAST_3' ? 'Últimos 3 Meses' : periodoFilter === 'LAST_6' ? 'Últimos 6 Meses' : periodoFilter}
             </span>
           </div>
         </div>
@@ -1663,9 +1692,15 @@ export default function Contaduria() {
                 >
                   <option value="AUTO">Último Período ({periodosDisponibles[0] || 'Actual'})</option>
                   <option value="TODOS">Todos los Períodos</option>
-                  {periodosDisponibles.map(p => (
-                    <option key={p} value={p}>Período {p}</option>
-                  ))}
+                  <optgroup label="Rangos Rápidos">
+                    <option value="LAST_3">Últimos 3 meses</option>
+                    <option value="LAST_6">Últimos 6 meses</option>
+                  </optgroup>
+                  <optgroup label="Por Período">
+                    {periodosDisponibles.map(p => (
+                      <option key={p} value={p}>Período {p}</option>
+                    ))}
+                  </optgroup>
                 </select>
               </div>
 
@@ -2593,6 +2628,10 @@ export default function Contaduria() {
                       title="Filtrar movimientos y calcular deuda de un año o período específico"
                     >
                       <option value="TODOS">Todos los períodos (Histórico)</option>
+                      <optgroup label="Rangos Rápidos">
+                        <option value="LAST_3">Últimos 3 meses</option>
+                        <option value="LAST_6">Últimos 6 meses</option>
+                      </optgroup>
                       <optgroup label="Filtrar por Año">
                         {aniosDisponibles.map(anio => (
                           <option key={anio} value={`YEAR_${anio}`}>
