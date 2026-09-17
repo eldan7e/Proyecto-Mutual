@@ -31,26 +31,51 @@ function todayISO() {
 
 const fmt = (n) => (n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-function parseArgentineOrUSNumber(str) {
-  if (!str) return 0;
-  let s = String(str).replace('$', '').replace(/\s/g, '').replace(/^-/, '');
-  
+function parseUniversalAmount(str) {
+  if (str === undefined || str === null || str === '') return { amount: 0, isNegative: false };
+  if (typeof str === 'number') return { amount: Math.abs(str), isNegative: str < 0 };
+  let s = String(str).trim();
+  const isNegative = s.includes('-') || (s.startsWith('(') && s.endsWith(')'));
+  s = s.replace(/[$()\s\-]/g, '');
+  if (!s) return { amount: 0, isNegative };
+
   if (s.includes('.') && s.includes(',')) {
-    if (s.indexOf('.') < s.indexOf(',')) {
-      // 16.657,85 -> formato argentino
+    if (s.lastIndexOf('.') < s.lastIndexOf(',')) {
+      // 20.671,84 -> formato argentino: punto miles, coma decimal
       s = s.replace(/\./g, '').replace(',', '.');
     } else {
-      // 16,657.85 -> formato US
+      // 112,378.56 -> formato US: coma miles, punto decimal
       s = s.replace(/,/g, '');
     }
   } else if (s.includes(',')) {
-    if (s.length - s.lastIndexOf(',') === 3) {
+    if (s.length - 1 - s.lastIndexOf(',') === 2) {
       s = s.replace(',', '.');
     } else {
-      s = s.replace(',', '');
+      s = s.replace(/,/g, '');
+    }
+  } else if (s.includes('.')) {
+    const dotCount = (s.match(/\./g) || []).length;
+    if (dotCount > 1) {
+      s = s.replace(/\./g, '');
     }
   }
-  return parseFloat(s) || 0;
+
+  const num = Math.abs(parseFloat(s) || 0);
+  return { amount: num, isNegative };
+}
+
+function parseArgentineOrUSNumber(str) {
+  return parseUniversalAmount(str).amount;
+}
+
+function parseDateAR(str, refYear = '2026') {
+  if (!str) return null;
+  const m = String(str).trim().match(/\b(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\b/);
+  if (!m) return null;
+  const d = m[1].padStart(2, '0');
+  const mo = m[2].padStart(2, '0');
+  let y = m[3] ? (m[3].length === 2 ? '20' + m[3] : m[3]) : refYear;
+  return `${y}-${mo}-${d}`;
 }
 
 export default function IngresoDiario() {
@@ -692,75 +717,157 @@ export default function IngresoDiario() {
     }
   }
 
-  // PARSE EXTRACTO
+  // PARSE EXTRACTO (Soporte universal para Banco Nación, Credicoop, etc. y copiado desde Excel)
   function handleParseExtracto() {
     if (!extractoText.trim()) { addToast('Pegá el extracto primero', 'warning'); return; }
 
-    const lines = extractoText.trim().split('\n');
+    const rawLines = extractoText.split(/\r?\n/).map(l => l.replace(/[\r\n]+$/, '')).filter(l => l.trim() !== '');
+    if (rawLines.length === 0) { addToast('El texto pegado está vacío', 'warning'); return; }
+
+    const refYear = extractoFechaRef.substring(0, 4) || '2026';
     const parsed = [];
-    const refYear = extractoFechaRef.substring(0, 4);
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.length < 10) continue;
+    // 1. Detectar si la primera fila es encabezado
+    const firstParts = rawLines[0].includes('\t')
+      ? rawLines[0].split('\t').map(p => p.trim())
+      : rawLines[0].split(/\s{2,}/).map(p => p.trim());
 
-      // Try to parse tab-separated or multi-space separated
-      const parts = trimmed.split(/\t+/).length > 2
-        ? trimmed.split(/\t+/)
-        : trimmed.split(/\s{2,}/);
+    const firstUpper = firstParts.map(p => p.toUpperCase());
+    const hasHeader = firstUpper.some(h => 
+      h.includes('FECHA') || h.includes('CONCEPTO') || h.includes('MONTO') || h.includes('GRUPO') || h.includes('IMPORTE')
+    );
 
-      if (parts.length < 3) continue;
+    let colMap = {
+      grupo: -1,
+      fecha: -1,
+      concepto: -1,
+      monto: -1,
+      comprobante: -1,
+      saldo: -1,
+      titular: -1
+    };
 
-      // Determine date
-      let fecha = extractoFechaRef;
-      if (extractoFechaMetodo === 'detect') {
-        const dateMatch = parts[0].match(/(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/);
-        if (dateMatch) {
-          const day = dateMatch[1].padStart(2, '0');
-          const month = dateMatch[2].padStart(2, '0');
-          const year = dateMatch[3] ? (dateMatch[3].length === 2 ? '20' + dateMatch[3] : dateMatch[3]) : refYear;
-          fecha = `${year}-${month}-${day}`;
-        }
+    let dataLines = rawLines;
+
+    if (hasHeader) {
+      colMap.grupo = firstUpper.findIndex(h => h.includes('GRUPO') || h === 'GPO');
+      colMap.fecha = firstUpper.findIndex(h => h.includes('FECHA'));
+      colMap.concepto = firstUpper.findIndex(h => h.includes('CONCEPTO') || h.includes('MOVIMIENTO') || h.includes('DETALLE') || h.includes('DESCRIP'));
+      colMap.comprobante = firstUpper.findIndex(h => h.includes('COMPROB') || h.includes('CPBTE') || h.includes('TICKET'));
+      colMap.monto = firstUpper.findIndex(h => h === 'MONTO' || h === 'IMPORTE' || h === 'VALOR' || h.includes('CREDIT') || h.includes('CRÉDIT'));
+      colMap.saldo = firstUpper.findIndex(h => h.includes('SALDO'));
+      colMap.titular = firstUpper.findIndex(h => h.includes('APELLIDO') || h.includes('NOMBRE') || h.includes('TITULAR') || h.includes('SOCIO') || h.includes('CLIENTE'));
+      dataLines = rawLines.slice(1);
+    }
+
+    for (const line of dataLines) {
+      if (!line || line.trim().length < 5) continue;
+
+      let parts = line.includes('\t')
+        ? line.split('\t').map(p => p.trim())
+        : line.split(/\s{2,}/).map(p => p.trim());
+
+      if (parts.length < 2) continue;
+
+      // Protección contra corrimiento: Si la fila no traía tab inicial para columna GRUPO vacía
+      if (hasHeader && colMap.grupo === 0 && colMap.fecha === 1 && parseDateAR(parts[0], refYear)) {
+        parts.unshift('');
       }
 
-      // Find the concepto (usually the longest text field)
-      let concepto = '';
-      let monto = 0;
-      let comprobante = '';
+      let rawGrupo = '';
+      let rawFecha = '';
+      let rawConcepto = '';
+      let rawMonto = '';
+      let rawComprobante = '';
+      let rawTitular = '';
 
-      for (const part of parts) {
-        const cleaned = part.replace(/[$.]/g, '').replace(',', '.').trim();
-        const num = parseFloat(cleaned);
-
-        if (!isNaN(num) && Math.abs(num) > 0 && cleaned.length < 15) {
-          if (monto === 0) {
-            monto = Math.abs(num);
-          } else if (!comprobante && num > 100) {
-            comprobante = Math.round(num).toString();
+      if (hasHeader && (colMap.fecha !== -1 || colMap.monto !== -1)) {
+        if (colMap.grupo !== -1 && parts[colMap.grupo]) rawGrupo = parts[colMap.grupo];
+        if (colMap.fecha !== -1 && parts[colMap.fecha]) rawFecha = parts[colMap.fecha];
+        if (colMap.concepto !== -1 && parts[colMap.concepto]) rawConcepto = parts[colMap.concepto];
+        if (colMap.monto !== -1 && parts[colMap.monto]) rawMonto = parts[colMap.monto];
+        if (colMap.comprobante !== -1 && parts[colMap.comprobante]) rawComprobante = parts[colMap.comprobante];
+        if (colMap.titular !== -1 && parts[colMap.titular]) rawTitular = parts[colMap.titular];
+      } else {
+        // Detección heurística inteligente sin encabezado
+        if (/^\d{1,6}$/.test(parts[0]) && parseDateAR(parts[1], refYear)) {
+          rawGrupo = parts[0];
+          rawFecha = parts[1];
+          rawConcepto = parts[2] || '';
+          rawMonto = parts[3] || '';
+          if (parts[5]) rawTitular = parts[5];
+        } else if (parseDateAR(parts[0], refYear)) {
+          rawFecha = parts[0];
+          rawConcepto = parts[1] || '';
+          for (let i = 2; i < parts.length; i++) {
+            const parsedAmt = parseUniversalAmount(parts[i]);
+            if (parsedAmt.amount > 0) {
+              rawMonto = parts[i];
+              break;
+            }
           }
-        } else if (part.length > concepto.length && isNaN(parseFloat(part.replace(/[$.]/g, '')))) {
-          concepto = part.trim();
+        } else {
+          for (const p of parts) {
+            if (!rawFecha && parseDateAR(p, refYear)) {
+              rawFecha = p;
+            } else if (!rawMonto && parseUniversalAmount(p).amount > 0 && (p.includes('$') || p.includes(',') || p.includes('.'))) {
+              rawMonto = p;
+            } else if (p.length > rawConcepto.length && isNaN(parseFloat(p.replace(/[$.,]/g, '')))) {
+              rawConcepto = p;
+            }
+          }
         }
       }
 
+      // 1. Determinar Fecha
+      let fecha = extractoFechaRef;
+      if (extractoFechaMetodo === 'detect' && rawFecha) {
+        const detected = parseDateAR(rawFecha, refYear);
+        if (detected) fecha = detected;
+      }
+
+      // 2. Determinar Monto y signo (detectar gravámenes/impuestos bancarios)
+      const { amount: monto, isNegative } = parseUniversalAmount(rawMonto);
       if (monto === 0) continue;
 
-      // 1. Try to extract explicit grupo number from concepto
+      const upperConcepto = (rawConcepto || '').toUpperCase();
+      const isTax = isNegative ||
+        upperConcepto.includes('GRAVAMEN') ||
+        upperConcepto.includes('LEY 25413') ||
+        upperConcepto.includes('IMPUESTO') ||
+        upperConcepto.includes('COMISION') ||
+        upperConcepto.includes('MANTENIMIENTO') ||
+        upperConcepto.includes('IVA') ||
+        upperConcepto.includes('PERCEPCION') ||
+        upperConcepto.includes('RETENCION');
+
+      // 3. Determinar Grupo
       let grupoMatch = null;
       let socioMatch = null;
 
-      const normConcepto = concepto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-      const grupoPattern = normConcepto.match(/\b(?:grupo|gpo|g)[- _#]*(\d{1,6})\b/i);
-      if (grupoPattern) {
-        const gNum = parseInt(grupoPattern[1], 10);
-        if (grupos.some(g => g.numero_grupo === gNum)) {
+      // 3.1 Directo de la columna Grupo
+      if (rawGrupo) {
+        const gNum = parseInt(String(rawGrupo).replace(/\D/g, ''), 10);
+        if (!isNaN(gNum) && gNum > 0) {
           grupoMatch = gNum;
         }
       }
 
-      // 2. Try to match by CUIT (11 digits) from concepto
-      if (!grupoMatch) {
-        const cuitMatch = normConcepto.match(/\b(20|23|24|27|30|33)\d{8}\d?\b/);
+      // 3.2 Buscar en concepto si dice 'GRUPO 128' o 'GPO: 128'
+      if (!grupoMatch && rawConcepto) {
+        const normConcepto = rawConcepto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const grupoPattern = normConcepto.match(/\b(?:grupo|gpo|g)[- _#]*(\d{1,6})\b/i);
+        if (grupoPattern) {
+          const gNum = parseInt(grupoPattern[1], 10);
+          if (grupos.some(g => g.numero_grupo === gNum)) {
+            grupoMatch = gNum;
+          }
+        }
+      }
+
+      // 3.3 Buscar por CUIT (11 dígitos) en concepto
+      if (!grupoMatch && rawConcepto) {
+        const cuitMatch = rawConcepto.match(/\b(20|23|24|27|30|33)\d{8}\d?\b/);
         if (cuitMatch) {
           const rawCuit = cuitMatch[0];
           for (const g of grupos) {
@@ -774,9 +881,9 @@ export default function IngresoDiario() {
         }
       }
 
-      // 3. Try to match by DNI (7-8 digits)
-      if (!grupoMatch) {
-        const dniMatch = normConcepto.match(/\b\d{7,8}\b/);
+      // 3.4 Buscar por DNI (7 u 8 dígitos) en concepto
+      if (!grupoMatch && rawConcepto) {
+        const dniMatch = rawConcepto.match(/\b\d{7,8}\b/);
         if (dniMatch) {
           const rawDni = dniMatch[0];
           for (const g of grupos) {
@@ -790,21 +897,19 @@ export default function IngresoDiario() {
         }
       }
 
-      // 4. Try smart Name & Surname matching (requires surname AND first name match)
-      if (!grupoMatch && concepto) {
-        // Extract transferor name from typical bank formats (VAR-APELLIDO, NOMBRE, etc.)
-        let rawName = concepto;
-        const tagMatch = concepto.match(/(?:VAR|FAC|CUO|HON)[- ]+([A-Za-z\s,.'´]+?)(?:\s+CBU|\s*$)/i);
-        if (tagMatch) {
-          rawName = tagMatch[1];
-        }
+      // 3.5 Búsqueda difusa por Nombre/Titular
+      const nameCandidate = rawTitular || rawConcepto;
+      if (!grupoMatch && nameCandidate) {
+        let rawName = nameCandidate;
+        const tagMatch = nameCandidate.match(/(?:VAR|FAC|CUO|HON)[- ]+([A-Za-z\s,.'´]+?)(?:\s+CBU|\s*$)/i);
+        if (tagMatch) rawName = tagMatch[1];
 
         const normTransferWords = rawName
           .toLowerCase()
           .normalize("NFD")
           .replace(/[\u0300-\u036f]/g, "")
           .split(/[^a-z0-9]+/)
-          .filter(w => w.length >= 3 && !['transf', 'dist', 'titular', 'inmediata', 'ctas', 'credito', 'debin', 'origen', 'banco', 'var', 'fac', 'cuo'].includes(w));
+          .filter(w => w.length >= 3 && !['transf', 'dist', 'titular', 'inmediata', 'ctas', 'credito', 'debin', 'origen', 'banco', 'var', 'fac', 'cuo', 'cuit', 'cuil'].includes(w));
 
         if (normTransferWords.length > 0) {
           let bestG = null;
@@ -830,11 +935,9 @@ export default function IngresoDiario() {
                 }
               }
 
-              // Calculate similarity score normalized by word count (penalize extra unmatched words in name)
               const maxWords = Math.max(socioWords.length, normTransferWords.length);
               const score = matchCount + (matchCount / maxWords);
 
-              // Require at least 2 matching words (e.g. surname + first name) or exact match on long unique name
               if (matchCount >= 2 && score > bestScore) {
                 bestScore = score;
                 bestG = g.numero_grupo;
@@ -850,18 +953,19 @@ export default function IngresoDiario() {
       }
 
       const matchedGrupoObj = grupoMatch ? getGrupo(grupoMatch) : null;
-      const matchedTitular = socioMatch?.nombre_completo || matchedGrupoObj?.titular || '';
+      const finalTitular = rawTitular || socioMatch?.nombre_completo || matchedGrupoObj?.titular || '';
 
       parsed.push({
         id: Math.random().toString(36).substr(2, 9),
         fecha,
-        concepto,
+        concepto: rawConcepto,
         monto,
-        comprobante,
+        comprobante: rawComprobante,
         numero_grupo: grupoMatch || '',
-        nombre_socio: matchedTitular,
+        nombre_socio: finalTitular,
         socio_id: socioMatch?.socio_id || matchedGrupoObj?.socio_id || null,
-        include: true,
+        isTax,
+        include: !isTax && monto > 0 && grupoMatch !== null,
       });
     }
 
@@ -870,13 +974,17 @@ export default function IngresoDiario() {
       return;
     }
 
+    const totalValid = parsed.filter(r => !r.isTax).length;
+    const totalTaxes = parsed.filter(r => r.isTax).length;
+
     setParsedRows(parsed);
-    addToast(`${parsed.length} movimientos detectados`, 'success');
+    addToast(`${parsed.length} filas analizadas (${totalValid} pagos detectados, ${totalTaxes} impuestos/gravámenes desmarcados)`, 'success');
   }
 
+  // GUARDAR EXTRACTO
   async function handleSaveExtracto() {
-    const toSave = parsedRows.filter(r => r.include && r.monto > 0);
-    if (toSave.length === 0) { addToast('No hay movimientos seleccionados', 'warning'); return; }
+    const toSave = parsedRows.filter(r => r.include && r.monto > 0 && !r.isTax);
+    if (toSave.length === 0) { addToast('No hay movimientos seleccionados para guardar', 'warning'); return; }
 
     setSaving(true);
     try {
@@ -884,26 +992,39 @@ export default function IngresoDiario() {
       for (const row of toSave) {
         const periodo = row.fecha.substring(0, 7);
         const grupo = row.numero_grupo ? getGrupo(row.numero_grupo) : null;
+        const titularNombre = row.nombre_socio || grupo?.titular || (row.numero_grupo ? `Grupo ${row.numero_grupo}` : '');
 
         const record = {
           fecha_movimiento: row.fecha,
-          concepto: row.concepto,
+          concepto: row.concepto || `Transferencia ${extractoBanco} - ${titularNombre}`,
           monto: row.monto,
+          ingreso_bruto: row.monto,
+          impuestos: 0,
           banco: extractoBanco,
           tipo_movimiento: 'INGRESO',
           origen: 'EXTRACTO',
-          numero_grupo: row.numero_grupo ? parseInt(row.numero_grupo) : null,
-          nombre_socio: row.nombre_socio || grupo?.titular || '',
+          numero_grupo: row.numero_grupo ? parseInt(row.numero_grupo, 10) : null,
+          nombre_socio: titularNombre,
           medio_pago: 'TRANSFERENCIA',
-          comprobante: row.comprobante,
+          comprobante: row.comprobante || '',
           periodo,
           socio_id: grupo?.socio_id || null,
         };
 
         const { data, error } = await supabase.from('movimientos_bancarios').insert(record).select().single();
-        if (error) { console.error(error); continue; }
+        if (error) { console.error('Error insertando movimiento bancario:', error); continue; }
 
         if (row.numero_grupo) {
+          // Registrar en cuenta corriente
+          await registrarCobroCuenta({
+            numero_grupo: parseInt(row.numero_grupo, 10),
+            nombre: titularNombre,
+            importe: row.monto,
+            medio_pago: 'TRANSFERENCIA',
+            observaciones: `Extracto ${extractoBanco} - ${row.concepto || ''}`,
+            fecha: row.fecha
+          });
+
           await linkPaymentToDebt(data.movimiento_id, row.numero_grupo, row.monto);
         }
         saved++;
@@ -916,12 +1037,13 @@ export default function IngresoDiario() {
         usuario: 'dante@admin.com'
       });
 
-      addToast(`${saved} pagos importados del extracto`, 'success');
+      addToast(`${saved} pagos importados e imputados del extracto ${extractoBanco}`, 'success');
       setExtractoText('');
       setParsedRows([]);
       await fetchMovimientos();
       await fetchLiquidaciones();
     } catch (err) {
+      console.error(err);
       addToast(`Error: ${err.message}`, 'error');
     } finally {
       setSaving(false);
@@ -1734,50 +1856,98 @@ function ExtractoForm({
       {/* Parsed preview table */}
       {parsedRows.length > 0 && (
         <div style={{ marginTop: '20px', border: '1px solid var(--border-light)', borderRadius: '16px', overflow: 'hidden' }}>
-          <div style={{ padding: '12px 16px', background: 'rgba(99,102,241,0.05)', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ padding: '12px 16px', background: 'rgba(99,102,241,0.05)', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
             <span style={{ fontSize: '13px', fontWeight: 700 }}>
-              {parsedRows.filter(r => r.include).length} movimientos seleccionados · Total: <span style={{ color: '#10b981' }}>${fmt(totalSelected)}</span>
+              {parsedRows.filter(r => r.include && !r.isTax).length} pagos seleccionados
+              {parsedRows.filter(r => r.isTax).length > 0 && (
+                <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>
+                  {' '}({parsedRows.filter(r => r.isTax).length} impuestos omitidos)
+                </span>
+              )}
+              {' '}· Total: <span style={{ color: '#10b981' }}>${fmt(totalSelected)}</span>
             </span>
-            <button onClick={onSave} disabled={saving}
-              style={{ padding: '8px 16px', borderRadius: '10px', border: 'none', background: 'var(--accent)', color: 'white', fontSize: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', opacity: saving ? 0.7 : 1 }}>
-              {saving ? <Loader2 className="animate-spin" size={14} /> : <><Save size={14} /> Guardar Todos</>}
+            <button onClick={onSave} disabled={saving || parsedRows.filter(r => r.include && !r.isTax).length === 0}
+              style={{ padding: '8px 16px', borderRadius: '10px', border: 'none', background: 'var(--accent)', color: 'white', fontSize: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', opacity: (saving || parsedRows.filter(r => r.include && !r.isTax).length === 0) ? 0.6 : 1 }}>
+              {saving ? <Loader2 className="animate-spin" size={14} /> : <><Save size={14} /> Guardar Pagos ({parsedRows.filter(r => r.include && !r.isTax).length})</>}
             </button>
           </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border-light)' }}>
-                <th style={{ padding: '8px 12px', textAlign: 'center', width: '40px' }}>✓</th>
-                <th style={{ padding: '8px 12px' }}>Fecha</th>
-                <th style={{ padding: '8px 12px' }}>Concepto</th>
-                <th style={{ padding: '8px 12px', textAlign: 'center' }}>Grupo</th>
-                <th style={{ padding: '8px 12px', textAlign: 'right' }}>Monto</th>
-              </tr>
-            </thead>
-            <tbody>
-              {parsedRows.map(row => (
-                <tr key={row.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', opacity: row.include ? 1 : 0.4 }}>
-                  <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                    <input type="checkbox" checked={row.include} onChange={(e) => updateRow(row.id, 'include', e.target.checked)} />
-                  </td>
-                  <td style={{ padding: '8px 12px' }}>
-                    <input type="date" value={row.fecha} onChange={(e) => updateRow(row.id, 'fecha', e.target.value)}
-                      style={{ ...inputStyle, padding: '4px 8px', fontSize: '12px', width: '135px' }} />
-                  </td>
-                  <td style={{ padding: '8px 12px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.concepto}</td>
-                  <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                    <input type="text" value={row.numero_grupo} onChange={(e) => updateRow(row.id, 'numero_grupo', e.target.value)}
-                      style={{ width: '60px', textAlign: 'center', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-light)', background: 'var(--surface)', color: 'var(--text-primary)', fontSize: '12px', fontWeight: 700 }} />
-                    {row.numero_grupo && getGrupo(row.numero_grupo) && (
-                      <div style={{ fontSize: '10px', color: '#10b981', marginTop: '2px' }}>✓ {getGrupo(row.numero_grupo).titular.split(',')[0]}</div>
-                    )}
-                  </td>
-                  <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#10b981' }}>
-                    ${fmt(row.monto)}
-                  </td>
+          <div style={{ maxHeight: '460px', overflowY: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+              <thead>
+                <tr style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border-light)', position: 'sticky', top: 0, zIndex: 5 }}>
+                  <th style={{ padding: '10px 12px', textAlign: 'center', width: '40px' }}>
+                    <input
+                      type="checkbox"
+                      checked={parsedRows.length > 0 && parsedRows.filter(r => !r.isTax).length > 0 && parsedRows.filter(r => !r.isTax).every(r => r.include)}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setParsedRows(prev => prev.map(r => r.isTax ? r : { ...r, include: checked }));
+                      }}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </th>
+                  <th style={{ padding: '10px 12px', width: '125px' }}>Fecha</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'center', width: '80px' }}>Grupo</th>
+                  <th style={{ padding: '10px 12px', minWidth: '160px' }}>Titular / Integrante</th>
+                  <th style={{ padding: '10px 12px' }}>Concepto</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'right', width: '110px' }}>Monto</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {parsedRows.map(row => {
+                  const grupoObj = row.numero_grupo ? getGrupo(row.numero_grupo) : null;
+                  return (
+                    <tr key={row.id} style={{
+                      borderBottom: '1px solid rgba(255,255,255,0.03)',
+                      opacity: row.include ? 1 : 0.45,
+                      background: row.isTax ? 'rgba(239, 68, 68, 0.03)' : 'transparent'
+                    }}>
+                      <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={row.include}
+                          onChange={(e) => updateRow(row.id, 'include', e.target.checked)}
+                          style={{ cursor: 'pointer' }}
+                        />
+                      </td>
+                      <td style={{ padding: '8px 12px' }}>
+                        <input
+                          type="date"
+                          value={row.fecha}
+                          onChange={(e) => updateRow(row.id, 'fecha', e.target.value)}
+                          style={{ ...inputStyle, padding: '4px 8px', fontSize: '11.5px', width: '125px' }}
+                        />
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                        <input
+                          type="number"
+                          value={row.numero_grupo}
+                          onChange={(e) => updateRow(row.id, 'numero_grupo', e.target.value ? parseInt(e.target.value, 10) : '')}
+                          style={{ width: '65px', textAlign: 'center', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-light)', background: 'var(--surface)', color: 'var(--text-primary)', fontSize: '12px', fontWeight: 800 }}
+                        />
+                      </td>
+                      <td style={{ padding: '8px 12px' }}>
+                        <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '12px' }}>
+                          {row.nombre_socio || (row.isTax ? <span style={{ color: '#ef4444', fontSize: '10.5px', fontWeight: 700 }}>IMPUESTO / RETENCIÓN</span> : <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>Sin asignar</span>)}
+                        </div>
+                        {row.numero_grupo && grupoObj && (
+                          <div style={{ fontSize: '10.5px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                            ✓ Gpo {row.numero_grupo}: {grupoObj.titular}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: '8px 12px', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '11.5px', color: row.isTax ? 'var(--text-secondary)' : 'var(--text-primary)' }}>
+                        {row.concepto}
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 800, color: row.isTax ? '#ef4444' : '#10b981', fontSize: '12.5px' }}>
+                        {row.isTax ? `-$${fmt(row.monto)}` : `$${fmt(row.monto)}`}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
