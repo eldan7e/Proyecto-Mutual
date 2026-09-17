@@ -388,7 +388,11 @@ export default function IngresoDiario() {
       const line = lines[i].trim();
       if (!line) continue;
 
-      const parts = line.split('\t').map(p => p.trim()).filter(Boolean);
+      // Separar por tabulaciones o por 2 o más espacios consecutivos (para cuando se copia/pega como texto plano)
+      const parts = line.split(/\t+/).length > 2
+        ? line.split(/\t+/).map(p => p.trim()).filter(Boolean)
+        : line.split(/\s{2,}/).map(p => p.trim()).filter(Boolean);
+
       if (parts.length < 2) continue;
 
       let fecha = todayISO();
@@ -399,7 +403,7 @@ export default function IngresoDiario() {
       let linea = '';
       let observaciones = '';
 
-      // 1. Fecha
+      // 1. Fecha: buscar en las partes o en toda la línea
       for (const p of parts) {
         const dMatch = p.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
         if (dMatch) {
@@ -410,57 +414,104 @@ export default function IngresoDiario() {
           break;
         }
       }
+      if (!fecha || fecha === todayISO()) {
+        const lineDateMatch = line.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\b/);
+        if (lineDateMatch) {
+          fecha = `${lineDateMatch[3]}-${lineDateMatch[2].padStart(2, '0')}-${lineDateMatch[1].padStart(2, '0')}`;
+        }
+      }
 
-      // 2. Monto
+      // 2. Monto: buscar primero importes con formato moneda
       for (const p of parts) {
-        if (p.includes('$') || /^\d+[\.,]\d{2}$/.test(p)) {
+        if (p.includes('$') || /^\d{1,3}(?:\.\d{3})*,\d{2}$/.test(p) || /^\d+[\.,]\d{2}$/.test(p)) {
           const num = parseArgentineOrUSNumber(p);
           if (num > 0 && monto === 0) {
             monto = num;
           }
         }
       }
+      // Fallback para monto en toda la línea
+      if (monto === 0) {
+        const moneyMatches = line.match(/\$\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)/g);
+        if (moneyMatches && moneyMatches.length > 0) {
+          const lastMoney = moneyMatches[moneyMatches.length - 1];
+          monto = parseArgentineOrUSNumber(lastMoney);
+        }
+      }
 
-      // 3. Grupo
-      for (const p of parts) {
-        if (/^\d{1,5}$/.test(p) && !p.includes('$')) {
-          const n = parseInt(p, 10);
-          if (n > 0 && n < 100000 && !grupo) {
-            grupo = p;
+      // 3. Grupo: buscar formato 'GPO: 128', 'GRUPO 128', o número de grupo en cualquier parte
+      const gpoInLine = line.match(/\b(?:GPO|GRUPO):?\s*(\d{1,6})\b/i);
+      if (gpoInLine) {
+        grupo = gpoInLine[1];
+      }
+      if (!grupo) {
+        for (const p of parts) {
+          const gpoMatch = p.match(/\b(?:GPO|GRUPO):?\s*(\d{1,6})\b/i);
+          if (gpoMatch && !grupo) {
+            grupo = gpoMatch[1];
+          }
+          if (/^\d{1,5}$/.test(p) && !p.includes('$') && !grupo) {
+            const n = parseInt(p, 10);
+            if (n > 0 && n < 100000) {
+              grupo = p;
+            }
           }
         }
       }
 
-      // 4. Titular
+      // 4. Titular en partes
       for (const p of parts) {
-        if (p.includes(',') && !p.includes('$') && isNaN(parseFloat(p.replace(/,/g, '')))) {
-          titular = p;
+        if ((p.includes(',') || p.toLowerCase().includes('s/ socios')) && !p.includes('$') && isNaN(parseFloat(p.replace(/,/g, '')))) {
+          titular = p.replace(/\s+S\/\s+SOCIOS.*$/i, '').trim();
           break;
         }
       }
 
       // 5. Empresa / Operadora
-      for (const p of parts) {
-        if (/CLARO|PERSONAL|MOVISTAR/i.test(p) && !p.includes('GPO:')) {
-          empresa = p;
-          break;
+      const empMatch = line.match(/\b(CLARO|PERSONAL|MOVISTAR)\b/i);
+      if (empMatch) {
+        empresa = empMatch[1].toUpperCase();
+      }
+
+      // 6. Línea
+      const phoneMatch = line.match(/\b(11\d{8}|221\d{7}|\d{10})\b/);
+      if (phoneMatch) {
+        linea = phoneMatch[1];
+      }
+
+      // 2b. Fallback para montos enteros o sin signo pesos (ej: 50000 o 50000.00)
+      if (monto === 0) {
+        const tokens = line.split(/\s+/);
+        for (const t of tokens) {
+          const cleanT = t.replace(/[^0-9.,]/g, '');
+          if (!cleanT) continue;
+          const val = parseArgentineOrUSNumber(cleanT);
+          // Asegurar que no sea el año (2026), ni el grupo (328), ni el teléfono (2213087871)
+          if (val > 10 && String(val) !== grupo && String(val) !== linea && !fecha.includes(String(val))) {
+            monto = val;
+            break;
+          }
         }
       }
 
-      // 6. Línea y Observaciones
-      for (const p of parts) {
-        const phoneMatch = p.match(/\b(11\d{8}|221\d{7}|\d{10})\b/);
-        if (phoneMatch) {
-          linea = phoneMatch[1];
+      // 4b. Fallback para titular 'Apellido, Nombre' cuando viene pegado junto a otros textos en la misma celda
+      if (!titular) {
+        const nameMatch = line.match(/([A-ZÁÉÍÓÚÑa-záéíóúñ]+,\s*[A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+)*)/);
+        if (nameMatch) {
+          titular = nameMatch[1].replace(/\b(CLARO|PERSONAL|MOVISTAR)\b/i, '').replace(/\s+S\/\s+SOCIOS.*$/i, '').trim();
         }
-        if (p.includes('GPO:') || p.includes('COBRO') || p.includes('EXCD')) {
-          observaciones = p;
-        }
+      }
+
+      // 7. Observaciones
+      if (line.toLowerCase().includes('a favor')) {
+        observaciones = 'Saldo a favor';
+      } else if (linea) {
+        observaciones = `Línea ${linea}`;
       }
 
       const gNum = parseInt(grupo, 10);
       const grupoObj = !isNaN(gNum) ? getGrupo(gNum) : null;
-      const finalTitular = titular || grupoObj?.titular || '';
+      const finalTitular = titular || grupoObj?.titular || `Grupo ${grupo || 'S/N'}`;
 
       if (monto > 0 && !isNaN(gNum)) {
         const isDuplicate = (existingCashMovs || []).some(e => {
