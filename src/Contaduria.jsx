@@ -1752,18 +1752,18 @@ export default function Contaduria() {
           </div>
 
           {/* TABLA PRINCIPAL DE COMPROBANTES */}
-          <div className="table-responsive" style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '13px' }}>
+          <div className="table-responsive">
+            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '12.5px' }}>
               <thead>
                 <tr style={{ background: 'rgba(0,0,0,0.02)', textAlign: 'left' }}>
-                  <th style={{ padding: '12px 14px', borderRadius: '12px 0 0 12px' }}>PERÍODO / ID</th>
-                  <th style={{ padding: '12px 14px' }}>GRUPO / SOCIO TITULAR</th>
-                  <th style={{ padding: '12px 14px' }}>OPERADORA</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>TOTAL FACTURADO</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>ABONADO</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>SALDO IMPAGO</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'center' }}>ESTADO</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'center', borderRadius: '0 12px 12px 0' }}>ACCIONES</th>
+                  <th style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', borderRadius: '10px 0 0 10px' }}>PERÍODO / ID</th>
+                  <th style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>GRUPO / SOCIO TITULAR</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>OPERADORA</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>TOTAL FACTURADO</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>ABONADO</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>SALDO IMPAGO</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', whiteSpace: 'nowrap' }}>ESTADO</th>
+                  <th className="sticky-action-col" style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', whiteSpace: 'nowrap', borderRadius: '0 10px 10px 0' }}>ACCIONES</th>
                 </tr>
               </thead>
               <tbody>
@@ -1803,23 +1803,23 @@ export default function Contaduria() {
                           }}
                         >
                           {/* 1. PERÍODO */}
-                          <td style={{ padding: '14px 16px', fontWeight: 800, whiteSpace: 'nowrap' }}>
-                            <div style={{ color: 'var(--text-primary)', fontSize: '13px' }}>{group.periodo}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 500, marginTop: '2px' }}>
+                          <td style={{ padding: '8px 10px', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                            <div style={{ color: 'var(--text-primary)', fontSize: '12.5px' }}>{group.periodo}</div>
+                            <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)', fontWeight: 500, marginTop: '1px' }}>
                               {group.isMultiProvider ? `${group.items.length} liquidaciones` : `${group.total_lineas} ${group.total_lineas === 1 ? 'línea' : 'líneas'}`}
                             </div>
                           </td>
 
                           {/* 2. GRUPO / SOCIO */}
-                          <td style={{ padding: '14px 16px' }}>
-                            <div style={{ fontWeight: 800, fontSize: '13.5px', color: 'var(--text-primary)' }}>
+                          <td style={{ padding: '8px 10px', maxWidth: '190px' }}>
+                            <div style={{ fontWeight: 800, fontSize: '12.5px', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={group.socio?.nombre_completo || `Grupo ${group.numero_grupo}`}>
                               {group.socio?.nombre_completo || `Grupo ${group.numero_grupo}`}
                             </div>
-                            <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                               <span>Grupo #{group.numero_grupo}</span>
                               {/* Mostrar teléfono directamente si hay 1 sola línea */}
                               {group.total_lineas === 1 && group.items[0]?.numero_linea && (
-                                <span style={{ color: 'var(--accent)', fontWeight: 800, fontSize: '11px', fontFamily: 'monospace' }}>
+                                <span style={{ color: 'var(--accent)', fontWeight: 800, fontSize: '10.5px', fontFamily: 'monospace' }}>
                                   📞 {group.items[0].numero_linea}
                                 </span>
                               )}
@@ -1835,23 +1835,23 @@ export default function Contaduria() {
                                   border: 'none',
                                   color: 'var(--accent)',
                                   cursor: 'pointer',
-                                  fontSize: '11.5px',
+                                  fontSize: '11px',
                                   fontWeight: 700,
                                   padding: '0',
                                   display: 'inline-flex',
                                   alignItems: 'center',
-                                  gap: '3px'
+                                  gap: '2px'
                                 }}
                               >
                                 {isExpanded ? 'Ocultar' : 'Ver desglose'}
-                                {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                                {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                               </button>
                             </div>
                           </td>
 
                           {/* 3. OPERADORAS */}
-                          <td style={{ padding: '14px 16px' }}>
-                            <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>
+                            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
                               {group.items.map(item => {
                                 const op = item.proveedores?.nombre || 'OPERADORA';
                                 const isClaro = op === 'CLARO';
@@ -1860,11 +1860,11 @@ export default function Contaduria() {
                                   <span 
                                     key={item.liquidacion_id} 
                                     style={{
-                                      padding: '2px 8px',
-                                      borderRadius: '6px',
-                                      fontSize: '10px',
+                                      padding: '2px 6px',
+                                      borderRadius: '5px',
+                                      fontSize: '9.5px',
                                       fontWeight: 800,
-                                      letterSpacing: '0.3px',
+                                      letterSpacing: '0.2px',
                                       background: isClaro ? 'rgba(239, 68, 68, 0.1)' : isMovistar ? 'rgba(16, 185, 129, 0.1)' : 'rgba(59, 130, 246, 0.1)',
                                       color: isClaro ? '#f87171' : isMovistar ? '#34d399' : '#60a5fa',
                                       border: isClaro ? '1px solid rgba(239, 68, 68, 0.2)' : isMovistar ? '1px solid rgba(16, 185, 129, 0.2)' : '1px solid rgba(59, 130, 246, 0.2)'
@@ -1878,49 +1878,49 @@ export default function Contaduria() {
                           </td>
 
                           {/* 4. TOTAL FACTURADO */}
-                          <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 800, fontSize: '13.5px' }}>
+                          <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, fontSize: '12.5px', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                             {formatMoney(group.monto_total_facturado)}
                           </td>
 
                           {/* 5. ABONADO */}
-                          <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 800, color: '#10b981', fontSize: '13.5px' }}>
+                          <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, color: '#10b981', fontSize: '12.5px', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                             {formatMoney(group.monto_abonado)}
                           </td>
 
                           {/* 6. SALDO IMPAGO */}
-                          <td style={{ padding: '14px 16px', textAlign: 'right' }}>
-                            <div style={{ fontWeight: 900, fontSize: '13.5px', color: group.saldo_impago > 5 ? '#ef4444' : 'var(--text-primary)' }}>
+                          <td style={{ padding: '8px 8px', textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                            <div style={{ fontWeight: 900, fontSize: '12.5px', color: group.saldo_impago > 5 ? '#ef4444' : 'var(--text-primary)' }}>
                               {formatMoney(group.saldo_impago)}
                             </div>
                             {interesMora > 0 && (
-                              <div style={{ fontSize: '11px', color: '#f59e0b', fontWeight: 800, marginTop: '2px' }} title={`Interés por ${diasMora} días de mora (TNA ${tna}%)`}>
+                              <div style={{ fontSize: '10.5px', color: '#f59e0b', fontWeight: 800, marginTop: '1px' }} title={`Interés por ${diasMora} días de mora (TNA ${tna}%)`}>
                                 + {formatMoney(interesMora)} mora
                               </div>
                             )}
                             {interesMora > 0 && (
-                              <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)', fontWeight: 700, marginTop: '1px' }}>
+                              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 700 }}>
                                 Total: <strong style={{ color: '#ef4444' }}>{formatMoney(totalConMora)}</strong>
                               </div>
                             )}
                           </td>
 
                           {/* 7. ESTADO */}
-                          <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                          <td style={{ padding: '8px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
                             <span style={{
                               display: 'inline-flex',
                               alignItems: 'center',
-                              gap: '6px',
+                              gap: '5px',
                               background: isCobrada ? 'rgba(16, 185, 129, 0.12)' : isParcial ? 'rgba(245, 158, 11, 0.12)' : 'rgba(239, 68, 68, 0.12)',
                               color: isCobrada ? '#10b981' : isParcial ? '#f59e0b' : '#ef4444',
                               border: isCobrada ? '1px solid rgba(16, 185, 129, 0.25)' : isParcial ? '1px solid rgba(245, 158, 11, 0.25)' : '1px solid rgba(239, 68, 68, 0.25)',
-                              padding: '4px 11px',
-                              borderRadius: '20px',
+                              padding: '3px 9px',
+                              borderRadius: '16px',
                               fontWeight: 800,
-                              fontSize: '11px'
+                              fontSize: '10.5px'
                             }}>
                               <span style={{
-                                width: '6px',
-                                height: '6px',
+                                width: '5px',
+                                height: '5px',
                                 borderRadius: '50%',
                                 background: isCobrada ? '#10b981' : isParcial ? '#f59e0b' : '#ef4444'
                               }} />
@@ -1928,20 +1928,20 @@ export default function Contaduria() {
                             </span>
 
                             {!isCobrada && (
-                              <div style={{ marginTop: '5px' }}>
+                              <div style={{ marginTop: '3px' }}>
                                 {diasMora > 0 ? (
                                   <span 
                                     style={{
                                       display: 'inline-flex',
                                       alignItems: 'center',
-                                      gap: '3px',
+                                      gap: '2px',
                                       background: diasMora > 30 ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.1)',
                                       color: diasMora > 30 ? '#ef4444' : '#f59e0b',
                                       border: diasMora > 30 ? '1px solid rgba(239, 68, 68, 0.25)' : '1px solid rgba(245, 158, 11, 0.25)',
-                                      padding: '2px 8px',
-                                      borderRadius: '10px',
+                                      padding: '1px 6px',
+                                      borderRadius: '8px',
                                       fontWeight: 800,
-                                      fontSize: '10px',
+                                      fontSize: '9.5px',
                                       whiteSpace: 'nowrap'
                                     }} 
                                     title={`Vencimiento: ${fechaVenc} • Interés acumulado: ${formatMoney(interesMora)} (TNA ${tna}%)`}
@@ -1951,7 +1951,7 @@ export default function Contaduria() {
                                 ) : (
                                   <span 
                                     style={{
-                                      fontSize: '10px',
+                                      fontSize: '9.5px',
                                       color: '#10b981',
                                       fontWeight: 700
                                     }}
@@ -1965,17 +1965,26 @@ export default function Contaduria() {
                           </td>
 
                           {/* 8. ACCIONES */}
-                          <td style={{ padding: '14px 16px', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
-                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
+                          <td 
+                            className="sticky-action-col"
+                            style={{ 
+                              padding: '8px 10px', 
+                              textAlign: 'center',
+                              whiteSpace: 'nowrap',
+                              background: selectedGrupo === group.numero_grupo ? 'var(--surface-hover)' : isExpanded ? 'var(--surface-hover)' : 'var(--surface)'
+                            }} 
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div style={{ display: 'inline-flex', gap: '5px', justifyContent: 'center', alignItems: 'center' }}>
                               {isCobrada ? (
                                 <span 
                                   onClick={() => handleAbrirComprobanteFactura(group)}
                                   style={{
                                     display: 'inline-flex',
                                     alignItems: 'center',
-                                    gap: '5px',
-                                    padding: '5px 11px',
-                                    borderRadius: '8px',
+                                    gap: '4px',
+                                    padding: '5px 9px',
+                                    borderRadius: '7px',
                                     fontSize: '11px',
                                     fontWeight: 800,
                                     background: 'rgba(16, 185, 129, 0.12)',
@@ -1992,13 +2001,13 @@ export default function Contaduria() {
                                   onClick={() => handleOpenCobroModal(group, group.numero_grupo)}
                                   className="air-btn-primary"
                                   style={{ 
-                                    padding: '6px 12px', 
+                                    padding: '5px 9px', 
                                     fontSize: '11px', 
-                                    borderRadius: '8px', 
+                                    borderRadius: '7px', 
                                     fontWeight: 800,
                                     display: 'inline-flex',
                                     alignItems: 'center',
-                                    gap: '4px',
+                                    gap: '3px',
                                     background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)'
                                   }}
                                   title="Registrar cobro a este grupo"
@@ -2013,13 +2022,13 @@ export default function Contaduria() {
                                 }}
                                 className="air-btn"
                                 style={{ 
-                                  padding: '6px 12px', 
+                                  padding: '5px 9px', 
                                   fontSize: '11px', 
-                                  borderRadius: '8px', 
+                                  borderRadius: '7px', 
                                   fontWeight: 700,
                                   display: 'inline-flex',
                                   alignItems: 'center',
-                                  gap: '4px',
+                                  gap: '3px',
                                   background: 'var(--accent-light)',
                                   color: 'var(--accent)',
                                   border: '1px solid var(--border-light)'
@@ -2359,21 +2368,21 @@ export default function Contaduria() {
 
       {/* PESTAÑA 2: ESTADO GENERAL DE CUENTAS (SALDOS POR GRUPO / AGING DE DEUDA) */}
       {activeTab === 'saldos' && (
-        <div className="bento-card" style={{ padding: '24px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: '280px' }}>
-              <div style={{ position: 'relative', width: '100%', maxWidth: '400px' }}>
-                <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+        <div className="bento-card" style={{ padding: '18px 20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: '260px' }}>
+              <div style={{ position: 'relative', width: '100%', maxWidth: '380px' }}>
+                <Search size={17} style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
                 <input
                   type="text"
                   placeholder="Buscar por grupo, socio o proveedor..."
                   value={searchGrupo}
                   onChange={(e) => setSearchGrupo(e.target.value)}
                   className="premium-input"
-                  style={{ width: '100%', paddingLeft: '42px', height: '42px' }}
+                  style={{ width: '100%', paddingLeft: '40px', height: '40px', fontSize: '13px' }}
                 />
               </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', userSelect: 'none' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '12.5px', fontWeight: 700, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
                 <input
                   type="checkbox"
                   checked={soloDeudores}
@@ -2384,48 +2393,50 @@ export default function Contaduria() {
               </label>
             </div>
 
-            <button 
-              onClick={loadSaldosGeneral}
-              className="air-btn"
-              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '10px', fontSize: '12px', fontWeight: 700 }}
-            >
-              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Actualizar Saldos
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <button 
+                onClick={loadSaldosGeneral}
+                className="air-btn"
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', borderRadius: '10px', fontSize: '12px', fontWeight: 700 }}
+              >
+                <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Actualizar Saldos
+              </button>
 
-            <button 
-              onClick={() => {
-                try {
-                  exportSaldosXLSX(saldosFiltrados);
-                  addToast('Exportación de saldos descargada exitosamente', 'success');
-                } catch (err) {
-                  addToast('Error al exportar: ' + err.message, 'error');
-                }
-              }}
-              className="air-btn"
-              style={{ 
-                display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '10px', fontSize: '12px', fontWeight: 700,
-                background: 'rgba(16, 185, 129, 0.08)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.2)'
-              }}
-              title="Exportar saldos a Excel (.xlsx)"
-              disabled={saldosFiltrados.length === 0}
-            >
-              <Download size={14} /> Exportar .xlsx
-            </button>
+              <button 
+                onClick={() => {
+                  try {
+                    exportSaldosXLSX(saldosFiltrados);
+                    addToast('Exportación de saldos descargada exitosamente', 'success');
+                  } catch (err) {
+                    addToast('Error al exportar: ' + err.message, 'error');
+                  }
+                }}
+                className="air-btn"
+                style={{ 
+                  display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', borderRadius: '10px', fontSize: '12px', fontWeight: 700,
+                  background: 'rgba(16, 185, 129, 0.08)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.2)'
+                }}
+                title="Exportar saldos a Excel (.xlsx)"
+                disabled={saldosFiltrados.length === 0}
+              >
+                <Download size={14} /> Exportar .xlsx
+              </button>
+            </div>
           </div>
 
-          <div className="table-responsive" style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '13px' }}>
+          <div className="table-responsive">
+            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '12.5px' }}>
               <thead>
                 <tr style={{ background: 'rgba(0,0,0,0.02)', textAlign: 'left' }}>
-                  <th style={{ padding: '12px 16px', borderRadius: '12px 0 0 12px' }}>GRUPO / CUENTA</th>
-                  <th style={{ padding: '12px 16px' }}>TITULAR REGISTRADO</th>
-                  <th style={{ padding: '12px 16px' }}>OPERADORA</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>FACTURADO</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>PAGADO</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>CAPITAL PEND.</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>INT. MORA</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>SALDO FINAL</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'center', borderRadius: '0 12px 12px 0' }}>ACCIONES</th>
+                  <th style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', borderRadius: '10px 0 0 10px' }}>GRUPO / CUENTA</th>
+                  <th style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>TITULAR REGISTRADO</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>OPERADORA</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>FACTURADO</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>PAGADO</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>CAPITAL PEND.</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>INT. MORA</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>SALDO FINAL</th>
+                  <th className="sticky-action-col" style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', whiteSpace: 'nowrap', borderRadius: '0 10px 10px 0' }}>ACCIONES</th>
                 </tr>
               </thead>
               <tbody>
@@ -2452,57 +2463,69 @@ export default function Contaduria() {
                         key={row.numero_grupo}
                         style={{ borderBottom: '1px solid var(--border-light)', background: selectedGrupo === row.numero_grupo ? 'rgba(16,185,129,0.05)' : 'transparent' }}
                       >
-                        <td style={{ padding: '12px 16px', fontWeight: 900 }}>
-                          <span style={{ background: 'var(--surface-hover)', padding: '4px 10px', borderRadius: '8px', fontSize: '13px' }}>
+                        <td style={{ padding: '8px 10px', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                          <span style={{ background: 'var(--surface-hover)', padding: '3px 8px', borderRadius: '6px', fontSize: '12px', display: 'inline-block' }}>
                             Grupo #{row.numero_grupo}
                           </span>
                         </td>
-                        <td style={{ padding: '12px 16px', fontWeight: 700 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            {row.nombre}
+                        <td style={{ padding: '8px 10px', fontWeight: 700, maxWidth: '170px' }} title={row.nombre}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '12.5px' }}>
+                              {row.nombre}
+                            </span>
                             <button 
                               onClick={() => handleOpenEditGrupo(row.numero_grupo)} 
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.5 }}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.5, padding: '2px', display: 'flex', alignItems: 'center', flexShrink: 0 }}
                               title="Editar nombre del titular"
                             >
-                              <Edit3 size={12} />
+                              <Edit3 size={11} />
                             </button>
                           </div>
                         </td>
-                        <td style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        <td style={{ padding: '8px 8px', fontSize: '11px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
                           {row.empresas}
                         </td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 600 }}>
+                        <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontSize: '12.5px' }}>
                           {formatMoney(row.totalFacturas)}
                         </td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 600, color: 'var(--accent)' }}>
+                        <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 600, color: 'var(--accent)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontSize: '12.5px' }}>
                           {formatMoney(row.totalPagos)}
                         </td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700 }}>
+                        <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontSize: '12.5px' }}>
                           {formatMoney(row.saldoCapitalUltimo)}
                         </td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#f59e0b' }}>
+                        <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 700, color: '#f59e0b', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontSize: '12.5px' }}>
                           {formatMoney(row.interesPendUltimo)}
                         </td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 900, color: isDeudor ? '#ef4444' : isCredito ? '#3b82f6' : 'var(--accent)' }}>
+                        <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 900, color: isDeudor ? '#ef4444' : isCredito ? '#3b82f6' : 'var(--accent)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontSize: '12.5px' }}>
                           {formatMoney(row.saldoFinalUltimo)}
                         </td>
-                        <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                        <td 
+                          className="sticky-action-col"
+                          style={{ 
+                            padding: '8px 10px', 
+                            textAlign: 'center', 
+                            whiteSpace: 'nowrap',
+                            background: selectedGrupo === row.numero_grupo ? 'var(--surface-hover)' : 'var(--surface)'
+                          }}
+                        >
+                          <div style={{ display: 'inline-flex', gap: '5px', justifyContent: 'center', alignItems: 'center' }}>
                             <button
                               onClick={() => {
                                 setSelectedGrupo(row.numero_grupo);
                                 setActiveTab('extracto');
                               }}
                               className="air-btn"
-                              style={{ padding: '6px 12px', fontSize: '11px', fontWeight: 800, background: 'var(--accent-light)', color: 'var(--accent)', borderRadius: '8px' }}
+                              style={{ padding: '5px 9px', fontSize: '11px', fontWeight: 800, background: 'var(--accent-light)', color: 'var(--accent)', borderRadius: '7px', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                              title="Ver Extracto de Cuenta"
                             >
-                              <Eye size={14} /> Extracto
+                              <Eye size={13} /> Extracto
                             </button>
                             <button
                               onClick={() => handleOpenCobroModal(null, row.numero_grupo)}
                               className="air-btn-primary"
-                              style={{ padding: '6px 12px', fontSize: '11px', fontWeight: 800, borderRadius: '8px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                              style={{ padding: '5px 9px', fontSize: '11px', fontWeight: 800, borderRadius: '7px', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                              title="Registrar Cobro"
                             >
                               <DollarSign size={13} /> Cobrar
                             </button>
@@ -2804,20 +2827,20 @@ export default function Contaduria() {
               </div>
             )}
 
-            <div className="table-responsive" style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '12.5px' }}>
+            <div className="table-responsive">
+              <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '12px' }}>
                 <thead>
                   <tr style={{ background: 'rgba(0,0,0,0.02)', textAlign: 'left' }}>
-                    <th style={{ padding: '12px 14px' }}>FECHA</th>
-                    <th style={{ padding: '12px 14px' }}>TIPO</th>
-                    <th style={{ padding: '12px 14px' }}>PERÍODO</th>
-                    <th style={{ padding: '12px 14px' }}>OPERADORA / CONCEPTO</th>
-                    <th style={{ padding: '12px 14px', textAlign: 'right' }}>IMPORTE</th>
-                    <th style={{ padding: '12px 14px', textAlign: 'center' }}>DÍAS INT.</th>
-                    <th style={{ padding: '12px 14px', textAlign: 'right' }}>MONTO INTERÉS</th>
-                    <th style={{ padding: '12px 14px', textAlign: 'right' }}>SALDO CAPITAL</th>
-                    <th style={{ padding: '12px 14px', textAlign: 'right' }}>SALDO TOTAL</th>
-                    <th style={{ padding: '12px 14px', textAlign: 'center' }}>COMPROBANTE</th>
+                    <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', borderRadius: '10px 0 0 10px' }}>FECHA</th>
+                    <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>TIPO</th>
+                    <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>PERÍODO</th>
+                    <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>OPERADORA / CONCEPTO</th>
+                    <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>IMPORTE</th>
+                    <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', whiteSpace: 'nowrap' }}>DÍAS INT.</th>
+                    <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>MONTO INTERÉS</th>
+                    <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>SALDO CAPITAL</th>
+                    <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>SALDO TOTAL</th>
+                    <th className="sticky-action-col" style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', whiteSpace: 'nowrap', borderRadius: '0 10px 10px 0' }}>COMPROBANTE</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2839,34 +2862,34 @@ export default function Contaduria() {
                       const isNC = m.tipo === 'NOTA_CREDITO';
                       return (
                         <tr key={m.id} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                          <td style={{ padding: '12px 14px', fontWeight: 700, whiteSpace: 'nowrap' }}>{formatFecha(m.fecha)}</td>
-                          <td style={{ padding: '12px 14px' }}>
+                          <td style={{ padding: '8px 8px', fontWeight: 700, whiteSpace: 'nowrap' }}>{formatFecha(m.fecha)}</td>
+                          <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>
                             <span style={{
                               background: isPago || isNC ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
                               color: isPago || isNC ? '#10b981' : '#ef4444',
-                              padding: '4px 10px', borderRadius: '6px', fontWeight: 800, fontSize: '11px'
+                              padding: '2px 7px', borderRadius: '5px', fontWeight: 800, fontSize: '10.5px'
                             }}>
                               {m.tipo}
                             </span>
                           </td>
-                          <td style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '12px', whiteSpace: 'nowrap' }}>
+                          <td style={{ padding: '8px 8px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', whiteSpace: 'nowrap' }}>
                             {m.periodo || '—'}
                           </td>
-                          <td style={{ padding: '12px 14px' }}>
-                            <div style={{ fontWeight: 700 }}>{m.empresa || 'GENERAL'}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>{m.observaciones || ''}</div>
+                          <td style={{ padding: '8px 8px', maxWidth: '180px' }}>
+                            <div style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.empresa || 'GENERAL'}>{m.empresa || 'GENERAL'}</div>
+                            <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.observaciones || ''}>{m.observaciones || ''}</div>
                             {isPago && m.pago_aplicado_interes > 0 && (
-                              <div style={{ fontSize: '10.5px', color: '#059669', fontWeight: 700, marginTop: '3px' }}>
+                              <div style={{ fontSize: '10px', color: '#059669', fontWeight: 700, marginTop: '2px', whiteSpace: 'nowrap' }}>
                                 ✓ Amortizó {formatMoney(m.pago_aplicado_capital)} cap. + {formatMoney(m.pago_aplicado_interes)} int.
                               </div>
                             )}
                           </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, fontSize: '13px', color: isPago || isNC ? '#10b981' : 'var(--text-primary)', whiteSpace: 'nowrap' }}>
+                          <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, fontSize: '12.5px', color: isPago || isNC ? '#10b981' : 'var(--text-primary)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                             {formatMoney(m.importe)}
                           </td>
 
                           {/* COLUMNA: DÍAS DE INTERÉS DESDE LA FACTURA HASTA EL PAGO */}
-                          <td style={{ padding: '12px 14px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                          <td style={{ padding: '8px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
                             {isPago ? (
                               m.dias_desde_factura > 0 ? (
                                 <div>
@@ -2874,24 +2897,24 @@ export default function Contaduria() {
                                     background: 'rgba(245, 158, 11, 0.12)',
                                     color: '#d97706',
                                     border: '1px solid rgba(245, 158, 11, 0.28)',
-                                    padding: '3px 8px',
-                                    borderRadius: '8px',
+                                    padding: '2px 6px',
+                                    borderRadius: '6px',
                                     fontWeight: 800,
-                                    fontSize: '11px',
+                                    fontSize: '10px',
                                     display: 'inline-flex',
                                     alignItems: 'center',
-                                    gap: '3px'
+                                    gap: '2px'
                                   }}>
                                     ⏱️ {m.dias_desde_factura}d
                                   </span>
                                   {m.fecha_factura_origen && (
-                                    <div style={{ fontSize: '9.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                    <div style={{ fontSize: '9px', color: 'var(--text-secondary)', marginTop: '1px' }}>
                                       {formatFecha(m.fecha_factura_origen)} → {formatFecha(m.fecha)}
                                     </div>
                                   )}
                                 </div>
                               ) : (
-                                <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>0d</span>
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '10.5px' }}>0d</span>
                               )
                             ) : (
                               m.plazo_dias > 0 ? (
@@ -2900,91 +2923,94 @@ export default function Contaduria() {
                                     background: 'rgba(239, 68, 68, 0.08)',
                                     color: '#ef4444',
                                     border: '1px solid rgba(239, 68, 68, 0.18)',
-                                    padding: '2px 7px',
-                                    borderRadius: '6px',
+                                    padding: '1px 5px',
+                                    borderRadius: '5px',
                                     fontWeight: 700,
-                                    fontSize: '10.5px'
+                                    fontSize: '10px'
                                   }}>
                                     {m.plazo_dias}d
                                   </span>
-                                  <div style={{ fontSize: '9.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                  <div style={{ fontSize: '9px', color: 'var(--text-secondary)', marginTop: '1px' }}>
                                     plazo
                                   </div>
                                 </div>
                               ) : (
-                                <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>—</span>
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '10.5px' }}>—</span>
                               )
                             )}
                           </td>
 
                           {/* COLUMNA: MONTO DE LOS INTERESES */}
-                          <td style={{ padding: '12px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          <td style={{ padding: '8px 8px', textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                             {isPago ? (
                               m.pago_aplicado_interes > 0 ? (
                                 <div>
-                                  <span style={{ color: '#d97706', fontWeight: 800, fontSize: '12.5px' }}>
+                                  <span style={{ color: '#d97706', fontWeight: 800, fontSize: '12px' }}>
                                     {formatMoney(m.pago_aplicado_interes)}
                                   </span>
-                                  <span style={{ display: 'block', fontSize: '10px', color: '#059669', fontWeight: 700 }}>
+                                  <span style={{ display: 'block', fontSize: '9.5px', color: '#059669', fontWeight: 700 }}>
                                     cobrado
                                   </span>
                                 </div>
                               ) : (
-                                <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>$ 0,00</span>
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '10.5px' }}>$ 0,00</span>
                               )
                             ) : (
                               m.interes_mora > 0 ? (
                                 <div>
-                                  <span style={{ color: '#ef4444', fontWeight: 800, fontSize: '12.5px' }}>
+                                  <span style={{ color: '#ef4444', fontWeight: 800, fontSize: '12px' }}>
                                     +{formatMoney(m.interes_mora)}
                                   </span>
-                                  <span style={{ display: 'block', fontSize: '9.5px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                                  <span style={{ display: 'block', fontSize: '9px', color: 'var(--text-secondary)', fontWeight: 600 }}>
                                     devengado
                                   </span>
                                 </div>
                               ) : (
-                                <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>—</span>
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '10.5px' }}>—</span>
                               )
                             )}
                           </td>
 
                           {/* COLUMNA: SALDO CAPITAL */}
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, fontSize: '13px', color: m.saldo_capital > 5 ? '#ef4444' : 'var(--accent)', whiteSpace: 'nowrap' }}>
+                          <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, fontSize: '12.5px', color: m.saldo_capital > 5 ? '#ef4444' : 'var(--accent)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                             {formatMoney(m.saldo_capital)}
                           </td>
 
                           {/* COLUMNA: SALDO TOTAL ACUMULADO */}
-                          <td style={{ padding: '12px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                            <span style={{ fontWeight: 900, fontSize: '13.5px', color: m.saldo_final > 5 ? '#ef4444' : 'var(--accent)' }}>
+                          <td style={{ padding: '8px 8px', textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                            <span style={{ fontWeight: 900, fontSize: '12.5px', color: m.saldo_final > 5 ? '#ef4444' : 'var(--accent)' }}>
                               {formatMoney(m.saldo_final)}
                             </span>
                             {m.interes_pend_final > 1 && (
-                              <div style={{ fontSize: '9.5px', color: '#d97706', fontWeight: 700, marginTop: '2px' }}>
-                                (+{formatMoney(m.interes_pend_final)} int. pend.)
+                              <div style={{ fontSize: '9px', color: '#d97706', fontWeight: 700, marginTop: '1px' }}>
+                                (+{formatMoney(m.interes_pend_final)} int.)
                               </div>
                             )}
                           </td>
 
-                          <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                          <td 
+                            className="sticky-action-col"
+                            style={{ padding: '8px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}
+                          >
                             {isPago ? (
                               <button
                                 onClick={() => handleAbrirComprobanteMovimiento(m)}
                                 className="air-btn"
                                 style={{
-                                  padding: '5px 10px',
-                                  fontSize: '11px',
-                                  borderRadius: '8px',
+                                  padding: '4px 8px',
+                                  fontSize: '10.5px',
+                                  borderRadius: '6px',
                                   fontWeight: 700,
                                   display: 'inline-flex',
                                   alignItems: 'center',
-                                  gap: '4px',
+                                  gap: '3px',
                                   background: 'rgba(16, 185, 129, 0.1)',
                                   color: '#10b981',
                                   border: '1px solid rgba(16, 185, 129, 0.25)'
                                 }}
                                 title="Generar e imprimir comprobante de este cobro"
                               >
-                                <Printer size={12} /> Recibo
+                                <Printer size={11} /> Recibo
                               </button>
                             ) : (
                               <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>—</span>
@@ -3066,18 +3092,18 @@ export default function Contaduria() {
             </div>
           </div>
 
-          <div className="table-responsive" style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '12.5px' }}>
+          <div className="table-responsive">
+            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '12px' }}>
               <thead>
                 <tr style={{ background: 'rgba(0,0,0,0.02)', textAlign: 'left' }}>
-                  <th style={{ padding: '12px 14px' }}>LÍNEA TELEFÓNICA</th>
-                  <th style={{ padding: '12px 14px' }}>SOCIO RESPONSABLE</th>
-                  <th style={{ padding: '12px 14px' }}>OPERADORA</th>
-                  <th style={{ padding: '12px 14px' }}>PLAN CONTRATADO</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>VALOR ABONO</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>EXCEDENTES</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>FACTURADO ({lineasPeriodoFiltro})</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'center' }}>ESTADO</th>
+                  <th style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', borderRadius: '10px 0 0 10px' }}>LÍNEA TELEFÓNICA</th>
+                  <th style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>SOCIO RESPONSABLE</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>OPERADORA</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>PLAN CONTRATADO</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>VALOR ABONO</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>EXCEDENTES</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>FACTURADO ({lineasPeriodoFiltro})</th>
+                  <th style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', whiteSpace: 'nowrap', borderRadius: '0 10px 10px 0' }}>ESTADO</th>
                 </tr>
               </thead>
               <tbody>
@@ -3097,24 +3123,28 @@ export default function Contaduria() {
                   <>
                     {lineasGrupo.map(l => (
                       <tr key={l.numero_linea} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                        <td style={{ padding: '12px 14px', fontWeight: 900, color: 'var(--accent)' }}>{l.numero_linea}</td>
-                        <td style={{ padding: '12px 14px', fontWeight: 700 }}>{l.socios?.nombre_completo || 'Sin socio asignado'}</td>
-                        <td style={{ padding: '12px 14px', fontWeight: 700 }}>{l.proveedores?.nombre || 'N/D'}</td>
-                        <td style={{ padding: '12px 14px' }}>{l.plan_facturado || l.planes_abonos?.nombre_plan || 'Plan Estándar'}</td>
-                        <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700 }}>
+                        <td style={{ padding: '8px 10px', fontWeight: 900, color: 'var(--accent)', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>{l.numero_linea}</td>
+                        <td style={{ padding: '8px 10px', fontWeight: 700, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={l.socios?.nombre_completo || 'Sin socio asignado'}>
+                          {l.socios?.nombre_completo || 'Sin socio asignado'}
+                        </td>
+                        <td style={{ padding: '8px 8px', fontWeight: 700, whiteSpace: 'nowrap' }}>{l.proveedores?.nombre || 'N/D'}</td>
+                        <td style={{ padding: '8px 8px', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={l.plan_facturado || l.planes_abonos?.nombre_plan || 'Plan Estándar'}>
+                          {l.plan_facturado || l.planes_abonos?.nombre_plan || 'Plan Estándar'}
+                        </td>
+                        <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                           {formatMoney(l.costo_abono_real || l.planes_abonos?.precio || 0)}
                         </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'right', color: (l.excedentes || 0) > 0 ? '#f59e0b' : 'var(--text-secondary)', fontWeight: (l.excedentes || 0) > 0 ? 800 : 500 }}>
+                        <td style={{ padding: '8px 8px', textAlign: 'right', color: (l.excedentes || 0) > 0 ? '#f59e0b' : 'var(--text-secondary)', fontWeight: (l.excedentes || 0) > 0 ? 800 : 500, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                           {formatMoney(l.excedentes || 0)}
                         </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 900, fontSize: '13px', color: 'var(--text-primary)' }}>
+                        <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 900, fontSize: '12.5px', color: 'var(--text-primary)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                           {formatMoney(l.facturado_periodo || 0)}
                         </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                        <td style={{ padding: '8px 10px', textAlign: 'center', whiteSpace: 'nowrap' }}>
                           <span style={{
                             background: 'rgba(16, 185, 129, 0.1)',
                             color: '#10b981',
-                            padding: '4px 10px', borderRadius: '8px', fontWeight: 900, fontSize: '11px'
+                            padding: '3px 8px', borderRadius: '6px', fontWeight: 900, fontSize: '10.5px'
                           }}>
                             ACTIVA
                           </span>
