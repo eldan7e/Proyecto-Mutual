@@ -407,13 +407,7 @@ export function obtenerMesesDeudaGrupo({
     liquidacionesGrupo.forEach(l => { if (l.periodo) allPers.add(l.periodo); });
     movimientos.forEach(m => {
       if (m.periodo) allPers.add(m.periodo);
-      else if (m.fecha && m.fecha.length >= 7) allPers.add(m.fecha.slice(0, 7));
     });
-    const hoy = new Date();
-    for (let i = 0; i < count; i++) {
-      const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
-      allPers.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
-    }
     const sorted = Array.from(allPers).filter(Boolean).sort().reverse();
     allowedPeriods = new Set(sorted.slice(0, count));
   }

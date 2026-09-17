@@ -4,7 +4,8 @@ import {
   Loader2, RefreshCw, Plus, CheckCircle2, ChevronDown, ChevronUp, 
   Download, Settings, Building, 
   FileText, Eye, Edit3, X, Receipt,
-  AlertCircle, Phone, Printer, Coins, Banknote, ArrowRightLeft, Check, CreditCard
+  AlertCircle, Phone, Printer, Coins, Banknote, ArrowRightLeft, Check, CreditCard,
+  Calendar
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import Modal from './components/Modal';
@@ -937,6 +938,8 @@ export default function Contaduria() {
   const pageSizeFacturas = 50;
 
   // Lista de períodos de facturación disponibles ordenados de más reciente a más antiguo
+  // NOTA: Se basa en los períodos de liquidación reales (liquidaciones_grupos / movimientos),
+  // respetando que los servicios se liquidan y pagan a mes vencido (el último período cerrado es 2026-08).
   const periodosDisponibles = useMemo(() => {
     const pSet = new Set(periodosDisponiblesState);
     liquidacionesAll.forEach(l => {
@@ -944,21 +947,13 @@ export default function Contaduria() {
     });
     movimientos.forEach(m => {
       if (m.periodo) pSet.add(m.periodo);
-      else if (m.fecha && m.fecha.length >= 7) pSet.add(m.fecha.slice(0, 7));
     });
     return Array.from(pSet).filter(Boolean).sort().reverse();
   }, [liquidacionesAll, periodosDisponiblesState, movimientos]);
 
-  // Helper para obtener Set de períodos de los últimos N meses (combina disponibles y meses calendario actuales)
+  // Helper para obtener Set de los últimos N períodos de facturación cerrados y disponibles
   const getUltimosPeriodosSet = (n) => {
-    const pList = periodosDisponibles.slice(0, n);
-    const pSet = new Set(pList);
-    const hoy = new Date();
-    for (let i = 0; i < n; i++) {
-      const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
-      pSet.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
-    }
-    return pSet;
+    return new Set(periodosDisponibles.slice(0, n));
   };
 
   // Años disponibles derivados de períodos y movimientos para el selector de extracto
