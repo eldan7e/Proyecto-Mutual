@@ -13,6 +13,7 @@ import { calculateAuditLine } from './utils/auditEngine';
 import { buildResumenRows, buildSociosRows } from './utils/csvFormatters';
 import { useToast } from './components/ui/ToastProvider';
 import { exportToCSV } from './utils/browserDownload';
+import { exportLiquidacionesSociosXLSX, exportLiquidacionesGruposXLSX } from './utils/exportFacturacion';
 import useDebounce from './hooks/useDebounce';
 import { fetchSocioLiquidaciones as fetchSocioLiquidacionesService } from './services/auditoriaDataService';
 import { fetchLiquidaciones, deleteBatch } from './services/facturacionService';
@@ -177,16 +178,12 @@ export default function Facturacion() {
 
   function exportResumenToCSV() {
     if (liquidacionesAgrupadas.length === 0) return;
-    const headers = ["Grupo", "Responsable (Socio)", "Lineas", "Total a Cobrar", "Estado"];
-    const rows = buildResumenRows(liquidacionesAgrupadas);
-    exportToCSV(headers, rows, `resumen_grupos_${selectedPeriod || 'lote'}.csv`);
+    exportLiquidacionesGruposXLSX({ data: liquidacionesAgrupadas, periodo: selectedPeriod });
   }
 
   function exportSociosToCSV() {
     if (sortedSocioData.length === 0) return;
-    const headers = ["Socio", "Nro Socio", "Linea", "Plan", "Abono Base", "Cargos Extra", "Descuentos", "Total a Cobrar"];
-    const rows = buildSociosRows(sortedSocioData);
-    exportToCSV(headers, rows, `liquidaciones_socios_${selectedPeriod || 'periodo'}.csv`);
+    exportLiquidacionesSociosXLSX({ data: sortedSocioData, periodo: selectedPeriod, operadora: filterProv });
   }
 
   return (

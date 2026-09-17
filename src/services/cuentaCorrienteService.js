@@ -235,13 +235,39 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
 
     movimientos.forEach(mov => {
       const imp = Math.abs(Number(mov.importe) || 0);
-      if (mov.tipo === 'FACTURA') totalFacturas += imp;
+      if (mov.tipo === 'FACTURA') {
+        totalFacturas += imp;
+        if (mov.empresa) {
+          const empNorm = mov.empresa.toUpperCase().trim();
+          if (empNorm.startsWith('CLARO')) empresas.add('CLARO');
+          else if (empNorm.startsWith('MOVISTAR')) empresas.add('MOVISTAR');
+          else if (empNorm.startsWith('PERSONAL')) empresas.add('PERSONAL');
+          else if (['CLARO', 'MOVISTAR', 'PERSONAL'].some(op => empNorm.includes(op))) {
+            if (empNorm.includes('CLARO')) empresas.add('CLARO');
+            if (empNorm.includes('MOVISTAR')) empresas.add('MOVISTAR');
+            if (empNorm.includes('PERSONAL')) empresas.add('PERSONAL');
+          } else {
+            empresas.add(empNorm);
+          }
+        }
+      }
       if (mov.tipo === 'PAGO') totalPagos += imp;
-      if (mov.empresa) empresas.add(mov.empresa);
       if (mov.nombre && (nombreGrupo === `Grupo ${g}` || !nombreGrupo)) {
         nombreGrupo = mov.nombre;
       }
     });
+
+    // Fallback: si no tuvo facturas con empresa, buscar en pagos solo operadoras reconocidas
+    if (empresas.size === 0) {
+      movimientos.forEach(mov => {
+        if (mov.empresa) {
+          const empNorm = mov.empresa.toUpperCase().trim();
+          if (empNorm.startsWith('CLARO')) empresas.add('CLARO');
+          else if (empNorm.startsWith('MOVISTAR')) empresas.add('MOVISTAR');
+          else if (empNorm.startsWith('PERSONAL')) empresas.add('PERSONAL');
+        }
+      });
+    }
 
     gruposMap[g] = {
       numero_grupo: g,

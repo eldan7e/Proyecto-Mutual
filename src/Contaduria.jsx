@@ -18,10 +18,10 @@ import {
 import { fetchPeriods } from './services/conciliacionService';
 import { 
   recalcularSaldosGrupo, imputarCobroFIFO, formatMoney, formatFecha,
-  formatFechaVencimiento, calcularDiasMora, calcularInteresMora, DEFAULT_TNA 
+  formatFechaVencimiento, calcularDiasMora, calcularInteresMora, obtenerMesesDeudaGrupo, DEFAULT_TNA 
 } from './utils/cuentaCorrienteEngine';
 import { 
-  exportFacturasXLSX, exportSaldosXLSX, exportExtractoXLSX, exportLineasXLSX 
+  exportFacturasXLSX, exportSaldosXLSX, exportExtractoXLSX, exportSoloDeudaXLSX, exportLineasXLSX 
 } from './utils/exportContaduria';
 
 export default function Contaduria() {
@@ -48,6 +48,8 @@ export default function Contaduria() {
   const [lineasGrupo, setLineasGrupo] = useState([]);
   const [lineasPeriodoFiltro, setLineasPeriodoFiltro] = useState(null);
   const [periodosDisponiblesState, setPeriodosDisponiblesState] = useState([]);
+  const [extractoPeriodoFilter, setExtractoPeriodoFilter] = useState('TODOS');
+  const [exportExtractoMenuOpen, setExportExtractoMenuOpen] = useState(false);
 
   // Loaders
   const [loading, setLoading] = useState(false);
@@ -941,6 +943,95 @@ export default function Contaduria() {
     });
     return Array.from(pSet).filter(Boolean).sort().reverse();
   }, [liquidacionesAll, periodosDisponiblesState]);
+
+  // Años disponibles derivados de períodos y movimientos para el selector de extracto
+  const aniosDisponibles = useMemo(() => {
+    const ySet = new Set();
+    ySet.add('2026'); // Asegurar año 2026 siempre seleccionable
+    periodosDisponibles.forEach(p => {
+      if (p && p.length >= 4) ySet.add(p.slice(0, 4));
+    });
+    movimientos.forEach(m => {
+      if (m.periodo && m.periodo.length >= 4) ySet.add(m.periodo.slice(0, 4));
+      else if (m.fecha && m.fecha.length >= 4) ySet.add(m.fecha.slice(0, 4));
+    });
+    return Array.from(ySet).filter(Boolean).sort().reverse();
+  }, [periodosDisponibles, movimientos]);
+
+  // Etiqueta legible del filtro de período en extracto
+  const extractoFiltroLabel = useMemo(() => {
+    if (!extractoPeriodoFilter || extractoPeriodoFilter === 'TODOS') return 'Histórico Completo';
+    if (extractoPeriodoFilter.startsWith('YEAR_')) return `Año ${extractoPeriodoFilter.replace('YEAR_', '')}`;
+    return `Período ${extractoPeriodoFilter}`;
+  }, [extractoPeriodoFilter]);
+
+  // Movimientos del extracto filtrados según el selector de período / año
+  const movimientosExtractoFiltrados = useMemo(() => {
+    if (!extractoPeriodoFilter || extractoPeriodoFilter === 'TODOS') {
+      return movimientos;
+    }
+    const anio = extractoPeriodoFilter.startsWith('YEAR_') ? extractoPeriodoFilter.replace('YEAR_', '') : null;
+    return movimientos.filter(m => {
+      if (anio) {
+        return (m.periodo && m.periodo.startsWith(anio)) || (m.fecha && m.fecha.startsWith(anio));
+      }
+      return m.periodo === extractoPeriodoFilter || (m.fecha && m.fecha.startsWith(extractoPeriodoFilter));
+    });
+  }, [movimientos, extractoPeriodoFilter]);
+
+  // Lista de meses que presentan deuda en el grupo según el período seleccionado, con interés ya aplicado
+  const mesesDeudaExtracto = useMemo(() => {
+    if (!selectedGrupo) return [];
+    return obtenerMesesDeudaGrupo({
+      liquidacionesGrupo,
+      movimientos,
+      tna,
+      periodoFiltro: extractoPeriodoFilter,
+      fechaCalculo: new Date()
+    });
+  }, [selectedGrupo, liquidacionesGrupo, movimientos, tna, extractoPeriodoFilter]);
+
+  // Resumen consolidado de deuda para el período seleccionado
+  const resumenDeudaExtracto = useMemo(() => {
+    const capital = mesesDeudaExtracto.reduce((s, d) => s + Number(d.saldoImpago || 0), 0);
+    const interes = mesesDeudaExtracto.reduce((s, d) => s + Number(d.interesMora || 0), 0);
+    const total = capital + interes;
+    return {
+      capital: Math.round(capital * 100) / 100,
+      interes: Math.round(interes * 100) / 100,
+      total: Math.round(total * 100) / 100,
+      cantidadMeses: mesesDeudaExtracto.length
+    };
+  }, [mesesDeudaExtracto]);
+
+  // Exportar todos los movimientos del extracto
+  function handleExportarTodosMovimientos() {
+    try {
+      const listToExport = extractoPeriodoFilter === 'TODOS' ? movimientos : movimientosExtractoFiltrados;
+      if (!listToExport || listToExport.length === 0) {
+        addToast('No hay movimientos para exportar en el período seleccionado', 'warning');
+        return;
+      }
+      exportExtractoXLSX(listToExport, selectedGrupo, titularSeleccionadoInfo?.nombre, extractoFiltroLabel);
+      addToast(`Extracto exportado exitosamente (${extractoFiltroLabel})`, 'success');
+    } catch (err) {
+      addToast('Error al exportar extracto: ' + err.message, 'error');
+    }
+  }
+
+  // Exportar solo deuda con interés aplicado
+  function handleExportarSoloDeuda() {
+    try {
+      if (!mesesDeudaExtracto || mesesDeudaExtracto.length === 0) {
+        addToast(`El Grupo #${selectedGrupo} no registra meses adeudados en ${extractoFiltroLabel}.`, 'info');
+        return;
+      }
+      exportSoloDeudaXLSX(mesesDeudaExtracto, selectedGrupo, titularSeleccionadoInfo?.nombre, extractoFiltroLabel, tna);
+      addToast(`Deuda exportada exitosamente (${mesesDeudaExtracto.length} meses con interés ya aplicado)`, 'success');
+    } catch (err) {
+      addToast('Error al exportar reporte de deuda: ' + err.message, 'error');
+    }
+  }
 
   // Reset página cuando cambian los filtros
   useEffect(() => {
@@ -2433,55 +2524,129 @@ export default function Contaduria() {
           
           <div className="bento-card" style={{ padding: '24px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-              <div>
-                <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SELECCIONAR GRUPO</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
-                  <select 
-                    value={selectedGrupo || ''}
-                    onChange={(e) => setSelectedGrupo(Number(e.target.value))}
-                    className="premium-input"
-                    style={{ fontSize: '16px', fontWeight: 900, padding: '8px 16px', height: '44px' }}
-                  >
-                    {gruposList.map(g => (
-                      <option key={g.numero_grupo} value={g.numero_grupo}>
-                        Grupo #{g.numero_grupo} - {g.nombre}
-                      </option>
-                    ))}
-                  </select>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SELECCIONAR GRUPO</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                    <select 
+                      value={selectedGrupo || ''}
+                      onChange={(e) => setSelectedGrupo(Number(e.target.value))}
+                      className="premium-input"
+                      style={{ fontSize: '15px', fontWeight: 900, padding: '8px 14px', height: '44px' }}
+                    >
+                      {gruposList.map(g => (
+                        <option key={g.numero_grupo} value={g.numero_grupo}>
+                          Grupo #{g.numero_grupo} - {g.nombre}
+                        </option>
+                      ))}
+                    </select>
 
-                  <button 
-                    onClick={() => handleOpenEditGrupo(selectedGrupo)}
-                    className="air-btn"
-                    style={{ padding: '8px 12px', borderRadius: '10px', fontSize: '12px', fontWeight: 700 }}
-                  >
-                    <Edit3 size={14} /> Editar Titular
-                  </button>
+                    <button 
+                      onClick={() => handleOpenEditGrupo(selectedGrupo)}
+                      className="air-btn"
+                      style={{ padding: '8px 12px', borderRadius: '10px', fontSize: '12px', fontWeight: 700 }}
+                    >
+                      <Edit3 size={14} /> Editar Titular
+                    </button>
+                  </div>
+                </div>
+
+                {/* SELECTOR DE PERÍODO / AÑO DE EXTRACTO */}
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>PERÍODO / AÑO</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                    <select
+                      value={extractoPeriodoFilter}
+                      onChange={(e) => setExtractoPeriodoFilter(e.target.value)}
+                      className="premium-input"
+                      style={{ 
+                        fontSize: '13.5px', fontWeight: 800, padding: '8px 12px', height: '44px', minWidth: '190px',
+                        borderColor: extractoPeriodoFilter !== 'TODOS' ? 'var(--accent)' : undefined,
+                        background: extractoPeriodoFilter !== 'TODOS' ? 'rgba(59, 130, 246, 0.04)' : undefined
+                      }}
+                      title="Filtrar movimientos y calcular deuda de un año o período específico"
+                    >
+                      <option value="TODOS">Todos los períodos (Histórico)</option>
+                      <optgroup label="Filtrar por Año">
+                        {aniosDisponibles.map(anio => (
+                          <option key={anio} value={`YEAR_${anio}`}>
+                            Año {anio}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Filtrar por Mes / Período">
+                        {periodosDisponibles.map(p => (
+                          <option key={p} value={p}>
+                            Período {p}
+                          </option>
+                        ))}
+                      </optgroup>
+                    </select>
+                  </div>
                 </div>
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SALDO CAPITAL</div>
-                  <div style={{ fontSize: '18px', fontWeight: 900, color: (ultimoMovGrupo?.saldo_capital || 0) > 5 ? '#ef4444' : 'var(--accent)' }}>
-                    {formatMoney(ultimoMovGrupo?.saldo_capital || 0)}
-                  </div>
-                </div>
-
-                {(ultimoMovGrupo?.interes_pend_final || 0) > 1 && (
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 800, color: '#d97706', textTransform: 'uppercase' }}>INT. MORA PEND.</div>
-                    <div style={{ fontSize: '18px', fontWeight: 900, color: '#d97706' }}>
-                      +{formatMoney(ultimoMovGrupo?.interes_pend_final || 0)}
+                {extractoPeriodoFilter === 'TODOS' ? (
+                  <>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SALDO CAPITAL</div>
+                      <div style={{ fontSize: '18px', fontWeight: 900, color: (ultimoMovGrupo?.saldo_capital || 0) > 5 ? '#ef4444' : 'var(--accent)' }}>
+                        {formatMoney(ultimoMovGrupo?.saldo_capital || 0)}
+                      </div>
                     </div>
-                  </div>
-                )}
 
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SALDO TOTAL CONSOLIDADO</div>
-                  <div style={{ fontSize: '24px', fontWeight: 900, color: (ultimoMovGrupo?.saldo_final || 0) > 5 ? '#ef4444' : 'var(--accent)' }}>
-                    {formatMoney(ultimoMovGrupo?.saldo_final || 0)}
-                  </div>
-                </div>
+                    {(ultimoMovGrupo?.interes_pend_final || 0) > 1 && (
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 800, color: '#d97706', textTransform: 'uppercase' }}>INT. MORA PEND.</div>
+                        <div style={{ fontSize: '18px', fontWeight: 900, color: '#d97706' }}>
+                          +{formatMoney(ultimoMovGrupo?.interes_pend_final || 0)}
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SALDO TOTAL CONSOLIDADO</div>
+                      <div style={{ fontSize: '24px', fontWeight: 900, color: (ultimoMovGrupo?.saldo_final || 0) > 5 ? '#ef4444' : 'var(--accent)' }}>
+                        {formatMoney(ultimoMovGrupo?.saldo_final || 0)}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                        SALDO CAPITAL ({extractoFiltroLabel})
+                      </div>
+                      <div style={{ fontSize: '18px', fontWeight: 900, color: resumenDeudaExtracto.capital > 5 ? '#ef4444' : 'var(--accent)' }}>
+                        {formatMoney(resumenDeudaExtracto.capital)}
+                      </div>
+                    </div>
+
+                    {resumenDeudaExtracto.interes > 0 && (
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 800, color: '#d97706', textTransform: 'uppercase' }}>
+                          INT. MORA ({tna}% TNA)
+                        </div>
+                        <div style={{ fontSize: '18px', fontWeight: 900, color: '#d97706' }}>
+                          +{formatMoney(resumenDeudaExtracto.interes)}
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                        DEUDA TOTAL ({extractoFiltroLabel})
+                      </div>
+                      <div style={{ fontSize: '24px', fontWeight: 900, color: resumenDeudaExtracto.total > 5 ? '#ef4444' : 'var(--accent)' }}>
+                        {formatMoney(resumenDeudaExtracto.total)}
+                      </div>
+                      <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                        Histórico cuenta: {formatMoney(ultimoMovGrupo?.saldo_final || 0)}
+                      </div>
+                    </div>
+                  </>
+                )}
 
                 <button 
                   onClick={() => handleOpenCobroModal(null, selectedGrupo)}
@@ -2491,25 +2656,86 @@ export default function Contaduria() {
                   <Plus size={16} /> Imputar Cobro
                 </button>
 
-                <button 
-                  onClick={() => {
-                    try {
-                      exportExtractoXLSX(movimientos, selectedGrupo, titularSeleccionadoInfo?.nombre);
-                      addToast('Extracto exportado exitosamente', 'success');
-                    } catch (err) {
-                      addToast('Error al exportar: ' + err.message, 'error');
-                    }
-                  }}
-                  className="air-btn"
-                  style={{ 
-                    display: 'flex', alignItems: 'center', gap: '6px', padding: '12px 16px', borderRadius: '12px', fontWeight: 700, fontSize: '13px',
-                    background: 'rgba(16, 185, 129, 0.08)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.2)'
-                  }}
-                  title="Exportar extracto a Excel (.xlsx)"
-                  disabled={movimientos.length === 0}
-                >
-                  <Download size={14} /> Exportar .xlsx
-                </button>
+                {/* BOTÓN Y MENÚ DESPLEGABLE DE EXPORTACIÓN */}
+                <div style={{ position: 'relative' }}>
+                  <button 
+                    onClick={() => setExportExtractoMenuOpen(prev => !prev)}
+                    className="air-btn"
+                    style={{ 
+                      display: 'flex', alignItems: 'center', gap: '6px', padding: '12px 16px', borderRadius: '12px', fontWeight: 700, fontSize: '13px',
+                      background: 'rgba(16, 185, 129, 0.08)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.25)', cursor: 'pointer'
+                    }}
+                    title="Exportar opciones de extracto a Excel (.xlsx)"
+                  >
+                    <Download size={14} /> Exportar .xlsx <ChevronDown size={13} />
+                  </button>
+
+                  {exportExtractoMenuOpen && (
+                    <>
+                      <div 
+                        style={{ position: 'fixed', inset: 0, zIndex: 90 }} 
+                        onClick={() => setExportExtractoMenuOpen(false)} 
+                      />
+                      <div style={{
+                        position: 'absolute', right: 0, top: 'calc(100% + 8px)', zIndex: 100,
+                        background: '#ffffff', borderRadius: '12px', boxShadow: '0 12px 30px -4px rgba(0, 0, 0, 0.2), 0 4px 12px -2px rgba(0, 0, 0, 0.1)',
+                        border: '1px solid var(--border-light, rgba(0,0,0,0.12))', minWidth: '320px', padding: '8px', overflow: 'hidden'
+                      }}>
+                        {/* Opción 1: Exportar todos los movimientos */}
+                        <button
+                          onClick={() => {
+                            setExportExtractoMenuOpen(false);
+                            handleExportarTodosMovimientos();
+                          }}
+                          style={{
+                            width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: '8px',
+                            display: 'flex', alignItems: 'flex-start', gap: '10px', border: 'none', background: 'transparent', cursor: 'pointer',
+                            transition: 'background 0.15s ease'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(16, 185, 129, 0.08)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                        >
+                          <FileText size={18} color="#10b981" style={{ marginTop: '2px', flexShrink: 0 }} />
+                          <div>
+                            <div style={{ fontWeight: 800, fontSize: '13px', color: 'var(--text-primary, #111827)' }}>
+                              Exportar todos los movimientos
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary, #6b7280)', marginTop: '2px' }}>
+                              Libro Mayor completo con facturas, cobros y saldos ({extractoPeriodoFilter === 'TODOS' ? 'Histórico completo' : extractoFiltroLabel})
+                            </div>
+                          </div>
+                        </button>
+
+                        <div style={{ height: '1px', background: 'var(--border-light, rgba(0,0,0,0.08))', margin: '6px 0' }} />
+
+                        {/* Opción 2: Exportar solo deuda */}
+                        <button
+                          onClick={() => {
+                            setExportExtractoMenuOpen(false);
+                            handleExportarSoloDeuda();
+                          }}
+                          style={{
+                            width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: '8px',
+                            display: 'flex', alignItems: 'flex-start', gap: '10px', border: 'none', background: 'transparent', cursor: 'pointer',
+                            transition: 'background 0.15s ease'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                        >
+                          <AlertCircle size={18} color="#ef4444" style={{ marginTop: '2px', flexShrink: 0 }} />
+                          <div>
+                            <div style={{ fontWeight: 800, fontSize: '13px', color: '#dc2626' }}>
+                              Exportar solo deuda
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary, #6b7280)', marginTop: '2px' }}>
+                              Solo meses impagos con el interés ya aplicado ({extractoPeriodoFilter === 'TODOS' ? 'Todos los meses impagos' : extractoFiltroLabel})
+                            </div>
+                          </div>
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
 
                 <button 
                   onClick={() => {
@@ -2554,6 +2780,30 @@ export default function Contaduria() {
               </button>
             </div>
 
+            {/* BANNER INFORMATIVO CUANDO HAY UN FILTRO DE PERÍODO / AÑO ACTIVO */}
+            {extractoPeriodoFilter !== 'TODOS' && (
+              <div style={{
+                background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.25)',
+                borderRadius: '10px', padding: '10px 16px', display: 'flex', justifyContent: 'space-between',
+                alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px'
+              }}>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#1d4ed8', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <AlertCircle size={16} />
+                  <span>
+                    Filtro activo: <strong>{extractoFiltroLabel}</strong> — {movimientosExtractoFiltrados.length} movimientos | Deuda período: <strong>{formatMoney(resumenDeudaExtracto.total)}</strong> ({resumenDeudaExtracto.cantidadMeses} {resumenDeudaExtracto.cantidadMeses === 1 ? 'mes impago' : 'meses impagos'})
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setExtractoPeriodoFilter('TODOS')}
+                  className="air-btn"
+                  style={{ padding: '5px 12px', fontSize: '11.5px', fontWeight: 800, color: '#1d4ed8', border: '1px solid rgba(59, 130, 246, 0.35)', borderRadius: '6px', background: '#ffffff', cursor: 'pointer' }}
+                >
+                  Restablecer a Histórico Completo
+                </button>
+              </div>
+            )}
+
             <div className="table-responsive" style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '12.5px' }}>
                 <thead>
@@ -2577,14 +2827,14 @@ export default function Contaduria() {
                         <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto', color: 'var(--accent)' }} />
                       </td>
                     </tr>
-                  ) : movimientos.length === 0 ? (
+                  ) : movimientosExtractoFiltrados.length === 0 ? (
                     <tr>
                       <td colSpan="10" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary)' }}>
-                        Este grupo no registra movimientos de cuenta corriente aún.
+                        Este grupo no registra movimientos {extractoPeriodoFilter !== 'TODOS' ? `para ${extractoFiltroLabel}` : 'de cuenta corriente aún'}.
                       </td>
                     </tr>
                   ) : (
-                    movimientos.map((m) => {
+                    movimientosExtractoFiltrados.map((m) => {
                       const isPago = m.tipo === 'PAGO';
                       const isNC = m.tipo === 'NOTA_CREDITO';
                       return (

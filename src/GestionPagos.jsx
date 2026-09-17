@@ -18,6 +18,7 @@ import useDebounce from './hooks/useDebounce';
 import BatchModal from './components/GestionPagos/BatchModal';
 import AuditLineRow from './components/GestionPagos/AuditLineRow';
 import DescuentoModal from './components/CargaManual/DescuentoModal';
+import { exportAuditoriaLineasXLSX } from './utils/exportFacturacion';
 import { useToast } from './components/ui/ToastProvider';
 import { useConfirm } from './components/ui/ConfirmProvider';
 import useBodyScrollLock from './hooks/useBodyScrollLock';
@@ -654,6 +655,16 @@ export default function GestionPagos() {
             </button>
           )}
           <button 
+            onClick={() => exportAuditoriaLineasXLSX({ data: sortedData, periodo: selectedPeriodo, operadora: provName })}
+            disabled={sortedData.length === 0}
+            className="btn-ghost"
+            style={{ height: '40px', display: 'flex', alignItems: 'center', gap: '8px', padding: '0 16px', borderRadius: '12px', color: sortedData.length === 0 ? 'var(--text-secondary)' : '#10b981', border: '1px solid rgba(16, 185, 129, 0.3)', background: 'rgba(16, 185, 129, 0.05)', cursor: sortedData.length === 0 ? 'not-allowed' : 'pointer' }}
+            title="Exportar auditoría a Excel (.xlsx)"
+          >
+            <Download size={16} />
+            <span style={{ fontSize: '13px', fontWeight: 700 }}>Exportar Excel</span>
+          </button>
+          <button 
             onClick={handleEliminarCargaMasiva}
             className="btn-ghost"
             style={{ height: '40px', display: 'flex', alignItems: 'center', gap: '6px', padding: '0 14px', borderRadius: '12px', color: '#ef4444' }}
@@ -798,6 +809,30 @@ export default function GestionPagos() {
               title={filterAumentos ? "Mostrar todos" : "Filtrar aumentos, desvíos y excedentes"}
             >
               <Filter size={18} />
+            </button>
+            <button 
+              onClick={() => exportAuditoriaLineasXLSX({ data: sortedData, periodo: selectedPeriodo, operadora: provName })}
+              disabled={sortedData.length === 0}
+              className="btn-ghost" 
+              style={{ 
+                height: '42px', 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '8px', 
+                padding: '0 16px', 
+                borderRadius: '14px', 
+                color: sortedData.length === 0 ? 'var(--text-secondary)' : '#10b981',
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+                background: 'rgba(16, 185, 129, 0.06)',
+                fontWeight: 800,
+                fontSize: '13px',
+                cursor: sortedData.length === 0 ? 'not-allowed' : 'pointer',
+                opacity: sortedData.length === 0 ? 0.5 : 1
+              }}
+              title="Descargar detalle de auditoría a Excel (.xlsx) con las mismas columnas"
+            >
+              <Download size={16} />
+              <span>Exportar Excel</span>
             </button>
           </div>
         </div>

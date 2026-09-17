@@ -5,6 +5,7 @@ import {
 import { supabase } from '../../supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '../ui/ToastProvider';
+import { exportLiquidacionesGruposXLSX } from '../../utils/exportFacturacion';
 
 export default function ResumenGrupos({
   liquidacionesAgrupadas,
@@ -103,7 +104,13 @@ export default function ResumenGrupos({
             {filteredGroups.length} de {liquidacionesAgrupadas.length} Grupos liquidados en {selectedPeriod || 'Todos los Períodos'}
           </div>
         </div>
-        <button onClick={exportResumenToCSV} className="btn-batch-primary" style={{ flex: 'none', padding: '10px 20px' }}>
+        <button 
+          onClick={() => exportLiquidacionesGruposXLSX({ data: filteredGroups, periodo: selectedPeriod })} 
+          disabled={filteredGroups.length === 0}
+          className="btn-batch-primary" 
+          style={{ flex: 'none', padding: '10px 20px', cursor: filteredGroups.length === 0 ? 'not-allowed' : 'pointer', opacity: filteredGroups.length === 0 ? 0.5 : 1 }}
+          title="Exportar resumen de grupos a Excel (.xlsx)"
+        >
           <Download size={16} /> Exportar Excel
         </button>
       </div>

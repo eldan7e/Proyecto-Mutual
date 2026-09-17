@@ -375,3 +375,141 @@ export function formatMoney(val) {
   const num = Number(val) || 0;
   return '$ ' + num.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+
+/**
+ * Obtiene los meses o períodos que presentan deuda impaga para un grupo,
+ * con el interés por mora calculado y aplicado a la fecha indicada.
+ * Permite filtrar por un año específico (ej. 'YEAR_2026' o '2026'), un período mensual, o todos.
+ * 
+ * @param {Object} params
+ * @param {Array} params.liquidacionesGrupo - Liquidaciones del grupo (liquidaciones_grupos)
+ * @param {Array} params.movimientos - Movimientos de cuenta corriente del grupo
+ * @param {number} [params.tna=0] - Tasa nominal anual (porcentaje, ej 120)
+ * @param {string} [params.periodoFiltro='TODOS'] - 'TODOS' | 'YEAR_YYYY' | 'YYYY-MM'
+ * @param {Date|string} [params.fechaCalculo=new Date()] - Fecha de corte de cálculo (hoy)
+ * @returns {Array} Lista de items de deuda por mes con interés calculado
+ */
+export function obtenerMesesDeudaGrupo({
+  liquidacionesGrupo = [],
+  movimientos = [],
+  tna = DEFAULT_TNA,
+  periodoFiltro = 'TODOS',
+  fechaCalculo = new Date()
+}) {
+  const anioFiltro = (periodoFiltro && (periodoFiltro.startsWith('YEAR_') || /^\d{4}$/.test(periodoFiltro)))
+    ? periodoFiltro.replace('YEAR_', '')
+    : null;
+  const mesFiltro = (!anioFiltro && periodoFiltro && periodoFiltro !== 'TODOS')
+    ? periodoFiltro
+    : null;
+
+  // 1. Intentar con liquidaciones_grupos (registro oficial consolidado de facturación y cobros por período)
+  if (liquidacionesGrupo && liquidacionesGrupo.length > 0) {
+    const periodosMap = new Map();
+
+    liquidacionesGrupo.forEach(liq => {
+      const per = liq.periodo;
+      if (!per) return;
+
+      // Filtrar según período / año seleccionado
+      if (anioFiltro && !per.startsWith(anioFiltro)) return;
+      if (mesFiltro && per !== mesFiltro) return;
+
+      if (!periodosMap.has(per)) {
+        periodosMap.set(per, {
+          periodo: per,
+          monto_total_facturado: 0,
+          monto_abonado: 0,
+          proveedores: new Set(),
+          fecha_emision: liq.fecha_emision || null,
+          items: []
+        });
+      }
+
+      const pObj = periodosMap.get(per);
+      pObj.monto_total_facturado += Number(liq.monto_total_facturado || 0);
+      pObj.monto_abonado += Number(liq.monto_abonado || 0);
+      if (liq.proveedores?.nombre) pObj.proveedores.add(liq.proveedores.nombre);
+      pObj.items.push(liq);
+    });
+
+    const deudaList = [];
+    const sortedPeriodos = Array.from(periodosMap.keys()).sort();
+
+    for (const per of sortedPeriodos) {
+      const data = periodosMap.get(per);
+      const fact = data.monto_total_facturado;
+      const ab = data.monto_abonado;
+      const pendiente = Math.max(0, fact - ab);
+
+      // Si el saldo impago es mayor a 1 peso, se considera mes adeudado
+      if (pendiente > 1) {
+        const fechaVencStr = formatFechaVencimiento(per, DIA_TOPE_PAGO);
+        const diasMora = calcularDiasMora(per, fechaCalculo, DIA_TOPE_PAGO);
+        const interes = (diasMora > 0 && tna > 0) ? calcularInteresMora(pendiente, diasMora, tna) : 0;
+        const provs = Array.from(data.proveedores).join(', ') || 'MUTUAL';
+
+        deudaList.push({
+          periodo: per,
+          concepto: `Facturación Período ${per} (${provs})`,
+          operadora: provs,
+          fecha: data.fecha_emision || `${per}-10`,
+          vencimiento: fechaVencStr,
+          diasMora,
+          montoFacturado: Math.round(fact * 100) / 100,
+          montoAbonado: Math.round(ab * 100) / 100,
+          saldoImpago: Math.round(pendiente * 100) / 100,
+          tna,
+          interesMora: interes,
+          totalConInteres: Math.round((pendiente + interes) * 100) / 100,
+          estado: ab > 0 ? 'PARCIAL' : 'IMPAGA'
+        });
+      }
+    }
+
+    if (deudaList.length > 0 || liquidacionesGrupo.length > 0) {
+      return deudaList;
+    }
+  }
+
+  // 2. Fallback: Si no hay liquidaciones_grupos, usar movimientos de tipo FACTURA
+  if (movimientos && movimientos.length > 0) {
+    const facturas = movimientos.filter(m => m.tipo === 'FACTURA');
+    const deudaList = [];
+
+    facturas.forEach(f => {
+      const per = f.periodo || (f.fecha ? f.fecha.slice(0, 7) : '');
+      if (anioFiltro && !per.startsWith(anioFiltro) && (!f.fecha || !f.fecha.startsWith(anioFiltro))) return;
+      if (mesFiltro && per !== mesFiltro) return;
+
+      const imp = Number(f.importe || 0);
+      const capAbonado = Number(f.pago_aplicado_capital || 0);
+      const pend = Math.max(0, imp - capAbonado);
+
+      if (pend > 1) {
+        const diasMora = calcularDiasMora(per || f.fecha, fechaCalculo, DIA_TOPE_PAGO);
+        const interes = (diasMora > 0 && tna > 0) ? calcularInteresMora(pend, diasMora, tna) : 0;
+
+        deudaList.push({
+          periodo: per || 'S/P',
+          concepto: f.observaciones || `Factura ${f.empresa || 'MUTUAL'}`,
+          operadora: f.empresa || 'MUTUAL',
+          fecha: f.fecha || '',
+          vencimiento: formatFechaVencimiento(per || f.fecha, DIA_TOPE_PAGO),
+          diasMora,
+          montoFacturado: Math.round(imp * 100) / 100,
+          montoAbonado: Math.round(capAbonado * 100) / 100,
+          saldoImpago: Math.round(pend * 100) / 100,
+          tna,
+          interesMora: interes,
+          totalConInteres: Math.round((pend + interes) * 100) / 100,
+          estado: capAbonado > 0 ? 'PARCIAL' : 'IMPAGA'
+        });
+      }
+    });
+
+    return deudaList;
+  }
+
+  return [];
+}

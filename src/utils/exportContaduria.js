@@ -5,7 +5,7 @@
  * Utiliza la librería 'xlsx' (SheetJS) ya instalada en el proyecto.
  */
 import * as XLSX from 'xlsx';
-import { formatFechaVencimiento, calcularDiasMora, calcularInteresMora } from './cuentaCorrienteEngine';
+import { formatFecha, formatFechaVencimiento, calcularDiasMora, calcularInteresMora } from './cuentaCorrienteEngine.js';
 
 /**
  * Helper: formatea un número como moneda ARS (sin símbolo, con 2 decimales)
@@ -28,6 +28,19 @@ function autoFitColumns(ws, data, headers) {
     return { wch: Math.min(max + 2, 40) };
   });
   ws['!cols'] = colWidths;
+}
+
+/**
+ * Helper: aplica formato de moneda de Excel a las celdas numéricas
+ */
+function applyCurrencyFormat(ws) {
+  for (const cellAddress in ws) {
+    if (cellAddress[0] === '!') continue;
+    const cell = ws[cellAddress];
+    if (cell && typeof cell.v === 'number') {
+      cell.z = '"$"#,##0.00';
+    }
+  }
 }
 
 /**
@@ -126,13 +139,13 @@ export function exportFacturasXLSX(facturasAgrupadas, periodo, statsGlobales, tn
 export function exportSaldosXLSX(saldosFiltrados) {
   const rows = saldosFiltrados.map(row => ({
     'Grupo': row.numero_grupo,
-    'Titular': row.nombre || `Grupo ${row.numero_grupo}`,
-    'Operadora': row.empresas || 'N/D',
-    'Total Facturado': fmtMoney(row.totalFacturas),
-    'Total Pagado': fmtMoney(row.totalPagos),
-    'Capital Pendiente': fmtMoney(row.saldoCapitalUltimo),
-    'Interés Mora': fmtMoney(row.interesPendUltimo),
-    'Saldo Final': fmtMoney(row.saldoFinalUltimo),
+    'Titular / Nombre': row.nombre || `Grupo ${row.numero_grupo}`,
+    'Compañías': row.empresas || 'N/D',
+    'Total Facturas': fmtMoney(row.totalFacturas),
+    'Total Pagos': fmtMoney(row.totalPagos),
+    'Saldo Capital': fmtMoney(row.saldoCapitalUltimo),
+    'Interés Acumulado': fmtMoney(row.interesPendUltimo),
+    'Saldo Total': fmtMoney(row.saldoFinalUltimo),
     'Cant. Movimientos': row.movimientosCount || 0,
     'Última Fecha': row.ultimoMovimientoFecha || 'Sin movimientos'
   }));
@@ -146,13 +159,13 @@ export function exportSaldosXLSX(saldosFiltrados) {
 
   rows.push({
     'Grupo': '',
-    'Titular': `TOTALES (${saldosFiltrados.length} cuentas)`,
-    'Operadora': '',
-    'Total Facturado': fmtMoney(totalFacturado),
-    'Total Pagado': fmtMoney(totalPagado),
-    'Capital Pendiente': fmtMoney(totalCapital),
-    'Interés Mora': fmtMoney(totalInteres),
-    'Saldo Final': fmtMoney(totalSaldo),
+    'Titular / Nombre': `TOTALES (${saldosFiltrados.length} cuentas)`,
+    'Compañías': '',
+    'Total Facturas': fmtMoney(totalFacturado),
+    'Total Pagos': fmtMoney(totalPagado),
+    'Saldo Capital': fmtMoney(totalCapital),
+    'Interés Acumulado': fmtMoney(totalInteres),
+    'Saldo Total': fmtMoney(totalSaldo),
     'Cant. Movimientos': '',
     'Última Fecha': ''
   });
@@ -160,6 +173,7 @@ export function exportSaldosXLSX(saldosFiltrados) {
   const headers = Object.keys(rows[0]);
   const ws = XLSX.utils.json_to_sheet(rows);
   autoFitColumns(ws, rows, headers);
+  applyCurrencyFormat(ws);
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Cuentas Corrientes y Saldos');
@@ -172,8 +186,9 @@ export function exportSaldosXLSX(saldosFiltrados) {
  * @param {Array} movimientos - Array de movimientos del grupo
  * @param {number} grupoNum - Número de grupo
  * @param {string} titular - Nombre del titular
+ * @param {string} [periodoLabel='General'] - Período o año filtrado
  */
-export function exportExtractoXLSX(movimientos, grupoNum, titular) {
+export function exportExtractoXLSX(movimientos, grupoNum, titular, periodoLabel = 'General') {
   const rows = movimientos.map(m => {
     const isPago = m.tipo === 'PAGO';
     let diasStr = '—';
@@ -216,7 +231,7 @@ export function exportExtractoXLSX(movimientos, grupoNum, titular) {
     'Fecha': '',
     'Tipo': '',
     'Período': '',
-    'Operadora / Concepto': 'RESUMEN',
+    'Operadora / Concepto': `RESUMEN (${periodoLabel || 'General'})`,
     'Observaciones': `Total Facturado: $${fmtMoney(sumFacturas)} | Total Cobrado: $${fmtMoney(sumPagos)} (Cap: $${fmtMoney(sumCapCobrado)} + Int: $${fmtMoney(sumIntCobrado)})`,
     'Medio de Pago': '',
     'Importe': '',
@@ -237,7 +252,75 @@ export function exportExtractoXLSX(movimientos, grupoNum, titular) {
   XLSX.utils.book_append_sheet(wb, ws, `Extracto Grupo ${grupoNum}`);
 
   const titularClean = (titular || `Grupo_${grupoNum}`).replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ ]/g, '').replace(/\s+/g, '_').slice(0, 30);
-  XLSX.writeFile(wb, `Contaduria_Extracto_Grupo${grupoNum}_${titularClean}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  const perClean = (periodoLabel || 'General').replace(/[^a-zA-Z0-9]/g, '_');
+  XLSX.writeFile(wb, `Contaduria_Extracto_Grupo${grupoNum}_${perClean}_${titularClean}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
+/**
+ * Pestaña 3: Exportar Solo Deuda de un Grupo (Meses que deben con interés por mora ya aplicado)
+ * @param {Array} deudaItems - Array de meses/conceptos impagos con cálculo de mora
+ * @param {number} grupoNum - Número de grupo
+ * @param {string} titular - Nombre del titular
+ * @param {string} [periodoLabel='General'] - Etiqueta de período/año (ej: 'Año 2026', 'General')
+ * @param {number} [tna=120] - Tasa nominal anual aplicada
+ */
+export function exportSoloDeudaXLSX(deudaItems, grupoNum, titular, periodoLabel = 'General', tna = 120) {
+  if (!deudaItems || deudaItems.length === 0) {
+    throw new Error('No hay meses con deuda pendiente para exportar en el período seleccionado.');
+  }
+
+  const rows = deudaItems.map(d => ({
+    'Período': d.periodo || '',
+    'Grupo': grupoNum,
+    'Socio Titular': titular || `Grupo ${grupoNum}`,
+    'Operadora / Concepto': d.concepto || d.operadora || 'MUTUAL',
+    'Fecha Emisión': d.fecha ? formatFecha(d.fecha) : '—',
+    'Vencimiento': d.vencimiento || '—',
+    'Días Mora': Number(d.diasMora || 0) > 0 ? Number(d.diasMora) : 0,
+    'Total Facturado': fmtMoney(d.montoFacturado),
+    'Abonado a Cuenta': fmtMoney(d.montoAbonado),
+    'Saldo Capital Impago': fmtMoney(d.saldoImpago),
+    'TNA Aplicada': `${tna}%`,
+    'Interés por Mora': fmtMoney(d.interesMora),
+    'Total Deuda (con Interés)': fmtMoney(d.totalConInteres),
+    'Estado': d.estado || 'IMPAGA'
+  }));
+
+  // Fila de totales
+  const totalFacturado = deudaItems.reduce((s, d) => s + Number(d.montoFacturado || 0), 0);
+  const totalAbonado = deudaItems.reduce((s, d) => s + Number(d.montoAbonado || 0), 0);
+  const totalCapital = deudaItems.reduce((s, d) => s + Number(d.saldoImpago || 0), 0);
+  const totalInteres = deudaItems.reduce((s, d) => s + Number(d.interesMora || 0), 0);
+  const totalDeuda = deudaItems.reduce((s, d) => s + Number(d.totalConInteres || 0), 0);
+
+  rows.push({
+    'Período': '',
+    'Grupo': '',
+    'Socio Titular': `TOTAL DEUDA (${deudaItems.length} meses impagos)`,
+    'Operadora / Concepto': `Período: ${periodoLabel} | TNA: ${tna}%`,
+    'Fecha Emisión': '',
+    'Vencimiento': '',
+    'Días Mora': '',
+    'Total Facturado': fmtMoney(totalFacturado),
+    'Abonado a Cuenta': fmtMoney(totalAbonado),
+    'Saldo Capital Impago': fmtMoney(totalCapital),
+    'TNA Aplicada': '',
+    'Interés por Mora': fmtMoney(totalInteres),
+    'Total Deuda (con Interés)': fmtMoney(totalDeuda),
+    'Estado': 'CONSOLIDADO'
+  });
+
+  const headers = Object.keys(rows[0]);
+  const ws = XLSX.utils.json_to_sheet(rows);
+  autoFitColumns(ws, rows, headers);
+  applyCurrencyFormat(ws);
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, `Deuda Grupo ${grupoNum}`);
+
+  const titularClean = (titular || `Grupo_${grupoNum}`).replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ ]/g, '').replace(/\s+/g, '_').slice(0, 30);
+  const perClean = (periodoLabel || 'General').replace(/[^a-zA-Z0-9]/g, '_');
+  XLSX.writeFile(wb, `Contaduria_Deuda_Grupo${grupoNum}_${perClean}_${titularClean}_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
 /**
