@@ -1477,14 +1477,6 @@ body.modal-open {
   background: rgba(156, 163, 175, 0.6);
 }
 
-/* Sticky Action Column Helper */
-.sticky-action-col {
-  position: sticky !important;
-  right: 0 !important;
-  background: var(--surface) !important;
-  z-index: 4 !important;
-  box-shadow: -4px 0 8px -2px rgba(0, 0, 0, 0.06);
-}
 
 /* Media Queries for Viewport Adaptation */
 @media (max-width: 1440px) {

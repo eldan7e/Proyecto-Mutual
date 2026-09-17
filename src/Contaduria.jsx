@@ -1763,7 +1763,7 @@ export default function Contaduria() {
                   <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>ABONADO</th>
                   <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>SALDO IMPAGO</th>
                   <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', whiteSpace: 'nowrap' }}>ESTADO</th>
-                  <th className="sticky-action-col" style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', whiteSpace: 'nowrap', borderRadius: '0 10px 10px 0' }}>ACCIONES</th>
+                  <th style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', whiteSpace: 'nowrap', borderRadius: '0 10px 10px 0' }}>ACCIONES</th>
                 </tr>
               </thead>
               <tbody>
@@ -1966,12 +1966,10 @@ export default function Contaduria() {
 
                           {/* 8. ACCIONES */}
                           <td 
-                            className="sticky-action-col"
                             style={{ 
                               padding: '8px 10px', 
                               textAlign: 'center',
-                              whiteSpace: 'nowrap',
-                              background: selectedGrupo === group.numero_grupo ? 'var(--surface-hover)' : isExpanded ? 'var(--surface-hover)' : 'var(--surface)'
+                              whiteSpace: 'nowrap'
                             }} 
                             onClick={(e) => e.stopPropagation()}
                           >
@@ -2430,13 +2428,13 @@ export default function Contaduria() {
                 <tr style={{ background: 'rgba(0,0,0,0.02)', textAlign: 'left' }}>
                   <th style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', borderRadius: '10px 0 0 10px' }}>GRUPO / CUENTA</th>
                   <th style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>TITULAR REGISTRADO</th>
-                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>OPERADORA</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', whiteSpace: 'nowrap' }}>LÍNEAS</th>
                   <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>FACTURADO</th>
                   <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>PAGADO</th>
                   <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>CAPITAL PEND.</th>
                   <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>INT. MORA</th>
                   <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>SALDO FINAL</th>
-                  <th className="sticky-action-col" style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', whiteSpace: 'nowrap', borderRadius: '0 10px 10px 0' }}>ACCIONES</th>
+                  <th style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', whiteSpace: 'nowrap', borderRadius: '0 10px 10px 0' }}>ACCIONES</th>
                 </tr>
               </thead>
               <tbody>
@@ -2482,8 +2480,21 @@ export default function Contaduria() {
                             </button>
                           </div>
                         </td>
-                        <td style={{ padding: '8px 8px', fontSize: '11px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                          {row.empresas}
+                        <td style={{ padding: '8px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                          <span style={{ 
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            background: 'var(--surface-hover)',
+                            color: 'var(--text-primary)',
+                            padding: '3px 8px',
+                            borderRadius: '6px',
+                            fontSize: '11.5px',
+                            fontWeight: 800
+                          }} title={`${row.total_lineas ?? (gruposList.find(gl => gl.numero_grupo === row.numero_grupo)?.total_lineas ?? 0)} línea(s) activa(s)`}>
+                            <Phone size={11} style={{ opacity: 0.6 }} />
+                            {row.total_lineas ?? (gruposList.find(gl => gl.numero_grupo === row.numero_grupo)?.total_lineas ?? 0)}
+                          </span>
                         </td>
                         <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontSize: '12.5px' }}>
                           {formatMoney(row.totalFacturas)}
@@ -2500,15 +2511,7 @@ export default function Contaduria() {
                         <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 900, color: isDeudor ? '#ef4444' : isCredito ? '#3b82f6' : 'var(--accent)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontSize: '12.5px' }}>
                           {formatMoney(row.saldoFinalUltimo)}
                         </td>
-                        <td 
-                          className="sticky-action-col"
-                          style={{ 
-                            padding: '8px 10px', 
-                            textAlign: 'center', 
-                            whiteSpace: 'nowrap',
-                            background: selectedGrupo === row.numero_grupo ? 'var(--surface-hover)' : 'var(--surface)'
-                          }}
-                        >
+                        <td style={{ padding: '8px 10px', textAlign: 'center', whiteSpace: 'nowrap' }}>
                           <div style={{ display: 'inline-flex', gap: '5px', justifyContent: 'center', alignItems: 'center' }}>
                             <button
                               onClick={() => {
@@ -2840,7 +2843,7 @@ export default function Contaduria() {
                     <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>MONTO INTERÉS</th>
                     <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>SALDO CAPITAL</th>
                     <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>SALDO TOTAL</th>
-                    <th className="sticky-action-col" style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', whiteSpace: 'nowrap', borderRadius: '0 10px 10px 0' }}>COMPROBANTE</th>
+                    <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', whiteSpace: 'nowrap', borderRadius: '0 10px 10px 0' }}>COMPROBANTE</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2989,7 +2992,6 @@ export default function Contaduria() {
                           </td>
 
                           <td 
-                            className="sticky-action-col"
                             style={{ padding: '8px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}
                           >
                             {isPago ? (

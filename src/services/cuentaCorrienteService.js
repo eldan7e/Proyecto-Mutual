@@ -63,7 +63,7 @@ export async function fetchGruposUnicos() {
       .not('numero_grupo', 'is', null),
     supabase
       .from('lineas')
-      .select('numero_grupo, socio_id, socios:socio_id(nombre_completo)')
+      .select('numero_grupo, estado, socio_id, socios:socio_id(nombre_completo)')
       .not('numero_grupo', 'is', null),
     supabase
       .from('movimientos_cuenta')
@@ -75,6 +75,15 @@ export async function fetchGruposUnicos() {
       .not('numero_grupo', 'is', null)
   ]);
 
+  // Contar líneas activas por grupo
+  const lineasCountMap = {};
+  (lineasData || []).forEach(row => {
+    const g = row.numero_grupo;
+    if (g && (row.estado || 'ACTIVA').toUpperCase() !== 'BAJA') {
+      lineasCountMap[g] = (lineasCountMap[g] || 0) + 1;
+    }
+  });
+
   const mapa = {};
 
   // 1. Cargar desde grupo_socio (prioridad a titulares)
@@ -84,7 +93,8 @@ export async function fetchGruposUnicos() {
       if (!mapa[g] || (row.es_titular && row.socios?.nombre_completo)) {
         mapa[g] = {
           numero_grupo: g,
-          nombre: row.socios?.nombre_completo || `Grupo ${g}`
+          nombre: row.socios?.nombre_completo || `Grupo ${g}`,
+          total_lineas: lineasCountMap[g] || 0
         };
       }
     }
@@ -96,7 +106,8 @@ export async function fetchGruposUnicos() {
     if (g !== null && g !== undefined && g !== 0 && !mapa[g]) {
       mapa[g] = {
         numero_grupo: g,
-        nombre: row.socios?.nombre_completo || `Grupo ${g}`
+        nombre: row.socios?.nombre_completo || `Grupo ${g}`,
+        total_lineas: lineasCountMap[g] || 0
       };
     }
   });
@@ -108,7 +119,8 @@ export async function fetchGruposUnicos() {
       if (!mapa[g]) {
         mapa[g] = {
           numero_grupo: g,
-          nombre: row.nombre || `Grupo ${g}`
+          nombre: row.nombre || `Grupo ${g}`,
+          total_lineas: lineasCountMap[g] || 0
         };
       }
     }
@@ -120,7 +132,8 @@ export async function fetchGruposUnicos() {
     if (g && row.alias_grupo && row.alias_grupo.trim()) {
       mapa[g] = {
         numero_grupo: g,
-        nombre: row.alias_grupo.trim()
+        nombre: row.alias_grupo.trim(),
+        total_lineas: lineasCountMap[g] || 0
       };
     }
   });
@@ -181,11 +194,13 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
     }
   } catch (_) { /* usar default */ }
 
-  // 3. Pre-cargar nombres de grupos
+  // 3. Pre-cargar nombres y líneas de grupos
   const todosLosGrupos = await fetchGruposUnicos().catch(() => []);
   const nombresMap = {};
+  const lineasMap = {};
   todosLosGrupos.forEach(g => {
     nombresMap[g.numero_grupo] = g.nombre || `Grupo ${g.numero_grupo}`;
+    lineasMap[g.numero_grupo] = g.total_lineas || 0;
   });
 
   // 4. Agrupar movimientos por numero_grupo
@@ -207,6 +222,7 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
     gruposMap[g.numero_grupo] = {
       numero_grupo: g.numero_grupo,
       nombre: g.nombre || `Grupo ${g.numero_grupo}`,
+      total_lineas: g.total_lineas || 0,
       empresas: new Set(),
       totalFacturas: 0,
       totalPagos: 0,
@@ -272,6 +288,7 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
     gruposMap[g] = {
       numero_grupo: g,
       nombre: nombreGrupo,
+      total_lineas: lineasMap[g] || 0,
       empresas,
       totalFacturas,
       totalPagos,
@@ -286,6 +303,7 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
   // 6. Formatear resultado
   let resultado = Object.values(gruposMap).map(g => ({
     ...g,
+    total_lineas: g.total_lineas ?? (lineasMap[g.numero_grupo] || 0),
     empresas: g.empresas instanceof Set ? Array.from(g.empresas).join(', ') || 'N/D' : (g.empresas || 'N/D')
   }));
 
