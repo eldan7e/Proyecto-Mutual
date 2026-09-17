@@ -660,7 +660,11 @@ export default function IngresoDiario() {
         return { status: 'saved' };
       };
 
-      const results = await Promise.all(toSave.map(processRow));
+      const results = [];
+      for (const row of toSave) {
+        const res = await processRow(row);
+        results.push(res);
+      }
       saved = results.filter(r => r.status === 'saved').length;
       skipped = results.filter(r => r.status === 'skipped').length;
 
