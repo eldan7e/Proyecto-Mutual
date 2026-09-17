@@ -1005,6 +1005,29 @@ export default function Contaduria() {
     });
   }, [movimientos, extractoPeriodoFilter, periodosDisponibles]);
 
+  // Movimiento visible más reciente según el filtro (o último movimiento histórico si no hay filtrados)
+  const ultimoMovVisible = useMemo(() => {
+    if (movimientosExtractoFiltrados.length > 0) {
+      return movimientosExtractoFiltrados[movimientosExtractoFiltrados.length - 1];
+    }
+    return ultimoMovGrupo;
+  }, [movimientosExtractoFiltrados, ultimoMovGrupo]);
+
+  // Resumen de actividad (facturación y cobros) en el período seleccionado del extracto
+  const resumenActividadExtracto = useMemo(() => {
+    let facturado = 0;
+    let pagado = 0;
+    movimientosExtractoFiltrados.forEach(m => {
+      const imp = Math.abs(Number(m.importe) || 0);
+      if (m.tipo === 'FACTURA') facturado += imp;
+      else if (m.tipo === 'PAGO') pagado += imp;
+    });
+    return {
+      facturado: Math.round(facturado * 100) / 100,
+      pagado: Math.round(pagado * 100) / 100
+    };
+  }, [movimientosExtractoFiltrados]);
+
   // Lista de meses que presentan deuda en el grupo según el período seleccionado, con interés ya aplicado
   const mesesDeudaExtracto = useMemo(() => {
     if (!selectedGrupo) return [];
@@ -1307,7 +1330,7 @@ export default function Contaduria() {
       liqsPorGrupo.get(l.numero_grupo).push(l);
     });
 
-    // 3. Crear base de todos los grupos conocidos
+    // 3. Crear base de todos los grupos conocidos preservando sus saldos reales de cuenta corriente (saldosData)
     const baseGrupos = saldosData.length > 0 ? saldosData : gruposList;
     const gruposMap = new Map();
 
@@ -1319,17 +1342,16 @@ export default function Contaduria() {
         empresas: g.empresas || 'N/D',
         totalFacturas: 0,
         totalPagos: 0,
-        saldoCapitalUltimo: 0,
-        interesPendUltimo: 0,
-        saldoFinalUltimo: 0,
-        movimientosCount: 0,
-        ultimoMovimientoFecha: 'Sin movimientos'
+        // Los saldos capital, mora y consolidado provienen de la cuenta corriente real
+        saldoCapitalUltimo: Number(g.saldoCapitalUltimo || 0),
+        interesPendUltimo: Number(g.interesPendUltimo || 0),
+        saldoFinalUltimo: Number(g.saldoFinalUltimo || 0),
+        movimientosCount: g.movimientosCount || 0,
+        ultimoMovimientoFecha: g.ultimoMovimientoFecha || 'Sin movimientos'
       });
     });
 
-    const fechaCalculo = new Date();
-
-    // 4. Calcular importes e intereses por grupo para el período filtrado
+    // 4. Calcular importes facturados y cobrados por grupo para el período filtrado
     liqsPorGrupo.forEach((liqs, numGrupo) => {
       let grupoObj = gruposMap.get(numGrupo);
       if (!grupoObj) {
@@ -1349,55 +1371,26 @@ export default function Contaduria() {
         gruposMap.set(numGrupo, grupoObj);
       }
 
-      const periodosMap = new Map();
+      let totalFact = 0;
+      let totalPag = 0;
       const empresasSet = new Set();
 
       liqs.forEach(l => {
-        const p = l.periodo;
-        if (!periodosMap.has(p)) {
-          periodosMap.set(p, {
-            facturado: 0,
-            pagado: 0,
-            fecha_emision: l.fecha_emision || null
-          });
-        }
-        const pData = periodosMap.get(p);
-        pData.facturado += Number(l.monto_total_facturado || 0);
-        pData.pagado += Number(l.monto_abonado || 0);
+        totalFact += Number(l.monto_total_facturado || 0);
+        totalPag += Number(l.monto_abonado || 0);
         if (l.proveedores?.nombre) empresasSet.add(l.proveedores.nombre);
-      });
-
-      let totalFact = 0;
-      let totalPag = 0;
-      let saldoCap = 0;
-      let intMora = 0;
-
-      periodosMap.forEach((pData, per) => {
-        totalFact += pData.facturado;
-        totalPag += pData.pagado;
-        const pendiente = Math.max(0, pData.facturado - pData.pagado);
-        if (pendiente > 1) {
-          saldoCap += pendiente;
-          const diasMora = calcularDiasMora(per, fechaCalculo, DIA_TOPE_PAGO);
-          if (diasMora > 0 && tna > 0) {
-            intMora += calcularInteresMora(pendiente, diasMora, tna);
-          }
-        }
       });
 
       grupoObj.totalFacturas = Math.round(totalFact * 100) / 100;
       grupoObj.totalPagos = Math.round(totalPag * 100) / 100;
-      grupoObj.saldoCapitalUltimo = Math.round(saldoCap * 100) / 100;
-      grupoObj.interesPendUltimo = Math.round(intMora * 100) / 100;
-      grupoObj.saldoFinalUltimo = Math.round((saldoCap + intMora) * 100) / 100;
       grupoObj.movimientosCount = liqs.length;
-      if (empresasSet.size > 0) {
+      if (empresasSet.size > 0 && (!grupoObj.empresas || grupoObj.empresas === 'N/D')) {
         grupoObj.empresas = Array.from(empresasSet).join(', ');
       }
     });
 
     return Array.from(gruposMap.values()).sort((a, b) => a.numero_grupo - b.numero_grupo);
-  }, [saldosData, liquidacionesAll, gruposList, saldosPeriodoFilter, tna, periodosDisponibles]);
+  }, [saldosData, liquidacionesAll, gruposList, saldosPeriodoFilter]);
 
   // --- FILTRADO DE SALDOS / CUENTAS CORRIENTES ---
   const saldosFiltrados = useMemo(() => {
@@ -2706,16 +2699,28 @@ export default function Contaduria() {
                   saldosFiltrados.map((row) => {
                     const isDeudor = row.saldoFinalUltimo > 5;
                     const isCredito = row.saldoFinalUltimo < -5;
+                    const sinFacturas = row.totalFacturas === 0 && row.totalPagos > 0;
+                    const excesoPago = row.totalFacturas > 0 && row.totalPagos > row.totalFacturas * 1.5;
 
                     return (
                       <tr 
                         key={row.numero_grupo}
-                        style={{ borderBottom: '1px solid var(--border-light)', background: selectedGrupo === row.numero_grupo ? 'rgba(16,185,129,0.05)' : 'transparent' }}
+                        style={{ borderBottom: '1px solid var(--border-light)', background: selectedGrupo === row.numero_grupo ? 'rgba(16,185,129,0.05)' : sinFacturas ? 'rgba(245,158,11,0.04)' : 'transparent' }}
                       >
                         <td style={{ padding: '8px 10px', fontWeight: 800, whiteSpace: 'nowrap' }}>
                           <span style={{ background: 'var(--surface-hover)', padding: '3px 8px', borderRadius: '6px', fontSize: '12px', display: 'inline-block' }}>
                             Grupo #{row.numero_grupo}
                           </span>
+                          {sinFacturas && (
+                            <span title="⚠ Este grupo tiene pagos registrados pero ninguna factura. Posible error de asignación." style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', marginLeft: '6px', padding: '2px 6px', borderRadius: '5px', fontSize: '9px', fontWeight: 800, background: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)' }}>
+                              ⚠ SIN FACT.
+                            </span>
+                          )}
+                          {excesoPago && !sinFacturas && (
+                            <span title="⚠ Los pagos superan significativamente la facturación. Verificar posibles pagos duplicados o mal asignados." style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', marginLeft: '6px', padding: '2px 6px', borderRadius: '5px', fontSize: '9px', fontWeight: 800, background: 'rgba(59,130,246,0.12)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.25)' }}>
+                              ⚠ EXCESO
+                            </span>
+                          )}
                         </td>
                         <td style={{ padding: '8px 10px', fontWeight: 700, maxWidth: '170px' }} title={row.nombre}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
@@ -2869,66 +2874,39 @@ export default function Contaduria() {
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
-                {extractoPeriodoFilter === 'TODOS' ? (
-                  <>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SALDO CAPITAL</div>
-                      <div style={{ fontSize: '18px', fontWeight: 900, color: (ultimoMovGrupo?.saldo_capital || 0) > 5 ? '#ef4444' : 'var(--accent)' }}>
-                        {formatMoney(ultimoMovGrupo?.saldo_capital || 0)}
-                      </div>
-                    </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                    {extractoPeriodoFilter === 'TODOS' ? 'SALDO CAPITAL' : `SALDO CAPITAL (${extractoFiltroLabel})`}
+                  </div>
+                  <div style={{ fontSize: '18px', fontWeight: 900, color: (ultimoMovVisible?.saldo_capital || 0) > 5 ? '#ef4444' : 'var(--accent)' }}>
+                    {formatMoney(ultimoMovVisible?.saldo_capital || 0)}
+                  </div>
+                </div>
 
-                    {(ultimoMovGrupo?.interes_pend_final || 0) > 1 && (
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: '11px', fontWeight: 800, color: '#d97706', textTransform: 'uppercase' }}>INT. MORA PEND.</div>
-                        <div style={{ fontSize: '18px', fontWeight: 900, color: '#d97706' }}>
-                          +{formatMoney(ultimoMovGrupo?.interes_pend_final || 0)}
-                        </div>
-                      </div>
-                    )}
-
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SALDO TOTAL CONSOLIDADO</div>
-                      <div style={{ fontSize: '24px', fontWeight: 900, color: (ultimoMovGrupo?.saldo_final || 0) > 5 ? '#ef4444' : 'var(--accent)' }}>
-                        {formatMoney(ultimoMovGrupo?.saldo_final || 0)}
-                      </div>
+                {(ultimoMovVisible?.interes_pend_final || 0) > 1 && (
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 800, color: '#d97706', textTransform: 'uppercase' }}>
+                      INT. MORA PEND. {tna > 0 ? `(${tna}% TNA)` : ''}
                     </div>
-                  </>
-                ) : (
-                  <>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-                        SALDO CAPITAL ({extractoFiltroLabel})
-                      </div>
-                      <div style={{ fontSize: '18px', fontWeight: 900, color: resumenDeudaExtracto.capital > 5 ? '#ef4444' : 'var(--accent)' }}>
-                        {formatMoney(resumenDeudaExtracto.capital)}
-                      </div>
+                    <div style={{ fontSize: '18px', fontWeight: 900, color: '#d97706' }}>
+                      +{formatMoney(ultimoMovVisible?.interes_pend_final || 0)}
                     </div>
-
-                    {resumenDeudaExtracto.interes > 0 && (
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: '11px', fontWeight: 800, color: '#d97706', textTransform: 'uppercase' }}>
-                          INT. MORA ({tna}% TNA)
-                        </div>
-                        <div style={{ fontSize: '18px', fontWeight: 900, color: '#d97706' }}>
-                          +{formatMoney(resumenDeudaExtracto.interes)}
-                        </div>
-                      </div>
-                    )}
-
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-                        DEUDA TOTAL ({extractoFiltroLabel})
-                      </div>
-                      <div style={{ fontSize: '24px', fontWeight: 900, color: resumenDeudaExtracto.total > 5 ? '#ef4444' : 'var(--accent)' }}>
-                        {formatMoney(resumenDeudaExtracto.total)}
-                      </div>
-                      <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                        Histórico cuenta: {formatMoney(ultimoMovGrupo?.saldo_final || 0)}
-                      </div>
-                    </div>
-                  </>
+                  </div>
                 )}
+
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                    {extractoPeriodoFilter === 'TODOS' ? 'SALDO TOTAL CONSOLIDADO' : `SALDO TOTAL (${extractoFiltroLabel})`}
+                  </div>
+                  <div style={{ fontSize: '24px', fontWeight: 900, color: (ultimoMovVisible?.saldo_final || 0) > 5 ? '#ef4444' : 'var(--accent)' }}>
+                    {formatMoney(ultimoMovVisible?.saldo_final || 0)}
+                  </div>
+                  {extractoPeriodoFilter !== 'TODOS' && ultimoMovVisible?.id !== ultimoMovGrupo?.id && (
+                    <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                      Saldo actual cuenta: {formatMoney(ultimoMovGrupo?.saldo_final || 0)}
+                    </div>
+                  )}
+                </div>
 
                 <button 
                   onClick={() => handleOpenCobroModal(null, selectedGrupo)}
@@ -3072,7 +3050,7 @@ export default function Contaduria() {
                 <div style={{ fontSize: '13px', fontWeight: 700, color: '#1d4ed8', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <AlertCircle size={16} />
                   <span>
-                    Filtro activo: <strong>{extractoFiltroLabel}</strong> — {movimientosExtractoFiltrados.length} movimientos | Deuda período: <strong>{formatMoney(resumenDeudaExtracto.total)}</strong> ({resumenDeudaExtracto.cantidadMeses} {resumenDeudaExtracto.cantidadMeses === 1 ? 'mes impago' : 'meses impagos'})
+                    Filtro activo: <strong>{extractoFiltroLabel}</strong> — {movimientosExtractoFiltrados.length} movimientos | Facturado en período: <strong>{formatMoney(resumenActividadExtracto.facturado)}</strong> | Pagado en período: <strong>{formatMoney(resumenActividadExtracto.pagado)}</strong> | Saldo cuenta al corte: <strong>{formatMoney(ultimoMovVisible?.saldo_final || 0)}</strong>
                   </span>
                 </div>
                 <button

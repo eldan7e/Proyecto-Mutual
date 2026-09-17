@@ -425,7 +425,78 @@ export function obtenerMesesDeudaGrupo({
     ? periodoFiltro
     : null;
 
-  // 1. Intentar con liquidaciones_grupos (registro oficial consolidado de facturación y cobros por período)
+  // 1. Si tenemos movimientos de cuenta corriente procesados, usamos el libro mayor (fuente fidedigna de saldo)
+  if (movimientos && movimientos.length > 0) {
+    const ultimoMov = movimientos[movimientos.length - 1];
+    const saldoCapitalTotal = Number(ultimoMov?.saldo_capital || 0);
+
+    // Si el grupo no tiene saldo capital deudor (saldo <= 1), no adeuda meses
+    if (saldoCapitalTotal <= 1) {
+      return [];
+    }
+
+    // Obtener todas las facturas ordenadas cronológicamente de la más reciente a la más antigua
+    // para asignar el saldo capital impago a las facturas correspondientes (FIFO inverso)
+    const facturas = movimientos
+      .filter(m => m.tipo === 'FACTURA' && Number(m.importe || 0) > 0)
+      .sort((a, b) => {
+        const fA = a.fecha ? String(a.fecha).split('T')[0] : (a.periodo ? `${a.periodo}-01` : '');
+        const fB = b.fecha ? String(b.fecha).split('T')[0] : (b.periodo ? `${b.periodo}-01` : '');
+        if (fA !== fB) return fB.localeCompare(fA); // Más recientes primero
+        return (b.id || 0) - (a.id || 0);
+      });
+
+    let capitalRestante = saldoCapitalTotal;
+    const deudaList = [];
+
+    for (const f of facturas) {
+      if (capitalRestante <= 0.01) break;
+
+      const impFactura = Number(f.importe || 0);
+      const montoImpago = Math.min(capitalRestante, impFactura);
+      capitalRestante -= montoImpago;
+
+      const per = f.periodo || (f.fecha ? String(f.fecha).slice(0, 7) : '');
+
+      // Filtrar por período si aplica
+      let cumpleFiltro = true;
+      if (allowedPeriods && !allowedPeriods.has(per) && (!f.fecha || !allowedPeriods.has(String(f.fecha).slice(0, 7)))) {
+        cumpleFiltro = false;
+      }
+      if (anioFiltro && !per.startsWith(anioFiltro) && (!f.fecha || !String(f.fecha).startsWith(anioFiltro))) {
+        cumpleFiltro = false;
+      }
+      if (mesFiltro && per !== mesFiltro) {
+        cumpleFiltro = false;
+      }
+
+      if (cumpleFiltro && montoImpago > 0.5) {
+        const fechaVencStr = formatFechaVencimiento(per || f.fecha, DIA_TOPE_PAGO);
+        const diasMora = calcularDiasMora(per || f.fecha, fechaCalculo, DIA_TOPE_PAGO);
+        const interes = (diasMora > 0 && tna > 0) ? calcularInteresMora(montoImpago, diasMora, tna) : 0;
+
+        deudaList.push({
+          periodo: per || 'S/P',
+          concepto: f.observaciones || `Factura ${f.empresa || 'MUTUAL'}`,
+          operadora: f.empresa || 'MUTUAL',
+          fecha: f.fecha || '',
+          vencimiento: fechaVencStr,
+          diasMora,
+          montoFacturado: Math.round(impFactura * 100) / 100,
+          montoAbonado: Math.round((impFactura - montoImpago) * 100) / 100,
+          saldoImpago: Math.round(montoImpago * 100) / 100,
+          tna,
+          interesMora: interes,
+          totalConInteres: Math.round((montoImpago + interes) * 100) / 100,
+          estado: (impFactura - montoImpago) > 0.5 ? 'PARCIAL' : 'IMPAGA'
+        });
+      }
+    }
+
+    return deudaList.reverse();
+  }
+
+  // 2. Fallback: Si no hay movimientos de cuenta corriente, usar liquidaciones_grupos
   if (liquidacionesGrupo && liquidacionesGrupo.length > 0) {
     const periodosMap = new Map();
 
@@ -493,46 +564,6 @@ export function obtenerMesesDeudaGrupo({
     if (deudaList.length > 0 || liquidacionesGrupo.length > 0) {
       return deudaList;
     }
-  }
-
-  // 2. Fallback: Si no hay liquidaciones_grupos, usar movimientos de tipo FACTURA
-  if (movimientos && movimientos.length > 0) {
-    const facturas = movimientos.filter(m => m.tipo === 'FACTURA');
-    const deudaList = [];
-
-    facturas.forEach(f => {
-      const per = f.periodo || (f.fecha ? f.fecha.slice(0, 7) : '');
-      if (allowedPeriods && !allowedPeriods.has(per) && (!f.fecha || !allowedPeriods.has(f.fecha.slice(0, 7)))) return;
-      if (anioFiltro && !per.startsWith(anioFiltro) && (!f.fecha || !f.fecha.startsWith(anioFiltro))) return;
-      if (mesFiltro && per !== mesFiltro) return;
-
-      const imp = Number(f.importe || 0);
-      const capAbonado = Number(f.pago_aplicado_capital || 0);
-      const pend = Math.max(0, imp - capAbonado);
-
-      if (pend > 1) {
-        const diasMora = calcularDiasMora(per || f.fecha, fechaCalculo, DIA_TOPE_PAGO);
-        const interes = (diasMora > 0 && tna > 0) ? calcularInteresMora(pend, diasMora, tna) : 0;
-
-        deudaList.push({
-          periodo: per || 'S/P',
-          concepto: f.observaciones || `Factura ${f.empresa || 'MUTUAL'}`,
-          operadora: f.empresa || 'MUTUAL',
-          fecha: f.fecha || '',
-          vencimiento: formatFechaVencimiento(per || f.fecha, DIA_TOPE_PAGO),
-          diasMora,
-          montoFacturado: Math.round(imp * 100) / 100,
-          montoAbonado: Math.round(capAbonado * 100) / 100,
-          saldoImpago: Math.round(pend * 100) / 100,
-          tna,
-          interesMora: interes,
-          totalConInteres: Math.round((pend + interes) * 100) / 100,
-          estado: capAbonado > 0 ? 'PARCIAL' : 'IMPAGA'
-        });
-      }
-    });
-
-    return deudaList;
   }
 
   return [];

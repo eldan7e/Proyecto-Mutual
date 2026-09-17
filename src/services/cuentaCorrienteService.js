@@ -154,9 +154,21 @@ export async function fetchMovimientosGrupo(numeroGrupo) {
     .order('id', { ascending: true });
 
   if (error) throw error;
-  return (data || []).sort(sortMovimientosCuenta);
+  // Excluir transferencias internas entre cuentas propias de la Mutual
+  const filtered = (data || []).filter(m => !isTransferenciaInterna(m));
+  return filtered.sort(sortMovimientosCuenta);
 }
 
+
+/**
+ * Detecta si un movimiento es una transferencia interna entre cuentas propias de la Mutual
+ * (no debe computarse como pago de un socio/grupo)
+ */
+function isTransferenciaInterna(mov) {
+  if (!mov.observaciones) return false;
+  const obs = mov.observaciones.toUpperCase();
+  return obs.includes('CTAS. PROPIAS') || obs.includes('CTAS PROPIAS');
+}
 
 /**
  * Obtiene la lista resumida de todos los grupos con sus saldos actuales
@@ -170,7 +182,7 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
   while (true) {
     let query = supabase
       .from('movimientos_cuenta')
-      .select('id, numero_grupo, nombre, empresa, fecha, importe, tipo')
+      .select('id, numero_grupo, nombre, empresa, fecha, importe, tipo, observaciones')
       .not('numero_grupo', 'is', null)
       .order('numero_grupo', { ascending: true })
       .order('fecha', { ascending: true })
@@ -184,6 +196,14 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
     if (!data || data.length < limit) break;
     offset += limit;
   }
+
+  // 1b. Filtrar transferencias internas entre cuentas propias de la Mutual
+  // Estas no son pagos de socios y distorsionan los saldos
+  const transferenciasExcluidas = allData.filter(m => isTransferenciaInterna(m));
+  if (transferenciasExcluidas.length > 0) {
+    console.info(`[Saldos] Se excluyen ${transferenciasExcluidas.length} transferencia(s) interna(s) entre cuentas propias de la Mutual`);
+  }
+  allData = allData.filter(m => !isTransferenciaInterna(m));
 
   // 2. Obtener la TNA vigente
   let tna = DEFAULT_TNA;
