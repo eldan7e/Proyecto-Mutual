@@ -5,7 +5,7 @@
  * Utiliza la librería 'xlsx' (SheetJS) ya instalada en el proyecto.
  */
 import * as XLSX from 'xlsx';
-import { formatFecha, formatFechaVencimiento, calcularDiasMora, calcularInteresMora } from './cuentaCorrienteEngine.js';
+import { formatFecha, formatFechaVencimiento, calcularDiasMora, calcularInteresMora, periodoConsumoACobro } from './cuentaCorrienteEngine.js';
 
 /**
  * Helper: formatea un número como moneda ARS (sin símbolo, con 2 decimales)
@@ -55,8 +55,8 @@ export function exportFacturasXLSX(facturasAgrupadas, periodo, statsGlobales, tn
 
   facturasAgrupadas.forEach(group => {
     const isCobrada = group.estado_consolidado === 'ABONADO';
-    const diasMora = !isCobrada ? calcularDiasMora(group.periodo || group.items?.[0]?.fecha_emision) : 0;
-    const fechaVenc = formatFechaVencimiento(group.periodo || group.items?.[0]?.fecha_emision);
+    const diasMora = !isCobrada ? calcularDiasMora(periodoConsumoACobro(group.periodo) || group.items?.[0]?.fecha_emision) : 0;
+    const fechaVenc = formatFechaVencimiento(periodoConsumoACobro(group.periodo) || group.items?.[0]?.fecha_emision);
 
     if (group.items && group.items.length > 1) {
       // Multi-operadora: una fila por sub-liquidación
@@ -65,7 +65,7 @@ export function exportFacturasXLSX(facturasAgrupadas, periodo, statsGlobales, tn
         const subAbonado = Number(item.monto_abonado || 0);
         const subPendiente = Math.max(0, subFact - subAbonado);
         const subCobrada = subPendiente <= 1;
-        const subDias = !subCobrada ? calcularDiasMora(group.periodo || item.fecha_emision) : 0;
+        const subDias = !subCobrada ? calcularDiasMora(periodoConsumoACobro(group.periodo) || item.fecha_emision) : 0;
         const subInteres = (!subCobrada && subDias > 0 && tna > 0) ? calcularInteresMora(subPendiente, subDias, tna) : 0;
 
         rows.push({

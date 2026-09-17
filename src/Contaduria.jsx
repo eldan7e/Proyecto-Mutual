@@ -19,7 +19,7 @@ import {
 import { fetchPeriods } from './services/conciliacionService';
 import { 
   recalcularSaldosGrupo, imputarCobroFIFO, formatMoney, formatFecha,
-  formatFechaVencimiento, calcularDiasMora, calcularInteresMora, obtenerMesesDeudaGrupo, DEFAULT_TNA 
+  formatFechaVencimiento, calcularDiasMora, calcularInteresMora, obtenerMesesDeudaGrupo, DEFAULT_TNA, periodoConsumoACobro 
 } from './utils/cuentaCorrienteEngine';
 import { 
   exportFacturasXLSX, exportSaldosXLSX, exportExtractoXLSX, exportSoloDeudaXLSX, exportLineasXLSX 
@@ -485,7 +485,7 @@ export default function Contaduria() {
         saldoPend = Math.max(0, Number(target.monto_total_facturado) - Number(target.monto_abonado || 0));
       }
       // Calcular mora a fecha de cobro de hoy
-      const dias = calcularDiasMora(target.periodo || target.fecha_emision);
+      const dias = calcularDiasMora(periodoConsumoACobro(target.periodo) || target.fecha_emision);
       const intMora = (dias > 0 && tna > 0) ? calcularInteresMora(saldoPend, dias, tna) : 0;
       const totalSugerido = Math.round((saldoPend + intMora) * 100) / 100;
 
@@ -493,7 +493,7 @@ export default function Contaduria() {
       const strMonto = montoInicial > 0 ? String(montoInicial) : '';
       setMontoCobro(strMonto);
       setEfectivoEntregado(strMonto);
-      setObservacionesCobro(`Cobro Facturación Período ${target.periodo} (${target.proveedores?.nombre || 'MUTUAL'})${intMora > 0 ? ` (incluye ${dias}d mora)` : ''}`);
+      setObservacionesCobro(`Cobro Facturación Período ${periodoConsumoACobro(target.periodo)} (${target.proveedores?.nombre || 'MUTUAL'})${intMora > 0 ? ` (incluye ${dias}d mora)` : ''}`);
     } else {
       setMontoCobro('');
       setEfectivoEntregado('');
@@ -533,7 +533,7 @@ export default function Contaduria() {
       const base = targetFactura.saldo_impago !== undefined
         ? Math.max(0, Number(targetFactura.saldo_impago))
         : Math.max(0, Number(targetFactura.monto_total_facturado || 0) - Number(targetFactura.monto_abonado || 0));
-      const dias = calcularDiasMora(targetFactura.periodo || targetFactura.fecha_emision, fechaCobro);
+      const dias = calcularDiasMora(periodoConsumoACobro(targetFactura.periodo) || targetFactura.fecha_emision, fechaCobro);
       const int = (!eximirMora && dias > 0 && tna > 0) ? calcularInteresMora(base, dias, tna) : 0;
       return Math.round((base + int) * 100) / 100;
     }
@@ -580,22 +580,22 @@ export default function Contaduria() {
     const titular = group.socio?.nombre_completo || group.items?.[0]?.socios?.nombre_completo || `Grupo ${group.numero_grupo}`;
     const montoCobrado = Number(group.monto_abonado || group.monto_total_facturado || 0);
     const desgloses = (group.items || []).map(it => ({
-      observaciones: `Facturación Período ${it.periodo} (${it.proveedores?.nombre || 'MUTUAL'})`,
+      observaciones: `Facturación Período ${periodoConsumoACobro(it.periodo)} (${it.proveedores?.nombre || 'MUTUAL'})`,
       pagoAplicadoCapital: Number(it.monto_abonado || it.monto_total_facturado || 0),
       pagoAplicadoInteres: 0
     }));
 
     setComprobanteData({
-      reciboNumero: `REC-${group.periodo}-${group.numero_grupo}`,
+      reciboNumero: `REC-${periodoConsumoACobro(group.periodo)}-${group.numero_grupo}`,
       fecha: new Date().toISOString().slice(0, 10),
       numero_grupo: group.numero_grupo,
       nombre_titular: titular,
       monto_cobrado: montoCobrado,
       medio_pago: 'EFECTIVO EN MUT',
-      observaciones: `Comprobante Oficial de Pago - Liquidación Período ${group.periodo}`,
+      observaciones: `Comprobante Oficial de Pago - Liquidación Período ${periodoConsumoACobro(group.periodo)}`,
       monto_factura: Number(group.monto_total_facturado || montoCobrado),
       desgloses: desgloses.length > 0 ? desgloses : [{
-        observaciones: `Liquidación Período ${group.periodo}`,
+        observaciones: `Liquidación Período ${periodoConsumoACobro(group.periodo)}`,
         pagoAplicadoCapital: montoCobrado,
         pagoAplicadoInteres: 0
       }],
@@ -675,10 +675,10 @@ export default function Contaduria() {
         facturasPendientes = [{
           id: targetFactura.id || 0,
           fecha: targetFactura.fecha_emision || targetFactura.fecha || (targetFactura.periodo ? targetFactura.periodo + '-10' : ''),
-          periodo: targetFactura.periodo,
+          periodo: periodoConsumoACobro(targetFactura.periodo),
           numero_linea: targetFactura.numero_linea,
           empresa: targetFactura.proveedores?.nombre || targetFactura.empresa || 'MUTUAL',
-          observaciones: `Facturación Período ${targetFactura.periodo}`,
+          observaciones: `Facturación Período ${periodoConsumoACobro(targetFactura.periodo)}`,
           importe: saldoPend,
           pago_aplicado_capital: 0,
           pago_aplicado_interes: 0
@@ -741,7 +741,8 @@ export default function Contaduria() {
       addToast(`Cobro de ${formatMoney(val)} registrado exitosamente.`, 'success');
 
       // 2. Preparar los datos del Comprobante / Recibo Oficial
-      const reciboNum = `REC-${targetFactura?.periodo || new Date().toISOString().slice(0, 7)}-${selectedGrupo}-${Math.floor(1000 + Math.random() * 9000)}`;
+      const periodoCobroTarget = targetFactura?.periodo ? periodoConsumoACobro(targetFactura.periodo) : new Date().toISOString().slice(0, 7);
+      const reciboNum = `REC-${periodoCobroTarget}-${selectedGrupo}-${Math.floor(1000 + Math.random() * 9000)}`;
       setComprobanteData({
         reciboNumero: reciboNum,
         fecha: fechaCobro,
@@ -755,7 +756,7 @@ export default function Contaduria() {
         remanenteSaldoAFavor: resultadoFifo?.remanenteSaldoAFavor || 0,
         monto_factura: targetFactura?.monto_total_facturado || val,
         desgloses: (resultadoFifo?.desgloses && resultadoFifo.desgloses.length > 0) ? resultadoFifo.desgloses : [{
-          observaciones: targetFactura ? `Facturación Período ${targetFactura.periodo} (${targetFactura.proveedores?.nombre || 'MUTUAL'})` : `Cobro en cuenta corriente - ${medioPago}`,
+          observaciones: targetFactura ? `Facturación Período ${periodoConsumoACobro(targetFactura.periodo)} (${targetFactura.proveedores?.nombre || 'MUTUAL'})` : `Cobro en cuenta corriente - ${medioPago}`,
           pagoAplicadoCapital: resultadoFifo?.totalCapitalCancelado || val,
           pagoAplicadoInteres: resultadoFifo?.totalInteresCancelado || 0
         }]
@@ -1963,8 +1964,8 @@ export default function Contaduria() {
                     const isExpanded = expandedGruposFacturas.has(group.key);
                     const isCobrada = group.estado_consolidado === 'ABONADO';
                     const isParcial = group.estado_consolidado === 'PARCIAL';
-                    const diasMora = !isCobrada ? calcularDiasMora(group.periodo || group.items[0]?.fecha_emision) : 0;
-                    const fechaVenc = !isCobrada ? formatFechaVencimiento(group.periodo || group.items[0]?.fecha_emision) : '';
+                    const diasMora = !isCobrada ? calcularDiasMora(periodoConsumoACobro(group.periodo) || group.items[0]?.fecha_emision) : 0;
+                    const fechaVenc = !isCobrada ? formatFechaVencimiento(periodoConsumoACobro(group.periodo) || group.items[0]?.fecha_emision) : '';
                     const interesMora = (!isCobrada && diasMora > 0 && tna > 0) ? calcularInteresMora(group.saldo_impago, diasMora, tna) : 0;
                     const totalConMora = group.saldo_impago + interesMora;
 
@@ -2321,7 +2322,7 @@ export default function Contaduria() {
                                             <span style={{ fontSize: '13px', fontWeight: 800, color: '#10b981' }}>{formatMoney(subAbonado)}</span>
                                           </div>
                                           {(() => {
-                                            const subDiasMora = !subIsCobrada ? calcularDiasMora(group.periodo || subLiq.fecha_emision) : 0;
+                                            const subDiasMora = !subIsCobrada ? calcularDiasMora(periodoConsumoACobro(group.periodo) || subLiq.fecha_emision) : 0;
                                             const subInteresMora = (!subIsCobrada && subDiasMora > 0 && tna > 0) ? calcularInteresMora(subPendiente, subDiasMora, tna) : 0;
                                             const subTotalConMora = subPendiente + subInteresMora;
 
@@ -3459,13 +3460,13 @@ export default function Contaduria() {
           )}
 
           {targetFactura && (() => {
-            const modalDiasMora = calcularDiasMora(targetFactura.periodo || targetFactura.fecha_emision, fechaCobro);
+            const modalDiasMora = calcularDiasMora(periodoConsumoACobro(targetFactura.periodo) || targetFactura.fecha_emision, fechaCobro);
             const modalSaldoBase = targetFactura.saldo_impago !== undefined
               ? Math.max(0, Number(targetFactura.saldo_impago))
               : Math.max(0, Number(targetFactura.monto_total_facturado || 0) - Number(targetFactura.monto_abonado || 0));
             const modalInteresMora = (modalDiasMora > 0 && tna > 0) ? calcularInteresMora(modalSaldoBase, modalDiasMora, tna) : 0;
             const modalTotalConMora = Math.round((modalSaldoBase + modalInteresMora) * 100) / 100;
-            const modalFechaVenc = formatFechaVencimiento(targetFactura.periodo || targetFactura.fecha_emision);
+            const modalFechaVenc = formatFechaVencimiento(periodoConsumoACobro(targetFactura.periodo) || targetFactura.fecha_emision);
 
             return (
               <div style={{

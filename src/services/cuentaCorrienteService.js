@@ -1,5 +1,5 @@
 import { supabase } from '../supabaseClient';
-import { recalcularSaldosGrupo, sortMovimientosCuenta, DEFAULT_TNA } from '../utils/cuentaCorrienteEngine';
+import { recalcularSaldosGrupo, sortMovimientosCuenta, DEFAULT_TNA, periodoConsumoACobro } from '../utils/cuentaCorrienteEngine';
 
 /**
  * Obtiene la configuración de parámetros de la cuenta corriente (TNA, día tope, etc)
@@ -428,7 +428,7 @@ export async function registrarCobroCuenta({
     numero_linea: numero_linea || null,
     observaciones: observaciones || `Pago registrado vía web - Ref: ${medio_pago}`,
     origen: 'REGISTRO_WEB_CUENTA_CORRIENTE',
-    periodo: periodo || null,
+    periodo: periodo ? periodoConsumoACobro(periodo) : null,
     pago_aplicado_interes: Math.round(pagoAplicadoInteres * 100) / 100,
     pago_aplicado_capital: Math.round(pagoAplicadoCapital * 100) / 100,
     saldo_capital_anterior: Math.round(saldoCapitalAnterior * 100) / 100,
