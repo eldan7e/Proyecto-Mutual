@@ -19,27 +19,6 @@ export const DEFAULT_TNA = 0;
 export const DIA_TOPE_PAGO = 12;
 
 /**
- * Convierte un período de consumo ("YYYY-MM") al período de cobro/vencimiento (+1 mes).
- * Útil cuando se tienen períodos de liquidaciones_grupos (formato consumo) y se necesita
- * calcular vencimiento o mora con getFechaVencimiento (que espera formato cobro).
- * Ej: "2026-04" (consumo abril) → "2026-05" (cobro mayo)
- */
-export function periodoConsumoACobro(periodoConsumo) {
-  if (!periodoConsumo) return periodoConsumo;
-  const str = String(periodoConsumo).trim();
-  const parts = str.split('-');
-  if (parts.length !== 2) return periodoConsumo; // No es formato YYYY-MM, devolver tal cual
-  let ano = parseInt(parts[0], 10);
-  let mes = parseInt(parts[1], 10); // 1-12
-  mes += 1;
-  if (mes > 12) {
-    mes = 1;
-    ano += 1;
-  }
-  return `${ano}-${String(mes).padStart(2, '0')}`;
-}
-
-/**
  * Formatea fechas ISO (YYYY-MM-DD) a formato día-mes-año (DD/MM/YYYY)
  */
 export function formatFecha(isoDate) {
@@ -206,8 +185,7 @@ export function parseDateOnly(dateInput) {
 
 /**
  * Obtiene la fecha exacta de vencimiento canónica (día 12 de cada mes).
- * - Si es un período ("YYYY-MM"), el período representa el mes de cobro/vencimiento,
- *   por lo que vence el día 12 de ESE MISMO mes (ej: 2026-05 vence el 12/05/2026).
+ * - Si es un período ("YYYY-MM"), el servicio mensual vence el día 12 del MES SIGUIENTE (ej: 2026-08 vence el 12/09/2026).
  * - Si es una fecha ("YYYY-MM-DD") y se emitió después del día 12, vence el día 12 del mes siguiente.
  */
 export function getFechaVencimiento(fechaOrPeriodo, diaTope = DIA_TOPE_PAGO) {
@@ -218,12 +196,16 @@ export function getFechaVencimiento(fechaOrPeriodo, diaTope = DIA_TOPE_PAGO) {
   let ano = 0;
   let mes = 0; // 0-indexed (0=Enero ... 11=Diciembre)
 
-  // Formato PERÍODO ("YYYY-MM"): el período ya representa el mes de cobro, vence el día 12 de ese mismo mes
+  // Formato PERÍODO ("YYYY-MM"): vence el día 12 del mes siguiente al de consumo
   if (parts.length === 2) {
     ano = parseInt(parts[0], 10);
     const mesPeriodo = parseInt(parts[1], 10); // 1-12
-    // Convertir a 0-indexed: el período ES el mes de vencimiento
-    mes = mesPeriodo - 1;
+    // En Date 0-indexed, mesPeriodo equivale directamente al mes siguiente (ej: 8 -> mes 8 = Septiembre)
+    mes = mesPeriodo;
+    if (mes > 11) {
+      mes = 0;
+      ano += 1;
+    }
     return new Date(ano, mes, diaTope, 23, 59, 59);
   }
 
@@ -551,10 +533,8 @@ export function obtenerMesesDeudaGrupo({
 
       // Si el saldo impago es mayor a 1 peso, se considera mes adeudado
       if (pendiente > 1) {
-        // per viene de liquidaciones_grupos (periodo consumo), convertir a cobro para cálculo de vencimiento
-        const perCobro = periodoConsumoACobro(per);
-        const fechaVencStr = formatFechaVencimiento(perCobro, DIA_TOPE_PAGO);
-        const diasMora = calcularDiasMora(perCobro, fechaCalculo, DIA_TOPE_PAGO);
+        const fechaVencStr = formatFechaVencimiento(per, DIA_TOPE_PAGO);
+        const diasMora = calcularDiasMora(per, fechaCalculo, DIA_TOPE_PAGO);
         const interes = (diasMora > 0 && tna > 0) ? calcularInteresMora(pendiente, diasMora, tna) : 0;
         const provs = Array.from(data.proveedores).join(', ') || 'MUTUAL';
 
