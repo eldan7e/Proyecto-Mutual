@@ -479,26 +479,30 @@ export default function IngresoDiario() {
         linea = phoneMatch[1];
       }
 
-      // 2b. Fallback para montos enteros o sin signo pesos (ej: 50000 o 50000.00)
-      if (monto === 0) {
-        const tokens = line.split(/\s+/);
-        for (const t of tokens) {
-          const cleanT = t.replace(/[^0-9.,]/g, '');
-          if (!cleanT) continue;
-          const val = parseArgentineOrUSNumber(cleanT);
-          // Asegurar que no sea el año (2026), ni el grupo (328), ni el teléfono (2213087871)
-          if (val > 10 && String(val) !== grupo && String(val) !== linea && !fecha.includes(String(val))) {
-            monto = val;
-            break;
-          }
-        }
-      }
-
-      // 4b. Fallback para titular 'Apellido, Nombre' cuando viene pegado junto a otros textos en la misma celda
+      // 4b. Titular: extraer formato 'Apellido, Nombre'
       if (!titular) {
         const nameMatch = line.match(/([A-ZÁÉÍÓÚÑa-záéíóúñ]+,\s*[A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+)*)/);
         if (nameMatch) {
           titular = nameMatch[1].replace(/\b(CLARO|PERSONAL|MOVISTAR)\b/i, '').replace(/\s+S\/\s+SOCIOS.*$/i, '').trim();
+        }
+      }
+
+      // 2b. Fallback para montos enteros o sin signo pesos (ej: 50000 o 50000.00)
+      if (monto === 0) {
+        const tokens = line.split(/\s+/);
+        for (const t of tokens) {
+          // Si el token parece fecha (contiene / o -) no parsearlo como número
+          if (t.includes('/') || (t.includes('-') && !t.startsWith('-'))) continue;
+          const cleanT = t.replace(/[^0-9.,]/g, '');
+          if (!cleanT) continue;
+          // Ignorar si es el grupo o la línea telefónica
+          if (cleanT === grupo || cleanT === linea) continue;
+          const val = parseArgentineOrUSNumber(cleanT);
+          // Un importe razonable no es el año 2026 ni números de 8+ cifras
+          if (val > 0 && val < 5000000 && val !== 2026) {
+            monto = val;
+            break;
+          }
         }
       }
 
