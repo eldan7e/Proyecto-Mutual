@@ -368,7 +368,8 @@ export default function IngresoDiario() {
         importe: monto,
         medio_pago: 'EFECTIVO',
         observaciones: `Cobro Efectivo (Presencial) - ${efectivoData.observaciones || efectivoData.recibo || ''}`,
-        fecha: efectivoData.fecha
+        fecha: efectivoData.fecha,
+        skipLiqUpdate: true
       });
 
       await linkPaymentToDebt(data.movimiento_id, efectivoData.numero_grupo, monto);
@@ -671,7 +672,8 @@ export default function IngresoDiario() {
             importe: row.monto,
             medio_pago: 'EFECTIVO',
             observaciones: `Cobro Efectivo (${row.empresa}) - ${row.observaciones}`,
-            fecha: row.fecha
+            fecha: row.fecha,
+            skipLiqUpdate: true
           });
         } catch (ccErr) {
           console.warn('Aviso CC:', ccErr);
@@ -1022,7 +1024,8 @@ export default function IngresoDiario() {
             importe: row.monto,
             medio_pago: 'TRANSFERENCIA',
             observaciones: `Extracto ${extractoBanco} - ${row.concepto || ''}`,
-            fecha: row.fecha
+            fecha: row.fecha,
+            skipLiqUpdate: true
           });
 
           await linkPaymentToDebt(data.movimiento_id, row.numero_grupo, row.monto);

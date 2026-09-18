@@ -357,7 +357,8 @@ export async function registrarCobroCuenta({
   fecha = new Date().toISOString().slice(0, 10),
   periodo = null,
   imputaciones = [],
-  numero_linea = null
+  numero_linea = null,
+  skipLiqUpdate = false
 }) {
   const monto = parseFloat(importe);
   if (isNaN(monto) || monto <= 0) throw new Error('El importe ingresado es inválido.');
@@ -446,10 +447,10 @@ export async function registrarCobroCuenta({
   if (error) throw error;
 
   // 2. Sincronizar automáticamente liquidaciones_grupos asociadas al grupo
-  //    Si se pasa un período específico, imputar SOLO a ese período.
-  //    Si no se pasa período, hacer FIFO global (fallback para pagos desde frontend).
-  try {
-    let query = supabase
+  //    Si skipLiqUpdate es true, no actualizar liquidaciones_grupos (porque ya fue actualizado por quien llamó)
+  if (!skipLiqUpdate) {
+    try {
+      let query = supabase
       .from('liquidaciones_grupos')
       .select('liquidacion_id, periodo, monto_total_facturado, monto_abonado, estado_pago')
       .eq('numero_grupo', numero_grupo)
@@ -489,8 +490,9 @@ export async function registrarCobroCuenta({
         remanenteCobro -= abonoAplicado;
       }
     }
-  } catch (errLiq) {
-    console.warn('Error al sincronizar estado en liquidaciones_grupos:', errLiq);
+    } catch (errLiq) {
+      console.warn('Error al sincronizar estado en liquidaciones_grupos:', errLiq);
+    }
   }
 
   // Registrar audit log

@@ -2103,20 +2103,19 @@ export default function ConciliacionBancaria() {
         const liqId = parseInt(liqIdStr, 10);
         const extraPaid = aggPayments[liqId];
         
-        let liqObj = pendingLiquidaciones.find(l => l.liquidacion_id === liqId);
-        if (!liqObj) {
-          const { data: dbLiq, error: fetchLiqErr } = await supabase
-            .from('liquidaciones_grupos')
-            .select('monto_abonado, monto_total_facturado, numero_grupo')
-            .eq('liquidacion_id', liqId)
-            .single();
-          if (fetchLiqErr) throw fetchLiqErr;
-          liqObj = dbLiq;
-        }
+        // SIEMPRE leer monto_abonado fresco de la DB para evitar doble contabilización
+        const { data: freshLiq, error: fetchLiqErr } = await supabase
+          .from('liquidaciones_grupos')
+          .select('monto_abonado, monto_total_facturado, numero_grupo')
+          .eq('liquidacion_id', liqId)
+          .single();
+        if (fetchLiqErr) throw fetchLiqErr;
         
-        if (liqObj) {
-          const newMontoAbonado = Math.round((Number(liqObj.monto_abonado || 0) + extraPaid) * 100) / 100;
-          const isFullyPaid = newMontoAbonado >= Number(liqObj.monto_total_facturado) - 2.00;
+        if (freshLiq) {
+          const currentAbonado = Number(freshLiq.monto_abonado || 0);
+          const currentFacturado = Number(freshLiq.monto_total_facturado);
+          const newMontoAbonado = Math.round((currentAbonado + extraPaid) * 100) / 100;
+          const isFullyPaid = newMontoAbonado >= currentFacturado - 2.00;
           
           const { error: updateLiqError } = await supabase
             .from('liquidaciones_grupos')
@@ -2322,8 +2321,16 @@ export default function ConciliacionBancaria() {
           const liqObj = row.pendingList.find(l => l.liquidacion_id === liqId);
           
           if (liqObj) {
-            const newMontoAbonado = Math.round((Number(liqObj.monto_abonado || 0) + extraPaid) * 100) / 100;
-            const isFullyPaid = newMontoAbonado >= Number(liqObj.monto_total_facturado) - 2.00;
+            // Leer monto_abonado FRESCO de la DB para evitar race conditions y doble contabilización
+            const { data: freshLiq } = await supabase
+              .from('liquidaciones_grupos')
+              .select('monto_abonado, monto_total_facturado')
+              .eq('liquidacion_id', liqId)
+              .single();
+            const currentAbonado = Number(freshLiq?.monto_abonado || liqObj.monto_abonado || 0);
+            const currentFacturado = Number(freshLiq?.monto_total_facturado || liqObj.monto_total_facturado);
+            const newMontoAbonado = Math.round((currentAbonado + extraPaid) * 100) / 100;
+            const isFullyPaid = newMontoAbonado >= currentFacturado - 2.00;
             
             const { error: liqError } = await supabase
               .from('liquidaciones_grupos')
@@ -2387,8 +2394,16 @@ export default function ConciliacionBancaria() {
           const liqObj = row.pendingList.find(l => String(l.liquidacion_id) === String(singleLiqId));
           if (liqObj) {
             groupNum = liqObj.numero_grupo;
-            const newMontoAbonado = Math.round((Number(liqObj.monto_abonado || 0) + Number(row.netoReal)) * 100) / 100;
-            const isFullyPaid = newMontoAbonado >= Number(liqObj.monto_total_facturado) - 2.00;
+            // Leer monto_abonado FRESCO de la DB para evitar race conditions y doble contabilización
+            const { data: freshLiq } = await supabase
+              .from('liquidaciones_grupos')
+              .select('monto_abonado, monto_total_facturado')
+              .eq('liquidacion_id', parseInt(singleLiqId, 10))
+              .single();
+            const currentAbonado = Number(freshLiq?.monto_abonado || liqObj.monto_abonado || 0);
+            const currentFacturado = Number(freshLiq?.monto_total_facturado || liqObj.monto_total_facturado);
+            const newMontoAbonado = Math.round((currentAbonado + Number(row.netoReal)) * 100) / 100;
+            const isFullyPaid = newMontoAbonado >= currentFacturado - 2.00;
 
             const { error: liqError } = await supabase
               .from('liquidaciones_grupos')
@@ -2412,7 +2427,8 @@ export default function ConciliacionBancaria() {
               importe: Number(row.netoReal),
               medio_pago: row.banco || 'TRANSFERENCIA',
               observaciones: `Conciliación Bancaria - ${row.concepto}`,
-              periodo: selectedPeriod || null
+              periodo: selectedPeriod || null,
+              skipLiqUpdate: true
             });
           } catch (errCuenta) {
             console.warn("Aviso al registrar cobro en cuenta corriente:", errCuenta);
