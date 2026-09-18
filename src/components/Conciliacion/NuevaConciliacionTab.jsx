@@ -6,6 +6,7 @@ import { registrarCobroCuenta } from '../../services/cuentaCorrienteService';
 import { registrarAprendizajeHistorico } from '../../services/conciliacionService';
 import { useConfirm } from '../../components/ui/ConfirmProvider';
 import Modal from '../Modal';
+import DetallePagoModal from './DetallePagoModal';
 
 export default function NuevaConciliacionTab({
   selectedPeriod,
@@ -79,6 +80,210 @@ export default function NuevaConciliacionTab({
   const [reportFilter, setReportFilter] = useState('ALL'); // 'ALL', 'APPLIED', 'SKIPPED', 'DEBIT_BATCH', 'ERROR'
   const [reportSearch, setReportSearch] = useState('');
   const [reportPage, setReportPage] = useState(1);
+
+  // Modal de Verificación de Pago Conciliado
+  const [detallePagoModal, setDetallePagoModal] = useState({
+    isOpen: false,
+    loading: false,
+    row: null,
+    liquidaciones: [],
+    pagosCuenta: [],
+    pagosBanco: [],
+    error: null
+  });
+
+  const handleVerPagoConciliado = async (row, specificLiqId = null) => {
+    if (!row) return;
+
+    let targetLiqIds = [];
+    if (specificLiqId) {
+      targetLiqIds = [parseInt(specificLiqId, 10)];
+    } else if (row.selectedLiquidations && row.selectedLiquidations.length > 0) {
+      targetLiqIds = row.selectedLiquidations.map(id => parseInt(id, 10)).filter(Boolean);
+    } else if (row.selectedLiquidationId && row.selectedLiquidationId !== 'SALDAR_TODO') {
+      targetLiqIds = [parseInt(row.selectedLiquidationId, 10)];
+    } else if (row.pendingList && row.pendingList.length > 0) {
+      const saldadas = row.pendingList.filter(l => {
+        const p = Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0);
+        return p <= 2.00;
+      });
+      if (saldadas.length > 0) {
+        targetLiqIds = saldadas.map(l => l.liquidacion_id);
+      } else {
+        targetLiqIds = [row.pendingList[0].liquidacion_id];
+      }
+    }
+
+    setDetallePagoModal({
+      isOpen: true,
+      loading: true,
+      row,
+      liquidaciones: [],
+      pagosCuenta: [],
+      pagosBanco: [],
+      error: null
+    });
+
+    try {
+      let liqs = [];
+      if (targetLiqIds.length > 0) {
+        const { data: liqData, error: liqErr } = await supabase
+          .from('liquidaciones_grupos')
+          .select(`
+            liquidacion_id,
+            numero_grupo,
+            periodo,
+            monto_total_facturado,
+            monto_abonado,
+            estado_pago,
+            proveedor_id,
+            updated_at,
+            proveedores!proveedor_id(nombre),
+            socio_id,
+            socios!socio_id(nombre_completo, nro_socio, cuit)
+          `)
+          .in('liquidacion_id', targetLiqIds);
+
+        if (liqErr) throw liqErr;
+        liqs = liqData || [];
+      }
+
+      // Fallback si no hay liquidación por ID
+      if (liqs.length === 0 && (row.grupo || row.selectedSocioId)) {
+        const gNum = row.grupo ? parseInt(row.grupo, 10) : null;
+        let q = supabase.from('liquidaciones_grupos').select(`
+          liquidacion_id,
+          numero_grupo,
+          periodo,
+          monto_total_facturado,
+          monto_abonado,
+          estado_pago,
+          proveedor_id,
+          updated_at,
+          proveedores!proveedor_id(nombre),
+          socio_id,
+          socios!socio_id(nombre_completo, nro_socio, cuit)
+        `);
+        if (gNum) q = q.eq('numero_grupo', gNum);
+        if (selectedPeriod) q = q.eq('periodo', selectedPeriod);
+        const { data: fallbackLiqs } = await q.limit(3);
+        if (fallbackLiqs && fallbackLiqs.length > 0) {
+          liqs = fallbackLiqs;
+        }
+      }
+
+      const groups = [...new Set(liqs.map(l => l.numero_grupo).concat(row.grupo ? [parseInt(row.grupo, 10)] : []))].filter(Boolean);
+      const periods = [...new Set(liqs.map(l => l.periodo).concat(selectedPeriod ? [selectedPeriod] : []))].filter(Boolean);
+      const liqIds = liqs.map(l => l.liquidacion_id);
+
+      // 1. Buscar en movimientos_cuenta (Contaduría / Cuenta Corriente)
+      let pagosCuenta = [];
+      if (groups.length > 0) {
+        const { data: mcData, error: mcErr } = await supabase
+          .from('movimientos_cuenta')
+          .select(`
+            id,
+            fecha,
+            numero_grupo,
+            nombre,
+            importe,
+            tipo,
+            medio_pago,
+            observaciones,
+            origen,
+            created_at,
+            liquidacion_id,
+            periodo
+          `)
+          .in('numero_grupo', groups)
+          .eq('tipo', 'PAGO')
+          .order('fecha', { ascending: false });
+
+        if (!mcErr && mcData) {
+          pagosCuenta = mcData.filter(m => {
+            if (m.liquidacion_id && liqIds.includes(m.liquidacion_id)) return true;
+            if (m.periodo && periods.includes(m.periodo)) return true;
+            return false;
+          });
+
+          if (pagosCuenta.length === 0 && mcData.length > 0) {
+            pagosCuenta = mcData.slice(0, 3);
+          }
+        }
+      }
+
+      // 2. Buscar en movimientos_bancarios (Extractos)
+      let pagosBanco = [];
+      if (liqIds.length > 0) {
+        const { data: mbData, error: mbErr } = await supabase
+          .from('movimientos_bancarios')
+          .select(`
+            movimiento_id,
+            fecha_movimiento,
+            concepto,
+            monto,
+            banco,
+            comprobante,
+            observaciones,
+            tipo_movimiento,
+            created_at,
+            liquidacion_id,
+            socio_id,
+            socios(nombre_completo, nro_socio)
+          `)
+          .in('liquidacion_id', liqIds)
+          .order('fecha_movimiento', { ascending: false });
+
+        if (!mbErr && mbData) {
+          pagosBanco = mbData;
+        }
+      }
+
+      if (pagosBanco.length === 0 && groups.length > 0) {
+        const groupStr = String(groups[0]);
+        const { data: mbByConcept } = await supabase
+          .from('movimientos_bancarios')
+          .select(`
+            movimiento_id,
+            fecha_movimiento,
+            concepto,
+            monto,
+            banco,
+            comprobante,
+            observaciones,
+            tipo_movimiento,
+            created_at,
+            liquidacion_id,
+            socio_id,
+            socios(nombre_completo, nro_socio)
+          `)
+          .or(`concepto.ilike.%${groupStr}%,observaciones.ilike.%${groupStr}%`)
+          .order('fecha_movimiento', { ascending: false })
+          .limit(3);
+
+        if (mbByConcept && mbByConcept.length > 0) {
+          pagosBanco = mbByConcept;
+        }
+      }
+
+      setDetallePagoModal({
+        isOpen: true,
+        loading: false,
+        row,
+        liquidaciones: liqs,
+        pagosCuenta,
+        pagosBanco,
+        error: null
+      });
+    } catch (err) {
+      console.error("Error al obtener detalle del pago conciliado:", err);
+      setDetallePagoModal(prev => ({
+        ...prev,
+        loading: false,
+        error: "Error al consultar los movimientos del pago: " + (err.message || String(err))
+      }));
+    }
+  };
 
   // Cargar último informe guardado en localStorage para este período
   useEffect(() => {
@@ -2568,8 +2773,25 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                                       <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
                                                         {liq.periodo} - Gpo {liq.numero_grupo} ({providerName})
                                                       </span>
-                                                      <span style={{ fontWeight: 800, color: pendingAmount <= 0 ? 'var(--text-secondary)' : 'var(--text-primary)', fontSize: '11px', marginLeft: '6px' }}>
-                                                        {pendingAmount <= 0 ? '(Ya saldado)' : `$${pendingAmount.toLocaleString('es-AR', { minimumFractionDigits: 0 })}`}
+                                                      <span 
+                                                        onClick={(e) => {
+                                                          if (pendingAmount <= 0) {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            handleVerPagoConciliado(row, liq.liquidacion_id);
+                                                          }
+                                                        }}
+                                                        style={{ 
+                                                          fontWeight: 800, 
+                                                          color: pendingAmount <= 0 ? '#10b981' : 'var(--text-primary)', 
+                                                          fontSize: '11px', 
+                                                          marginLeft: '6px',
+                                                          cursor: pendingAmount <= 0 ? 'pointer' : 'default',
+                                                          textDecoration: pendingAmount <= 0 ? 'underline' : 'none'
+                                                        }}
+                                                        title={pendingAmount <= 0 ? "Clic para ver comprobante y movimiento del pago conciliado" : ""}
+                                                      >
+                                                        {pendingAmount <= 0 ? '(Ya saldado 👁️)' : `$${pendingAmount.toLocaleString('es-AR', { minimumFractionDigits: 0 })}`}
                                                       </span>
                                                     </div>
                                                   </label>
@@ -2757,32 +2979,67 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                 const isAmountMatch = row.netoReal > 0 && checkIsAmountMatch(row, periodConsumos);
                                 return (
                                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
-                                    <span style={{ 
-                                      display: 'inline-flex', 
-                                      alignItems: 'center', 
-                                      gap: '4px', 
-                                      fontSize: '11px', 
-                                      fontWeight: 700, 
-                                      color: isAlreadySaldada ? 'var(--text-secondary)' : (isAmountMatch ? '#16a34a' : (row.netoReal > 0 ? '#d97706' : 'var(--text-secondary)')),
-                                      background: isAlreadySaldada ? 'rgba(0,0,0,0.05)' : (isAmountMatch ? 'rgba(22, 163, 74, 0.08)' : (row.netoReal > 0 ? 'rgba(245, 158, 11, 0.08)' : 'rgba(0,0,0,0.05)')),
-                                      padding: '3px 8px',
-                                      borderRadius: '6px',
-                                      border: isAlreadySaldada ? '1px solid var(--border-light)' : (isAmountMatch ? '1px solid rgba(22, 163, 74, 0.2)' : (row.netoReal > 0 ? '1px solid rgba(245, 158, 11, 0.2)' : '1px solid var(--border-light)'))
-                                    }}>
+                                    <span 
+                                      onClick={(e) => {
+                                        if (isAlreadySaldada) {
+                                          e.stopPropagation();
+                                          handleVerPagoConciliado(row);
+                                        }
+                                      }}
+                                      style={{ 
+                                        display: 'inline-flex', 
+                                        alignItems: 'center', 
+                                        gap: '4px', 
+                                        fontSize: '11px', 
+                                        fontWeight: 700, 
+                                        color: isAlreadySaldada ? '#10b981' : (isAmountMatch ? '#16a34a' : (row.netoReal > 0 ? '#d97706' : 'var(--text-secondary)')),
+                                        background: isAlreadySaldada ? 'rgba(16, 185, 129, 0.1)' : (isAmountMatch ? 'rgba(22, 163, 74, 0.08)' : (row.netoReal > 0 ? 'rgba(245, 158, 11, 0.08)' : 'rgba(0,0,0,0.05)')),
+                                        padding: '3px 8px',
+                                        borderRadius: '6px',
+                                        border: isAlreadySaldada ? '1px solid rgba(16, 185, 129, 0.25)' : (isAmountMatch ? '1px solid rgba(22, 163, 74, 0.2)' : (row.netoReal > 0 ? '1px solid rgba(245, 158, 11, 0.2)' : '1px solid var(--border-light)')),
+                                        cursor: isAlreadySaldada ? 'pointer' : 'default',
+                                        transition: 'all 0.15s ease'
+                                      }}
+                                      title={isAlreadySaldada ? 'Liquidación ya saldada. Haga clic para ver los datos del pago registrado' : ''}
+                                    >
                                       {isAlreadySaldada ? <CheckCircle2 size={12} /> : (isAmountMatch ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />)}
-                                      {isAlreadySaldada ? 'Ya Saldado' : (isAmountMatch ? 'Listo para conciliar' : (row.netoReal > 0 ? 'Sin Conciliar' : 'No Conciliable'))}
+                                      {isAlreadySaldada ? 'Ya Saldado 👁️' : (isAmountMatch ? 'Listo para conciliar' : (row.netoReal > 0 ? 'Sin Conciliar' : 'No Conciliable'))}
                                     </span>
                                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center' }}>
                                       {row.netoReal > 0 && (
                                         <button 
-                                          onClick={() => conciliarFila(row.id, false, row.selectedLines)}
+                                          onClick={() => {
+                                            if (isAlreadySaldada) {
+                                              handleVerPagoConciliado(row);
+                                            } else {
+                                              conciliarFila(row.id, false, row.selectedLines);
+                                            }
+                                          }}
                                           className="action-button"
-                                          style={{ padding: '6px 12px', fontSize: '12px', height: '32px', borderRadius: '8px', flexShrink: 0 }}
-                                          disabled={isAlreadySaldada || (!row.selectedSocioId && !isTaxOrFee)}
-                                          title={isAlreadySaldada ? 'La liquidación seleccionada ya está saldada' : ''}
+                                          style={{ 
+                                            padding: '6px 12px', 
+                                            fontSize: '12px', 
+                                            height: '32px', 
+                                            borderRadius: '8px', 
+                                            flexShrink: 0,
+                                            background: isAlreadySaldada ? 'rgba(16, 185, 129, 0.12)' : undefined,
+                                            color: isAlreadySaldada ? '#10b981' : undefined,
+                                            border: isAlreadySaldada ? '1px solid rgba(16, 185, 129, 0.3)' : undefined
+                                          }}
+                                          disabled={!isAlreadySaldada && (!row.selectedSocioId && !isTaxOrFee)}
+                                          title={isAlreadySaldada ? 'Liquidación ya saldada. Clic para ver el movimiento del pago' : ''}
                                         >
-                                          <Save size={13} style={{ marginRight: '4px' }} />
-                                          Conciliar
+                                          {isAlreadySaldada ? (
+                                            <>
+                                              <CheckCircle2 size={13} style={{ marginRight: '4px' }} />
+                                              Ver Pago
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Save size={13} style={{ marginRight: '4px' }} />
+                                              Conciliar
+                                            </>
+                                          )}
                                         </button>
                                       )}
                                       {row.netoReal > 0 && (
@@ -3196,6 +3453,14 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
           </div>
         </div>
       </Modal>
+
+      {/* Modal de Detalle de Pago Conciliado */}
+      <DetallePagoModal
+        isOpen={detallePagoModal.isOpen}
+        onClose={() => setDetallePagoModal(prev => ({ ...prev, isOpen: false }))}
+        data={detallePagoModal}
+        setActiveTab={setActiveTab}
+      />
     </div>
   );
 }
