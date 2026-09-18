@@ -486,7 +486,7 @@ export default function Contaduria() {
     setSelectedGrupo(gNum);
     setTargetFactura(target);
     setTargetLinea(null);
-    setEximirMora(false);
+    setEximirMora(true);
     // Cargar notas internas del grupo al abrir el modal
     loadNotasGrupo(gNum);
 
@@ -497,16 +497,13 @@ export default function Contaduria() {
       } else {
         saldoPend = Math.max(0, Number(target.monto_total_facturado) - Number(target.monto_abonado || 0));
       }
-      // Calcular mora a fecha de cobro de hoy
-      const dias = calcularDiasMora(target.periodo || target.fecha_emision);
-      const intMora = (dias > 0 && tna > 0) ? calcularInteresMora(saldoPend, dias, tna) : 0;
-      const totalSugerido = Math.round((saldoPend + intMora) * 100) / 100;
-
+      // Por regla de negocio, el pago sugerido es únicamente el capital/factura adeudada sin mora
+      const totalSugerido = saldoPend;
       const montoInicial = totalSugerido > 0 ? totalSugerido : saldoPend;
       const strMonto = montoInicial > 0 ? String(montoInicial) : '';
       setMontoCobro(strMonto);
       setEfectivoEntregado(strMonto);
-      setObservacionesCobro(`Cobro Facturación Período ${target.periodo} (${target.proveedores?.nombre || 'MUTUAL'})${intMora > 0 ? ` (incluye ${dias}d mora)` : ''}`);
+      setObservacionesCobro(`Cobro Facturación Período ${target.periodo} (${target.proveedores?.nombre || 'MUTUAL'})`);
     } else {
       setMontoCobro('');
       setEfectivoEntregado('');
@@ -526,7 +523,7 @@ export default function Contaduria() {
     setSelectedGrupo(gNum);
     setTargetFactura(targetLiq);
     setTargetLinea(linea.numero_linea);
-    setEximirMora(false);
+    setEximirMora(true);
     loadNotasGrupo(gNum);
 
     const val = Number(linea.total_linea || 0);

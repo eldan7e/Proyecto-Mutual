@@ -111,15 +111,9 @@ export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA) {
     if (isPago || isNC) {
       const montoAbsoluto = Math.abs(importeOriginal);
       
-      // Si el movimiento ya trae un desglose explícito asentado (ej: cobro con recibo donde se fijó capital e interés), respetarlo
-      const tieneDesglosePrevio = (Number(m.pago_aplicado_capital) > 0 || Number(m.pago_aplicado_interes) > 0);
-      if (tieneDesglosePrevio && Math.abs((Number(m.pago_aplicado_capital || 0) + Number(m.pago_aplicado_interes || 0)) - montoAbsoluto) < 0.10) {
-        pagoAInteres = Number(m.pago_aplicado_interes || 0);
-        pagoACapital = Number(m.pago_aplicado_capital || 0);
-      } else {
-        pagoAInteres = Math.min(montoAbsoluto, intPendAcum);
-        pagoACapital = montoAbsoluto - pagoAInteres;
-      }
+      // Por regla de negocio actual, los pagos aplican 100% al capital facturado (no amortizan intereses/mora)
+      pagoAInteres = 0;
+      pagoACapital = montoAbsoluto;
 
       // Buscar factura previa asociada a este pago (por período o la más reciente impaga)
       const facturasPrevias = sortedMovs.filter(x => x.tipo === 'FACTURA' && (!m.fecha || !x.fecha || x.fecha <= m.fecha));
