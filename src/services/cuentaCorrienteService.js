@@ -464,7 +464,8 @@ export async function registrarCobroCuenta({
     const { data: liqsPendientes } = await query.order('periodo', { ascending: true });
 
     if (liqsPendientes && liqsPendientes.length > 0) {
-      let remanenteCobro = monto;
+      // Usar pagoAplicadoCapital si se desglosó mora vs capital para no sobre-amortizar facturas
+      let remanenteCobro = pagoAplicadoCapital > 0 ? pagoAplicadoCapital : monto;
       for (const liq of liqsPendientes) {
         if (remanenteCobro <= 0) break;
 
@@ -475,8 +476,12 @@ export async function registrarCobroCuenta({
         if (pendiente <= 0) continue;
 
         const abonoAplicado = Math.min(remanenteCobro, pendiente);
-        const nuevoAbonado = pagadoActual + abonoAplicado;
-        const nuevoEstado = nuevoAbonado >= (totalFact - 1) ? 'ABONADO' : 'PARCIAL';
+        let nuevoAbonado = pagadoActual + abonoAplicado;
+        const isFullyPaid = nuevoAbonado >= (totalFact - 2);
+        const nuevoEstado = isFullyPaid ? 'ABONADO' : 'PARCIAL';
+        if (isFullyPaid) {
+          nuevoAbonado = totalFact;
+        }
 
         await supabase
           .from('liquidaciones_grupos')

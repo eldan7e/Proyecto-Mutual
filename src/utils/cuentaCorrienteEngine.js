@@ -110,8 +110,16 @@ export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA) {
 
     if (isPago || isNC) {
       const montoAbsoluto = Math.abs(importeOriginal);
-      pagoAInteres = Math.min(montoAbsoluto, intPendAcum);
-      pagoACapital = montoAbsoluto - pagoAInteres;
+      
+      // Si el movimiento ya trae un desglose explícito asentado (ej: cobro con recibo donde se fijó capital e interés), respetarlo
+      const tieneDesglosePrevio = (Number(m.pago_aplicado_capital) > 0 || Number(m.pago_aplicado_interes) > 0);
+      if (tieneDesglosePrevio && Math.abs((Number(m.pago_aplicado_capital || 0) + Number(m.pago_aplicado_interes || 0)) - montoAbsoluto) < 0.10) {
+        pagoAInteres = Number(m.pago_aplicado_interes || 0);
+        pagoACapital = Number(m.pago_aplicado_capital || 0);
+      } else {
+        pagoAInteres = Math.min(montoAbsoluto, intPendAcum);
+        pagoACapital = montoAbsoluto - pagoAInteres;
+      }
 
       // Buscar factura previa asociada a este pago (por período o la más reciente impaga)
       const facturasPrevias = sortedMovs.filter(x => x.tipo === 'FACTURA' && (!m.fecha || !x.fecha || x.fecha <= m.fecha));
@@ -135,16 +143,25 @@ export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA) {
       }
     }
 
-    // 7. Saldo Capital
-    const saldoCapital = (isPago || isNC) 
+    // 7. Saldo Capital (con tolerancia para centavos/redondeos menores a $1.00)
+    let saldoCapital = (isPago || isNC) 
       ? (saldoCapAnt - pagoACapital) 
       : (saldoCapAnt + importeOriginal);
+    if (Math.abs(saldoCapital) < 1.00) {
+      saldoCapital = 0;
+    }
 
     // 8. Interés Pendiente Final
-    const intPendFinal = Math.max(0, intPendAcum - pagoAInteres);
+    let intPendFinal = Math.max(0, intPendAcum - pagoAInteres);
+    if (Math.abs(intPendFinal) < 1.00) {
+      intPendFinal = 0;
+    }
 
     // 9. Saldo Final
-    const saldoFinal = saldoCapital + intPendFinal;
+    let saldoFinal = saldoCapital + intPendFinal;
+    if (Math.abs(saldoFinal) < 1.00) {
+      saldoFinal = 0;
+    }
 
     // Guardar acumuladores para la siguiente fila
     fechaAnt = m.fecha;
