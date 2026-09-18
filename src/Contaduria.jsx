@@ -3127,6 +3127,21 @@ export default function Contaduria() {
                           <td style={{ padding: '8px 8px', maxWidth: '180px' }}>
                             <div style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.empresa || 'GENERAL'}>{m.empresa || 'GENERAL'}</div>
                             <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.observaciones || ''}>{m.observaciones || ''}</div>
+                            {isPago && m.medio_pago && (
+                              <div style={{ marginTop: '3px', display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                <span style={{
+                                  fontSize: '10px',
+                                  fontWeight: 800,
+                                  padding: '1px 6px',
+                                  borderRadius: '4px',
+                                  background: m.medio_pago.includes('EFECTIVO') ? 'rgba(16, 185, 129, 0.12)' : 'rgba(59, 130, 246, 0.12)',
+                                  color: m.medio_pago.includes('EFECTIVO') ? '#059669' : '#2563eb',
+                                  border: `1px solid ${m.medio_pago.includes('EFECTIVO') ? 'rgba(16, 185, 129, 0.3)' : 'rgba(59, 130, 246, 0.3)'}`
+                                }}>
+                                  {m.medio_pago.includes('EFECTIVO') ? '💵' : '🏦'} {m.medio_pago}
+                                </span>
+                              </div>
+                            )}
                             {isPago && m.pago_aplicado_interes > 0 && (
                               <div style={{ fontSize: '10px', color: '#059669', fontWeight: 700, marginTop: '2px', whiteSpace: 'nowrap' }}>
                                 ✓ Amortizó {formatMoney(m.pago_aplicado_capital)} cap. + {formatMoney(m.pago_aplicado_interes)} int.
