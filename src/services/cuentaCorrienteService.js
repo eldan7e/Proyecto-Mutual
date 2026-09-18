@@ -167,7 +167,8 @@ export async function fetchMovimientosGrupo(numeroGrupo) {
 function isTransferenciaInterna(mov) {
   if (!mov.observaciones) return false;
   const obs = mov.observaciones.toUpperCase();
-  return obs.includes('CTAS. PROPIAS') || obs.includes('CTAS PROPIAS');
+  return (obs.includes('CTAS. PROPIAS') || obs.includes('CTAS PROPIAS')) &&
+         (obs.includes('MUTUAL') || obs.includes('30708841656') || obs.includes('AUNAR'));
 }
 
 /**
@@ -182,7 +183,7 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
   while (true) {
     let query = supabase
       .from('movimientos_cuenta')
-      .select('id, numero_grupo, nombre, empresa, fecha, importe, tipo, observaciones')
+      .select('id, numero_grupo, nombre, empresa, fecha, importe, tipo, periodo, observaciones')
       .not('numero_grupo', 'is', null)
       .order('numero_grupo', { ascending: true })
       .order('fecha', { ascending: true })

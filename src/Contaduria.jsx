@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Calculator, Search, DollarSign, TrendingUp, 
   Loader2, RefreshCw, Plus, CheckCircle2, ChevronDown, ChevronUp, 
@@ -51,6 +51,19 @@ export default function Contaduria() {
   const [periodosDisponiblesState, setPeriodosDisponiblesState] = useState([]);
   const [extractoPeriodoFilter, setExtractoPeriodoFilter] = useState('TODOS');
   const [exportExtractoMenuOpen, setExportExtractoMenuOpen] = useState(false);
+  const exportExtractoRef = useRef(null);
+
+  // Cerrar menú de opciones de exportación al hacer click fuera
+  useEffect(() => {
+    if (!exportExtractoMenuOpen) return;
+    const handleClickOutside = (e) => {
+      if (exportExtractoRef.current && !exportExtractoRef.current.contains(e.target)) {
+        setExportExtractoMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [exportExtractoMenuOpen]);
 
   // Loaders
   const [loading, setLoading] = useState(false);
@@ -2800,7 +2813,15 @@ export default function Contaduria() {
       {activeTab === 'extracto' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           
-          <div className="bento-card" style={{ padding: '24px' }}>
+          <div 
+            className="bento-card" 
+            style={{ 
+              padding: '24px', 
+              overflow: 'visible', 
+              position: 'relative', 
+              zIndex: exportExtractoMenuOpen ? 100 : 10 
+            }}
+          >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
                 <div>
@@ -2912,7 +2933,7 @@ export default function Contaduria() {
                 </button>
 
                 {/* BOTÓN Y MENÚ DESPLEGABLE DE EXPORTACIÓN */}
-                <div style={{ position: 'relative' }}>
+                <div ref={exportExtractoRef} style={{ position: 'relative' }}>
                   <button 
                     onClick={() => setExportExtractoMenuOpen(prev => !prev)}
                     className="air-btn"
@@ -2922,73 +2943,69 @@ export default function Contaduria() {
                     }}
                     title="Exportar opciones de extracto a Excel (.xlsx)"
                   >
-                    <Download size={14} /> Exportar .xlsx <ChevronDown size={13} />
+                    <Download size={14} /> Exportar .xlsx <ChevronDown size={13} style={{ transform: exportExtractoMenuOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }} />
                   </button>
 
                   {exportExtractoMenuOpen && (
-                    <>
-                      <div 
-                        style={{ position: 'fixed', inset: 0, zIndex: 90 }} 
-                        onClick={() => setExportExtractoMenuOpen(false)} 
-                      />
-                      <div style={{
-                        position: 'absolute', right: 0, top: 'calc(100% + 8px)', zIndex: 100,
-                        background: '#ffffff', borderRadius: '12px', boxShadow: '0 12px 30px -4px rgba(0, 0, 0, 0.2), 0 4px 12px -2px rgba(0, 0, 0, 0.1)',
-                        border: '1px solid var(--border-light, rgba(0,0,0,0.12))', minWidth: '320px', padding: '8px', overflow: 'hidden'
-                      }}>
-                        {/* Opción 1: Exportar todos los movimientos */}
-                        <button
-                          onClick={() => {
-                            setExportExtractoMenuOpen(false);
-                            handleExportarTodosMovimientos();
-                          }}
-                          style={{
-                            width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: '8px',
-                            display: 'flex', alignItems: 'flex-start', gap: '10px', border: 'none', background: 'transparent', cursor: 'pointer',
-                            transition: 'background 0.15s ease'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(16, 185, 129, 0.08)'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                        >
-                          <FileText size={18} color="#10b981" style={{ marginTop: '2px', flexShrink: 0 }} />
-                          <div>
-                            <div style={{ fontWeight: 800, fontSize: '13px', color: 'var(--text-primary, #111827)' }}>
-                              Exportar todos los movimientos
-                            </div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-secondary, #6b7280)', marginTop: '2px' }}>
-                              Libro Mayor completo con facturas, cobros y saldos ({extractoPeriodoFilter === 'TODOS' ? 'Histórico completo' : extractoFiltroLabel})
-                            </div>
+                    <div style={{
+                      position: 'absolute', right: 0, top: 'calc(100% + 8px)', zIndex: 1000,
+                      background: 'var(--surface, #ffffff)', borderRadius: '14px', 
+                      boxShadow: '0 16px 36px -4px rgba(0, 0, 0, 0.25), 0 4px 16px -2px rgba(0, 0, 0, 0.12)',
+                      border: '1px solid var(--border-light, rgba(0,0,0,0.12))', minWidth: '330px', maxWidth: 'calc(100vw - 32px)', padding: '8px', 
+                      overflow: 'hidden', animation: 'fadeIn 0.15s ease-out'
+                    }}>
+                      {/* Opción 1: Exportar todos los movimientos */}
+                      <button
+                        onClick={() => {
+                          setExportExtractoMenuOpen(false);
+                          handleExportarTodosMovimientos();
+                        }}
+                        style={{
+                          width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: '8px',
+                          display: 'flex', alignItems: 'flex-start', gap: '10px', border: 'none', background: 'transparent', cursor: 'pointer',
+                          transition: 'background 0.15s ease'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(16, 185, 129, 0.08)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      >
+                        <FileText size={18} color="#10b981" style={{ marginTop: '2px', flexShrink: 0 }} />
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: '13px', color: 'var(--text-primary, #111827)' }}>
+                            Exportar todos los movimientos
                           </div>
-                        </button>
-
-                        <div style={{ height: '1px', background: 'var(--border-light, rgba(0,0,0,0.08))', margin: '6px 0' }} />
-
-                        {/* Opción 2: Exportar solo deuda */}
-                        <button
-                          onClick={() => {
-                            setExportExtractoMenuOpen(false);
-                            handleExportarSoloDeuda();
-                          }}
-                          style={{
-                            width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: '8px',
-                            display: 'flex', alignItems: 'flex-start', gap: '10px', border: 'none', background: 'transparent', cursor: 'pointer',
-                            transition: 'background 0.15s ease'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                        >
-                          <AlertCircle size={18} color="#ef4444" style={{ marginTop: '2px', flexShrink: 0 }} />
-                          <div>
-                            <div style={{ fontWeight: 800, fontSize: '13px', color: '#dc2626' }}>
-                              Exportar solo deuda
-                            </div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-secondary, #6b7280)', marginTop: '2px' }}>
-                              Solo meses impagos con el interés ya aplicado ({extractoPeriodoFilter === 'TODOS' ? 'Todos los meses impagos' : extractoFiltroLabel})
-                            </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary, #6b7280)', marginTop: '2px' }}>
+                            Libro Mayor completo con facturas, cobros y saldos ({extractoPeriodoFilter === 'TODOS' ? 'Histórico completo' : extractoFiltroLabel})
                           </div>
-                        </button>
-                      </div>
-                    </>
+                        </div>
+                      </button>
+
+                      <div style={{ height: '1px', background: 'var(--border-light, rgba(0,0,0,0.08))', margin: '6px 0' }} />
+
+                      {/* Opción 2: Exportar solo deuda */}
+                      <button
+                        onClick={() => {
+                          setExportExtractoMenuOpen(false);
+                          handleExportarSoloDeuda();
+                        }}
+                        style={{
+                          width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: '8px',
+                          display: 'flex', alignItems: 'flex-start', gap: '10px', border: 'none', background: 'transparent', cursor: 'pointer',
+                          transition: 'background 0.15s ease'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      >
+                        <AlertCircle size={18} color="#ef4444" style={{ marginTop: '2px', flexShrink: 0 }} />
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: '13px', color: '#dc2626' }}>
+                            Exportar solo deuda
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary, #6b7280)', marginTop: '2px' }}>
+                            Solo meses impagos con el interés ya aplicado ({extractoPeriodoFilter === 'TODOS' ? 'Todos los meses impagos' : extractoFiltroLabel})
+                          </div>
+                        </div>
+                      </button>
+                    </div>
                   )}
                 </div>
 

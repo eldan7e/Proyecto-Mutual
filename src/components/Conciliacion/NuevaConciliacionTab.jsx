@@ -736,23 +736,38 @@ export default function NuevaConciliacionTab({
     const minDate = datesList.length > 0 ? datesList.reduce((min, d) => d < min ? d : min, datesList[0]) : '2020-01-01';
     const maxDate = datesList.length > 0 ? datesList.reduce((max, d) => d > max ? d : max, datesList[0]) : '2030-12-31';
 
-    const { data: existingBncMovsData } = await supabase
-      .from('movimientos_bancarios')
-      .select('fecha_movimiento, monto, concepto, comprobante, socio_id, liquidacion_id, banco')
-      .gte('fecha_movimiento', minDate)
-      .lte('fecha_movimiento', maxDate)
-      .range(0, 50000);
+    let existingBncMovs = [];
+    let bncOffset = 0;
+    while (true) {
+      const { data: bncChunk, error: bncErr } = await supabase
+        .from('movimientos_bancarios')
+        .select('fecha_movimiento, monto, concepto, comprobante, socio_id, liquidacion_id, banco')
+        .gte('fecha_movimiento', minDate)
+        .lte('fecha_movimiento', maxDate)
+        .range(bncOffset, bncOffset + 999);
+      if (bncErr) throw bncErr;
+      if (!bncChunk || bncChunk.length === 0) break;
+      existingBncMovs.push(...bncChunk);
+      if (bncChunk.length < 1000) break;
+      bncOffset += 1000;
+    }
 
-    const { data: existingCcMovsData } = await supabase
-      .from('movimientos_cuenta')
-      .select('numero_grupo, fecha, importe, observaciones, medio_pago, tipo')
-      .eq('tipo', 'PAGO')
-      .gte('fecha', minDate)
-      .lte('fecha', maxDate)
-      .range(0, 50000);
-
-    const existingBncMovs = existingBncMovsData || [];
-    const existingCcMovs = existingCcMovsData || [];
+    let existingCcMovs = [];
+    let ccOffset = 0;
+    while (true) {
+      const { data: ccChunk, error: ccErr } = await supabase
+        .from('movimientos_cuenta')
+        .select('numero_grupo, fecha, importe, observaciones, medio_pago, tipo')
+        .eq('tipo', 'PAGO')
+        .gte('fecha', minDate)
+        .lte('fecha', maxDate)
+        .range(ccOffset, ccOffset + 999);
+      if (ccErr) throw ccErr;
+      if (!ccChunk || ccChunk.length === 0) break;
+      existingCcMovs.push(...ccChunk);
+      if (ccChunk.length < 1000) break;
+      ccOffset += 1000;
+    }
 
     const normalize = (str) => (str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
 
