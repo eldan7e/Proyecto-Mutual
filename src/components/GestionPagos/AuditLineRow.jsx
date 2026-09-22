@@ -81,20 +81,50 @@ export default function AuditLineRow({ d, isPeriodoLiquidado, adicionalesData, o
             ⚠️ {d.calculado.portabilityWarning}
           </div>
         )}
-        {d.calculado?.operatorDiscountPct > 0 && (
-          <div style={{ 
-            fontSize: '10px', 
-            color: d.calculado.hasDiscountAlert ? '#dc2626' : '#16a34a',
-            fontWeight: 800,
-            background: d.calculado.hasDiscountAlert ? '#fee2e2' : '#f0fdf4',
-            padding: '2px 6px',
-            borderRadius: '4px',
-            display: 'inline-block',
-            marginTop: '4px',
-            border: d.calculado.hasDiscountAlert ? '1px solid #fca5a5' : '1px solid #bcf0da'
-          }}>
-            {d.calculado.operatorDiscountPct}% Desc. Operadora
-            {d.calculado.hasDiscountAlert && ' ⚠️'}
+        {((d.calculado?.operatorDiscountPct > 0) || (d.calculado?.descuentoMesesRestantes !== undefined && d.calculado?.descuentoMesesRestantes !== null)) && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '3px', marginTop: '4px' }}>
+            {d.calculado?.operatorDiscountPct > 0 && (
+              <div style={{ 
+                fontSize: '10px', 
+                color: d.calculado.hasDiscountAlert ? '#dc2626' : '#16a34a',
+                fontWeight: 800,
+                background: d.calculado.hasDiscountAlert ? '#fee2e2' : '#f0fdf4',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                display: 'inline-block',
+                border: d.calculado.hasDiscountAlert ? '1px solid #fca5a5' : '1px solid #bcf0da'
+              }}>
+                {d.calculado.operatorDiscountPct}% Desc. Operadora
+                {d.calculado.hasDiscountAlert && ' ⚠️'}
+              </div>
+            )}
+            
+            {(() => {
+              const mRest = d.calculado?.descuentoMesesRestantes ?? d.descuento_meses_restantes ?? d.lineas?.descuento_meses_restantes;
+              const mActual = d.calculado?.descuentoMesActual ?? d.descuento_mes_actual ?? d.lineas?.descuento_mes_actual;
+              const mTotal = d.calculado?.descuentoMesesTotal ?? d.descuento_meses_total ?? d.lineas?.descuento_meses_total;
+              const vigenciaStr = d.calculado?.descuentoVigencia ?? d.descuento_vigencia ?? d.lineas?.descuento_vigencia;
+              
+              if (mRest === undefined || mRest === null) return null;
+              const isExpiring = mRest === 0;
+              return (
+                <span style={{
+                  background: isExpiring ? '#fef2f2' : '#eef2ff',
+                  color: isExpiring ? '#dc2626' : '#4f46e5',
+                  border: isExpiring ? '1px solid #fca5a5' : '1px solid #c7d2fe',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  fontSize: '10px',
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '3px',
+                  whiteSpace: 'nowrap'
+                }} title={`Mes ${mActual || '?'} de ${mTotal || '?'} (${mRest} restantes)`}>
+                  {isExpiring ? '⚠️ Vence este mes' : `${vigenciaStr || `Mes ${mActual}/${mTotal}`} (${mRest}m rest.)`}
+                </span>
+              );
+            })()}
           </div>
         )}
       </td>
