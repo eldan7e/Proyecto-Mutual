@@ -332,6 +332,11 @@ export default function CargaManual() {
             isManuallyAssigned: false,
             precioListaOriginal: item.precioListaStr,
             descuentoOriginal: item.descuentoStr,
+            descuentoPctFactura: item.descuentoPct ? parseFloat(item.descuentoPct) : null,
+            descuentoMesActual: item.descuentoMesActual ?? null,
+            descuentoMesesTotal: item.descuentoMesesTotal ?? null,
+            descuentoMesesRestantes: item.descuentoMesesRestantes ?? null,
+            descuentoVigencia: item.descuentoVigencia || null,
             prevAbonoBase: auditData.prevAbonoBase,
             descuentoEsperado: expectedDiscount
           };

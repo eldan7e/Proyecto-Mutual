@@ -475,9 +475,22 @@ export default function SocioLineas({ socio, onUpdate }) {
                       <td>{getPlanName(linea.plan_id)}</td>
                       <td>
                         {linea.descuento_esperado && Number(linea.descuento_esperado) !== 0 ? (
-                          <span style={{ fontWeight: 800, color: '#10b981', fontSize: '13px' }}>
-                            {linea.descuento_esperado}%
-                          </span>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <span style={{ fontWeight: 800, color: '#10b981', fontSize: '13px' }}>
+                              {linea.descuento_esperado}%
+                            </span>
+                            {linea.descuento_meses_restantes !== undefined && linea.descuento_meses_restantes !== null && (
+                              <span style={{
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                color: linea.descuento_meses_restantes === 0 ? '#dc2626' : '#6366f1'
+                              }}>
+                                {linea.descuento_meses_restantes === 0 
+                                  ? '⚠️ Vence este mes' 
+                                  : `${linea.descuento_vigencia || `Mes ${linea.descuento_mes_actual}/${linea.descuento_meses_total}`} (${linea.descuento_meses_restantes} rest.)`}
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <span style={{ color: 'var(--text-secondary)', fontSize: '12px', fontWeight: 500 }}>
                             Usa el del socio

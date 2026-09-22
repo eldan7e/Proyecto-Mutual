@@ -344,14 +344,31 @@ const GridRow = React.memo(function GridRow({ row, selectedProvider, dbLines, al
                 const descPct = pLista > 0 ? ((pLista - row.abono) / pLista) * 100 : 0;
                 const expectedPct = row.descuentoEsperado || (selectedProvider === 'claro' ? 85 : 80);
                 const meets80 = descPct >= (expectedPct - 2.5);
+                const hasVigencia = row.descuentoMesesRestantes !== undefined && row.descuentoMesesRestantes !== null;
+                const isExpiring = row.descuentoMesesRestantes === 0;
+
                 return (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
                     <span style={{ color: meets80 ? '#10b981' : '#ef4444', fontWeight: 800 }}>
                       {descPct > 0 ? `${descPct.toFixed(2)}%` : '0%'}
                     </span>
                     <span style={{ fontSize: '9px', color: meets80 ? '#059669' : '#dc2626' }}>
                       (Esp: {expectedPct}%)
                     </span>
+                    {hasVigencia && (
+                      <span style={{ 
+                        fontSize: '9px', 
+                        padding: '1px 5px', 
+                        borderRadius: '4px',
+                        fontWeight: 700,
+                        marginTop: '2px',
+                        background: isExpiring ? 'rgba(239, 68, 68, 0.12)' : 'rgba(99, 102, 241, 0.12)',
+                        color: isExpiring ? '#dc2626' : '#4f46e5',
+                        border: isExpiring ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(99, 102, 241, 0.2)'
+                      }} title={`Mes ${row.descuentoMesActual} de ${row.descuentoMesesTotal} (${row.descuentoMesesRestantes} restantes)`}>
+                        {isExpiring ? '⚠️ Vence este mes' : `${row.descuentoMesActual}/${row.descuentoMesesTotal} (${row.descuentoMesesRestantes}m)`}
+                      </span>
+                    )}
                   </div>
                 );
               })()

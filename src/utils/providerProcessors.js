@@ -171,7 +171,7 @@ export const procesarPersonal = (textLines) => {
 
     // 1. Detectar encabezados con numero de linea explicito (ej. "LINEA 2216824786", "linea2216824786", "2216824786")
     const isTotalCargosLine = u.includes('TOTALCARGOSDELMES') || u.includes('TOTALCARGOS');
-    const embeddedLineMatch = !isTotalCargosLine && (cleanLineNorm.match(/LINEA.*?(\d{8,10})/) || cleanLineNorm.match(/(2216824786|6824786)/));
+    const embeddedLineMatch = !isTotalCargosLine && (cleanLineNorm.match(/(?:L?INEA).*?(\d{8,10})/) || cleanLineNorm.match(/(2216824786|6824786)/));
     if (embeddedLineMatch) {
       closeCurrent();
       let phone = embeddedLineMatch[1] || embeddedLineMatch[0];
@@ -191,6 +191,10 @@ export const procesarPersonal = (textLines) => {
         excedentes: 0,
         descuentoMonto: 0,
         descuentoPct: '',
+        descuentoMesActual: null,
+        descuentoMesesTotal: null,
+        descuentoMesesRestantes: null,
+        descuentoVigencia: null,
         plan: planName
       };
       hasSkippedPlanPrice = false;
@@ -237,6 +241,10 @@ export const procesarPersonal = (textLines) => {
           excedentes: 0,
           descuentoMonto: 0,
           descuentoPct: '',
+          descuentoMesActual: null,
+          descuentoMesesTotal: null,
+          descuentoMesesRestantes: null,
+          descuentoVigencia: null,
           plan: 'Descuento Global'
         };
       }
@@ -249,7 +257,7 @@ export const procesarPersonal = (textLines) => {
     }
 
     // 3. LÍNEA MÓVIL o FIJA estándar (ej. "LÍNEA MOVIL (11)24041845 $ 20.617,77")
-    const isNewPhoneHeader = /^(?:LINEA(?:MOVIL|FIJA)?\d{7,10}|\d{10})/.test(cleanLineNorm);
+    const isNewPhoneHeader = /^(?:L?INEA(?:MOVIL|FIJA)?\d{7,10}|\d{10})/.test(cleanLineNorm);
 
     if (isNewPhoneHeader) {
       closeCurrent();
@@ -276,6 +284,10 @@ export const procesarPersonal = (textLines) => {
         excedentes: 0,
         descuentoMonto: 0,
         descuentoPct: '',
+        descuentoMesActual: null,
+        descuentoMesesTotal: null,
+        descuentoMesesRestantes: null,
+        descuentoVigencia: null,
         plan: planName
       };
       hasSkippedPlanPrice = false;
@@ -317,6 +329,10 @@ export const procesarPersonal = (textLines) => {
             excedentes: 0,
             descuentoMonto: 0,
             descuentoPct: '',
+            descuentoMesActual: null,
+            descuentoMesesTotal: null,
+            descuentoMesesRestantes: null,
+            descuentoVigencia: null,
             plan: 'Plan Internet'
           };
         }
@@ -333,6 +349,10 @@ export const procesarPersonal = (textLines) => {
         excedentes: 0,
         descuentoMonto: 0,
         descuentoPct: '',
+        descuentoMesActual: null,
+        descuentoMesesTotal: null,
+        descuentoMesesRestantes: null,
+        descuentoVigencia: null,
         plan: 'Plan Personal'
       };
       lastLooseLineNumber = null;
@@ -382,12 +402,24 @@ export const procesarPersonal = (textLines) => {
         }
       }
 
-      // Capturar porcentaje y monto de descuento del operador
+      // Capturar porcentaje, vigencia (meses) y monto de descuento del operador
       if (u.includes('DESCUENTO')) {
-        const descMatch = rawLine.match(/[Dd]escuento\s*(\d+)%/);
+        const descMatch = rawLine.match(/[Dd]escuento\s*(\d+)%/i);
         if (descMatch && !current.descuentoPct) {
           current.descuentoPct = descMatch[1] + '%';
         }
+
+        const mesesMatch = rawLine.match(/Mes\s*(\d+)\s*de\s*(\d+)/i);
+        if (mesesMatch) {
+          const mesActual = parseInt(mesesMatch[1], 10);
+          const mesesTotal = parseInt(mesesMatch[2], 10);
+          const mesesRestantes = Math.max(0, mesesTotal - mesActual);
+          current.descuentoMesActual = mesActual;
+          current.descuentoMesesTotal = mesesTotal;
+          current.descuentoMesesRestantes = mesesRestantes;
+          current.descuentoVigencia = `Mes ${mesActual} de ${mesesTotal}`;
+        }
+
         const negMatch = rawLine.match(/-[\s\$]*([\d\.,]+)/g) || rawLine.match(/-([\d\.]*,\d{1,2})(?!\d)/g);
         if (negMatch) {
           const lastNeg = negMatch[negMatch.length - 1];
@@ -530,6 +562,10 @@ export const procesarPersonal = (textLines) => {
         abonoStr: (finalMonto - netoExced * 1.21).toFixed(2),
         descuentoPct: r.descuentoPct || '',
         descuentoStr: (r.descuentoMonto * 1.21).toFixed(2),
+        descuentoMesActual: r.descuentoMesActual ?? null,
+        descuentoMesesTotal: r.descuentoMesesTotal ?? null,
+        descuentoMesesRestantes: r.descuentoMesesRestantes ?? null,
+        descuentoVigencia: r.descuentoVigencia || null,
         precioListaStr: r.precioLista ? r.precioLista.toFixed(2) : '',
         plan: r.plan,
         _bruto: r.bruto

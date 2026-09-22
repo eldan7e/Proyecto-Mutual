@@ -577,6 +577,21 @@ export function auditLineItem(item, dbInfo, context) {
     }
   }
 
+  // ALERTA DE VIGENCIA DE DESCUENTO (PERSONAL)
+  if (item.descuentoMesesRestantes !== undefined && item.descuentoMesesRestantes !== null) {
+    if (item.descuentoMesesRestantes === 0) {
+      alertas.push({
+        tipo: 'CRITICAL',
+        msg: `⚠️ VENCE DESCUENTO: Último mes (${item.descuentoVigencia || 'Vigencia finalizada'})`
+      });
+    } else if (item.descuentoMesesRestantes === 1) {
+      alertas.push({
+        tipo: 'INFO',
+        msg: `⏳ Promo por vencer: Queda 1 mes (${item.descuentoVigencia})`
+      });
+    }
+  }
+
   // AUDITORÍA: Comparación contra el mes pasado (SOLO ABONO BASE)
   const prevData = prevConsumosData.find(c => c.numero_linea && c.numero_linea.endsWith(item.telefono.slice(-10)));
   const prevAbonoBase = prevData ? Number(prevData.costo_abono_real) : 0;
@@ -592,7 +607,11 @@ export function auditLineItem(item, dbInfo, context) {
     auditStatus,
     alertas,
     prevAbonoBase,
-    variacion
+    variacion,
+    descuentoMesActual: item.descuentoMesActual ?? null,
+    descuentoMesesTotal: item.descuentoMesesTotal ?? null,
+    descuentoMesesRestantes: item.descuentoMesesRestantes ?? null,
+    descuentoVigencia: item.descuentoVigencia || null
   };
 }
 

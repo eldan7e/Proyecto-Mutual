@@ -36,6 +36,10 @@ export async function fetchLineasAndSocios() {
         proveedor_id,
         plan_id,
         descuento_esperado,
+        descuento_mes_actual,
+        descuento_meses_total,
+        descuento_meses_restantes,
+        descuento_vigencia,
         cargo_equipo,
         numero_grupo,
         socios(nombre_completo, socio_id, desc_adicionales, cta_numero, total_cuotas),
@@ -188,13 +192,31 @@ export async function saveFacturacion({
       }
     }
 
-    return {
+    const payload = {
       numero_linea: num,
       socio_id: existing?.socio_id || row.socioId || null,
       numero_grupo: existing?.numero_grupo || row.numero_grupo || 0,
       proveedor_id: proveedorId,
       plan_id: matchedPlanId,
     };
+
+    if (row.descuentoPctFactura !== undefined && row.descuentoPctFactura !== null) {
+      payload.descuento_esperado = row.descuentoPctFactura;
+    }
+    if (row.descuentoMesActual !== undefined && row.descuentoMesActual !== null) {
+      payload.descuento_mes_actual = row.descuentoMesActual;
+    }
+    if (row.descuentoMesesTotal !== undefined && row.descuentoMesesTotal !== null) {
+      payload.descuento_meses_total = row.descuentoMesesTotal;
+    }
+    if (row.descuentoMesesRestantes !== undefined && row.descuentoMesesRestantes !== null) {
+      payload.descuento_meses_restantes = row.descuentoMesesRestantes;
+    }
+    if (row.descuentoVigencia) {
+      payload.descuento_vigencia = row.descuentoVigencia;
+    }
+
+    return payload;
   }).filter(Boolean);
 
   const CHUNK = 50;
@@ -264,6 +286,11 @@ export async function saveFacturacion({
       precio_lista_factura: (proveedorId === 1 && row.precioOficial) 
         ? row.precioOficial 
         : (row.precioListaOriginal ? Number(row.precioListaOriginal) : null),
+      descuento_pct: row.descuentoPctFactura ?? null,
+      descuento_mes_actual: row.descuentoMesActual ?? null,
+      descuento_meses_total: row.descuentoMesesTotal ?? null,
+      descuento_meses_restantes: row.descuentoMesesRestantes ?? null,
+      descuento_vigencia: row.descuentoVigencia ?? null,
     };
   }).filter(Boolean);
 
