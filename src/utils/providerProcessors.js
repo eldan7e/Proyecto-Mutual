@@ -403,21 +403,25 @@ export const procesarPersonal = (textLines) => {
       }
 
       // Capturar porcentaje, vigencia (meses) y monto de descuento del operador
-      if (u.includes('DESCUENTO')) {
-        const descMatch = rawLine.match(/[Dd]escuento\s*(\d+)%/i);
+      if (u.includes('DESCUENTO') || u.includes('BONIFICACION') || u.includes('BONIF') || u.includes('MES') || (rawLine.includes('Mes') && (rawLine.includes('de') || rawLine.includes('/')))) {
+        const descMatch = rawLine.match(/(?:[Dd]escuento|[Bb]onificaci[oó]n)\s*(\d+)%/i);
         if (descMatch && !current.descuentoPct) {
           current.descuentoPct = descMatch[1] + '%';
         }
 
-        const mesesMatch = rawLine.match(/Mes\s*(\d+)\s*de\s*(\d+)/i);
-        if (mesesMatch) {
+        // Buscar vigencia en esta línea o en un snippet de hasta 6 líneas siguientes (soporta saltos de línea del PDF: "- Mes \n X de \n Y")
+        const snippet = lines.slice(idx, Math.min(lines.length, idx + 6)).join(' ');
+        const mesesMatch = snippet.match(/Mes\s*(\d+)\s*(?:de|\/)\s*(\d+)/i) || snippet.match(/(?:Promo|Vigencia)?\s*(\d+)\s*de\s*(\d+)/i);
+        if (mesesMatch && (current.descuentoMesesRestantes === null || current.descuentoMesesRestantes === undefined)) {
           const mesActual = parseInt(mesesMatch[1], 10);
           const mesesTotal = parseInt(mesesMatch[2], 10);
-          const mesesRestantes = Math.max(0, mesesTotal - mesActual);
-          current.descuentoMesActual = mesActual;
-          current.descuentoMesesTotal = mesesTotal;
-          current.descuentoMesesRestantes = mesesRestantes;
-          current.descuentoVigencia = `Mes ${mesActual} de ${mesesTotal}`;
+          if (mesesTotal >= mesActual && mesesTotal <= 36 && mesActual > 0) {
+            const mesesRestantes = Math.max(0, mesesTotal - mesActual);
+            current.descuentoMesActual = mesActual;
+            current.descuentoMesesTotal = mesesTotal;
+            current.descuentoMesesRestantes = mesesRestantes;
+            current.descuentoVigencia = `Mes ${mesActual} de ${mesesTotal}`;
+          }
         }
 
         const negMatch = rawLine.match(/-[\s\$]*([\d\.,]+)/g) || rawLine.match(/-([\d\.]*,\d{1,2})(?!\d)/g);
@@ -497,6 +501,12 @@ export const procesarPersonal = (textLines) => {
     fija.descuentoMonto += internetItem.descuentoMonto;
     if (!fija.descuentoPct && internetItem.descuentoPct) {
       fija.descuentoPct = internetItem.descuentoPct;
+    }
+    if (internetItem.descuentoMesesRestantes !== undefined && internetItem.descuentoMesesRestantes !== null) {
+      fija.descuentoMesActual = internetItem.descuentoMesActual;
+      fija.descuentoMesesTotal = internetItem.descuentoMesesTotal;
+      fija.descuentoMesesRestantes = internetItem.descuentoMesesRestantes;
+      fija.descuentoVigencia = internetItem.descuentoVigencia;
     }
     if (internetItem.precioLista) {
       fija.precioLista = (fija.precioLista || 0) + internetItem.precioLista;
