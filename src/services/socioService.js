@@ -1,5 +1,6 @@
 import { supabase } from '../supabaseClient';
 import { calculateAuditLine } from '../utils/auditEngine';
+import { registrarAuditoria } from '../utils/auditLogger';
 
 /**
  * Fetch all lines and processed consumos for a given socio.
@@ -387,4 +388,34 @@ export async function upsertSocioLinea(lineaData, currentNumeroLinea) {
       return await insertSocioLinea(lineaData);
     }
   }
+}
+
+/**
+ * Quick status updater for a line (Activa, Suspendida, Baja) with audit logging.
+ */
+export async function updateLineaEstado(numeroLinea, nuevoEstado, motivo = '') {
+  const { error } = await supabase
+    .from('lineas')
+    .update({ estado: nuevoEstado })
+    .eq('numero_linea', numeroLinea);
+
+  if (error) throw error;
+
+  await registrarAuditoria({
+    tipo_evento: 'CAMBIO_ESTADO_LINEA',
+    descripcion: `Línea ${numeroLinea} cambió a estado ${String(nuevoEstado).toUpperCase()}${motivo ? `. Motivo: ${motivo}` : ''}`,
+    numero_linea: numeroLinea
+  });
+}
+
+/**
+ * Direct updater for socio's internal notes.
+ */
+export async function updateSocioNotas(socioId, notasInternas) {
+  const { error } = await supabase
+    .from('socios')
+    .update({ notas_internas: notasInternas })
+    .eq('socio_id', socioId);
+
+  if (error) throw error;
 }

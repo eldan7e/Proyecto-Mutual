@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { fetchAuxDataForLineas, deleteSocioLinea, upsertSocioLinea, fetchAllLinesForAssociation } from '../../services/socioService';
+import { fetchAuxDataForLineas, deleteSocioLinea, upsertSocioLinea, fetchAllLinesForAssociation, updateLineaEstado, updateSocioNotas } from '../../services/socioService';
 import { supabase } from '../../supabaseClient';
-import { Plus, Edit2, Trash2, Smartphone, Loader2, Save, Link2, ArrowRightLeft, Search, UserCheck } from 'lucide-react';
+import { Plus, Edit2, Trash2, Smartphone, Loader2, Save, Link2, ArrowRightLeft, Search, UserCheck, PauseCircle, PlayCircle, ShieldAlert, CheckCircle, AlertTriangle } from 'lucide-react';
 import { globalToast } from '../ui/ToastProvider';
 import { globalConfirm } from '../ui/ConfirmProvider';
 import Modal from '../Modal';
@@ -13,6 +13,14 @@ export default function SocioLineas({ socio, onUpdate }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentLinea, setCurrentLinea] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  // Status modal states
+  const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
+  const [statusLinea, setStatusLinea] = useState(null);
+  const [selectedNewEstado, setSelectedNewEstado] = useState('Suspendida');
+  const [statusMotivo, setStatusMotivo] = useState('');
+  const [addNoteOnStatusChange, setAddNoteOnStatusChange] = useState(true);
+  const [statusSaving, setStatusSaving] = useState(false);
 
   // Modal mode: 'new' (add new line), 'associate' (associate existing), 'edit' (edit properties), 'transfer' (transfer to another socio)
   const [modalType, setModalType] = useState('new'); 
@@ -78,6 +86,49 @@ export default function SocioLineas({ socio, onUpdate }) {
       } catch (error) {
         globalToast.error(error.message || 'Error al eliminar línea');
       }
+    }
+  };
+
+  const openStatusModal = (linea) => {
+    setStatusLinea(linea);
+    const curr = String(linea.estado || '').toUpperCase();
+    if (curr === 'ACTIVA' || curr === 'ACTIVO') {
+      setSelectedNewEstado('Suspendida');
+    } else {
+      setSelectedNewEstado('Activa');
+    }
+    setStatusMotivo('');
+    setAddNoteOnStatusChange(true);
+    setIsStatusModalOpen(true);
+  };
+
+  const handleSaveStatus = async () => {
+    if (!statusLinea) return;
+    setStatusSaving(true);
+    try {
+      await updateLineaEstado(statusLinea.numero_linea, selectedNewEstado, statusMotivo);
+
+      // Guardar nota automática en el perfil del socio si está marcada la opción
+      if (addNoteOnStatusChange && socio?.socio_id) {
+        const now = new Date();
+        const formatted = now.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' + now.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+        const accionTexto = selectedNewEstado === 'Baja' ? 'DADA DE BAJA' : selectedNewEstado === 'Suspendida' ? 'SUSPENDIDA' : 'REACTIVADA (ACTIVA)';
+        const noteStamp = `\n[${formatted} - ${accionTexto}]: Línea ${statusLinea.numero_linea} pasó a estado ${selectedNewEstado}${statusMotivo ? `. Motivo: ${statusMotivo}` : ''}`;
+        const existingNotes = socio.notas_internas || '';
+        await updateSocioNotas(socio.socio_id, (existingNotes ? existingNotes.trimEnd() + noteStamp : noteStamp.trimStart()));
+      }
+
+      globalToast.success(`Línea ${statusLinea.numero_linea} actualizada a "${selectedNewEstado}"`);
+      setIsStatusModalOpen(false);
+      setStatusLinea(null);
+      const linesData = await fetchAllLinesForAssociation();
+      setAllLines(linesData || []);
+      onUpdate();
+    } catch (err) {
+      console.error('Error al cambiar estado de línea:', err);
+      globalToast.error(err.message || 'Error al cambiar estado de línea');
+    } finally {
+      setStatusSaving(false);
     }
   };
 
@@ -418,12 +469,52 @@ export default function SocioLineas({ socio, onUpdate }) {
                 </tr>
               ) : (
                 socio.lineas.map(linea => {
-                  const isActive = linea.estado?.toLowerCase() === 'activa';
+                  const normEst = String(linea.estado || '').toUpperCase();
+                  const isActiva = normEst === 'ACTIVA' || normEst === 'ACTIVO';
+                  const isSuspendida = normEst === 'SUSPENDIDA' || normEst === 'SUSPENDIDO';
+                  const isBaja = normEst === 'BAJA';
                   const provId = Number(linea.proveedor_id);
+
                   return (
-                    <tr key={linea.numero_linea}>
+                    <tr 
+                      key={linea.numero_linea}
+                      style={{ 
+                        background: isBaja ? 'rgba(239, 68, 68, 0.03)' : isSuspendida ? 'rgba(245, 158, 11, 0.03)' : 'transparent',
+                        opacity: isBaja ? 0.75 : 1
+                      }}
+                    >
                       <td style={{ fontWeight: 800 }}>
-                        <div>{linea.numero_linea}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ textDecoration: isBaja ? 'line-through' : 'none', color: isBaja ? '#dc2626' : 'var(--text-primary)' }}>
+                            {linea.numero_linea}
+                          </span>
+                          {isBaja && (
+                            <span style={{
+                              fontSize: '9.5px',
+                              fontWeight: 800,
+                              background: 'rgba(239, 68, 68, 0.15)',
+                              color: '#dc2626',
+                              border: '1px solid rgba(239, 68, 68, 0.3)',
+                              padding: '1px 5px',
+                              borderRadius: '4px'
+                            }}>
+                              BAJA
+                            </span>
+                          )}
+                          {isSuspendida && (
+                            <span style={{
+                              fontSize: '9.5px',
+                              fontWeight: 800,
+                              background: 'rgba(245, 158, 11, 0.15)',
+                              color: '#d97706',
+                              border: '1px solid rgba(245, 158, 11, 0.3)',
+                              padding: '1px 5px',
+                              borderRadius: '4px'
+                            }}>
+                              SUSP
+                            </span>
+                          )}
+                        </div>
                         {linea.socio_responsable_id && linea.socio_responsable_id !== socio.socio_id && (
                           <div style={{ 
                             fontSize: '11px', 
@@ -437,7 +528,7 @@ export default function SocioLineas({ socio, onUpdate }) {
                             <span style={{ 
                               padding: '2px 6px', 
                               borderRadius: '6px', 
-                              background: 'rgba(59, 130, 246, 0.08)',
+                              background: 'rgba(59, 130, 246, 0.08)', 
                               border: '1px solid rgba(59, 130, 246, 0.15)'
                             }}>
                               A cargo de: {linea.responsable?.nombre_completo || 'Cargando...'}
@@ -498,23 +589,74 @@ export default function SocioLineas({ socio, onUpdate }) {
                         )}
                       </td>
                       <td>
-                        <span style={{ 
-                          padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 800,
-                          background: isActive ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                          color: isActive ? '#10b981' : '#ef4444'
-                        }}>
-                          {linea.estado?.toUpperCase() || 'DESCONOCIDO'}
-                        </span>
+                        {isActiva ? (
+                          <span style={{ 
+                            padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 800,
+                            background: 'rgba(16, 185, 129, 0.1)', color: '#059669', border: '1px solid rgba(16, 185, 129, 0.25)',
+                            display: 'inline-flex', alignItems: 'center', gap: '4px'
+                          }}>
+                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }} />
+                            ACTIVA
+                          </span>
+                        ) : isSuspendida ? (
+                          <span style={{ 
+                            padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 800,
+                            background: 'rgba(245, 158, 11, 0.12)', color: '#d97706', border: '1px solid rgba(245, 158, 11, 0.3)',
+                            display: 'inline-flex', alignItems: 'center', gap: '4px'
+                          }}>
+                            <PauseCircle size={12} />
+                            SUSPENDIDA
+                          </span>
+                        ) : (
+                          <span style={{ 
+                            padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 800,
+                            background: 'rgba(239, 68, 68, 0.12)', color: '#dc2626', border: '1px solid rgba(239, 68, 68, 0.3)',
+                            display: 'inline-flex', alignItems: 'center', gap: '4px'
+                          }}>
+                            <ShieldAlert size={12} />
+                            DADA DE BAJA
+                          </span>
+                        )}
                       </td>
                       <td style={{ textAlign: 'center' }}>
-                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
+                          <button 
+                            onClick={() => openStatusModal(linea)} 
+                            title={isActiva ? "Suspender o Dar de Baja Línea" : "Reactivar o Cambiar Estado"}
+                            style={{
+                              padding: '6px 10px',
+                              borderRadius: '8px',
+                              fontSize: '11.5px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              transition: 'all 0.2s',
+                              border: isActiva ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid rgba(16, 185, 129, 0.3)',
+                              background: isActiva ? 'rgba(245, 158, 11, 0.08)' : 'rgba(16, 185, 129, 0.08)',
+                              color: isActiva ? '#d97706' : '#059669'
+                            }}
+                          >
+                            {isActiva ? (
+                              <>
+                                <PauseCircle size={13} />
+                                <span>Suspender / Baja</span>
+                              </>
+                            ) : (
+                              <>
+                                <PlayCircle size={13} />
+                                <span>Reactivar</span>
+                              </>
+                            )}
+                          </button>
                           <button onClick={() => openModal('transfer', linea)} title="Asignar Responsable de Pago" style={{
                             width: '32px', height: '32px', borderRadius: '8px', border: '1px solid rgba(59, 130, 246, 0.2)',
                             background: 'rgba(59, 130, 246, 0.06)', color: '#3b82f6', cursor: 'pointer',
                             display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s'
                           }}><ArrowRightLeft size={14} /></button>
-                          <button onClick={() => openModal('edit', linea)} className="icon-button-edit"><Edit2 size={16} /></button>
-                          <button onClick={() => handleDelete(linea.numero_linea)} className="icon-button-delete"><Trash2 size={16} /></button>
+                          <button onClick={() => openModal('edit', linea)} className="icon-button-edit" title="Editar Línea"><Edit2 size={16} /></button>
+                          <button onClick={() => handleDelete(linea.numero_linea)} className="icon-button-delete" title="Eliminar Línea"><Trash2 size={16} /></button>
                         </div>
                       </td>
                     </tr>
@@ -673,6 +815,212 @@ export default function SocioLineas({ socio, onUpdate }) {
             </button>
           </div>
         </Modal>
+
+        {/* Modal para Suspender, Dar de Baja o Reactivar Línea */}
+        <Modal
+          isOpen={isStatusModalOpen}
+          onClose={() => {
+            if (!statusSaving) {
+              setIsStatusModalOpen(false);
+              setStatusLinea(null);
+            }
+          }}
+          title={`Gestionar Estado de Línea: ${statusLinea?.numero_linea || ''}`}
+          maxWidth="520px"
+        >
+          {statusLinea && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Resumen actual */}
+              <div style={{
+                padding: '14px 16px',
+                borderRadius: '12px',
+                background: 'rgba(0,0,0,0.02)',
+                border: '1px solid var(--border-light)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase' }}>
+                    Línea Telefónica
+                  </div>
+                  <div style={{ fontSize: '18px', fontWeight: 900, color: 'var(--text-primary)', marginTop: '2px' }}>
+                    {statusLinea.numero_linea}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    {getProviderName(statusLinea.proveedor_id)} • {getPlanName(statusLinea.plan_id)}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>
+                    Estado Actual
+                  </div>
+                  <span style={{
+                    padding: '4px 10px',
+                    borderRadius: '10px',
+                    fontSize: '11.5px',
+                    fontWeight: 800,
+                    background: String(statusLinea.estado).toUpperCase() === 'ACTIVA' ? 'rgba(16, 185, 129, 0.15)' : String(statusLinea.estado).toUpperCase() === 'SUSPENDIDA' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                    color: String(statusLinea.estado).toUpperCase() === 'ACTIVA' ? '#059669' : String(statusLinea.estado).toUpperCase() === 'SUSPENDIDA' ? '#d97706' : '#dc2626'
+                  }}>
+                    {statusLinea.estado?.toUpperCase() || 'ACTIVA'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Opciones de Estado */}
+              <div>
+                <label className="form-label" style={{ fontWeight: 800, marginBottom: '8px' }}>
+                  Seleccioná el nuevo estado:
+                </label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  
+                  {/* Opción Activa */}
+                  <div
+                    onClick={() => setSelectedNewEstado('Activa')}
+                    style={{
+                      padding: '12px 16px',
+                      borderRadius: '12px',
+                      border: selectedNewEstado === 'Activa' ? '2px solid #10b981' : '1px solid var(--border-light)',
+                      background: selectedNewEstado === 'Activa' ? 'rgba(16, 185, 129, 0.08)' : 'transparent',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      transition: 'all 0.15s'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ width: '18px', height: '18px', borderRadius: '50%', border: selectedNewEstado === 'Activa' ? '5px solid #10b981' : '2px solid var(--border-light)', background: 'white' }} />
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: '13.5px', color: '#059669' }}>
+                          ✅ Activa / Habilitada
+                        </div>
+                        <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                          Línea regular en uso y habilitada para facturación normal.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Opción Suspendida */}
+                  <div
+                    onClick={() => setSelectedNewEstado('Suspendida')}
+                    style={{
+                      padding: '12px 16px',
+                      borderRadius: '12px',
+                      border: selectedNewEstado === 'Suspendida' ? '2px solid #f59e0b' : '1px solid var(--border-light)',
+                      background: selectedNewEstado === 'Suspendida' ? 'rgba(245, 158, 11, 0.08)' : 'transparent',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      transition: 'all 0.15s'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ width: '18px', height: '18px', borderRadius: '50%', border: selectedNewEstado === 'Suspendida' ? '5px solid #f59e0b' : '2px solid var(--border-light)', background: 'white' }} />
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: '13.5px', color: '#d97706' }}>
+                          ⏸️ Suspendida Temporalmente
+                        </div>
+                        <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                          Corte temporal por falta de pago o pausa de servicio (mantiene titular).
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Opción Baja */}
+                  <div
+                    onClick={() => setSelectedNewEstado('Baja')}
+                    style={{
+                      padding: '12px 16px',
+                      borderRadius: '12px',
+                      border: selectedNewEstado === 'Baja' ? '2px solid #ef4444' : '1px solid var(--border-light)',
+                      background: selectedNewEstado === 'Baja' ? 'rgba(239, 68, 68, 0.08)' : 'transparent',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      transition: 'all 0.15s'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ width: '18px', height: '18px', borderRadius: '50%', border: selectedNewEstado === 'Baja' ? '5px solid #ef4444' : '2px solid var(--border-light)', background: 'white' }} />
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: '13.5px', color: '#dc2626' }}>
+                          🛑 Dada de Baja Definitiva
+                        </div>
+                        <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                          Identifica que el número no está en uso y alertará si aparece en facturas.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+
+              {/* Motivo opcional */}
+              <div>
+                <label className="form-label">Motivo u observación del cambio (opcional)</label>
+                <input
+                  className="premium-input"
+                  style={{ width: '100%', padding: '12px' }}
+                  value={statusMotivo}
+                  onChange={(e) => setStatusMotivo(e.target.value)}
+                  placeholder="Ej: Robo de equipo / corte por mora / pedido voluntario..."
+                />
+              </div>
+
+              {/* Checkbox para asentar en notas */}
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', color: 'var(--text-secondary)', cursor: 'pointer', userSelect: 'none' }}>
+                <input
+                  type="checkbox"
+                  checked={addNoteOnStatusChange}
+                  onChange={(e) => setAddNoteOnStatusChange(e.target.checked)}
+                  style={{ cursor: 'pointer' }}
+                />
+                <span>Asentar automáticamente este cambio en las <strong>Notas del Socio</strong></span>
+              </label>
+
+              {/* Botones de acción */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '8px' }}>
+                <button
+                  type="button"
+                  className="pagination-btn-nav"
+                  onClick={() => {
+                    setIsStatusModalOpen(false);
+                    setStatusLinea(null);
+                  }}
+                  disabled={statusSaving}
+                  style={{ padding: '10px 18px', fontSize: '13px' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveStatus}
+                  disabled={statusSaving}
+                  className="action-button"
+                  style={{
+                    padding: '10px 24px',
+                    fontSize: '13px',
+                    fontWeight: 800,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    background: selectedNewEstado === 'Baja' ? '#dc2626' : selectedNewEstado === 'Suspendida' ? '#d97706' : '#059669'
+                  }}
+                >
+                  {statusSaving ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />}
+                  Confirmar a {selectedNewEstado.toUpperCase()}
+                </button>
+              </div>
+            </div>
+          )}
+        </Modal>
       </div>
 
       {/* Secondary panel for lines under charge */}
@@ -713,12 +1061,31 @@ export default function SocioLineas({ socio, onUpdate }) {
               </thead>
               <tbody>
                 {socio.lineasACargo.map(linea => {
-                  const isActive = linea.estado?.toLowerCase() === 'activa';
+                  const normEst = String(linea.estado || '').toUpperCase();
+                  const isActiva = normEst === 'ACTIVA' || normEst === 'ACTIVO';
+                  const isSuspendida = normEst === 'SUSPENDIDA' || normEst === 'SUSPENDIDO';
+                  const isBaja = normEst === 'BAJA';
                   const provId = Number(linea.proveedor_id);
                   const ownerName = linea.socios?.nombre_completo || 'Desconocido';
                   return (
-                    <tr key={linea.numero_linea}>
-                      <td style={{ fontWeight: 800 }}>{linea.numero_linea}</td>
+                    <tr key={linea.numero_linea} style={{ opacity: isBaja ? 0.75 : 1 }}>
+                      <td style={{ fontWeight: 800 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ textDecoration: isBaja ? 'line-through' : 'none', color: isBaja ? '#dc2626' : 'inherit' }}>
+                            {linea.numero_linea}
+                          </span>
+                          {isBaja && (
+                            <span style={{ fontSize: '9px', fontWeight: 800, background: 'rgba(239, 68, 68, 0.15)', color: '#dc2626', padding: '1px 5px', borderRadius: '4px' }}>
+                              BAJA
+                            </span>
+                          )}
+                          {isSuspendida && (
+                            <span style={{ fontSize: '9px', fontWeight: 800, background: 'rgba(245, 158, 11, 0.15)', color: '#d97706', padding: '1px 5px', borderRadius: '4px' }}>
+                              SUSP
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{ownerName}</td>
                       <td>
                         <span style={{ 
@@ -731,13 +1098,28 @@ export default function SocioLineas({ socio, onUpdate }) {
                       </td>
                       <td>{getPlanName(linea.plan_id)}</td>
                       <td>
-                        <span style={{ 
-                          padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 800,
-                          background: isActive ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                          color: isActive ? '#10b981' : '#ef4444'
-                        }}>
-                          {linea.estado?.toUpperCase() || 'DESCONOCIDO'}
-                        </span>
+                        {isActiva ? (
+                          <span style={{ 
+                            padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 800,
+                            background: 'rgba(16, 185, 129, 0.1)', color: '#059669', border: '1px solid rgba(16, 185, 129, 0.25)'
+                          }}>
+                            ACTIVA
+                          </span>
+                        ) : isSuspendida ? (
+                          <span style={{ 
+                            padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 800,
+                            background: 'rgba(245, 158, 11, 0.12)', color: '#d97706', border: '1px solid rgba(245, 158, 11, 0.3)'
+                          }}>
+                            SUSPENDIDA
+                          </span>
+                        ) : (
+                          <span style={{ 
+                            padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 800,
+                            background: 'rgba(239, 68, 68, 0.12)', color: '#dc2626', border: '1px solid rgba(239, 68, 68, 0.3)'
+                          }}>
+                            DADA DE BAJA
+                          </span>
+                        )}
                       </td>
                       <td style={{ textAlign: 'center' }}>
                         <button 

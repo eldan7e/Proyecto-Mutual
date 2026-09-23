@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, User, Phone, FileText } from 'lucide-react';
+import { ArrowLeft, User, Phone, FileText, StickyNote } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import SocioDatos from './SocioDatos';
 import SocioLineas from './SocioLineas';
 import SocioHistorial from './SocioHistorial';
+import SocioNotas from './SocioNotas';
 
 export default function SocioFicha({ id, onBack }) {
   const [socio, setSocio] = useState(null);
@@ -147,6 +148,28 @@ export default function SocioFicha({ id, onBack }) {
         >
           <FileText size={18} /> Historial
         </button>
+        <button 
+          onClick={() => setActiveTab('notas')}
+          style={{ 
+            background: 'none', border: 'none', 
+            padding: '12px 0', 
+            fontSize: '15px', fontWeight: '600',
+            color: activeTab === 'notas' ? 'var(--accent)' : 'var(--text-secondary)',
+            borderBottom: activeTab === 'notas' ? '2px solid var(--accent)' : '2px solid transparent',
+            cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: '8px'
+          }}
+        >
+          <StickyNote size={18} /> Notas {socio.notas_internas ? (
+            <span style={{ 
+              width: '8px', 
+              height: '8px', 
+              borderRadius: '50%', 
+              background: '#eab308',
+              boxShadow: '0 0 6px rgba(234, 179, 8, 0.6)'
+            }} title="Tiene notas registradas" />
+          ) : null}
+        </button>
       </div>
 
       {/* Content */}
@@ -159,6 +182,9 @@ export default function SocioFicha({ id, onBack }) {
         )}
         {activeTab === 'historial' && (
           <SocioHistorial socio={socio} />
+        )}
+        {activeTab === 'notas' && (
+          <SocioNotas socio={socio} onUpdate={fetchSocio} />
         )}
       </div>
     </div>

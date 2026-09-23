@@ -1,11 +1,12 @@
 // Sincronización final - Auditoría Aunar 2026 - OK
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { supabase } from './supabaseClient';
 import { 
   Loader2, Calculator, CheckCircle2, AlertCircle, Save, 
   Calendar, Search, Filter, ArrowRight, Download, RefreshCw,
   TrendingUp, Users, ShieldCheck, DollarSign, Edit2, X, Trash2,
-  Settings2, AlertTriangle, ArrowUpDown, ChevronDown, ChevronUp
+  Settings2, AlertTriangle, ArrowUpDown, ChevronDown, ChevronUp,
+  Percent
 } from 'lucide-react';
 
 import { useSearchParams, Link } from 'react-router-dom';
@@ -72,17 +73,87 @@ export default function GestionPagos() {
   }), []);
 
   const [filterAumentos, setFilterAumentos] = useState(false);
+  const [filterBonificacion, setFilterBonificacion] = useState(false);
+  const [filterBonifPct, setFilterBonifPct] = useState(null);
+  const [showBonifDropdown, setShowBonifDropdown] = useState(false);
+
+  // Helper para obtener el % de bonificación de una línea
+  const getBonifPct = useCallback((d) => {
+    if (d.calculado?.operatorDiscountPct !== undefined && d.calculado?.operatorDiscountPct !== null && Number(d.calculado.operatorDiscountPct) > 0) {
+      return Math.round(Number(d.calculado.operatorDiscountPct));
+    }
+    if (d.calculado?.movistarAudit?.actualDiscountPct !== undefined && d.calculado?.movistarAudit?.actualDiscountPct !== null && Number(d.calculado.movistarAudit.actualDiscountPct) > 0) {
+      return Math.round(Number(d.calculado.movistarAudit.actualDiscountPct));
+    }
+    if (d.descuento_pct !== undefined && d.descuento_pct !== null && Number(d.descuento_pct) > 0) {
+      return Math.round(Number(d.descuento_pct));
+    }
+    const pLista = Number(d.precio_lista_audit || d.lineas?.planes_abonos?.precio || 0);
+    const costo = Number(d.costo_abono_real || d.calculado?.baseAb || 0);
+    if (pLista > 0 && costo > 0 && costo < pLista) {
+      return Math.round(((pLista - costo) / pLista) * 100);
+    }
+    return null;
+  }, []);
+
+  // Calcular grupos de % de bonificación presentes en los datos
+  const bonifGroups = useMemo(() => {
+    if (!lineasData || !lineasData.length) return [];
+    const countByPct = new Map();
+    lineasData.forEach(d => {
+      const pct = getBonifPct(d);
+      if (pct !== null && pct >= 0 && pct <= 100) {
+        countByPct.set(pct, (countByPct.get(pct) || 0) + 1);
+      }
+    });
+    return Array.from(countByPct.entries())
+      .sort((a, b) => b[0] - a[0])
+      .map(([pct, count]) => ({ pct, count }));
+  }, [lineasData, getBonifPct]);
+
+  // Cerrar dropdown de bonificación al hacer clic afuera
+  useEffect(() => {
+    if (!showBonifDropdown) return;
+    const close = () => setShowBonifDropdown(false);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [showBonifDropdown]);
 
   const processedDataForFilters = useMemo(() => {
-    if (!filterAumentos) return lineasData;
-    return lineasData.filter(d => {
-      const hasPortabilityWarning = !!d.calculado?.portabilityWarning;
-      const isMovistarUnmet = d.calculado?.movistarAudit && !d.calculado.movistarAudit.meetsAgreement;
-      const hasDiscountAlert = d.calculado?.hasDiscountAlert || d.calculado?.auditStatus === 'WARN';
-      const hasExcedentes = (d.calculado?.excedentes || 0) > 0;
-      return hasPortabilityWarning || isMovistarUnmet || hasDiscountAlert || hasExcedentes;
-    });
-  }, [lineasData, filterAumentos]);
+    let data = lineasData;
+
+    if (filterBonifPct !== null) {
+      data = data.filter(d => getBonifPct(d) === filterBonifPct);
+    } else if (filterBonificacion) {
+      const hasAnyBonifAlert = lineasData.some(d => 
+        d.calculado?.hasDiscountAlert || 
+        (d.calculado?.movistarAudit && !d.calculado.movistarAudit.meetsAgreement)
+      );
+      if (hasAnyBonifAlert) {
+        data = data.filter(d => 
+          d.calculado?.hasDiscountAlert || 
+          (d.calculado?.movistarAudit && !d.calculado.movistarAudit.meetsAgreement)
+        );
+      } else {
+        data = data.filter(d => {
+          const pct = getBonifPct(d);
+          return pct !== null && pct > 0;
+        });
+      }
+    }
+
+    if (filterAumentos) {
+      data = data.filter(d => {
+        const hasPortabilityWarning = !!d.calculado?.portabilityWarning;
+        const isMovistarUnmet = d.calculado?.movistarAudit && !d.calculado.movistarAudit.meetsAgreement;
+        const hasDiscountAlert = d.calculado?.hasDiscountAlert || d.calculado?.auditStatus === 'WARN';
+        const hasExcedentes = (d.calculado?.excedentes || 0) > 0;
+        return hasPortabilityWarning || isMovistarUnmet || hasDiscountAlert || hasExcedentes;
+      });
+    }
+
+    return data;
+  }, [lineasData, filterAumentos, filterBonificacion, filterBonifPct, getBonifPct]);
 
   const {
     search,
@@ -343,6 +414,9 @@ export default function GestionPagos() {
     setGlobalDiscount(0);
     setGlobalDiscountType('$');
     setFilterAumentos(false);
+    setFilterBonificacion(false);
+    setFilterBonifPct(null);
+    setShowBonifDropdown(false);
     
     const periodo = selectedPeriodo;
     const providerId = parseInt(selectedProveedor);
@@ -791,12 +865,153 @@ export default function GestionPagos() {
                 onChange={e => setSearchTerm(e.target.value)} 
               />
             </div>
+            {/* Botón: Priorizar Bonificación + Dropdown de % */}
+            <div style={{ position: 'relative', display: 'inline-flex' }} onClick={e => e.stopPropagation()}>
+              <button 
+                onClick={() => {
+                  setFilterAumentos(false);
+                  setShowBonifDropdown(false);
+                  if (filterBonifPct !== null || filterBonificacion) {
+                    setFilterBonificacion(false);
+                    setFilterBonifPct(null);
+                  } else {
+                    setFilterBonificacion(true);
+                  }
+                }}
+                style={{ 
+                  height: '42px',
+                  padding: '0 14px',
+                  background: (filterBonificacion || filterBonifPct !== null) ? 'rgba(168, 85, 247, 0.1)' : 'var(--surface)', 
+                  color: (filterBonificacion || filterBonifPct !== null) ? '#9333ea' : 'var(--text-secondary)',
+                  border: `1px solid ${(filterBonificacion || filterBonifPct !== null) ? '#9333ea' : 'var(--border-light)'}`,
+                  borderRight: 'none',
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '8px',
+                  borderRadius: '14px 0 0 14px',
+                  fontSize: '13px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+                title={filterBonifPct !== null || filterBonificacion ? "Quitar filtro de bonificación" : "Priorizar o filtrar por bonificación"}
+              >
+                <Percent size={16} /> 
+                <span>{filterBonifPct !== null ? `Bonif: ${filterBonifPct}%` : 'Priorizar Bonificación'}</span>
+              </button>
+              <button
+                title="Ver distribución de % de bonificación"
+                onClick={() => setShowBonifDropdown(prev => !prev)}
+                style={{
+                  height: '42px',
+                  padding: '0 10px',
+                  background: showBonifDropdown || filterBonifPct !== null || filterBonificacion ? 'rgba(168, 85, 247, 0.18)' : 'var(--surface)',
+                  color: (filterBonifPct !== null || filterBonificacion) ? '#9333ea' : 'var(--text-secondary)',
+                  border: `1px solid ${(filterBonifPct !== null || filterBonificacion) ? '#9333ea' : 'var(--border-light)'}`,
+                  borderRadius: '0 14px 14px 0',
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  fontSize: '12px', 
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                ▾
+              </button>
+
+              {/* Dropdown de % de bonificación */}
+              {showBonifDropdown && (
+                <div style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  left: 0,
+                  minWidth: '230px',
+                  background: 'var(--modal-bg, #ffffff)',
+                  border: '1px solid var(--border-light)',
+                  borderRadius: '14px',
+                  boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                  zIndex: 1000,
+                  overflow: 'hidden'
+                }}>
+                  <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-light)', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>
+                    % BONIFICACIÓN POR GRUPO
+                  </div>
+                  {/* Opción para quitar el filtro */}
+                  <div
+                    onClick={() => { setFilterBonifPct(null); setFilterBonificacion(false); setShowBonifDropdown(false); }}
+                    style={{
+                      padding: '9px 14px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      borderBottom: '1px solid var(--border-light)',
+                      background: (filterBonifPct === null && !filterBonificacion) ? 'rgba(168, 85, 247, 0.08)' : 'transparent',
+                      color: (filterBonifPct === null && !filterBonificacion) ? '#9333ea' : 'var(--text-secondary)',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      transition: 'background 0.15s'
+                    }}
+                    onMouseEnter={e => { if (filterBonifPct !== null || filterBonificacion) e.currentTarget.style.background = 'rgba(168, 85, 247, 0.05)'; }}
+                    onMouseLeave={e => { if (filterBonifPct !== null || filterBonificacion) e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    <span>Todas las líneas</span>
+                    <span style={{ fontSize: '10px', background: 'var(--border-light)', padding: '2px 6px', borderRadius: '6px', fontWeight: 800 }}>{lineasData.length}</span>
+                  </div>
+                  {bonifGroups.length === 0 ? (
+                    <div style={{ padding: '12px 14px', fontSize: '12px', color: 'var(--text-secondary)' }}>Sin datos de bonificación</div>
+                  ) : (
+                    bonifGroups.map(({ pct, count }) => (
+                      <div
+                        key={pct}
+                        onClick={() => {
+                          setFilterBonifPct(pct);
+                          setFilterBonificacion(true);
+                          setFilterAumentos(false);
+                          setShowBonifDropdown(false);
+                        }}
+                        style={{
+                          padding: '9px 14px',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          borderBottom: '1px solid var(--border-light)',
+                          background: filterBonifPct === pct ? 'rgba(168, 85, 247, 0.1)' : 'transparent',
+                          color: filterBonifPct === pct ? '#9333ea' : 'var(--text-primary)',
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          transition: 'background 0.15s'
+                        }}
+                        onMouseEnter={e => { if (filterBonifPct !== pct) e.currentTarget.style.background = 'rgba(168, 85, 247, 0.05)'; }}
+                        onMouseLeave={e => { if (filterBonifPct !== pct) e.currentTarget.style.background = 'transparent'; }}
+                      >
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ color: '#9333ea' }}>●</span>
+                          Bonif. {pct}%
+                        </span>
+                        <span style={{
+                          fontSize: '10px',
+                          background: filterBonifPct === pct ? 'rgba(168, 85, 247, 0.15)' : 'var(--border-light)',
+                          color: filterBonifPct === pct ? '#9333ea' : 'var(--text-secondary)',
+                          padding: '2px 7px', borderRadius: '6px', fontWeight: 800
+                        }}>{count} líneas</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
             <button 
-              onClick={() => setFilterAumentos(!filterAumentos)}
+              onClick={() => {
+                setFilterBonificacion(false);
+                setFilterBonifPct(null);
+                setShowBonifDropdown(false);
+                setFilterAumentos(!filterAumentos);
+              }}
               className="icon-button-edit" 
               style={{ 
-                height: '40px', 
-                width: '40px', 
+                height: '42px', 
+                width: '42px', 
                 background: filterAumentos ? 'rgba(239, 68, 68, 0.1)' : 'var(--surface)', 
                 color: filterAumentos ? '#ef4444' : 'var(--text-secondary)',
                 border: `1px solid ${filterAumentos ? '#ef4444' : 'var(--border-light)'}`,
@@ -804,6 +1019,7 @@ export default function GestionPagos() {
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: 'pointer',
+                borderRadius: '14px',
                 transition: 'all 0.15s ease'
               }}
               title={filterAumentos ? "Mostrar todos" : "Filtrar aumentos, desvíos y excedentes"}

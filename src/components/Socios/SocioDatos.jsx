@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Loader2, TrendingUp, Users, AlertCircle } from 'lucide-react';
+import { Save, Loader2, TrendingUp, Users, AlertCircle, StickyNote } from 'lucide-react';
 import { globalToast } from '../ui/ToastProvider';
 import { upsertSocioDatos } from '../../services/socioService';
 import { supabase } from '../../supabaseClient';
@@ -296,6 +296,23 @@ export default function SocioDatos({ socio, onUpdate }) {
             <input className="premium-input" style={{ width: '100%', padding: '14px' }} type="number" name="total_cuotas" defaultValue={socio?.total_cuotas || 0} min="0" />
           </div>
         </div>
+      </div>
+
+      <div className="glass-panel" style={{ padding: '32px', borderRadius: '24px' }}>
+        <div style={{ fontSize: '13px', fontWeight: 900, color: 'var(--accent)', textTransform: 'uppercase', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <StickyNote size={16} /> Notas Internas y Observaciones
+        </div>
+        <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginTop: 0, marginBottom: '12px' }}>
+          Anotaciones privadas del socio para el equipo administrativo (bajas solicitadas, suspensiones, acuerdos especiales).
+        </p>
+        <textarea
+          className="premium-input"
+          style={{ width: '100%', padding: '14px', lineHeight: 1.5, resize: 'vertical' }}
+          name="notas_internas"
+          rows={4}
+          defaultValue={socio?.notas_internas || ''}
+          placeholder="Escribí notas u observaciones aquí..."
+        />
       </div>
 
       <button type="submit" className="action-button" style={{ padding: '16px', borderRadius: '16px', fontSize: '16px' }} disabled={loading}>

@@ -254,7 +254,41 @@ export default function LiquidacionesSocio({
                       )}
                     </td>
                     <td>
-                      <div style={{ fontWeight: 700 }}>{d.numero_linea}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ 
+                          fontWeight: 700, 
+                          textDecoration: String(d.lineas?.estado || '').toUpperCase() === 'BAJA' ? 'line-through' : 'none',
+                          color: String(d.lineas?.estado || '').toUpperCase() === 'BAJA' ? '#dc2626' : 'inherit'
+                        }}>
+                          {d.numero_linea}
+                        </span>
+                        {String(d.lineas?.estado || '').toUpperCase() === 'BAJA' && (
+                          <span style={{
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            fontSize: '9.5px',
+                            fontWeight: 800,
+                            background: '#fee2e2',
+                            color: '#b91c1c',
+                            border: '1px solid #f87171'
+                          }} title="Línea dada de baja en la base de datos">
+                            🛑 DADA DE BAJA
+                          </span>
+                        )}
+                        {(String(d.lineas?.estado || '').toUpperCase() === 'SUSPENDIDA' || String(d.lineas?.estado || '').toUpperCase() === 'SUSPENDIDO') && (
+                          <span style={{
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            fontSize: '9.5px',
+                            fontWeight: 800,
+                            background: '#fef3c7',
+                            color: '#b45309',
+                            border: '1px solid #fcd34d'
+                          }} title="Línea suspendida en la base de datos">
+                            ⏸️ SUSPENDIDA
+                          </span>
+                        )}
+                      </div>
                       <div style={{ fontSize: '11px', opacity: 0.6 }}>{d.lineas?.planes_abonos?.nombre_plan || 'Plan S/D'}</div>
                     </td>
                     <td style={{ textAlign: 'right', fontWeight: 600 }}>
