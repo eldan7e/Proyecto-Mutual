@@ -263,6 +263,7 @@ const GridRow = React.memo(function GridRow({ row, selectedProvider, dbLines, al
   const isError = row.montoFactura < row.abono;
   const cleanLineaNum = String(row.linea || '').replace(/\D/g, '');
   const hasOpenTicket = openTickets ? openTickets.has(cleanLineaNum) : false;
+  const hasVigencia = row.descuentoMesesRestantes !== undefined && row.descuentoMesesRestantes !== null;
 
   return (
     <tr className={isError ? 'row-error' : ''} style={{ 

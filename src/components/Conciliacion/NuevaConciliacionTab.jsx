@@ -41,7 +41,8 @@ export default function NuevaConciliacionTab({
   fetchPeriodSummary,
   fetchDbMovementsForPeriod,
   setActiveTab,
-  conciliacionHistorica = []
+  conciliacionHistorica = [],
+  handleOlvidarAprendizaje
 }) {
   // Local states to isolate typing and filter re-renders from parent
   const confirm = useConfirm();
@@ -1112,20 +1113,27 @@ export default function NuevaConciliacionTab({
             comprobante: payment.comprobante
           });
 
-          // 3. Registrar aprendizaje histórico (confianza máxima 98%)
-          if (payment.cuit || payment.cbu) {
-            await registrarAprendizajeHistorico({
-              cuit: payment.cuit,
-              cbu: payment.cbu,
-              nombreTransferente: payment.titular || payment.concepto,
-              numeroGrupo: gNum,
-              socioId: liq?.socio_id || null,
-              socioNombre: socioLabel,
-              banco: banco,
-              monto: payment.monto,
-              periodo: periodoTarget,
-              confianza: 98
-            });
+          // 3. Registrar aprendizaje histórico SOLO si hay coherencia de nombre comprobable
+          if ((payment.cuit || payment.cbu) && socio?.nombre_completo) {
+            const transferNameClean = String(payment.titular || payment.concepto || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            const socioNameClean = String(socio.nombre_completo || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            const sWords = socioNameClean.split(/[^a-z0-9]+/).filter(w => w.length >= 3);
+            const matchesName = sWords.some(w => transferNameClean.includes(w));
+
+            if (matchesName) {
+              await registrarAprendizajeHistorico({
+                cuit: payment.cuit,
+                cbu: payment.cbu,
+                nombreTransferente: payment.titular || payment.concepto,
+                numeroGrupo: gNum,
+                socioId: liq?.socio_id || null,
+                socioNombre: socioLabel,
+                banco: banco,
+                monto: payment.monto,
+                periodo: periodoTarget,
+                confianza: 65
+              });
+            }
           }
 
           successCount++;
@@ -1203,19 +1211,26 @@ export default function NuevaConciliacionTab({
                 comprobante: payment.comprobante
               });
 
-              if (payment.cuit || payment.cbu) {
-                await registrarAprendizajeHistorico({
-                  cuit: payment.cuit,
-                  cbu: payment.cbu,
-                  nombreTransferente: payment.titular || payment.concepto,
-                  numeroGrupo: gNum,
-                  socioId: liq?.socio_id || null,
-                  socioNombre: socioLabel,
-                  banco: banco,
-                  monto: cuotaParte,
-                  periodo: periodoTarget,
-                  confianza: 98
-                });
+              if ((payment.cuit || payment.cbu) && socio?.nombre_completo) {
+                const transferNameClean = String(payment.titular || payment.concepto || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                const socioNameClean = String(socio.nombre_completo || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                const sWords = socioNameClean.split(/[^a-z0-9]+/).filter(w => w.length >= 3);
+                const matchesName = sWords.some(w => transferNameClean.includes(w));
+
+                if (matchesName) {
+                  await registrarAprendizajeHistorico({
+                    cuit: payment.cuit,
+                    cbu: payment.cbu,
+                    nombreTransferente: payment.titular || payment.concepto,
+                    numeroGrupo: gNum,
+                    socioId: liq?.socio_id || null,
+                    socioNombre: socioLabel,
+                    banco: banco,
+                    monto: cuotaParte,
+                    periodo: periodoTarget,
+                    confianza: 65
+                  });
+                }
               }
 
               multiGroupAnyApplied = true;
@@ -2403,6 +2418,35 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                        }}>
                                          {row.suggestedSocio.reason} (Confianza: {row.suggestedSocio.confianza}%, {row.suggestedSocio.vecesVisto}x visto)
                                        </span>
+                                        {handleOlvidarAprendizaje && (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleOlvidarAprendizaje({
+                                              id: row.suggestedSocio.learnedId,
+                                              cuit: row.suggestedSocio.learnedCuit,
+                                              cbu: row.suggestedSocio.learnedCbu,
+                                              numeroGrupo: row.suggestedSocio.learnedGroup,
+                                              socioLabel: row.suggestedSocio.socio?.nombre_completo || row.selectedSocioLabel
+                                            })}
+                                            title="Olvidar y desvincular esta memoria histórica si es errónea"
+                                            style={{
+                                              background: 'rgba(239, 68, 68, 0.08)',
+                                              border: '1px solid rgba(239, 68, 68, 0.25)',
+                                              color: '#dc2626',
+                                              cursor: 'pointer',
+                                              padding: '1px 5px',
+                                              borderRadius: '4px',
+                                              fontSize: '10px',
+                                              fontWeight: 600,
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: '2px',
+                                              marginLeft: '4px'
+                                            }}
+                                          >
+                                            ✕ Olvidar
+                                          </button>
+                                        )}
                                      </div>
                                    )}
                                    {row.suggestedSocio && !row.selectedSocioId && (
