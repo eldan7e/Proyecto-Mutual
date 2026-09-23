@@ -377,45 +377,70 @@ const GridRow = React.memo(function GridRow({ row, selectedProvider, dbLines, al
                       (Esp: {expectedPct}%)
                     </span>
                     {hasVigencia && (
-                      <span style={{ 
-                        fontSize: '9px', 
-                        padding: '1px 5px', 
-                        borderRadius: '4px',
-                        fontWeight: 700,
-                        marginTop: '2px',
-                        background: isExpiring ? 'rgba(239, 68, 68, 0.12)' : 'rgba(99, 102, 241, 0.12)',
-                        color: isExpiring ? '#dc2626' : '#4f46e5',
-                        border: isExpiring ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(99, 102, 241, 0.2)'
-                      }} title={`Mes ${row.descuentoMesActual} de ${row.descuentoMesesTotal} (${row.descuentoMesesRestantes} restantes)`}>
-                        {isExpiring ? '⚠️ Vence este mes' : `${row.descuentoMesActual}/${row.descuentoMesesTotal} (${row.descuentoMesesRestantes}m)`}
-                      </span>
-                    )}
-                    {hasVigencia && onCreateTicket && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          onCreateTicket(row);
+                          if (onCreateTicket && !hasOpenTicket) {
+                            onCreateTicket(row);
+                          }
                         }}
                         style={{
-                          background: hasOpenTicket ? 'rgba(100, 116, 139, 0.1)' : (isExpiring || row.descuentoMesesRestantes <= 1) ? 'rgba(239, 68, 68, 0.12)' : 'rgba(99, 102, 241, 0.1)',
-                          color: hasOpenTicket ? '#64748b' : (isExpiring || row.descuentoMesesRestantes <= 1) ? '#dc2626' : '#4f46e5',
-                          border: hasOpenTicket ? '1px solid #cbd5e1' : (isExpiring || row.descuentoMesesRestantes <= 1) ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(99, 102, 241, 0.25)',
-                          borderRadius: '4px',
-                          padding: '2px 5px',
-                          fontSize: '8.5px',
+                          background: hasOpenTicket
+                            ? 'rgba(16, 185, 129, 0.12)'
+                            : isExpiring
+                            ? 'rgba(239, 68, 68, 0.14)'
+                            : (row.descuentoMesesRestantes <= 1)
+                            ? 'rgba(249, 115, 22, 0.14)'
+                            : 'rgba(99, 102, 241, 0.12)',
+                          color: hasOpenTicket
+                            ? '#059669'
+                            : isExpiring
+                            ? '#dc2626'
+                            : (row.descuentoMesesRestantes <= 1)
+                            ? '#ea580c'
+                            : '#4f46e5',
+                          border: hasOpenTicket
+                            ? '1px solid rgba(16, 185, 129, 0.35)'
+                            : isExpiring
+                            ? '1px solid rgba(239, 68, 68, 0.35)'
+                            : (row.descuentoMesesRestantes <= 1)
+                            ? '1px solid rgba(249, 115, 22, 0.35)'
+                            : '1px solid rgba(99, 102, 241, 0.25)',
+                          padding: '3px 8px',
+                          borderRadius: '6px',
+                          fontSize: '9.5px',
                           fontWeight: 800,
                           cursor: hasOpenTicket ? 'default' : 'pointer',
                           display: 'inline-flex',
                           alignItems: 'center',
-                          gap: '3px',
+                          gap: '4px',
                           marginTop: '3px',
-                          whiteSpace: 'nowrap'
+                          transition: 'all 0.15s ease',
+                          boxShadow: hasOpenTicket ? 'none' : '0 1px 3px rgba(0,0,0,0.06)'
                         }}
                         disabled={hasOpenTicket}
-                        title={hasOpenTicket ? 'Ya existe un ticket abierto de vencimiento en Tareas' : 'Crear ticket de gestión en Tareas (VENCIMIENTO BONIFICACION)'}
+                        title={
+                          hasOpenTicket
+                            ? '✓ Ticket de vencimiento ya creado y asignado en Tareas'
+                            : `Clic para crear y asignar Ticket "VENCIMIENTO BONIFICACION" en Tareas (${row.descuentoMesActual}/${row.descuentoMesesTotal} - ${row.descuentoMesesRestantes}m restantes)`
+                        }
                       >
-                        <Ticket size={9} />
-                        {hasOpenTicket ? 'Ticket Creado' : 'Crear Ticket'}
+                        {hasOpenTicket ? (
+                          <>
+                            <Check size={11} color="#059669" />
+                            <span>Ticket Asignado</span>
+                          </>
+                        ) : isExpiring ? (
+                          <>
+                            <span>⚠️ Vence este mes</span>
+                            <span style={{ fontSize: '8px', opacity: 0.85, textDecoration: 'underline' }}>(+ Ticket)</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>{row.descuentoMesActual}/{row.descuentoMesesTotal} ({row.descuentoMesesRestantes}m)</span>
+                            <span style={{ fontSize: '8px', opacity: 0.85, textDecoration: 'underline' }}>(+ Ticket)</span>
+                          </>
+                        )}
                       </button>
                     )}
                   </div>

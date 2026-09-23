@@ -63,6 +63,16 @@ export async function crearTicketVencimientoBonificacion({
 
   const priority = (mesesRestantes !== null && mesesRestantes !== undefined && mesesRestantes <= 1) ? 'urgente' : 'alta';
 
+  let currentUserId = null;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user) {
+      currentUserId = session.user.id;
+    }
+  } catch (authErr) {
+    console.warn('Could not get auth session for ticket assignment:', authErr);
+  }
+
   const { data, error } = await supabase
     .from('todos')
     .insert([{
@@ -71,7 +81,10 @@ export async function crearTicketVencimientoBonificacion({
       priority,
       status: 'pendiente',
       sla_days: (mesesRestantes === 0) ? 2 : 5,
-      numero_linea: cleanLinea
+      numero_linea: cleanLinea,
+      user_id: currentUserId,
+      assigned_to: currentUserId,
+      created_at: new Date().toISOString()
     }])
     .select()
     .single();
@@ -81,7 +94,7 @@ export async function crearTicketVencimientoBonificacion({
   return {
     success: true,
     data,
-    message: `Ticket creado exitosamente para la línea ${linea}`
+    message: `Ticket creado y asignado exitosamente para la línea ${linea}`
   };
 }
 
