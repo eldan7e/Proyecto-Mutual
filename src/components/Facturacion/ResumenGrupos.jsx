@@ -230,7 +230,22 @@ export default function ResumenGrupos({
                                             {sl.lineas?.socios?.nombre_completo || 'Titular de Línea'}
                                           </td>
                                           <td style={{ padding: '12px 8px', fontFamily: 'monospace', color: 'var(--text-primary)', borderBottom: '1px solid var(--border-light)' }}>
-                                            {sl.numero_linea}
+                                            <span style={{ 
+                                              textDecoration: String(sl.lineas?.estado || '').toUpperCase() === 'BAJA' ? 'line-through' : 'none',
+                                              color: String(sl.lineas?.estado || '').toUpperCase() === 'BAJA' ? '#dc2626' : 'inherit'
+                                            }}>
+                                              {sl.numero_linea}
+                                            </span>
+                                            {String(sl.lineas?.estado || '').toUpperCase() === 'BAJA' && (
+                                              <span style={{ marginLeft: '6px', padding: '1px 5px', borderRadius: '4px', fontSize: '9px', fontWeight: 800, background: '#fee2e2', color: '#b91c1c', border: '1px solid #f87171' }}>
+                                                BAJA
+                                              </span>
+                                            )}
+                                            {(String(sl.lineas?.estado || '').toUpperCase() === 'SUSPENDIDA' || String(sl.lineas?.estado || '').toUpperCase() === 'SUSPENDIDO') && (
+                                              <span style={{ marginLeft: '6px', padding: '1px 5px', borderRadius: '4px', fontSize: '9px', fontWeight: 800, background: '#fef3c7', color: '#b45309', border: '1px solid #fcd34d' }}>
+                                                SUSP
+                                              </span>
+                                            )}
                                           </td>
                                           <td style={{ padding: '12px 8px', color: 'var(--text-primary)', borderBottom: '1px solid var(--border-light)' }}>
                                             {sl.lineas?.planes_abonos?.nombre_plan || 'Plan S/D'}
