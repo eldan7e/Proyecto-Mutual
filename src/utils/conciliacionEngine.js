@@ -165,6 +165,10 @@ export const extractConceptMetadata = (concepto = '', detectedBanco = 'AUTO') =>
   const dniMatch = normConcept.match(/\b\d{8}\b/);
   const extractedDni = dniMatch ? dniMatch[0] : null;
 
+  // 8. Extraer Número de Comprobante / Ticket si está en el concepto
+  const cpbteMatch = rawUpper.match(/(?:CPBTE|COMPROBANTE|TICKET|COMP|S\/CRED|NRO\.?\s*CPBTE|NRO\.?\s*MOV|MOV)\s*[:#.-]?\s*(\d{3,10})\b/i);
+  const extractedComprobante = cpbteMatch ? cpbteMatch[1] : null;
+
   return {
     banco,
     cuit: primaryCuit,
@@ -174,7 +178,8 @@ export const extractConceptMetadata = (concepto = '', detectedBanco = 'AUTO') =>
     transferWords: transferNameWords,
     explicitGroup,
     explicitNroSocio,
-    dni: extractedDni
+    dni: extractedDni,
+    comprobante: extractedComprobante
   };
 };
 

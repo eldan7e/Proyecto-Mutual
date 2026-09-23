@@ -2182,6 +2182,7 @@ export default function ConciliacionBancaria() {
           socio_id: row.selectedSocioId ? parseInt(row.selectedSocioId, 10) : null,
           liquidacion_id: null,
           tipo_movimiento: 'CONCILIACION_GRUPO_MASTER',
+          comprobante: row.comprobante || null,
           periodo: selectedPeriod || '2026-02'
         };
 
@@ -2259,6 +2260,7 @@ export default function ConciliacionBancaria() {
             socio_id: row.selectedSocioId ? parseInt(row.selectedSocioId, 10) : null,
             liquidacion_id: singleLiqId ? parseInt(singleLiqId, 10) : null,
             tipo_movimiento: row.tipo_movimiento,
+            comprobante: row.comprobante || null,
             periodo: matchedLiq?.periodo || selectedPeriod || '2026-02'
           })
           .select();
@@ -2307,7 +2309,7 @@ export default function ConciliacionBancaria() {
               nombre: row.selectedSocioLabel || `Grupo ${groupNum}`,
               importe: Number(row.netoReal),
               medio_pago: row.banco || 'TRANSFERENCIA',
-              observaciones: `Conciliación Bancaria - ${row.concepto}`,
+              observaciones: `Conciliación Bancaria - ${row.concepto}${row.comprobante ? ` (Cpbte: ${row.comprobante})` : ''}`,
               periodo: selectedPeriod || null,
               skipLiqUpdate: true
             });
@@ -2915,6 +2917,18 @@ export default function ConciliacionBancaria() {
         const maxDateObj = new Date(maxDate + 'T23:59:59');
         maxDateObj.setDate(maxDateObj.getDate() + 4);
         const queryMaxDate = maxDateObj.toISOString().split('T')[0];
+
+        // Extraer comprobantes del lote para ampliar la búsqueda en base de datos
+        const loteCpbteList = datosProcesados
+          .map(m => {
+            let c = (m.comprobante || '').trim();
+            if (!c) {
+              const meta = extractConceptMetadata(m.concepto, bankOption);
+              if (meta.comprobante) c = meta.comprobante;
+            }
+            return c;
+          })
+          .filter(c => c && c.length >= 3);
         
         const { data: dbData, error: dbError } = await supabase
           .from('movimientos_bancarios')
@@ -2927,28 +2941,81 @@ export default function ConciliacionBancaria() {
             socio_id,
             liquidacion_id,
             tipo_movimiento,
+            comprobante,
             liquidaciones_grupos(periodo, numero_grupo, monto_total_facturado)
           `)
           .gte('fecha_movimiento', queryMinDate)
           .lte('fecha_movimiento', queryMaxDate);
         
+        let allMovsList = dbData || [];
+
+        // Si hay números de comprobante en el extracto, buscar si ya existen en la DB sin importar desfase de fecha
+        if (loteCpbteList.length > 0) {
+          const { data: cpbteDbData } = await supabase
+            .from('movimientos_bancarios')
+            .select(`
+              movimiento_id,
+              fecha_movimiento,
+              concepto,
+              monto,
+              banco,
+              socio_id,
+              liquidacion_id,
+              tipo_movimiento,
+              comprobante,
+              liquidaciones_grupos(periodo, numero_grupo, monto_total_facturado)
+            `)
+            .in('comprobante', loteCpbteList);
+
+          if (cpbteDbData && cpbteDbData.length > 0) {
+            const movMap = new Map();
+            allMovsList.forEach(m => movMap.set(m.movimiento_id, m));
+            cpbteDbData.forEach(m => movMap.set(m.movimiento_id, m));
+            allMovsList = Array.from(movMap.values());
+          }
+        }
+        
         if (dbError) {
           console.error("Error al consultar movimientos existentes:", dbError);
         } else {
-          existingMovs = dbData || [];
+          existingMovs = allMovsList;
         }
 
         const { data: mcData, error: mcError } = await supabase
           .from('movimientos_cuenta')
-          .select('id, fecha, numero_grupo, nombre, importe, tipo, medio_pago, observaciones, liquidacion_id, periodo')
+          .select('id, fecha, numero_grupo, nombre, importe, tipo, medio_pago, observaciones, liquidacion_id, periodo, numero_linea')
           .eq('tipo', 'PAGO')
           .gte('fecha', queryMinDate)
           .lte('fecha', queryMaxDate);
 
+        let allMcList = mcData || [];
+        if (loteCpbteList.length > 0) {
+          // Cotejar también pagos recientes por comprobante en observaciones
+          const { data: recentMc } = await supabase
+            .from('movimientos_cuenta')
+            .select('id, fecha, numero_grupo, nombre, importe, tipo, medio_pago, observaciones, liquidacion_id, periodo, numero_linea')
+            .eq('tipo', 'PAGO')
+            .order('fecha', { ascending: false })
+            .limit(200);
+
+          if (recentMc) {
+            const matchingByObs = recentMc.filter(mc => {
+              const obs = mc.observaciones || '';
+              return loteCpbteList.some(c => obs.includes(c));
+            });
+            if (matchingByObs.length > 0) {
+              const mcMap = new Map();
+              allMcList.forEach(m => mcMap.set(m.id, m));
+              matchingByObs.forEach(m => mcMap.set(m.id, m));
+              allMcList = Array.from(mcMap.values());
+            }
+          }
+        }
+
         if (mcError) {
           console.error("Error al consultar movimientos_cuenta existentes:", mcError);
         } else {
-          existingCuentaMovs = mcData || [];
+          existingCuentaMovs = allMcList;
         }
       }
 
@@ -3010,22 +3077,54 @@ export default function ConciliacionBancaria() {
         const rowDateISO = parseDateToISODate(m.fecha);
         const normalize = (str) => (str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
         const rowConc = normalize(m.concepto);
+
+        // Extraer comprobante si no vino explícito
+        let cleanCpbte = (m.comprobante || '').trim();
+        if (!cleanCpbte) {
+          const metaCpbte = extractConceptMetadata(m.concepto, detectedBanco).comprobante;
+          if (metaCpbte) cleanCpbte = metaCpbte;
+        }
         
-        // Paso 1: Buscar match directo en movimientos_bancarios (mismo banco, monto igual, fecha exacta o margen de 3 días)
-        let matchIndex = existingMovsPool.findIndex(dbMov => {
-          if (Math.abs(Number(dbMov.monto) - m.netoReal) >= 0.01 || dbMov.banco !== detectedBanco) {
+        let matchIndex = -1;
+
+        // Paso 0: PRIORIDAD MÁXIMA - Buscar match directo por Número de Comprobante en movimientos_bancarios
+        if (cleanCpbte && cleanCpbte.length >= 3) {
+          matchIndex = existingMovsPool.findIndex(dbMov => {
+            const dbCpbte = (dbMov.comprobante || '').trim();
+            if (dbCpbte && dbCpbte === cleanCpbte) {
+              return true;
+            }
+            if (dbMov.concepto && dbMov.concepto.includes(cleanCpbte)) {
+              if (Math.abs(Number(dbMov.monto) - m.netoReal) < 0.05) {
+                return true;
+              }
+            }
             return false;
-          }
-          const dbConc = normalize(dbMov.concepto);
-          const isConcMatch = dbConc === rowConc || dbConc.includes(rowConc) || rowConc.includes(dbConc);
-          if (dbMov.fecha_movimiento === rowDateISO) {
-            return isConcMatch;
-          }
-          if (isConcMatch && Math.abs(new Date(dbMov.fecha_movimiento + 'T00:00:00') - new Date(rowDateISO + 'T00:00:00')) <= 3 * 86400000) {
-            return true;
-          }
-          return false;
-        });
+          });
+        }
+
+        // Paso 1: Si no hubo match por comprobante, buscar por banco, monto igual y concepto/fecha
+        if (matchIndex === -1) {
+          matchIndex = existingMovsPool.findIndex(dbMov => {
+            if (Math.abs(Number(dbMov.monto) - m.netoReal) >= 0.02 || dbMov.banco !== detectedBanco) {
+              return false;
+            }
+            const dbConc = normalize(dbMov.concepto);
+            const isConcMatch = dbConc === rowConc || dbConc.includes(rowConc) || rowConc.includes(dbConc);
+            if (dbMov.fecha_movimiento === rowDateISO) {
+              return isConcMatch;
+            }
+            // En Banco Nación, los extractos solo traen conceptos genéricos ("TRANSF.INT..." o "CR TRANSFERENCIA...");
+            // si el banco y el importe coinciden dentro de un margen de 4 días, se empareja directamente:
+            if (detectedBanco === 'NACION' && Math.abs(new Date(dbMov.fecha_movimiento + 'T00:00:00') - new Date(rowDateISO + 'T00:00:00')) <= 4 * 86400000) {
+              return true;
+            }
+            if (isConcMatch && Math.abs(new Date(dbMov.fecha_movimiento + 'T00:00:00') - new Date(rowDateISO + 'T00:00:00')) <= 3 * 86400000) {
+              return true;
+            }
+            return false;
+          });
+        }
 
         // Paso 2: Si no hay match directo, buscar splits de conciliación multi-liquidación
         // (múltiples filas en DB cuyo concepto contiene el concepto original y cuyos montos suman ~netoReal)
@@ -3082,12 +3181,23 @@ export default function ConciliacionBancaria() {
           socioGroups = [...socioGroups, suggestion.learnedGroup];
         }
 
-        // Paso 3: Verificar si el pago ya impactó en movimientos_cuenta
+        // Paso 3: Verificar si el pago ya impactó en movimientos_cuenta (por Comprobante o por Nombre/Grupo)
         let isCuentaMatch = false;
+        let matchedCuentaObj = null;
         if (matchIndex === -1 && !isMultiLiqMatch && m.netoReal > 0 && existingCuentaMovs.length > 0) {
-          const matchedCuenta = existingCuentaMovs.find(mc => {
+          matchedCuentaObj = existingCuentaMovs.find(mc => {
             const mcMonto = Math.abs(Number(mc.importe || 0));
             if (Math.abs(mcMonto - m.netoReal) > 0.05) return false;
+
+            // 3a. Coincidencia por comprobante en observaciones o numero_linea
+            if (cleanCpbte && cleanCpbte.length >= 3) {
+              const obs = mc.observaciones || '';
+              if (obs.includes(cleanCpbte) || mc.numero_linea === cleanCpbte) {
+                return true;
+              }
+            }
+
+            // 3b. Coincidencia por nombre o grupo
             const mcNombre = normalize(mc.nombre);
             const mcObs = normalize(mc.observaciones);
             const isNameInConc = mcNombre && (rowConc.includes(mcNombre) || mcNombre.includes(rowConc));
@@ -3095,8 +3205,26 @@ export default function ConciliacionBancaria() {
             const isGroupMatch = mc.numero_grupo && socioGroups.includes(mc.numero_grupo);
             return isNameInConc || isObsInConc || isGroupMatch;
           });
-          if (matchedCuenta) {
+
+          if (matchedCuentaObj) {
             isCuentaMatch = true;
+          }
+        }
+
+        // Si se encontró en movimientos_cuenta pero aún no tenía socio asignado en la fila:
+        if (!targetSocio && matchedCuentaObj && matchedCuentaObj.numero_grupo) {
+          const gTitularId = titularMap[matchedCuentaObj.numero_grupo];
+          if (gTitularId) {
+            targetSocio = socios.find(s => s.socio_id === gTitularId);
+          } else {
+            targetSocio = socios.find(s => s.grupo_socio?.some(gs => gs.numero_grupo === matchedCuentaObj.numero_grupo));
+          }
+          if (targetSocio) {
+            dbSocioId = targetSocio.socio_id;
+            dbLabel = `${targetSocio.nombre_completo} (Socio ${targetSocio.nro_socio || ''})`;
+            if (!socioGroups.includes(matchedCuentaObj.numero_grupo)) {
+              socioGroups = [...socioGroups, matchedCuentaObj.numero_grupo];
+            }
           }
         }
 
@@ -3151,30 +3279,34 @@ export default function ConciliacionBancaria() {
         let warningMsg = '';
         let isDuplicateCpbte = false;
 
-        if (m.comprobante) {
-          const cleanCpbte = m.comprobante.trim();
-          if (cleanCpbte.length >= 3) {
-            // 1. Duplicado interno (en lote)
-            const isInternalDup = datosProcesados.some((other, oIdx) => 
-              oIdx !== index && 
-              other.comprobante && 
-              other.comprobante.trim() === cleanCpbte
-            );
+        if (cleanCpbte && cleanCpbte.length >= 3) {
+          // 1. Duplicado interno (en lote)
+          const isInternalDup = datosProcesados.some((other, oIdx) => 
+            oIdx !== index && 
+            other.comprobante && 
+            other.comprobante.trim() === cleanCpbte
+          );
 
-            // 2. Duplicado en base de datos (excluyendo la coincidencia legítima si ya se concilió a través de matchIndex)
-            const hasAnotherDbMov = existingMovs.some(dbMov => 
-              dbMov !== matchedDbMov && 
-              dbMov.concepto?.includes(cleanCpbte)
-            );
+          // 2. Duplicado en base de datos
+          const hasAnotherDbMov = existingMovs.some(dbMov => 
+            dbMov !== matchedDbMov && 
+            ((dbMov.comprobante && dbMov.comprobante.trim() === cleanCpbte) ||
+             (dbMov.concepto && dbMov.concepto.includes(cleanCpbte) && Math.abs(Number(dbMov.monto) - m.netoReal) < 0.05))
+          );
 
-            if (isInternalDup) {
-              warningMsg = `Comprobante #${cleanCpbte} repetido en lote`;
-              isDuplicateCpbte = true;
-            } else if (hasAnotherDbMov) {
-              warningMsg = `Comprobante #${cleanCpbte} ya registrado en base de datos`;
-              isDuplicateCpbte = true;
-            }
+          if (isInternalDup) {
+            warningMsg = `Comprobante #${cleanCpbte} repetido en lote`;
+            isDuplicateCpbte = true;
+          } else if (hasAnotherDbMov || matchIndex !== -1) {
+            warningMsg = `Comprobante #${cleanCpbte} ya procesado en base de datos`;
+            isDuplicateCpbte = true;
           }
+        }
+
+        const isActuallyDuplicate = matchIndex !== -1 || isCuentaMatch || isMultiLiqMatch || isDuplicateCpbte;
+        if (isActuallyDuplicate) {
+          initialEstado = 'CONCILIADO';
+          isAlreadyPaidMatch = true;
         }
 
         let selectedLiqs = [];
@@ -3190,7 +3322,7 @@ export default function ConciliacionBancaria() {
           id: index,
           fecha: m.fecha,
           concepto: m.concepto,
-          comprobante: m.comprobante || '',
+          comprobante: cleanCpbte,
           ingresoBruto: m.ingresoBruto,
           impuestos: m.impuestos,
           netoReal: m.netoReal,
@@ -3206,8 +3338,8 @@ export default function ConciliacionBancaria() {
           matchedLiquidationIds: matchedIds,
           selectedLines: defaultLines,
           estado: initialEstado,
-          isDbDuplicate: matchIndex !== -1 || isMultiLiqMatch || isCuentaMatch,
-          isAlreadyPaidMatch: isAlreadyPaidMatch,
+          isDbDuplicate: isActuallyDuplicate,
+          isAlreadyPaidMatch: isActuallyDuplicate || isAlreadyPaidMatch,
           movimiento_id: matchedDbMov ? matchedDbMov.movimiento_id : null,
           dbLiquidationInfo: matchedDbMov ? matchedDbMov.liquidaciones_grupos : null,
           warningMsg: warningMsg,

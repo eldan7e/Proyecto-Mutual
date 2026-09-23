@@ -2229,6 +2229,17 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                 }}>
                                   {row.banco}
                                 </span>
+                                {row.comprobante && (
+                                  <span style={{ 
+                                    fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '6px',
+                                    background: 'rgba(0, 0, 0, 0.05)',
+                                    color: 'var(--text-secondary)',
+                                    display: 'inline-block',
+                                    marginLeft: '4px'
+                                  }} title={`Número de comprobante: ${row.comprobante}`}>
+                                    #{row.comprobante}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </td>
@@ -2896,7 +2907,7 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                     <span style={{ fontSize: '10px', color: '#10b981', fontWeight: 500 }}>(Guardado en DB)</span>
                                   ) : (
                                     <span style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 500 }}>
-                                      {row.isAlreadyPaidMatch ? '(Pago ya impactó)' : '(Ignorado / Duplicado)'}
+                                      {row.isAlreadyPaidMatch || row.isDbDuplicate ? '(Pago ya impactó)' : '(Ignorado / Duplicado)'}
                                     </span>
                                   )}
                                 </div>
@@ -2947,7 +2958,7 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                             ) : (
                               (() => {
                                 let isAlreadySaldada = false;
-                                if (row.isAlreadyPaidMatch) {
+                                if (row.isAlreadyPaidMatch || row.isDbDuplicate || row.estado === 'CONCILIADO') {
                                   isAlreadySaldada = true;
                                 } else if (row.selectedLiquidations && row.selectedLiquidations.length > 0) {
                                   isAlreadySaldada = row.selectedLiquidations.every(liqId => {
