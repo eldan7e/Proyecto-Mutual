@@ -263,6 +263,12 @@ export const fetchConciliacionHistorica = async () => {
  * @param {Object} item - Datos del aprendizaje.
  * @returns {Promise<void>}
  */
+/**
+ * Registra o actualiza un aprendizaje de CUIT/CBU -> Grupo/Socio.
+ * Escala la confianza progresivamente según la cantidad de veces visto.
+ * @param {Object} item - Datos del aprendizaje.
+ * @returns {Promise<void>}
+ */
 export const registrarAprendizajeHistorico = async ({
   cuit,
   cbu,
@@ -273,7 +279,7 @@ export const registrarAprendizajeHistorico = async ({
   banco,
   monto,
   periodo,
-  confianza = 95
+  confianza = 60
 }) => {
   if (!numeroGrupo || (!cuit && !cbu)) return;
   const cleanCuit = cuit ? String(cuit).replace(/\D/g, '') : null;
@@ -288,6 +294,12 @@ export const registrarAprendizajeHistorico = async ({
       .maybeSingle();
 
     if (existing) {
+      const newVeces = (existing.veces_visto || 1) + 1;
+      let calculatedConfianza = 60;
+      if (newVeces === 2) calculatedConfianza = 75;
+      else if (newVeces === 3) calculatedConfianza = 88;
+      else if (newVeces >= 4) calculatedConfianza = Math.min(99, 90 + newVeces);
+
       await supabase
         .from('conciliacion_historica')
         .update({
@@ -296,14 +308,16 @@ export const registrarAprendizajeHistorico = async ({
           socio_id: socioId ? parseInt(socioId, 10) : undefined,
           socio_nombre: socioNombre || undefined,
           banco: banco || undefined,
-          veces_visto: (existing.veces_visto || 1) + 1,
+          veces_visto: newVeces,
           ultimo_monto: monto ? Number(monto) : undefined,
           ultimo_periodo: periodo || undefined,
-          confianza: Math.min(99, Math.max(existing.confianza || 80, confianza) + 2),
+          confianza: Math.max(calculatedConfianza, Math.min(99, confianza)),
           updated_at: new Date().toISOString()
         })
         .eq('id', existing.id);
     } else {
+      // 1ra vez visto: confianza moderada inicial (máx 65% salvo que sea manual explícito)
+      const initialConfianza = Math.min(confianza || 60, 65);
       await supabase
         .from('conciliacion_historica')
         .insert({
@@ -317,10 +331,44 @@ export const registrarAprendizajeHistorico = async ({
           veces_visto: 1,
           ultimo_monto: monto ? Number(monto) : null,
           ultimo_periodo: periodo || null,
-          confianza: confianza || 90
+          confianza: initialConfianza
         });
     }
   } catch (err) {
     console.warn('Aviso al registrar aprendizaje histórico:', err.message);
+  }
+};
+
+/**
+ * Elimina un aprendizaje histórico por CUIT, CBU o ID para olvidar una asociación errónea.
+ * @param {Object} param - { id, cuit, cbu, numeroGrupo }
+ * @returns {Promise<boolean>}
+ */
+export const olvidarAprendizajeHistorico = async ({ id, cuit, cbu, numeroGrupo }) => {
+  try {
+    let query = supabase.from('conciliacion_historica').delete();
+    if (id) {
+      query = query.eq('id', id);
+    } else if (cuit || cbu) {
+      const cleanCuit = cuit ? String(cuit).replace(/\D/g, '') : null;
+      if (cleanCuit && cbu) {
+        query = query.or(`cuit_transferente.eq.${cleanCuit},cbu_transferente.eq.${cbu}`);
+      } else if (cleanCuit) {
+        query = query.eq('cuit_transferente', cleanCuit);
+      } else {
+        query = query.eq('cbu_transferente', cbu);
+      }
+      if (numeroGrupo) {
+        query = query.eq('numero_grupo', parseInt(numeroGrupo, 10));
+      }
+    } else {
+      return false;
+    }
+    const { error } = await query;
+    if (error) throw error;
+    return true;
+  } catch (err) {
+    console.error('Error al olvidar aprendizaje histórico:', err);
+    return false;
   }
 };

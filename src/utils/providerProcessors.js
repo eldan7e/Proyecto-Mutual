@@ -379,14 +379,16 @@ export const procesarPersonal = (textLines) => {
 
     // 8. DETALLES, EXCEDENTES Y DESCUENTOS DENTRO DEL BLOQUE ACTUAL
     if (current) {
-      // Capturar nombre del plan si aún no se asignó o es genérico (soporta saltos de línea del PDF: "Plan \n 4 GB")
+      // Capturar nombre del plan si aún no se asignó o es genérico (soporta saltos de línea del PDF: "Plan \n 4 GB", "Plan Control Business \n 10 GB")
       if (u.includes('PLAN') && (current.plan === 'Plan Personal' || current.plan === 'Plan Fijo')) {
-        const planSnippet = lines.slice(idx, Math.min(lines.length, idx + 4)).join(' ');
-        const planMatch = planSnippet.match(/Plan\s*(\d+\s*GB(?:\s*Control)?|\d+\s*MB)/i);
+        const planSnippet = lines.slice(idx, Math.min(lines.length, idx + 6)).join(' ');
+        // Coincidir con planes con cantidad de gigas/megas, incluyendo prefijos como "Control Business 10 GB", "10 GB Control", etc.
+        const planMatch = planSnippet.match(/Plan\s*([A-Za-z0-9\s]*?\b\d+\s*(?:GB|MB)(?:\s*Control)?)/i);
         if (planMatch) {
           current.plan = 'Plan ' + planMatch[1].trim();
         } else {
-          const genericPlanMatch = rawLine.match(/Plan\s*([A-Za-z0-9\s]+?)(?=\s*\(|\s*¹|\s+\d|\s+-|\s+\$|$)/i);
+          // El lookahead evita detenerse en números de GB/MB (ej. "10 GB"), deteniéndose solo ante columnas numéricas (cantidad) o importes
+          const genericPlanMatch = rawLine.match(/Plan\s*([A-Za-z0-9\s]+?)(?=\s*\(|\s*¹|\s+\d+(?!\s*(?:GB|MB))\b|\s+-|\s+\$|$)/i);
           if (genericPlanMatch && !genericPlanMatch[1].toUpperCase().includes('SERVICIOS')) {
             current.plan = 'Plan ' + genericPlanMatch[1].trim();
           }
@@ -394,19 +396,29 @@ export const procesarPersonal = (textLines) => {
       }
 
       if (u.includes('PLAN') || u.includes('INTERNET')) {
-        const priceSnippet = lines.slice(idx, Math.min(lines.length, idx + 4)).join(' ');
-        const planPriceMatch = priceSnippet.match(/\b\d\s+([\d\.]*,\d{2})(?:\s+[\w\/\%]+)*\s+([\d\.]*,\d{2})\b/);
-        if (planPriceMatch && !current.precioLista) {
-          const listPriceNet = parsePersonalNumber(planPriceMatch[2] || planPriceMatch[1]);
+        const priceSnippet = lines.slice(idx, Math.min(lines.length, idx + 8)).join(' ');
+        // Extraer montos del plan antes de llegar a la sección de descuento
+        const preDiscountText = priceSnippet.split(/-|\bDescuento\b|\bBonificaci[oó]n\b/i)[0];
+        const amounts = preDiscountText.match(/\b(?:\d{1,3}\.)?\d{2,3},\d{2}\b/g);
+        if (amounts && amounts.length > 0 && !current.precioLista) {
+          const listPriceNet = parsePersonalNumber(amounts[amounts.length - 1]);
           if (listPriceNet > 1000) {
             current.precioLista = listPriceNet * 1.21;
+          }
+        } else {
+          const planPriceMatch = priceSnippet.match(/\b\d\s+([\d\.]*,\d{2})(?:\s+[\w\/\%]+)*\s+([\d\.]*,\d{2})\b/);
+          if (planPriceMatch && !current.precioLista) {
+            const listPriceNet = parsePersonalNumber(planPriceMatch[2] || planPriceMatch[1]);
+            if (listPriceNet > 1000) {
+              current.precioLista = listPriceNet * 1.21;
+            }
           }
         }
       }
 
       // Capturar porcentaje, vigencia (meses) y monto de descuento del operador
       if (u.includes('DESCUENTO') || u.includes('BONIFICACION') || u.includes('BONIF') || u.includes('MES') || (rawLine.includes('Mes') && (rawLine.includes('de') || rawLine.includes('/')))) {
-        const descSnippet = lines.slice(idx, Math.min(lines.length, idx + 4)).join(' ');
+        const descSnippet = lines.slice(idx, Math.min(lines.length, idx + 6)).join(' ');
         const descMatch = descSnippet.match(/(?:[Dd]escuento|[Bb]onificaci[oó]n)\s*(\d+)%/i);
         if (descMatch && !current.descuentoPct) {
           current.descuentoPct = descMatch[1] + '%';
@@ -427,13 +439,28 @@ export const procesarPersonal = (textLines) => {
           }
         }
 
+        let descVal = 0;
         const negMatch = rawLine.match(/-[\s\$]*([\d\.,]+)/g) || rawLine.match(/-([\d\.]*,\d{1,2})(?!\d)/g);
         if (negMatch) {
           const lastNeg = negMatch[negMatch.length - 1];
           const cleanNeg = lastNeg.replace(/[^\d\.,\-]/g, '');
-          const descVal = parsePersonalNumber(cleanNeg);
+          descVal = parsePersonalNumber(cleanNeg);
+        } else {
+          // Si el monto negativo está en una línea subsiguiente (salto de línea del PDF)
+          const descSnippetNeg = lines.slice(idx, Math.min(lines.length, idx + 6)).join(' ');
+          const snippetNegMatch = descSnippetNeg.match(/-[\s\$]*([\d\.,]+)/g) || descSnippetNeg.match(/-([\d\.]*,\d{1,2})(?!\d)/g);
+          if (snippetNegMatch) {
+            const lastNeg = snippetNegMatch[snippetNegMatch.length - 1];
+            const cleanNeg = lastNeg.replace(/[^\d\.,\-]/g, '');
+            descVal = parsePersonalNumber(cleanNeg);
+          }
+        }
+
+        if (descVal !== 0 && (!current._seenDiscounts || !current._seenDiscounts.has(descVal))) {
+          if (!current._seenDiscounts) current._seenDiscounts = new Set();
+          current._seenDiscounts.add(descVal);
           current.descuentoMonto += descVal;
-          if (!current.descuentoPct && current.precioLista && descVal > 0) {
+          if (!current.descuentoPct && current.precioLista && descVal !== 0) {
             const rawPlNet = current.precioLista / 1.21;
             if (rawPlNet > 0) {
               const calcPct = Math.round((Math.abs(descVal) / rawPlNet) * 100);
