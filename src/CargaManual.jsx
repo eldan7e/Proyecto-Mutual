@@ -218,12 +218,13 @@ export default function CargaManual() {
       }
 
       if (prevPeriodToFetch) {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('consumos_mensuales')
-          .select('*, lineas(plan_id, planes_abonos(gb_incluidos, tarifa_aunar))')
+          .select('*')
           .eq('periodo', prevPeriodToFetch)
           .eq('proveedor_id', currentProvId);
         
+        if (error) console.error("Error loading prevConsumosData:", error);
         setPrevConsumosData(data || []);
       } else {
         setPrevConsumosData([]);
@@ -231,6 +232,37 @@ export default function CargaManual() {
     }
     loadPrevMonth();
   }, [periodo, selectedProvider]);
+
+  // Sincronizar prevAbonoBase en fileData si prevConsumosData se carga o actualiza
+  useEffect(() => {
+    if (!fileData || fileData.length === 0 || !prevConsumosData || prevConsumosData.length === 0) return;
+    setFileData(prevRows => {
+      let hasChanges = false;
+      const updated = prevRows.map(row => {
+        if (!row.prevAbonoBase || row.prevAbonoBase === 0) {
+          const cleanTel = (row.linea || '').replace(/\D/g, '');
+          const prevMatch = prevConsumosData.find(c => {
+            if (!c.numero_linea) return false;
+            const cleanC = String(c.numero_linea).replace(/\D/g, '');
+            if (cleanTel && cleanC && cleanTel === cleanC) return true;
+            if (cleanTel.length >= 10 && cleanC.length >= 10) {
+              return cleanTel.slice(-10) === cleanC.slice(-10);
+            }
+            return false;
+          });
+          if (prevMatch && Number(prevMatch.costo_abono_real) > 0) {
+            hasChanges = true;
+            return {
+              ...row,
+              prevAbonoBase: Number(prevMatch.costo_abono_real)
+            };
+          }
+        }
+        return row;
+      });
+      return hasChanges ? updated : prevRows;
+    });
+  }, [prevConsumosData]);
 
   const [existingPeriods, setExistingPeriods] = useState([]);
   useEffect(() => {
@@ -267,7 +299,39 @@ export default function CargaManual() {
     }
 
     setIsProcessing(true);
-      setTimeout(() => {
+
+    let currentPrevConsumos = prevConsumosData;
+    if (!currentPrevConsumos || currentPrevConsumos.length === 0) {
+      try {
+        const provMap = { 'claro': 1, 'movistar': 2, 'personal': 3 };
+        const currentProvId = provMap[selectedProvider];
+        if (currentProvId && periodo) {
+          const { data: latestPeriods } = await supabase
+            .from('consumos_mensuales')
+            .select('periodo')
+            .eq('proveedor_id', currentProvId)
+            .lt('periodo', periodo)
+            .order('periodo', { ascending: false })
+            .limit(1);
+
+          if (latestPeriods && latestPeriods.length > 0) {
+            const { data } = await supabase
+              .from('consumos_mensuales')
+              .select('*')
+              .eq('periodo', latestPeriods[0].periodo)
+              .eq('proveedor_id', currentProvId);
+            if (data && data.length > 0) {
+              currentPrevConsumos = data;
+              setPrevConsumosData(data);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Error preloading prevConsumosData in handleProcesar:", err);
+      }
+    }
+
+    setTimeout(() => {
       try {
         const lines = rawData.split(/\r?\n/);
         let finalResults = [];
@@ -299,7 +363,7 @@ export default function CargaManual() {
           const auditData = auditLineItem(item, dbInfo, {
             selectedProvider,
             periodPrices,
-            prevConsumosData,
+            prevConsumosData: currentPrevConsumos,
             parseNum,
             periodo,
             providerDiscounts

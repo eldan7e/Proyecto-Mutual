@@ -594,7 +594,16 @@ export function auditLineItem(item, dbInfo, context) {
   }
 
   // AUDITORÍA: Comparación contra el mes pasado (SOLO ABONO BASE)
-  const prevData = prevConsumosData.find(c => c.numero_linea && c.numero_linea.endsWith(item.telefono.slice(-10)));
+  const cleanTel = (item.telefono || '').replace(/\D/g, '');
+  const prevData = prevConsumosData.find(c => {
+    if (!c.numero_linea) return false;
+    const cleanC = String(c.numero_linea).replace(/\D/g, '');
+    if (cleanTel && cleanC && cleanTel === cleanC) return true;
+    if (cleanTel.length >= 10 && cleanC.length >= 10) {
+      return cleanTel.slice(-10) === cleanC.slice(-10);
+    }
+    return false;
+  });
   const prevAbonoBase = prevData ? Number(prevData.costo_abono_real) : 0;
   const variacion = realAbono - prevAbonoBase;
 
