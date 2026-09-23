@@ -8,6 +8,7 @@ import Modal from './components/Modal';
 import * as XLSX from 'xlsx';
 import * as conciliacionService from './services/conciliacionService';
 import { formatUTCDate as formatISODateToAR } from './utils/formatters';
+import { findSuggestedSocioAdvanced, extractConceptMetadata } from './utils/conciliacionEngine';
 
 // Subcomponents imports
 import PeriodSummaryCards from './components/Conciliacion/PeriodSummaryCards';
@@ -694,214 +695,18 @@ export default function ConciliacionBancaria() {
     'var', 'cuo', 'fac', 'hon'
   ]);
 
-  // Algoritmo de sugerencia inteligente con memoria de aprendizaje histórico
-  // Algoritmo de sugerencia inteligente con memoria de aprendizaje histórico robusta
-  const findSuggestedSocio = (concepto, sociosList, historicoList = conciliacionHistorica) => {
-    if (!concepto) return null;
-    const normConcept = concepto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    const rawWords = normConcept.split(/[^a-z0-9]+/).filter(Boolean);
-    const conceptWords = rawWords.filter(w => !GENERIC_KEYWORDS.has(w));
-
-    const cuitMatches = normConcept.match(/\b\d{11}\b/);
-    const cbuMatches = normConcept.match(/\b\d{22}\b/);
-
-    // 1. COINCIDENCIA OFICIAL DIRECTA (Prioridad Máxima): CUIT/CUIL en tabla Socios
-    if (cuitMatches) {
-      const matchedCuit = cuitMatches[0];
-      const officialSocio = sociosList.find(s => s.cuit?.replace(/\D/g, '') === matchedCuit);
-      if (officialSocio) return { socio: officialSocio, reason: 'CUIT Oficial' };
-    }
-
-    // 1b. COINCIDENCIA OFICIAL DIRECTA: CBU en tabla Socios
-    if (cbuMatches) {
-      const matchedCbu = cbuMatches[0];
-      const normMatchedCbu = matchedCbu.replace(/^0+/, '');
-      const officialSocio = sociosList.find(s => {
-        const sCbu = s.cbu ? s.cbu.replace(/\D/g, '').replace(/^0+/, '') : '';
-        return sCbu && sCbu === normMatchedCbu;
-      });
-      if (officialSocio) return { socio: officialSocio, reason: 'CBU Oficial' };
-    }
-
-    // Extraer palabras del transferente desde el concepto para validación cruzada
-    let transferenteName = '';
-    const tagMatch = normConcept.match(/(?:var|fac|cuo|hon)[- ]+([a-z\s,.'´]+?)(?:\s+cbu|\s*\|\s*líneas|\s*$)/i);
-    if (tagMatch) {
-      transferenteName = tagMatch[1].trim();
-    }
-    const transferWords = (transferenteName || normConcept)
-      .split(/[^a-z0-9]+/)
-      .filter(w => w.length >= 3 && !GENERIC_KEYWORDS.has(w) && !['transf', 'dist', 'titular', 'inmediata', 'ctas', 'credito', 'debin', 'origen', 'banco', 'cuit', 'cuil'].includes(w));
-
-    // Función auxiliar para comprobar coherencia mínima de nombres
-    const hasNameCoherence = (socioName, testWords) => {
-      if (!socioName || !testWords || testWords.length === 0) return true;
-      const sWords = socioName
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .split(/[^a-z0-9]+/)
-        .filter(w => w.length >= 3);
-      return testWords.some(tw => sWords.some(sw => isSimilarWord(tw, sw) || tw === sw));
-    };
-
-    // 2. APRENDIZAJE HISTÓRICO (Solo si no hubo match oficial y es verificado o coherente)
-    let candidateHist = null;
-    let histType = '';
-
-    if (cuitMatches) {
-      const matchedCuit = cuitMatches[0];
-      candidateHist = (historicoList || []).find(h => h.cuit_transferente === matchedCuit);
-      if (candidateHist) histType = 'CUIT';
-    }
-
-    if (!candidateHist && cbuMatches) {
-      const matchedCbu = cbuMatches[0];
-      candidateHist = (historicoList || []).find(h => h.cbu_transferente === matchedCbu);
-      if (candidateHist) histType = 'CBU';
-    }
-
-    if (candidateHist) {
-      let socio = sociosList.find(s => s.socio_id === candidateHist.socio_id);
-      if (!socio) {
-        socio = {
-          socio_id: candidateHist.socio_id,
-          nombre_completo: candidateHist.socio_nombre || `Socio Grupo ${candidateHist.numero_grupo}`,
-          nro_socio: ''
-        };
-      }
-
-      const isCoherent = hasNameCoherence(candidateHist.socio_nombre || socio?.nombre_completo, transferWords);
-      const isVerified = (candidateHist.veces_visto || 1) >= 3;
-
-      // Si fue visto 1 o 2 veces pero no tiene ninguna coherencia de nombre con el transferente,
-      // no aceptarlo a ciegas: se ignora para permitir la coincidencia por Nombre del socio real
-      if (isCoherent || isVerified) {
-        const veces = candidateHist.veces_visto || 1;
-        let realConfianza = candidateHist.confianza || 60;
-        if (veces === 1 && realConfianza > 65) realConfianza = 60;
-        if (veces === 2 && realConfianza > 80) realConfianza = 75;
-
-        return {
-          socio,
-          reason: `🧠 Aprendido ${histType} (Grupo ${candidateHist.numero_grupo})`,
-          learnedGroup: candidateHist.numero_grupo,
-          confianza: realConfianza,
-          vecesVisto: veces,
-          isLearned: true,
-          learnedId: candidateHist.id,
-          learnedCuit: candidateHist.cuit_transferente,
-          learnedCbu: candidateHist.cbu_transferente
-        };
-      }
-    }
-
-    // 2. Coincidencia por DNI (8 dígitos)
-    const dniMatches = normConcept.match(/\b\d{8}\b/);
-    if (dniMatches) {
-      const matchedDni = dniMatches[0];
-      const socio = sociosList.find(s => s.dni?.replace(/\D/g, '') === matchedDni || s.cuit?.replace(/\D/g, '').includes(matchedDni));
-      if (socio) return { socio, reason: 'DNI' };
-    }
-
-    // 3. Coincidencia por patrón de grupo (ej: gpo 326, grupo 326, g326, g-326)
-    const gpoMatch = normConcept.match(/gpo\s*(\d+)/) || normConcept.match(/grupo\s*(\d+)/) || normConcept.match(/\bg(?:po|rupo)?[- _]*(\d+)\b/);
-    if (gpoMatch) {
-      const groupNum = parseInt(gpoMatch[1], 10);
-      const titularSocioId = titularMap[groupNum];
-      if (titularSocioId) {
-        const socio = sociosList.find(s => s.socio_id === titularSocioId);
-        if (socio) return { socio, reason: `Grupo ${groupNum}` };
-      }
-      const socioInGroup = sociosList.find(s => s.grupo_socio?.some(gs => gs.numero_grupo === groupNum));
-      if (socioInGroup) return { socio: socioInGroup, reason: `Grupo ${groupNum} (Miembro)` };
-    }
-
-    // 3b. Coincidencia por Número de Socio (ej: socio 345, nº 345, nro 345, #345, s345)
-    const nroSocioMatch = normConcept.match(/\b(?:socio|nro|num|nº|no|#)\s*[-_#]*\s*(\d+)\b/i) || normConcept.match(/\bs[-_#]*(\d+)\b/i);
-    if (nroSocioMatch) {
-      const socioNum = parseInt(nroSocioMatch[1], 10);
-      const socio = sociosList.find(s => s.nro_socio === socioNum);
-      if (socio) return { socio, reason: `Nº Socio ${socioNum}` };
-    }
-
-    // 4. Coincidencia Inteligente por Nombre y Apellido con resolución de empates
-    let rawNameForMatch = normConcept;
-    const nameTagMatch = normConcept.match(/(?:var|fac|cuo|hon)[- ]+([a-z\s,.'´]+?)(?:\s+cbu|\s*$)/i);
-    if (nameTagMatch) {
-      rawNameForMatch = nameTagMatch[1];
-    }
-
-    const transferNameWords = rawNameForMatch
-      .split(/[^a-z0-9]+/)
-      .filter(w => w.length >= 3 && !GENERIC_KEYWORDS.has(w) && !['transf', 'dist', 'titular', 'inmediata', 'ctas', 'credito', 'debin', 'origen', 'banco', 'cuit', 'cuil'].includes(w));
-
-    const wordsToCompare = transferNameWords.length > 0 ? transferNameWords : conceptWords;
-
-    let bestSocio = null;
-    let bestScore = 0;
-    let candidates = [];
-
-    sociosList.forEach(s => {
-      const socioWords = s.nombre_completo
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .split(/[^a-z0-9]+/)
-        .filter(w => w.length >= 3);
-
-      let matchCount = 0;
-      let hasExactSurnameMatch = false;
-      let hasFirstNameMatch = false;
-
-      // First word of socio is usually surname (or "Apellido, Nombre")
-      const socioSurname = socioWords[0];
-      const socioOtherWords = socioWords.slice(1);
-
-      wordsToCompare.forEach(cw => {
-        if (socioSurname && isSimilarWord(cw, socioSurname)) {
-          hasExactSurnameMatch = true;
-          matchCount += 2; // Extra weight for surname
-        } else if (socioOtherWords.some(sw => isSimilarWord(cw, sw))) {
-          hasFirstNameMatch = true;
-          matchCount += 1.5; // Weight for first name
-        } else if (socioWords.some(sw => isSimilarWord(cw, sw))) {
-          matchCount += 1;
-        }
-      });
-
-      // Bonus if both surname and first name matched
-      if (hasExactSurnameMatch && hasFirstNameMatch) {
-        matchCount += 3;
-      }
-
-      if (matchCount > bestScore) {
-        bestScore = matchCount;
-        bestSocio = s;
-        candidates = [s];
-      } else if (matchCount === bestScore && matchCount > 0) {
-        candidates.push(s);
-      }
+  // Algoritmo de sugerencia inteligente con memoria de aprendizaje histórico robusta (Credicoop y Banco Nación)
+  const findSuggestedSocio = (concepto, sociosList, historicoList = conciliacionHistorica, options = {}) => {
+    return findSuggestedSocioAdvanced({
+      concepto,
+      monto: options.monto || 0,
+      banco: options.banco || 'AUTO',
+      selectedPeriod: options.selectedPeriod || selectedPeriod,
+      sociosList: sociosList || socios,
+      historicoList: historicoList || conciliacionHistorica,
+      pendingLiquidaciones: options.pendingLiquidaciones || pendingLiquidaciones,
+      titularMap: options.titularMap || titularMap
     });
-
-    // Require at least score >= 3.5 (which guarantees surname + first name or multiple strong matches)
-    if (bestScore >= 3.5) {
-      if (candidates.length === 1) {
-        return { socio: candidates[0], reason: 'Nombre/Fuzzy' };
-      } else if (candidates.length > 1) {
-        // En caso de empate, preferir al que tiene deudas pendientes en el período
-        const candidatesWithDebt = candidates.filter(s => {
-          const sGroups = s.grupo_socio?.map(g => g?.numero_grupo) || [];
-          return pendingLiquidaciones.some(liq => liq && sGroups.includes(liq.numero_grupo));
-        });
-        if (candidatesWithDebt.length === 1) {
-          return { socio: candidatesWithDebt[0], reason: 'Nombre/Fuzzy (Con Deuda)' };
-        }
-        return { socio: bestSocio, reason: 'Nombre/Fuzzy' };
-      }
-    }
-
-    return null;
   };
 
   const calculateDefaultLines = (socioId, liqId, netoReal, allConsumos = periodConsumos) => {
@@ -948,7 +753,13 @@ export default function ConciliacionBancaria() {
         if (m.selectedSocioId) {
           targetSocio = socios.find(s => s.socio_id === m.selectedSocioId);
         } else if (!isTaxOrFee) {
-          suggestion = findSuggestedSocio(m.concepto, socios, conciliacionHistorica);
+          suggestion = findSuggestedSocio(m.concepto, socios, conciliacionHistorica, {
+            monto: m.netoReal,
+            banco: m.banco,
+            selectedPeriod,
+            pendingLiquidaciones,
+            titularMap
+          });
           if (suggestion) {
             targetSocio = suggestion.socio;
             socioId = suggestion.socio.socio_id;
@@ -2538,15 +2349,18 @@ export default function ConciliacionBancaria() {
         console.error("Error al guardar CBU:", cbuErr);
       }
 
-      // Auto-registrar aprendizaje en conciliacion_historica
+      // Auto-registrar aprendizaje en conciliacion_historica con metadatos limpios
       try {
-        const cuitMatch = row.cuit || row.concepto?.match(/\b\d{11}\b/)?.[0];
-        const cbuMatch = row.cbu || row.concepto?.match(/\b\d{22}\b/)?.[0];
+        const meta = extractConceptMetadata(row.concepto, row.banco);
+        const cuitMatch = row.cuit || meta.cuit;
+        const cbuMatch = row.cbu || meta.cbu;
+        const nombreLimpio = meta.rawExtractedName || (row.concepto ? row.concepto.slice(0, 120) : '');
+
         if ((cuitMatch || cbuMatch) && groupNum) {
           await conciliacionService.registrarAprendizajeHistorico({
             cuit: cuitMatch,
             cbu: cbuMatch,
-            nombreTransferente: row.concepto,
+            nombreTransferente: nombreLimpio,
             numeroGrupo: groupNum,
             socioId: row.selectedSocioId,
             socioNombre: row.selectedSocioLabel,
@@ -2554,6 +2368,37 @@ export default function ConciliacionBancaria() {
             monto: row.netoReal,
             periodo: selectedPeriod,
             confianza: 95
+          });
+
+          // Actualizar memoria local para que las demás filas del extracto lo reconozcan inmediatamente
+          setConciliacionHistorica(prev => {
+            const list = Array.isArray(prev) ? prev : [];
+            const existingIdx = list.findIndex(h => 
+              (cuitMatch && h.cuit_transferente === cuitMatch) || 
+              (cbuMatch && h.cbu_transferente === cbuMatch)
+            );
+            if (existingIdx !== -1) {
+              const updated = [...list];
+              updated[existingIdx] = {
+                ...updated[existingIdx],
+                socio_id: row.selectedSocioId,
+                socio_nombre: row.selectedSocioLabel,
+                numero_grupo: groupNum,
+                veces_visto: (updated[existingIdx].veces_visto || 1) + 1
+              };
+              return updated;
+            }
+            return [...list, {
+              cuit_transferente: cuitMatch,
+              cbu_transferente: cbuMatch,
+              nombre_transferente: nombreLimpio,
+              numero_grupo: groupNum,
+              socio_id: row.selectedSocioId,
+              socio_nombre: row.selectedSocioLabel,
+              banco: row.banco,
+              veces_visto: 1,
+              confianza: 95
+            }];
           });
         }
       } catch (errLearn) {
@@ -3153,7 +2998,13 @@ export default function ConciliacionBancaria() {
         }
 
         const isTaxOrFee = m.tipo_movimiento === 'IMPUESTO' || m.tipo_movimiento === 'COMISION' || m.tipo_movimiento === 'SUSCRIPCION' || m.tipo_movimiento === 'PAGO_VEP' || m.tipo_movimiento === 'PAGO_SERVICIO' || m.tipo_movimiento === 'PAGO_ARCA' || m.tipo_movimiento === 'TRANSFERENCIA_ENVIADA';
-        const suggestion = isTaxOrFee ? null : findSuggestedSocio(m.concepto, socios, conciliacionHistorica);
+        const suggestion = isTaxOrFee ? null : findSuggestedSocio(m.concepto, socios, conciliacionHistorica, {
+          monto: m.netoReal,
+          banco: detectedBanco,
+          selectedPeriod,
+          pendingLiquidaciones,
+          titularMap
+        });
 
         // Verificar duplicados (emparejamiento uno-a-uno)
         const rowDateISO = parseDateToISODate(m.fecha);
