@@ -1519,58 +1519,6 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
             onChange={e => setRawData(e.target.value)}
           />
 
-          {/* Configuración del Webhook de IA */}
-          <div style={{ marginBottom: '20px' }}>
-            <button
-              onClick={() => setShowConfigIA(!showConfigIA)}
-              className="action-button"
-              style={{
-                background: 'transparent',
-                color: 'var(--text-secondary)',
-                border: 'none',
-                padding: '4px 8px',
-                fontSize: '12px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                cursor: 'pointer'
-              }}
-            >
-              <Settings size={14} />
-              {showConfigIA ? 'Ocultar Configuración Webhook' : 'Configurar Webhook de Conciliación'}
-            </button>
-
-            {showConfigIA && (
-              <div 
-                className="glass-panel" 
-                style={{ 
-                  marginTop: '8px', 
-                  padding: '16px', 
-                  borderRadius: '12px', 
-                  border: '1px solid var(--border-light)',
-                  background: 'rgba(0,0,0,0.02)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '8px'
-                }}
-              >
-                <label className="form-label" style={{ fontSize: '11px', fontWeight: 700 }}>
-                  URL del Webhook de Conciliación en n8n:
-                </label>
-                <input
-                  type="text"
-                  className="premium-input"
-                  style={{ fontSize: '12px', padding: '8px 12px', height: '36px', width: '100%' }}
-                  value={n8nUrl}
-                  onChange={e => setN8nUrl(e.target.value)}
-                  placeholder="http://localhost:5678/webhook/conciliar-pago-inteligente"
-                />
-                <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-secondary)' }}>
-                  Asegúrate de que el webhook de n8n esté activo y apunte a tu puerto local o servidor.
-                </p>
-              </div>
-            )}
-          </div>
 
           {/* ──── IMPORTAR EXCEL AUDITADO ──── */}
           <div style={{
@@ -2010,11 +1958,11 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                 minWidth: '220px', 
                 height: '48px', 
                 fontSize: '14.5px', 
-                background: 'var(--surface)', 
-                color: 'var(--text-primary)',
-                border: '1px solid var(--border-light)'
+                background: 'var(--accent)', 
+                color: 'white',
+                border: '1px solid var(--accent)', boxShadow: '0 4px 12px var(--accent-shadow)'
               }}
-              disabled={loading || loadingMaster || loadingIA}
+              disabled={loading || loadingMaster}
             >
               {loading || loadingMaster ? (
                 <>
@@ -2029,33 +1977,6 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
               )}
             </button>
 
-            <button 
-              onClick={handleConciliarIA} 
-              className="action-button" 
-              style={{ 
-                flex: 1, 
-                minWidth: '220px', 
-                height: '48px', 
-                fontSize: '14.5px',
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                borderColor: '#10b981',
-                boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)',
-                color: 'white'
-              }}
-              disabled={loading || loadingMaster || loadingIA}
-            >
-              {loadingIA ? (
-                <>
-                  <Loader2 className="animate-spin" size={18} style={{ marginRight: '8px' }} />
-                  AI Conciliando...
-                </>
-              ) : (
-                <>
-                  <Sparkles size={18} style={{ marginRight: '8px' }} />
-                  Conciliar con IA (n8n)
-                </>
-              )}
-            </button>
           </div>
         </div>
       ) : (
