@@ -5,7 +5,7 @@ import {
   AlertCircle, Save, Smartphone, Receipt, Search,
   ArrowRight, RefreshCw, Info, PieChart, TrendingUp, TrendingDown,
   FileText, Loader2, Calendar, Sparkles, Database, Zap,
-  Flag, MessageSquare, AlertTriangle, CheckSquare, CreditCard, Download, Copy, Check
+  Flag, MessageSquare, AlertTriangle, CheckSquare, CreditCard, Download, Copy, Check, Ticket
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import { normalizePhone, getParserByProvider } from './utils/invoiceParsers';
@@ -13,6 +13,7 @@ import { procesarClaro, procesarMovistar, procesarPersonal } from './utils/provi
 import { verificarTextoCruzado } from './utils/validators';
 import { calculateInvoiceTotals, auditLineItem, consolidateFixedServices } from './utils/auditEngine';
 import { saveFacturacion } from './services/facturacionService';
+import { crearTicketVencimientoBonificacion, getOpenVencimientoTickets } from './services/ticketService';
 import Modal from './components/Modal';
 import { PaginatedEditableGrid as EditableGrid, arePlansEquivalent } from './components/PaginatedEditableGrid';
 import Step3SuccessScreen from './components/CargaManual/Step3SuccessScreen';
@@ -69,6 +70,14 @@ export default function CargaManual() {
   const [sortByAnomalies, setSortByAnomalies] = useState(false);
   const [selectedRows, setSelectedRows] = useState(new Set());
   const [isUpdatingPlanes, setIsUpdatingPlanes] = useState(false);
+  const [openTickets, setOpenTickets] = useState(new Set());
+
+  useEffect(() => {
+    if (fileData && fileData.length > 0) {
+      const lineas = fileData.map(f => f.linea);
+      getOpenVencimientoTickets(lineas).then(setOpenTickets);
+    }
+  }, [fileData]);
 
   const pendingPlanUpdates = React.useMemo(() => {
     return (fileData || []).filter(row => row.plan && !arePlansEquivalent(row.plan, row.planOficial));
@@ -131,6 +140,7 @@ export default function CargaManual() {
           .from('lineas')
           .select(`
             numero_linea, 
+            estado,
             proveedor_id,
             plan_id,
             descuento_esperado,
@@ -150,6 +160,7 @@ export default function CargaManual() {
               socio_id: l.socios?.socio_id,
               proveedor_id: l.proveedor_id,
               plan_id: l.plan_id || l.planes_abonos?.plan_id,
+              estado: l.estado || 'Activa',
               numero_grupo: l.numero_grupo,
               desc_pct: Number(l.socios?.desc_adicionales) || 0,
               cta_numero: Number(l.socios?.cta_numero) || 0,
@@ -379,6 +390,7 @@ export default function CargaManual() {
           return {
             linea: normPhone,
             proveedorIdDb: dbInfo?.proveedor_id,
+            estadoDb: String(dbInfo?.estado || '').toUpperCase(),
             plan: auditData.planDisplay,
             planOficial: dbInfo?.plan_db || 'No registrado',
             gbOficial: dbInfo?.gb_db,
@@ -541,6 +553,7 @@ export default function CargaManual() {
           ...row,
           linea: nuevaLinea,
           proveedorIdDb: dbInfo?.proveedor_id,
+          estadoDb: String(dbInfo?.estado || '').toUpperCase(),
           socioNombre: dbInfo?.nombre || 'Socio no identificado',
           socioId: dbInfo?.socio_id,
           numeroGrupo: dbInfo?.numero_grupo,
@@ -994,6 +1007,78 @@ export default function CargaManual() {
       addToast("Error al guardar el descuento: " + (err.message || err), "error");
     }
   }, [periodo, addToast]);
+
+  const handleCreateTicket = useCallback(async (row) => {
+    try {
+      const res = await crearTicketVencimientoBonificacion({
+        linea: row.linea,
+        socioNombre: row.socioNombre,
+        numeroGrupo: row.numeroGrupo,
+        plan: row.plan || row.planOficial,
+        vigencia: row.descuentoVigencia,
+        mesesRestantes: row.descuentoMesesRestantes,
+        descuentoPct: row.descuentoPctFactura,
+        proveedor: selectedProvider
+      });
+
+      if (!res.success && res.alreadyExists) {
+        addToast(res.message, 'warning');
+        setOpenTickets(prev => new Set([...prev, String(row.linea).replace(/\D/g, '')]));
+        return;
+      }
+
+      addToast(res.message, 'success');
+      setOpenTickets(prev => new Set([...prev, String(row.linea).replace(/\D/g, '')]));
+    } catch (err) {
+      console.error("Error al crear ticket:", err);
+      addToast("Error al crear ticket: " + err.message, 'error');
+    }
+  }, [selectedProvider, addToast]);
+
+  const handleCreateBulkTickets = useCallback(async () => {
+    const expiringLines = fileData.filter(f => {
+      const clean = String(f.linea).replace(/\D/g, '');
+      const mRest = f.descuentoMesesRestantes;
+      return mRest !== null && mRest !== undefined && mRest <= 2 && !openTickets.has(clean);
+    });
+
+    if (expiringLines.length === 0) {
+      addToast("No hay líneas por vencer pendientes de ticket.", 'info');
+      return;
+    }
+
+    const isConfirmed = await confirm({
+      title: 'Crear Tickets de Vencimiento de Bonificación',
+      message: `Se crearán tickets en Tareas para ${expiringLines.length} línea(s) cuya bonificación vence en los próximos 2 meses.\n\n¿Deseas continuar?`,
+      confirmText: 'Crear Tickets'
+    });
+    if (!isConfirmed) return;
+
+    let createdCount = 0;
+    const newOpen = new Set(openTickets);
+    for (const row of expiringLines) {
+      try {
+        const res = await crearTicketVencimientoBonificacion({
+          linea: row.linea,
+          socioNombre: row.socioNombre,
+          numeroGrupo: row.numeroGrupo,
+          plan: row.plan || row.planOficial,
+          vigencia: row.descuentoVigencia,
+          mesesRestantes: row.descuentoMesesRestantes,
+          descuentoPct: row.descuentoPctFactura,
+          proveedor: selectedProvider
+        });
+        if (res.success) {
+          createdCount++;
+          newOpen.add(String(row.linea).replace(/\D/g, ''));
+        }
+      } catch (e) {
+        console.error("Error creating ticket for", row.linea, e);
+      }
+    }
+    setOpenTickets(newOpen);
+    addToast(`¡Se crearon ${createdCount} ticket(s) de vencimiento en Tareas!`, 'success');
+  }, [fileData, openTickets, confirm, addToast, selectedProvider]);
 
   const handlePreSave = () => {
     // BLOQUEAR GUARDADO SI HAY PLANES PENDIENTES DE ACTUALIZAR
@@ -1573,6 +1658,75 @@ export default function CargaManual() {
             </button>
           </div>
 
+          {/* Banner de Bonificaciones por Vencer */}
+          {(() => {
+            const expiringLines = (fileData || []).filter(f => {
+              const m = f.descuentoMesesRestantes;
+              return m !== null && m !== undefined && m <= 2;
+            });
+            if (expiringLines.length === 0) return null;
+            const pendingTicketsCount = expiringLines.filter(f => !openTickets.has(String(f.linea).replace(/\D/g, ''))).length;
+
+            return (
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.05)',
+                border: '1px solid rgba(239, 68, 68, 0.2)',
+                borderRadius: '16px',
+                padding: '16px 20px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '16px',
+                flexWrap: 'wrap'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{
+                    width: '38px', height: '38px', borderRadius: '10px',
+                    background: 'rgba(239, 68, 68, 0.12)', color: '#dc2626',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                  }}>
+                    <AlertTriangle size={20} />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: '14px', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>⚠️ Bonificaciones por Vencer: {expiringLines.length} línea{expiringLines.length > 1 ? 's' : ''} detectada{expiringLines.length > 1 ? 's' : ''}</span>
+                      {pendingTicketsCount > 0 && (
+                        <span style={{ fontSize: '11px', background: '#fee2e2', color: '#991b1b', padding: '1px 6px', borderRadius: '10px' }}>
+                          {pendingTicketsCount} sin ticket
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      Estas líneas tienen descuentos que vencen en este ciclo o en los próximos 2 meses. Podés generar los tickets para gestionar la renovación ante {selectedProvider ? selectedProvider.toUpperCase() : 'la operadora'}.
+                    </div>
+                  </div>
+                </div>
+                {pendingTicketsCount > 0 && (
+                  <button
+                    onClick={handleCreateBulkTickets}
+                    className="air-btn hover-lift"
+                    style={{
+                      background: '#dc2626',
+                      color: '#fff',
+                      fontWeight: 800,
+                      fontSize: '13px',
+                      padding: '10px 18px',
+                      borderRadius: '10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      cursor: 'pointer',
+                      border: 'none',
+                      boxShadow: '0 2px 8px rgba(220, 38, 38, 0.25)'
+                    }}
+                  >
+                    <Ticket size={16} /> Crear Tickets en Tareas ({pendingTicketsCount})
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Grilla */}
           <EditableGrid
             fileData={fileData}
@@ -1594,6 +1748,8 @@ export default function CargaManual() {
             onUpdateAllLineasPlanes={handleUpdateAllLineasPlanes}
             isUpdatingPlanes={isUpdatingPlanes}
             onApplyDescuento={handleApplyDescuento}
+            onCreateTicket={handleCreateTicket}
+            openTickets={openTickets}
           />
         </div>
       )}

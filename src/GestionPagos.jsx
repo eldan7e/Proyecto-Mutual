@@ -20,6 +20,7 @@ import BatchModal from './components/GestionPagos/BatchModal';
 import AuditLineRow from './components/GestionPagos/AuditLineRow';
 import DescuentoModal from './components/CargaManual/DescuentoModal';
 import { exportAuditoriaLineasXLSX } from './utils/exportFacturacion';
+import { crearTicketVencimientoBonificacion, getOpenVencimientoTickets } from './services/ticketService';
 import { useToast } from './components/ui/ToastProvider';
 import { useConfirm } from './components/ui/ConfirmProvider';
 import useBodyScrollLock from './hooks/useBodyScrollLock';
@@ -41,6 +42,14 @@ export default function GestionPagos() {
   const [showMissing, setShowMissing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebounce(searchTerm, 300);
+  const [openTickets, setOpenTickets] = useState(new Set());
+
+  useEffect(() => {
+    if (lineasData && lineasData.length > 0) {
+      const lineas = lineasData.map(l => l.numero_linea);
+      getOpenVencimientoTickets(lineas).then(setOpenTickets);
+    }
+  }, [lineasData]);
 
   const filterOptions = useMemo(() => ({
     initialSortKey: 'totalCobrar',
@@ -518,7 +527,37 @@ export default function GestionPagos() {
     }
   }
 
+  const handleCreateTicket = useCallback(async (d) => {
+    try {
+      const mRest = d.calculado?.descuentoMesesRestantes ?? d.descuento_meses_restantes ?? d.lineas?.descuento_meses_restantes;
+      const vigenciaStr = d.calculado?.descuentoVigencia ?? d.descuento_vigencia ?? d.lineas?.descuento_vigencia;
+      const descPct = d.calculado?.operatorDiscountPct ?? d.descuento_pct;
+      const provName = proveedores.find(p => p.proveedor_id === Number(selectedProveedor))?.nombre_proveedor || 'Operadora';
 
+      const res = await crearTicketVencimientoBonificacion({
+        linea: d.numero_linea,
+        socioNombre: d.lineas?.socios?.nombre_completo,
+        numeroGrupo: d.lineas?.numero_grupo,
+        plan: d.lineas?.planes_abonos?.nombre_plan,
+        vigencia: vigenciaStr,
+        mesesRestantes: mRest,
+        descuentoPct: descPct,
+        proveedor: provName
+      });
+
+      if (!res.success && res.alreadyExists) {
+        addToast(res.message, 'warning');
+        setOpenTickets(prev => new Set([...prev, String(d.numero_linea).replace(/\D/g, '')]));
+        return;
+      }
+
+      addToast(res.message, 'success');
+      setOpenTickets(prev => new Set([...prev, String(d.numero_linea).replace(/\D/g, '')]));
+    } catch (err) {
+      console.error("Error creating ticket:", err);
+      addToast("Error al crear ticket: " + err.message, 'error');
+    }
+  }, [proveedores, selectedProveedor, addToast]);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -1117,6 +1156,8 @@ export default function GestionPagos() {
                       onSaveAbono={handleSaveAbono}
                       onSaveExcedente={handleSaveExcedente}
                       onOpenDescuento={handleOpenDescuento}
+                      onCreateTicket={handleCreateTicket}
+                      openTickets={openTickets}
                     />
                   ))}
                   {sortedData.length === 0 && (

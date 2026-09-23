@@ -505,6 +505,23 @@ export function auditLineItem(item, dbInfo, context) {
     auditStatus = 'WARN';
   }
 
+  // Alerta si la línea está dada de baja o suspendida en nuestro sistema
+  if (dbInfo) {
+    const normEstado = String(dbInfo.estado || '').toUpperCase();
+    if (normEstado === 'BAJA') {
+      alertas.push({
+        tipo: 'CRITICAL',
+        msg: '🛑 LÍNEA DADA DE BAJA en sistema (la operadora continúa facturándola)'
+      });
+      auditStatus = 'WARN';
+    } else if (normEstado === 'SUSPENDIDA' || normEstado === 'SUSPENDIDO') {
+      alertas.push({
+        tipo: 'INFO',
+        msg: '⏸️ LÍNEA SUSPENDIDA en sistema'
+      });
+    }
+  }
+
   const provMap = { 'claro': 1, 'movistar': 2, 'personal': 3 };
   if (dbInfo && dbInfo.proveedor_id !== provMap[selectedProvider]) {
     const currentProvName = dbInfo.proveedor_id === 1 ? 'CLARO' : dbInfo.proveedor_id === 2 ? 'MOVISTAR' : 'PERSONAL';

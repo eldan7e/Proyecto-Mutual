@@ -1,7 +1,7 @@
 import EditableAbonoCell from './EditableAbonoCell';
-import { Plus, Tag } from 'lucide-react';
+import { Plus, Tag, Ticket } from 'lucide-react';
 
-export default function AuditLineRow({ d, isPeriodoLiquidado, adicionalesData, onEditBonif, onSaveAbono, onSaveExcedente, onOpenDescuento }) {
+export default function AuditLineRow({ d, isPeriodoLiquidado, adicionalesData, onEditBonif, onSaveAbono, onSaveExcedente, onOpenDescuento, onCreateTicket, openTickets }) {
   return (
     <tr className={d.error ? 'bg-red-50' : ''}>
       <td style={{ padding: '8px 12px' }}>
@@ -107,22 +107,54 @@ export default function AuditLineRow({ d, isPeriodoLiquidado, adicionalesData, o
               
               if (mRest === undefined || mRest === null) return null;
               const isExpiring = mRest === 0;
+              const cleanLineaNum = String(d.numero_linea || '').replace(/\D/g, '');
+              const hasOpenTicket = openTickets ? openTickets.has(cleanLineaNum) : false;
+
               return (
-                <span style={{
-                  background: isExpiring ? '#fef2f2' : '#eef2ff',
-                  color: isExpiring ? '#dc2626' : '#4f46e5',
-                  border: isExpiring ? '1px solid #fca5a5' : '1px solid #c7d2fe',
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                  fontSize: '10px',
-                  fontWeight: 700,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '3px',
-                  whiteSpace: 'nowrap'
-                }} title={`Mes ${mActual || '?'} de ${mTotal || '?'} (${mRest} restantes)`}>
-                  {isExpiring ? '⚠️ Vence este mes' : `${vigenciaStr || `Mes ${mActual}/${mTotal}`} (${mRest}m rest.)`}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <span style={{
+                    background: isExpiring ? '#fef2f2' : '#eef2ff',
+                    color: isExpiring ? '#dc2626' : '#4f46e5',
+                    border: isExpiring ? '1px solid #fca5a5' : '1px solid #c7d2fe',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '3px',
+                    whiteSpace: 'nowrap'
+                  }} title={`Mes ${mActual || '?'} de ${mTotal || '?'} (${mRest} restantes)`}>
+                    {isExpiring ? '⚠️ Vence este mes' : `${vigenciaStr || `Mes ${mActual}/${mTotal}`} (${mRest}m rest.)`}
+                  </span>
+                  {onCreateTicket && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onCreateTicket(d);
+                      }}
+                      style={{
+                        background: hasOpenTicket ? '#f1f5f9' : (isExpiring || mRest <= 1) ? 'rgba(239, 68, 68, 0.1)' : 'rgba(99, 102, 241, 0.08)',
+                        color: hasOpenTicket ? '#64748b' : (isExpiring || mRest <= 1) ? '#dc2626' : '#4f46e5',
+                        border: hasOpenTicket ? '1px solid #cbd5e1' : (isExpiring || mRest <= 1) ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(99, 102, 241, 0.25)',
+                        borderRadius: '4px',
+                        padding: '1px 5px',
+                        fontSize: '9px',
+                        fontWeight: 800,
+                        cursor: hasOpenTicket ? 'default' : 'pointer',
+                        whiteSpace: 'nowrap',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '2px'
+                      }}
+                      disabled={hasOpenTicket}
+                      title={hasOpenTicket ? 'Ya existe un ticket abierto en Tareas' : 'Crear ticket de vencimiento en Tareas'}
+                    >
+                      <Ticket size={9} />
+                      {hasOpenTicket ? 'Ticket Creado' : 'Crear Ticket'}
+                    </button>
+                  )}
+                </div>
               );
             })()}
           </div>

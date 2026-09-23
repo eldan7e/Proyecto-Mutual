@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  Search, AlertTriangle, TrendingUp, Hash, Info, Percent, RefreshCw, Loader2, Tag, Zap
+  Search, AlertTriangle, TrendingUp, Hash, Info, Percent, RefreshCw, Loader2, Tag, Zap, Ticket
 } from 'lucide-react';
 import DescuentoModal from './CargaManual/DescuentoModal';
 
@@ -256,11 +256,13 @@ const updatePlanBtnStyle = {
   transition: 'all 0.2s'
 };
 
-const GridRow = React.memo(function GridRow({ row, selectedProvider, dbLines, allSocios, handleAssignLinea, handleAssignSocio, onUpdateLineaPlan, onOpenDescuento }) {
+const GridRow = React.memo(function GridRow({ row, selectedProvider, dbLines, allSocios, handleAssignLinea, handleAssignSocio, onUpdateLineaPlan, onOpenDescuento, onCreateTicket, openTickets }) {
   const prevPrice = row.prevAbonoBase || 0;
   const currentPrice = row.abono || 0;
   const diffPct = prevPrice > 0 ? ((currentPrice - prevPrice) / prevPrice) * 100 : 0;
   const isError = row.montoFactura < row.abono;
+  const cleanLineaNum = String(row.linea || '').replace(/\D/g, '');
+  const hasOpenTicket = openTickets ? openTickets.has(cleanLineaNum) : false;
 
   return (
     <tr className={isError ? 'row-error' : ''} style={{ 
@@ -278,7 +280,26 @@ const GridRow = React.memo(function GridRow({ row, selectedProvider, dbLines, al
             />
           </div>
         ) : (
-          <div style={{ fontWeight: 800, fontSize: '14px' }}>{row.linea}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ 
+              fontWeight: 800, 
+              fontSize: '14px',
+              textDecoration: row.estadoDb === 'BAJA' ? 'line-through' : 'none',
+              color: row.estadoDb === 'BAJA' ? '#dc2626' : 'inherit'
+            }}>
+              {row.linea}
+            </span>
+            {row.estadoDb === 'BAJA' && (
+              <span style={{ fontSize: '9px', fontWeight: 800, background: '#fee2e2', color: '#b91c1c', border: '1px solid #f87171', padding: '1px 5px', borderRadius: '4px' }}>
+                BAJA
+              </span>
+            )}
+            {(row.estadoDb === 'SUSPENDIDA' || row.estadoDb === 'SUSPENDIDO') && (
+              <span style={{ fontSize: '9px', fontWeight: 800, background: '#fef3c7', color: '#b45309', border: '1px solid #fcd34d', padding: '1px 5px', borderRadius: '4px' }}>
+                SUSP
+              </span>
+            )}
+          </div>
         )}
          <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Mut: {row.planOficial}</div>
         <div style={{ fontSize: '10px', color: '#2563eb', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
@@ -369,6 +390,34 @@ const GridRow = React.memo(function GridRow({ row, selectedProvider, dbLines, al
                         {isExpiring ? '⚠️ Vence este mes' : `${row.descuentoMesActual}/${row.descuentoMesesTotal} (${row.descuentoMesesRestantes}m)`}
                       </span>
                     )}
+                    {hasVigencia && onCreateTicket && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onCreateTicket(row);
+                        }}
+                        style={{
+                          background: hasOpenTicket ? 'rgba(100, 116, 139, 0.1)' : (isExpiring || row.descuentoMesesRestantes <= 1) ? 'rgba(239, 68, 68, 0.12)' : 'rgba(99, 102, 241, 0.1)',
+                          color: hasOpenTicket ? '#64748b' : (isExpiring || row.descuentoMesesRestantes <= 1) ? '#dc2626' : '#4f46e5',
+                          border: hasOpenTicket ? '1px solid #cbd5e1' : (isExpiring || row.descuentoMesesRestantes <= 1) ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(99, 102, 241, 0.25)',
+                          borderRadius: '4px',
+                          padding: '2px 5px',
+                          fontSize: '8.5px',
+                          fontWeight: 800,
+                          cursor: hasOpenTicket ? 'default' : 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          marginTop: '3px',
+                          whiteSpace: 'nowrap'
+                        }}
+                        disabled={hasOpenTicket}
+                        title={hasOpenTicket ? 'Ya existe un ticket abierto de vencimiento en Tareas' : 'Crear ticket de gestión en Tareas (VENCIMIENTO BONIFICACION)'}
+                      >
+                        <Ticket size={9} />
+                        {hasOpenTicket ? 'Ticket Creado' : 'Crear Ticket'}
+                      </button>
+                    )}
                   </div>
                 );
               })()
@@ -411,14 +460,39 @@ const GridRow = React.memo(function GridRow({ row, selectedProvider, dbLines, al
         </div>
       </td>
       <td style={{ textAlign: 'center' }}>
-        <button
-          onClick={() => onOpenDescuento(row)}
-          title="Aplicar o gestionar descuento"
-          className="air-btn"
-          style={descuentoBtnStyle}
-        >
-          <Tag size={12} /> Descuento
-        </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'center' }}>
+          <button
+            onClick={() => onOpenDescuento(row)}
+            title="Aplicar o gestionar descuento"
+            className="air-btn"
+            style={descuentoBtnStyle}
+          >
+            <Tag size={12} /> Descuento
+          </button>
+          {onCreateTicket && hasVigencia && !hasOpenTicket && (
+            <button
+              onClick={() => onCreateTicket(row)}
+              title="Crear ticket VENCIMIENTO BONIFICACION en Tareas"
+              className="air-btn"
+              style={{
+                fontSize: '10px',
+                padding: '3px 8px',
+                borderRadius: '6px',
+                background: 'rgba(239, 68, 68, 0.08)',
+                color: '#dc2626',
+                border: '1px solid rgba(239, 68, 68, 0.25)',
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '3px',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              <Ticket size={11} /> Ticket Vto.
+            </button>
+          )}
+        </div>
       </td>
     </tr>
   );
@@ -443,7 +517,9 @@ export function PaginatedEditableGrid({
   onUpdateLineaPlan,
   onUpdateAllLineasPlanes,
   isUpdatingPlanes,
-  onApplyDescuento
+  onApplyDescuento,
+  onCreateTicket,
+  openTickets
 }) {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
@@ -908,6 +984,8 @@ export function PaginatedEditableGrid({
                   setSelectedRowForDescuento(r);
                   setIsDescuentoModalOpen(true);
                 }}
+                onCreateTicket={onCreateTicket}
+                openTickets={openTickets}
               />
             ))}
           {paginatedData.length === 0 && (
