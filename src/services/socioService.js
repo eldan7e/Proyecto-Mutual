@@ -1,5 +1,6 @@
 import { supabase } from '../supabaseClient';
 import { calculateAuditLine } from '../utils/auditEngine';
+import { registrarAuditoria } from '../utils/auditLogger';
 
 /**
  * Fetch all lines and processed consumos for a given socio.
@@ -176,8 +177,8 @@ export async function fetchSocioIncidentsData(socioId) {
  * @returns {Promise<void>}
  */
 export async function upsertSocioDatos(socioId, data) {
-  // Separate grupo from socio fields
-  const { numero_grupo, ...socioFields } = data;
+  // Separate grupo and email fields from socio fields
+  const { numero_grupo, email_grupo, sumar_email_a_grupo, ...socioFields } = data;
 
   // 1. Update the socios row
   const { error: updateErr } = await supabase
@@ -187,14 +188,59 @@ export async function upsertSocioDatos(socioId, data) {
 
   if (updateErr) throw updateErr;
 
-  // 2. Handle grupo association
+  // 2. Handle grupo association and group emails
   if (numero_grupo !== undefined && numero_grupo !== null && numero_grupo !== '') {
-    const grupoNum = parseInt(numero_grupo);
+    const grupoNum = parseInt(numero_grupo, 10);
 
-    // Ensure the grupo exists
+    // Determinar qué email grupal sumar
+    let emailParaSumar = (email_grupo || '').trim();
+    if (!emailParaSumar && sumar_email_a_grupo && socioFields.email) {
+      emailParaSumar = socioFields.email.trim();
+    }
+
+    // Obtener datos actuales del grupo
+    const { data: existingGrupo } = await supabase
+      .from('grupos')
+      .select('numero_grupo, alias_grupo, email_facturacion, emails_integrantes')
+      .eq('numero_grupo', grupoNum)
+      .maybeSingle();
+
+    let finalEmailFacturacion = existingGrupo?.email_facturacion || null;
+    let finalEmailsIntegrantes = existingGrupo?.emails_integrantes || '';
+
+    if (emailParaSumar) {
+      const nuevosCorreos = emailParaSumar
+        .split(/[,;\n]+/)
+        .map(e => e.trim())
+        .filter(Boolean);
+
+      const currentList = (finalEmailsIntegrantes || '')
+        .split(/[,;\n]+/)
+        .map(e => e.trim())
+        .filter(Boolean);
+
+      if (!finalEmailFacturacion && nuevosCorreos.length > 0) {
+        finalEmailFacturacion = nuevosCorreos[0];
+      }
+
+      nuevosCorreos.forEach(em => {
+        const lower = em.toLowerCase();
+        if (!currentList.some(c => c.toLowerCase() === lower)) {
+          currentList.push(em);
+        }
+      });
+
+      finalEmailsIntegrantes = currentList.join(', ');
+    }
+
+    // Asegurar que el grupo exista y tenga los correos grupales actualizados
     await supabase
       .from('grupos')
-      .upsert({ numero_grupo: grupoNum }, { onConflict: 'numero_grupo' });
+      .upsert({ 
+        numero_grupo: grupoNum,
+        ...(finalEmailFacturacion ? { email_facturacion: finalEmailFacturacion } : {}),
+        ...(finalEmailsIntegrantes ? { emails_integrantes: finalEmailsIntegrantes } : {})
+      }, { onConflict: 'numero_grupo' });
 
     // Remove from any previous groups
     await supabase
@@ -342,4 +388,34 @@ export async function upsertSocioLinea(lineaData, currentNumeroLinea) {
       return await insertSocioLinea(lineaData);
     }
   }
+}
+
+/**
+ * Quick status updater for a line (Activa, Suspendida, Baja) with audit logging.
+ */
+export async function updateLineaEstado(numeroLinea, nuevoEstado, motivo = '') {
+  const { error } = await supabase
+    .from('lineas')
+    .update({ estado: nuevoEstado })
+    .eq('numero_linea', numeroLinea);
+
+  if (error) throw error;
+
+  await registrarAuditoria({
+    tipo_evento: 'CAMBIO_ESTADO_LINEA',
+    descripcion: `Línea ${numeroLinea} cambió a estado ${String(nuevoEstado).toUpperCase()}${motivo ? `. Motivo: ${motivo}` : ''}`,
+    numero_linea: numeroLinea
+  });
+}
+
+/**
+ * Direct updater for socio's internal notes.
+ */
+export async function updateSocioNotas(socioId, notasInternas) {
+  const { error } = await supabase
+    .from('socios')
+    .update({ notas_internas: notasInternas })
+    .eq('socio_id', socioId);
+
+  if (error) throw error;
 }

@@ -8,6 +8,7 @@ import Modal from './components/Modal';
 import * as XLSX from 'xlsx';
 import * as conciliacionService from './services/conciliacionService';
 import { formatUTCDate as formatISODateToAR } from './utils/formatters';
+import { findSuggestedSocioAdvanced, extractConceptMetadata } from './utils/conciliacionEngine';
 
 // Subcomponents imports
 import PeriodSummaryCards from './components/Conciliacion/PeriodSummaryCards';
@@ -694,182 +695,18 @@ export default function ConciliacionBancaria() {
     'var', 'cuo', 'fac', 'hon'
   ]);
 
-  // Algoritmo de sugerencia inteligente con memoria de aprendizaje histórico
-  const findSuggestedSocio = (concepto, sociosList, historicoList = conciliacionHistorica) => {
-    if (!concepto) return null;
-    const normConcept = concepto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    const rawWords = normConcept.split(/[^a-z0-9]+/).filter(Boolean);
-    const conceptWords = rawWords.filter(w => !GENERIC_KEYWORDS.has(w));
-
-    // 0. APRENDIZAJE HISTÓRICO (Prioridad Máxima - Mapeos confirmados previamente por CUIT / CBU)
-    const cuitMatches = normConcept.match(/\b\d{11}\b/);
-    if (cuitMatches) {
-      const matchedCuit = cuitMatches[0];
-      const hist = (historicoList || []).find(h => h.cuit_transferente === matchedCuit);
-      if (hist) {
-        let socio = sociosList.find(s => s.socio_id === hist.socio_id);
-        if (!socio) {
-          socio = {
-            socio_id: hist.socio_id,
-            nombre_completo: hist.socio_nombre || `Socio Grupo ${hist.numero_grupo}`,
-            nro_socio: ''
-          };
-        }
-        return {
-          socio,
-          reason: `🧠 Aprendido (Grupo ${hist.numero_grupo})`,
-          learnedGroup: hist.numero_grupo,
-          confianza: hist.confianza || 90,
-          vecesVisto: hist.veces_visto || 1,
-          isLearned: true
-        };
-      }
-    }
-
-    const cbuMatches = normConcept.match(/\b\d{22}\b/);
-    if (cbuMatches) {
-      const matchedCbu = cbuMatches[0];
-      const hist = (historicoList || []).find(h => h.cbu_transferente === matchedCbu);
-      if (hist) {
-        let socio = sociosList.find(s => s.socio_id === hist.socio_id);
-        if (!socio) {
-          socio = {
-            socio_id: hist.socio_id,
-            nombre_completo: hist.socio_nombre || `Socio Grupo ${hist.numero_grupo}`,
-            nro_socio: ''
-          };
-        }
-        return {
-          socio,
-          reason: `🧠 Aprendido CBU (Grupo ${hist.numero_grupo})`,
-          learnedGroup: hist.numero_grupo,
-          confianza: hist.confianza || 90,
-          vecesVisto: hist.veces_visto || 1,
-          isLearned: true
-        };
-      }
-    }
-
-    // 1. Coincidencia por CUIT/CUIL (11 dígitos) en tabla Socios
-    if (cuitMatches) {
-      const matchedCuit = cuitMatches[0];
-      const socio = sociosList.find(s => s.cuit?.replace(/\D/g, '') === matchedCuit);
-      if (socio) return { socio, reason: 'CUIT' };
-    }
-
-    // 1b. Coincidencia por CBU (22 dígitos) en tabla Socios
-    if (cbuMatches) {
-      const matchedCbu = cbuMatches[0];
-      const socio = sociosList.find(s => s.cbu === matchedCbu);
-      if (socio) return { socio, reason: 'CBU' };
-    }
-
-    // 2. Coincidencia por DNI (8 dígitos)
-    const dniMatches = normConcept.match(/\b\d{8}\b/);
-    if (dniMatches) {
-      const matchedDni = dniMatches[0];
-      const socio = sociosList.find(s => s.dni?.replace(/\D/g, '') === matchedDni || s.cuit?.replace(/\D/g, '').includes(matchedDni));
-      if (socio) return { socio, reason: 'DNI' };
-    }
-
-    // 3. Coincidencia por patrón de grupo (ej: gpo 326, grupo 326, g326, g-326)
-    const gpoMatch = normConcept.match(/gpo\s*(\d+)/) || normConcept.match(/grupo\s*(\d+)/) || normConcept.match(/\bg(?:po|rupo)?[- _]*(\d+)\b/);
-    if (gpoMatch) {
-      const groupNum = parseInt(gpoMatch[1], 10);
-      const titularSocioId = titularMap[groupNum];
-      if (titularSocioId) {
-        const socio = sociosList.find(s => s.socio_id === titularSocioId);
-        if (socio) return { socio, reason: `Grupo ${groupNum}` };
-      }
-      const socioInGroup = sociosList.find(s => s.grupo_socio?.some(gs => gs.numero_grupo === groupNum));
-      if (socioInGroup) return { socio: socioInGroup, reason: `Grupo ${groupNum} (Miembro)` };
-    }
-
-    // 3b. Coincidencia por Número de Socio (ej: socio 345, nº 345, nro 345, #345, s345)
-    const nroSocioMatch = normConcept.match(/\b(?:socio|nro|num|nº|no|#)\s*[-_#]*\s*(\d+)\b/i) || normConcept.match(/\bs[-_#]*(\d+)\b/i);
-    if (nroSocioMatch) {
-      const socioNum = parseInt(nroSocioMatch[1], 10);
-      const socio = sociosList.find(s => s.nro_socio === socioNum);
-      if (socio) return { socio, reason: `Nº Socio ${socioNum}` };
-    }
-
-    // 4. Coincidencia Inteligente por Nombre y Apellido con resolución de empates
-    let rawNameForMatch = normConcept;
-    const tagMatch = normConcept.match(/(?:var|fac|cuo|hon)[- ]+([a-z\s,.'´]+?)(?:\s+cbu|\s*$)/i);
-    if (tagMatch) {
-      rawNameForMatch = tagMatch[1];
-    }
-
-    const transferNameWords = rawNameForMatch
-      .split(/[^a-z0-9]+/)
-      .filter(w => w.length >= 3 && !GENERIC_KEYWORDS.has(w) && !['transf', 'dist', 'titular', 'inmediata', 'ctas', 'credito', 'debin', 'origen', 'banco', 'cuit', 'cuil'].includes(w));
-
-    const wordsToCompare = transferNameWords.length > 0 ? transferNameWords : conceptWords;
-
-    let bestSocio = null;
-    let bestScore = 0;
-    let candidates = [];
-
-    sociosList.forEach(s => {
-      const socioWords = s.nombre_completo
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .split(/[^a-z0-9]+/)
-        .filter(w => w.length >= 3);
-
-      let matchCount = 0;
-      let hasExactSurnameMatch = false;
-      let hasFirstNameMatch = false;
-
-      // First word of socio is usually surname (or "Apellido, Nombre")
-      const socioSurname = socioWords[0];
-      const socioOtherWords = socioWords.slice(1);
-
-      wordsToCompare.forEach(cw => {
-        if (socioSurname && isSimilarWord(cw, socioSurname)) {
-          hasExactSurnameMatch = true;
-          matchCount += 2; // Extra weight for surname
-        } else if (socioOtherWords.some(sw => isSimilarWord(cw, sw))) {
-          hasFirstNameMatch = true;
-          matchCount += 1.5; // Weight for first name
-        } else if (socioWords.some(sw => isSimilarWord(cw, sw))) {
-          matchCount += 1;
-        }
-      });
-
-      // Bonus if both surname and first name matched
-      if (hasExactSurnameMatch && hasFirstNameMatch) {
-        matchCount += 3;
-      }
-
-      if (matchCount > bestScore) {
-        bestScore = matchCount;
-        bestSocio = s;
-        candidates = [s];
-      } else if (matchCount === bestScore && matchCount > 0) {
-        candidates.push(s);
-      }
+  // Algoritmo de sugerencia inteligente con memoria de aprendizaje histórico robusta (Credicoop y Banco Nación)
+  const findSuggestedSocio = (concepto, sociosList, historicoList = conciliacionHistorica, options = {}) => {
+    return findSuggestedSocioAdvanced({
+      concepto,
+      monto: options.monto || 0,
+      banco: options.banco || 'AUTO',
+      selectedPeriod: options.selectedPeriod || selectedPeriod,
+      sociosList: sociosList || socios,
+      historicoList: historicoList || conciliacionHistorica,
+      pendingLiquidaciones: options.pendingLiquidaciones || pendingLiquidaciones,
+      titularMap: options.titularMap || titularMap
     });
-
-    // Require at least score >= 3.5 (which guarantees surname + first name or multiple strong matches)
-    if (bestScore >= 3.5) {
-      if (candidates.length === 1) {
-        return { socio: candidates[0], reason: 'Nombre/Fuzzy' };
-      } else if (candidates.length > 1) {
-        // En caso de empate, preferir al que tiene deudas pendientes en el período
-        const candidatesWithDebt = candidates.filter(s => {
-          const sGroups = s.grupo_socio?.map(g => g?.numero_grupo) || [];
-          return pendingLiquidaciones.some(liq => liq && sGroups.includes(liq.numero_grupo));
-        });
-        if (candidatesWithDebt.length === 1) {
-          return { socio: candidatesWithDebt[0], reason: 'Nombre/Fuzzy (Con Deuda)' };
-        }
-        return { socio: bestSocio, reason: 'Nombre/Fuzzy' };
-      }
-    }
-
-    return null;
   };
 
   const calculateDefaultLines = (socioId, liqId, netoReal, allConsumos = periodConsumos) => {
@@ -904,18 +741,25 @@ export default function ConciliacionBancaria() {
     setParsedMovements(prev => {
       let changed = false;
       const next = prev.map(m => {
-        if (m.isDbDuplicate || m.reconciledInSession) return m;
+        if (m.isDbDuplicate || m.reconciledInSession || m.isAlreadyPaidMatch || m.estado === 'CONCILIADO') return m;
 
         const isTaxOrFee = m.tipo_movimiento === 'IMPUESTO' || m.tipo_movimiento === 'COMISION' || m.tipo_movimiento === 'SUSCRIPCION' || m.tipo_movimiento === 'PAGO_VEP' || m.tipo_movimiento === 'PAGO_SERVICIO' || m.tipo_movimiento === 'PAGO_ARCA' || m.tipo_movimiento === 'TRANSFERENCIA_ENVIADA';
         
         let targetSocio = null;
         let label = m.selectedSocioLabel;
         let socioId = m.selectedSocioId;
+        let suggestion = null;
 
         if (m.selectedSocioId) {
           targetSocio = socios.find(s => s.socio_id === m.selectedSocioId);
         } else if (!isTaxOrFee) {
-          const suggestion = findSuggestedSocio(m.concepto, socios);
+          suggestion = findSuggestedSocio(m.concepto, socios, conciliacionHistorica, {
+            monto: m.netoReal,
+            banco: m.banco,
+            selectedPeriod,
+            pendingLiquidaciones,
+            titularMap
+          });
           if (suggestion) {
             targetSocio = suggestion.socio;
             socioId = suggestion.socio.socio_id;
@@ -923,7 +767,11 @@ export default function ConciliacionBancaria() {
           }
         }
 
-        const socioGroups = targetSocio ? (targetSocio.grupo_socio?.map(g => g.numero_grupo) || []) : [];
+        let socioGroups = targetSocio ? (targetSocio.grupo_socio?.map(g => g.numero_grupo) || []) : [];
+        if (suggestion?.learnedGroup && !socioGroups.includes(suggestion.learnedGroup)) {
+          socioGroups = [...socioGroups, suggestion.learnedGroup];
+        }
+
         const pendingForSocio = targetSocio
           ? pendingLiquidaciones.filter(liq => liq && socioGroups.includes(liq.numero_grupo) && liq.periodo === selectedPeriod)
           : [];
@@ -938,8 +786,7 @@ export default function ConciliacionBancaria() {
           const matchedLiq = pendingForSocio.find(l => String(l.liquidacion_id) === String(defaultLiqId));
           if (matchedLiq) {
             const pendingAmount = Number(matchedLiq.monto_total_facturado || 0) - Number(matchedLiq.monto_abonado || 0);
-            const isMatch = Math.abs(Number(matchedLiq.monto_total_facturado || 0) - m.netoReal) < 2.00;
-            if (pendingAmount <= 2.00 && isMatch) {
+            if (pendingAmount <= 2.00 || matchedLiq.estado_pago === 'ABONADO') {
               nextEstado = 'CONCILIADO';
               isAlreadyPaidMatch = true;
             }
@@ -948,10 +795,23 @@ export default function ConciliacionBancaria() {
           const sumPending = pendingForSocio
             .filter(l => matchedIds.includes(l.liquidacion_id))
             .reduce((sum, l) => sum + (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)), 0);
-          if (Math.abs(sumPending - m.netoReal) < 2.00) {
+          if (sumPending <= 2.00) {
             nextEstado = 'CONCILIADO';
             isAlreadyPaidMatch = true;
           }
+        } else if (!defaultLiqId && pendingForSocio.length > 0) {
+          const allPaid = pendingForSocio.every(l => (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0) <= 2.00) || l.estado_pago === 'ABONADO');
+          if (allPaid) {
+            nextEstado = 'CONCILIADO';
+            isAlreadyPaidMatch = true;
+          }
+        }
+
+        let selectedLiqs = m.selectedLiquidations || [];
+        if (defaultLiqId === 'SALDAR_TODO' && matchedIds) {
+          selectedLiqs = matchedIds.map(String);
+        } else if (defaultLiqId) {
+          selectedLiqs = [String(defaultLiqId)];
         }
 
         if (
@@ -960,6 +820,7 @@ export default function ConciliacionBancaria() {
           m.selectedLiquidationId !== defaultLiqId ||
           m.estado !== nextEstado ||
           m.isAlreadyPaidMatch !== isAlreadyPaidMatch ||
+          JSON.stringify(m.selectedLiquidations || []) !== JSON.stringify(selectedLiqs) ||
           JSON.stringify(m.pendingList) !== JSON.stringify(pendingForSocio) ||
           JSON.stringify(m.selectedLines) !== JSON.stringify(defaultLines) ||
           JSON.stringify(m.matchedLiquidationIds) !== JSON.stringify(matchedIds)
@@ -971,6 +832,7 @@ export default function ConciliacionBancaria() {
             selectedSocioLabel: label,
             pendingList: pendingForSocio,
             selectedLiquidationId: defaultLiqId,
+            selectedLiquidations: selectedLiqs,
             selectedLines: defaultLines,
             estado: nextEstado,
             isAlreadyPaidMatch: isAlreadyPaidMatch,
@@ -982,7 +844,7 @@ export default function ConciliacionBancaria() {
 
       return changed ? next : prev;
     });
-  }, [pendingLiquidaciones, socios, periodConsumos, selectedPeriod]);
+  }, [pendingLiquidaciones, socios, periodConsumos, selectedPeriod, conciliacionHistorica]);
 
   // Re-calculate suggestions for lote processed rows when period/master data changes
   useEffect(() => {
@@ -1092,17 +954,24 @@ export default function ConciliacionBancaria() {
           const matchedLiq = pendingForSocio.find(l => String(l.liquidacion_id) === String(defaultLiqId));
           if (matchedLiq) {
             const pendingAmount = Number(matchedLiq.monto_total_facturado || 0) - Number(matchedLiq.monto_abonado || 0);
-            const isMatch = Math.abs(Number(matchedLiq.monto_total_facturado || 0) - m.netoReal) < 2.00;
-            if (pendingAmount <= 2.00 && isMatch) {
+            if (pendingAmount <= 2.00 || matchedLiq.estado_pago === 'ABONADO') {
               isAlreadyPaidMatch = true;
+              nextEstado = 'CONCILIADO';
             }
           }
         } else if (defaultLiqId === 'SALDAR_TODO' && matchedIds && matchedIds.length > 0) {
           const sumPending = pendingForSocio
             .filter(l => matchedIds.includes(l.liquidacion_id))
             .reduce((sum, l) => sum + (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)), 0);
-          if (Math.abs(sumPending - m.netoReal) < 2.00) {
+          if (sumPending <= 2.00) {
             isAlreadyPaidMatch = true;
+            nextEstado = 'CONCILIADO';
+          }
+        } else if (!defaultLiqId && pendingForSocio.length > 0) {
+          const allPaid = pendingForSocio.every(l => (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0) <= 2.00) || l.estado_pago === 'ABONADO');
+          if (allPaid) {
+            isAlreadyPaidMatch = true;
+            nextEstado = 'CONCILIADO';
           }
         }
       }
@@ -1142,6 +1011,18 @@ export default function ConciliacionBancaria() {
 
       let nextEstado = 'PENDIENTE';
       let isAlreadyPaidMatch = false;
+
+      if (newList.length > 0) {
+        const allSettled = newList.every(id => {
+          const liq = (m.pendingList || []).find(l => String(l.liquidacion_id) === String(id));
+          if (!liq) return false;
+          return (Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0)) <= 2.00 || liq.estado_pago === 'ABONADO';
+        });
+        if (allSettled) {
+          nextEstado = 'CONCILIADO';
+          isAlreadyPaidMatch = true;
+        }
+      }
       
       const nextSingleLiqId = newList.length === 1 
         ? newList[0] 
@@ -2103,20 +1984,19 @@ export default function ConciliacionBancaria() {
         const liqId = parseInt(liqIdStr, 10);
         const extraPaid = aggPayments[liqId];
         
-        let liqObj = pendingLiquidaciones.find(l => l.liquidacion_id === liqId);
-        if (!liqObj) {
-          const { data: dbLiq, error: fetchLiqErr } = await supabase
-            .from('liquidaciones_grupos')
-            .select('monto_abonado, monto_total_facturado, numero_grupo')
-            .eq('liquidacion_id', liqId)
-            .single();
-          if (fetchLiqErr) throw fetchLiqErr;
-          liqObj = dbLiq;
-        }
+        // SIEMPRE leer monto_abonado fresco de la DB para evitar doble contabilización
+        const { data: freshLiq, error: fetchLiqErr } = await supabase
+          .from('liquidaciones_grupos')
+          .select('monto_abonado, monto_total_facturado, numero_grupo')
+          .eq('liquidacion_id', liqId)
+          .single();
+        if (fetchLiqErr) throw fetchLiqErr;
         
-        if (liqObj) {
-          const newMontoAbonado = Math.round((Number(liqObj.monto_abonado || 0) + extraPaid) * 100) / 100;
-          const isFullyPaid = newMontoAbonado >= Number(liqObj.monto_total_facturado) - 2.00;
+        if (freshLiq) {
+          const currentAbonado = Number(freshLiq.monto_abonado || 0);
+          const currentFacturado = Number(freshLiq.monto_total_facturado);
+          const newMontoAbonado = Math.round((currentAbonado + extraPaid) * 100) / 100;
+          const isFullyPaid = newMontoAbonado >= currentFacturado - 2.00;
           
           const { error: updateLiqError } = await supabase
             .from('liquidaciones_grupos')
@@ -2302,6 +2182,7 @@ export default function ConciliacionBancaria() {
           socio_id: row.selectedSocioId ? parseInt(row.selectedSocioId, 10) : null,
           liquidacion_id: null,
           tipo_movimiento: 'CONCILIACION_GRUPO_MASTER',
+          comprobante: row.comprobante || null,
           periodo: selectedPeriod || '2026-02'
         };
 
@@ -2322,8 +2203,16 @@ export default function ConciliacionBancaria() {
           const liqObj = row.pendingList.find(l => l.liquidacion_id === liqId);
           
           if (liqObj) {
-            const newMontoAbonado = Math.round((Number(liqObj.monto_abonado || 0) + extraPaid) * 100) / 100;
-            const isFullyPaid = newMontoAbonado >= Number(liqObj.monto_total_facturado) - 2.00;
+            // Leer monto_abonado FRESCO de la DB para evitar race conditions y doble contabilización
+            const { data: freshLiq } = await supabase
+              .from('liquidaciones_grupos')
+              .select('monto_abonado, monto_total_facturado')
+              .eq('liquidacion_id', liqId)
+              .single();
+            const currentAbonado = Number(freshLiq?.monto_abonado || liqObj.monto_abonado || 0);
+            const currentFacturado = Number(freshLiq?.monto_total_facturado || liqObj.monto_total_facturado);
+            const newMontoAbonado = Math.round((currentAbonado + extraPaid) * 100) / 100;
+            const isFullyPaid = newMontoAbonado >= currentFacturado - 2.00;
             
             const { error: liqError } = await supabase
               .from('liquidaciones_grupos')
@@ -2371,6 +2260,7 @@ export default function ConciliacionBancaria() {
             socio_id: row.selectedSocioId ? parseInt(row.selectedSocioId, 10) : null,
             liquidacion_id: singleLiqId ? parseInt(singleLiqId, 10) : null,
             tipo_movimiento: row.tipo_movimiento,
+            comprobante: row.comprobante || null,
             periodo: matchedLiq?.periodo || selectedPeriod || '2026-02'
           })
           .select();
@@ -2387,8 +2277,16 @@ export default function ConciliacionBancaria() {
           const liqObj = row.pendingList.find(l => String(l.liquidacion_id) === String(singleLiqId));
           if (liqObj) {
             groupNum = liqObj.numero_grupo;
-            const newMontoAbonado = Math.round((Number(liqObj.monto_abonado || 0) + Number(row.netoReal)) * 100) / 100;
-            const isFullyPaid = newMontoAbonado >= Number(liqObj.monto_total_facturado) - 2.00;
+            // Leer monto_abonado FRESCO de la DB para evitar race conditions y doble contabilización
+            const { data: freshLiq } = await supabase
+              .from('liquidaciones_grupos')
+              .select('monto_abonado, monto_total_facturado')
+              .eq('liquidacion_id', parseInt(singleLiqId, 10))
+              .single();
+            const currentAbonado = Number(freshLiq?.monto_abonado || liqObj.monto_abonado || 0);
+            const currentFacturado = Number(freshLiq?.monto_total_facturado || liqObj.monto_total_facturado);
+            const newMontoAbonado = Math.round((currentAbonado + Number(row.netoReal)) * 100) / 100;
+            const isFullyPaid = newMontoAbonado >= currentFacturado - 2.00;
 
             const { error: liqError } = await supabase
               .from('liquidaciones_grupos')
@@ -2411,8 +2309,9 @@ export default function ConciliacionBancaria() {
               nombre: row.selectedSocioLabel || `Grupo ${groupNum}`,
               importe: Number(row.netoReal),
               medio_pago: row.banco || 'TRANSFERENCIA',
-              observaciones: `Conciliación Bancaria - ${row.concepto}`,
-              periodo: selectedPeriod || null
+              observaciones: `Conciliación Bancaria - ${row.concepto}${row.comprobante ? ` (Cpbte: ${row.comprobante})` : ''}`,
+              periodo: selectedPeriod || null,
+              skipLiqUpdate: true
             });
           } catch (errCuenta) {
             console.warn("Aviso al registrar cobro en cuenta corriente:", errCuenta);
@@ -2452,15 +2351,18 @@ export default function ConciliacionBancaria() {
         console.error("Error al guardar CBU:", cbuErr);
       }
 
-      // Auto-registrar aprendizaje en conciliacion_historica
+      // Auto-registrar aprendizaje en conciliacion_historica con metadatos limpios
       try {
-        const cuitMatch = row.cuit || row.concepto?.match(/\b\d{11}\b/)?.[0];
-        const cbuMatch = row.cbu || row.concepto?.match(/\b\d{22}\b/)?.[0];
+        const meta = extractConceptMetadata(row.concepto, row.banco);
+        const cuitMatch = row.cuit || meta.cuit;
+        const cbuMatch = row.cbu || meta.cbu;
+        const nombreLimpio = meta.rawExtractedName || (row.concepto ? row.concepto.slice(0, 120) : '');
+
         if ((cuitMatch || cbuMatch) && groupNum) {
           await conciliacionService.registrarAprendizajeHistorico({
             cuit: cuitMatch,
             cbu: cbuMatch,
-            nombreTransferente: row.concepto,
+            nombreTransferente: nombreLimpio,
             numeroGrupo: groupNum,
             socioId: row.selectedSocioId,
             socioNombre: row.selectedSocioLabel,
@@ -2468,6 +2370,37 @@ export default function ConciliacionBancaria() {
             monto: row.netoReal,
             periodo: selectedPeriod,
             confianza: 95
+          });
+
+          // Actualizar memoria local para que las demás filas del extracto lo reconozcan inmediatamente
+          setConciliacionHistorica(prev => {
+            const list = Array.isArray(prev) ? prev : [];
+            const existingIdx = list.findIndex(h => 
+              (cuitMatch && h.cuit_transferente === cuitMatch) || 
+              (cbuMatch && h.cbu_transferente === cbuMatch)
+            );
+            if (existingIdx !== -1) {
+              const updated = [...list];
+              updated[existingIdx] = {
+                ...updated[existingIdx],
+                socio_id: row.selectedSocioId,
+                socio_nombre: row.selectedSocioLabel,
+                numero_grupo: groupNum,
+                veces_visto: (updated[existingIdx].veces_visto || 1) + 1
+              };
+              return updated;
+            }
+            return [...list, {
+              cuit_transferente: cuitMatch,
+              cbu_transferente: cbuMatch,
+              nombre_transferente: nombreLimpio,
+              numero_grupo: groupNum,
+              socio_id: row.selectedSocioId,
+              socio_nombre: row.selectedSocioLabel,
+              banco: row.banco,
+              veces_visto: 1,
+              confianza: 95
+            }];
           });
         }
       } catch (errLearn) {
@@ -2506,13 +2439,31 @@ export default function ConciliacionBancaria() {
     const isTaxOrFee = ['IMPUESTO', 'COMISION', 'SUSCRIPCION', 'PAGO_VEP', 'PAGO_SERVICIO', 'PAGO_ARCA', 'TRANSFERENCIA_ENVIADA'].includes(m.tipo_movimiento);
     if (isTaxOrFee) return false;
     if (!m.selectedSocioId) return false;
+    if (m.estado === 'CONCILIADO' || m.isAlreadyPaidMatch || m.isDbDuplicate) return false;
 
     const liqs = m.selectedLiquidations && m.selectedLiquidations.length > 0
       ? m.selectedLiquidations
       : (m.selectedLiquidationId && m.selectedLiquidationId !== 'SALDAR_TODO' ? [m.selectedLiquidationId] : []);
 
-    if (m.selectedLiquidationId === 'SALDAR_TODO') return true;
+    if (m.selectedLiquidationId === 'SALDAR_TODO') {
+      if (m.matchedLiquidationIds && m.matchedLiquidationIds.length > 0) {
+        const activeLiqs = (m.pendingList || []).filter(l => 
+          m.matchedLiquidationIds.includes(l.liquidacion_id) && 
+          (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)) > 2.00
+        );
+        if (activeLiqs.length === 0) return false;
+      }
+      return true;
+    }
     if (liqs.length === 0) return false;
+
+    // Si todas las liquidaciones seleccionadas ya están saldadas, no debe considerarse listo para conciliar
+    const areAllPaid = liqs.every(liqId => {
+      const liq = (m.pendingList || []).find(l => String(l.liquidacion_id) === String(liqId));
+      if (!liq) return false;
+      return (Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0)) <= 2.00 || liq.estado_pago === 'ABONADO';
+    });
+    if (areAllPaid) return false;
 
     if (liqs.length === 1) {
       const singleLiqId = liqs[0];
@@ -2530,12 +2481,10 @@ export default function ConciliacionBancaria() {
         }, 0);
         return Math.abs(selectedSum - Math.abs(m.netoReal)) < 0.05;
       } else {
-        if (m.isAlreadyPaidMatch) return true;
         const pendingAmount = Number(selectedLiq.monto_total_facturado || 0) - Number(selectedLiq.monto_abonado || 0);
         return Math.abs(pendingAmount - Math.abs(m.netoReal)) < 2.00;
       }
     } else {
-      if (m.isAlreadyPaidMatch) return true;
       const sumPending = (m.pendingList || [])
         .filter(l => liqs.includes(String(l.liquidacion_id)))
         .reduce((sum, l) => sum + (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)), 0);
@@ -2546,6 +2495,8 @@ export default function ConciliacionBancaria() {
   const handleConciliarTodos = async () => {
     const readyRows = parsedMovements.filter(m => 
       m.estado === 'PENDIENTE' && 
+      !m.isAlreadyPaidMatch &&
+      !m.isDbDuplicate &&
       checkIsAmountMatch(m, periodConsumos)
     );
     if (readyRows.length === 0) {
@@ -2794,6 +2745,54 @@ export default function ConciliacionBancaria() {
     }));
   };
 
+  const handleOlvidarAprendizaje = async ({ cuit, cbu, id, numeroGrupo, socioLabel }) => {
+    const accepted = await confirm({
+      title: "Olvidar Aprendizaje Histórico",
+      message: `¿Desea desvincular y olvidar la sugerencia aprendida para ${socioLabel || 'este socio/grupo'}? No se volverá a sugerir automáticamente.`,
+      isDanger: true,
+      confirmText: "Olvidar Asociación",
+      cancelText: "Cancelar"
+    });
+    if (!accepted) return;
+
+    try {
+      const ok = await conciliacionService.olvidarAprendizajeHistorico({ id, cuit, cbu, numeroGrupo });
+      if (ok) {
+        setConciliacionHistorica(prev => prev.filter(h => {
+          if (id && h.id === id) return false;
+          if (cuit && h.cuit_transferente === cuit) return false;
+          if (cbu && h.cbu_transferente === cbu) return false;
+          return true;
+        }));
+        setParsedMovements(prev => prev.map(m => {
+          const isTarget = m.suggestedSocio?.isLearned && (
+            (id && m.suggestedSocio.learnedId === id) ||
+            (cuit && m.suggestedSocio.learnedCuit === cuit) ||
+            (cbu && m.suggestedSocio.learnedCbu === cbu)
+          );
+          if (isTarget) {
+            return {
+              ...m,
+              suggestedSocio: null,
+              selectedSocioId: null,
+              selectedSocioLabel: '',
+              selectedLiquidationId: '',
+              selectedLiquidations: [],
+              selectedLines: []
+            };
+          }
+          return m;
+        }));
+        addToast("Memoria histórica desvinculada con éxito", "success");
+      } else {
+        addToast("No se pudo desvincular el registro histórico", "error");
+      }
+    } catch (err) {
+      console.error(err);
+      addToast("Error al olvidar el aprendizaje", "error");
+    }
+  };
+
   const handleDeshacerConciliacion = async (movement) => {
     const accepted = await confirm({
       title: "Deshacer Conciliación",
@@ -2903,12 +2902,33 @@ export default function ConciliacionBancaria() {
         return;
       }
 
-      // Obtener rango de fechas para consultar a Supabase
+      // Obtener rango de fechas para consultar a Supabase (con margen de 4 días para clearing bancario)
       const dates = datosProcesados.map(m => parseDateToISODate(m.fecha)).filter(Boolean);
       let existingMovs = [];
+      let existingCuentaMovs = [];
       if (dates.length > 0) {
         const minDate = dates.reduce((a, b) => a < b ? a : b);
         const maxDate = dates.reduce((a, b) => a > b ? a : b);
+        
+        const minDateObj = new Date(minDate + 'T00:00:00');
+        minDateObj.setDate(minDateObj.getDate() - 4);
+        const queryMinDate = minDateObj.toISOString().split('T')[0];
+
+        const maxDateObj = new Date(maxDate + 'T23:59:59');
+        maxDateObj.setDate(maxDateObj.getDate() + 4);
+        const queryMaxDate = maxDateObj.toISOString().split('T')[0];
+
+        // Extraer comprobantes del lote para ampliar la búsqueda en base de datos
+        const loteCpbteList = datosProcesados
+          .map(m => {
+            let c = (m.comprobante || '').trim();
+            if (!c) {
+              const meta = extractConceptMetadata(m.concepto, bankOption);
+              if (meta.comprobante) c = meta.comprobante;
+            }
+            return c;
+          })
+          .filter(c => c && c.length >= 3);
         
         const { data: dbData, error: dbError } = await supabase
           .from('movimientos_bancarios')
@@ -2921,15 +2941,81 @@ export default function ConciliacionBancaria() {
             socio_id,
             liquidacion_id,
             tipo_movimiento,
+            comprobante,
             liquidaciones_grupos(periodo, numero_grupo, monto_total_facturado)
           `)
-          .gte('fecha_movimiento', minDate)
-          .lte('fecha_movimiento', maxDate);
+          .gte('fecha_movimiento', queryMinDate)
+          .lte('fecha_movimiento', queryMaxDate);
+        
+        let allMovsList = dbData || [];
+
+        // Si hay números de comprobante en el extracto, buscar si ya existen en la DB sin importar desfase de fecha
+        if (loteCpbteList.length > 0) {
+          const { data: cpbteDbData } = await supabase
+            .from('movimientos_bancarios')
+            .select(`
+              movimiento_id,
+              fecha_movimiento,
+              concepto,
+              monto,
+              banco,
+              socio_id,
+              liquidacion_id,
+              tipo_movimiento,
+              comprobante,
+              liquidaciones_grupos(periodo, numero_grupo, monto_total_facturado)
+            `)
+            .in('comprobante', loteCpbteList);
+
+          if (cpbteDbData && cpbteDbData.length > 0) {
+            const movMap = new Map();
+            allMovsList.forEach(m => movMap.set(m.movimiento_id, m));
+            cpbteDbData.forEach(m => movMap.set(m.movimiento_id, m));
+            allMovsList = Array.from(movMap.values());
+          }
+        }
         
         if (dbError) {
           console.error("Error al consultar movimientos existentes:", dbError);
         } else {
-          existingMovs = dbData || [];
+          existingMovs = allMovsList;
+        }
+
+        const { data: mcData, error: mcError } = await supabase
+          .from('movimientos_cuenta')
+          .select('id, fecha, numero_grupo, nombre, importe, tipo, medio_pago, observaciones, liquidacion_id, periodo, numero_linea')
+          .eq('tipo', 'PAGO')
+          .gte('fecha', queryMinDate)
+          .lte('fecha', queryMaxDate);
+
+        let allMcList = mcData || [];
+        if (loteCpbteList.length > 0) {
+          // Cotejar también pagos recientes por comprobante en observaciones
+          const { data: recentMc } = await supabase
+            .from('movimientos_cuenta')
+            .select('id, fecha, numero_grupo, nombre, importe, tipo, medio_pago, observaciones, liquidacion_id, periodo, numero_linea')
+            .eq('tipo', 'PAGO')
+            .order('fecha', { ascending: false })
+            .limit(200);
+
+          if (recentMc) {
+            const matchingByObs = recentMc.filter(mc => {
+              const obs = mc.observaciones || '';
+              return loteCpbteList.some(c => obs.includes(c));
+            });
+            if (matchingByObs.length > 0) {
+              const mcMap = new Map();
+              allMcList.forEach(m => mcMap.set(m.id, m));
+              matchingByObs.forEach(m => mcMap.set(m.id, m));
+              allMcList = Array.from(mcMap.values());
+            }
+          }
+        }
+
+        if (mcError) {
+          console.error("Error al consultar movimientos_cuenta existentes:", mcError);
+        } else {
+          existingCuentaMovs = allMcList;
         }
       }
 
@@ -2979,21 +3065,66 @@ export default function ConciliacionBancaria() {
         }
 
         const isTaxOrFee = m.tipo_movimiento === 'IMPUESTO' || m.tipo_movimiento === 'COMISION' || m.tipo_movimiento === 'SUSCRIPCION' || m.tipo_movimiento === 'PAGO_VEP' || m.tipo_movimiento === 'PAGO_SERVICIO' || m.tipo_movimiento === 'PAGO_ARCA' || m.tipo_movimiento === 'TRANSFERENCIA_ENVIADA';
-        const suggestion = isTaxOrFee ? null : findSuggestedSocio(m.concepto, socios, conciliacionHistorica);
+        const suggestion = isTaxOrFee ? null : findSuggestedSocio(m.concepto, socios, conciliacionHistorica, {
+          monto: m.netoReal,
+          banco: detectedBanco,
+          selectedPeriod,
+          pendingLiquidaciones,
+          titularMap
+        });
 
         // Verificar duplicados (emparejamiento uno-a-uno)
         const rowDateISO = parseDateToISODate(m.fecha);
+        const normalize = (str) => (str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
+        const rowConc = normalize(m.concepto);
+
+        // Extraer comprobante si no vino explícito
+        let cleanCpbte = (m.comprobante || '').trim();
+        if (!cleanCpbte) {
+          const metaCpbte = extractConceptMetadata(m.concepto, detectedBanco).comprobante;
+          if (metaCpbte) cleanCpbte = metaCpbte;
+        }
         
-        // Paso 1: Buscar match directo (mismo monto, misma fecha, mismo banco, concepto contenido)
-        let matchIndex = existingMovsPool.findIndex(dbMov => {
-          if (dbMov.fecha_movimiento !== rowDateISO || Math.abs(Number(dbMov.monto) - m.netoReal) >= 0.01 || dbMov.banco !== detectedBanco) {
+        let matchIndex = -1;
+
+        // Paso 0: PRIORIDAD MÁXIMA - Buscar match directo por Número de Comprobante en movimientos_bancarios
+        if (cleanCpbte && cleanCpbte.length >= 3) {
+          matchIndex = existingMovsPool.findIndex(dbMov => {
+            const dbCpbte = (dbMov.comprobante || '').trim();
+            if (dbCpbte && dbCpbte === cleanCpbte) {
+              return true;
+            }
+            if (dbMov.concepto && dbMov.concepto.includes(cleanCpbte)) {
+              if (Math.abs(Number(dbMov.monto) - m.netoReal) < 0.05) {
+                return true;
+              }
+            }
             return false;
-          }
-          const normalize = (str) => (str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
-          const dbConc = normalize(dbMov.concepto);
-          const rowConc = normalize(m.concepto);
-          return dbConc === rowConc || dbConc.includes(rowConc) || rowConc.includes(dbConc);
-        });
+          });
+        }
+
+        // Paso 1: Si no hubo match por comprobante, buscar por banco, monto igual y concepto/fecha
+        if (matchIndex === -1) {
+          matchIndex = existingMovsPool.findIndex(dbMov => {
+            if (Math.abs(Number(dbMov.monto) - m.netoReal) >= 0.02 || dbMov.banco !== detectedBanco) {
+              return false;
+            }
+            const dbConc = normalize(dbMov.concepto);
+            const isConcMatch = dbConc === rowConc || dbConc.includes(rowConc) || rowConc.includes(dbConc);
+            if (dbMov.fecha_movimiento === rowDateISO) {
+              return isConcMatch;
+            }
+            // En Banco Nación, los extractos solo traen conceptos genéricos ("TRANSF.INT..." o "CR TRANSFERENCIA...");
+            // si el banco y el importe coinciden dentro de un margen de 4 días, se empareja directamente:
+            if (detectedBanco === 'NACION' && Math.abs(new Date(dbMov.fecha_movimiento + 'T00:00:00') - new Date(rowDateISO + 'T00:00:00')) <= 4 * 86400000) {
+              return true;
+            }
+            if (isConcMatch && Math.abs(new Date(dbMov.fecha_movimiento + 'T00:00:00') - new Date(rowDateISO + 'T00:00:00')) <= 3 * 86400000) {
+              return true;
+            }
+            return false;
+          });
+        }
 
         // Paso 2: Si no hay match directo, buscar splits de conciliación multi-liquidación
         // (múltiples filas en DB cuyo concepto contiene el concepto original y cuyos montos suman ~netoReal)
@@ -3001,29 +3132,24 @@ export default function ConciliacionBancaria() {
         let multiLiqSocioId = null;
         let multiLiqIndices = [];
         
-        if (matchIndex === -1 && m.netoReal > 0) {
-          const normalize = (str) => (str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
-          const rowConc = normalize(m.concepto);
-          if (rowConc) {
-            // Encontrar todas las filas de DB que contengan este concepto, misma fecha y banco
-            const candidateIndices = [];
-            existingMovsPool.forEach((dbMov, idx) => {
-              if (dbMov.fecha_movimiento !== rowDateISO || dbMov.banco !== detectedBanco) return;
-              const dbConc = normalize(dbMov.concepto);
-              if (dbConc.includes(rowConc) || rowConc.includes(dbConc)) {
-                candidateIndices.push(idx);
-              }
-            });
-            
-            if (candidateIndices.length > 1) {
-              const sumMontos = candidateIndices.reduce((sum, idx) => sum + Number(existingMovsPool[idx].monto), 0);
-              if (Math.abs(sumMontos - m.netoReal) < 2.00) {
-                isMultiLiqMatch = true;
-                multiLiqIndices = candidateIndices;
-                // Usar el socio_id del primer split que tenga uno
-                const firstWithSocio = candidateIndices.find(idx => existingMovsPool[idx].socio_id);
-                multiLiqSocioId = firstWithSocio !== undefined ? existingMovsPool[firstWithSocio].socio_id : null;
-              }
+        if (matchIndex === -1 && m.netoReal > 0 && rowConc) {
+          // Encontrar todas las filas de DB que contengan este concepto, misma fecha y banco
+          const candidateIndices = [];
+          existingMovsPool.forEach((dbMov, idx) => {
+            if (dbMov.fecha_movimiento !== rowDateISO || dbMov.banco !== detectedBanco) return;
+            const dbConc = normalize(dbMov.concepto);
+            if (dbConc.includes(rowConc) || rowConc.includes(dbConc)) {
+              candidateIndices.push(idx);
+            }
+          });
+          
+          if (candidateIndices.length > 1) {
+            const sumMontos = candidateIndices.reduce((sum, idx) => sum + Number(existingMovsPool[idx].monto), 0);
+            if (Math.abs(sumMontos - m.netoReal) < 2.00) {
+              isMultiLiqMatch = true;
+              multiLiqIndices = candidateIndices;
+              const firstWithSocio = candidateIndices.find(idx => existingMovsPool[idx].socio_id);
+              multiLiqSocioId = firstWithSocio !== undefined ? existingMovsPool[firstWithSocio].socio_id : null;
             }
           }
         }
@@ -3054,6 +3180,54 @@ export default function ConciliacionBancaria() {
         if (suggestion?.learnedGroup && !socioGroups.includes(suggestion.learnedGroup)) {
           socioGroups = [...socioGroups, suggestion.learnedGroup];
         }
+
+        // Paso 3: Verificar si el pago ya impactó en movimientos_cuenta (por Comprobante o por Nombre/Grupo)
+        let isCuentaMatch = false;
+        let matchedCuentaObj = null;
+        if (matchIndex === -1 && !isMultiLiqMatch && m.netoReal > 0 && existingCuentaMovs.length > 0) {
+          matchedCuentaObj = existingCuentaMovs.find(mc => {
+            const mcMonto = Math.abs(Number(mc.importe || 0));
+            if (Math.abs(mcMonto - m.netoReal) > 0.05) return false;
+
+            // 3a. Coincidencia por comprobante en observaciones o numero_linea
+            if (cleanCpbte && cleanCpbte.length >= 3) {
+              const obs = mc.observaciones || '';
+              if (obs.includes(cleanCpbte) || mc.numero_linea === cleanCpbte) {
+                return true;
+              }
+            }
+
+            // 3b. Coincidencia por nombre o grupo
+            const mcNombre = normalize(mc.nombre);
+            const mcObs = normalize(mc.observaciones);
+            const isNameInConc = mcNombre && (rowConc.includes(mcNombre) || mcNombre.includes(rowConc));
+            const isObsInConc = mcObs && (rowConc.includes(mcObs) || mcObs.includes(rowConc));
+            const isGroupMatch = mc.numero_grupo && socioGroups.includes(mc.numero_grupo);
+            return isNameInConc || isObsInConc || isGroupMatch;
+          });
+
+          if (matchedCuentaObj) {
+            isCuentaMatch = true;
+          }
+        }
+
+        // Si se encontró en movimientos_cuenta pero aún no tenía socio asignado en la fila:
+        if (!targetSocio && matchedCuentaObj && matchedCuentaObj.numero_grupo) {
+          const gTitularId = titularMap[matchedCuentaObj.numero_grupo];
+          if (gTitularId) {
+            targetSocio = socios.find(s => s.socio_id === gTitularId);
+          } else {
+            targetSocio = socios.find(s => s.grupo_socio?.some(gs => gs.numero_grupo === matchedCuentaObj.numero_grupo));
+          }
+          if (targetSocio) {
+            dbSocioId = targetSocio.socio_id;
+            dbLabel = `${targetSocio.nombre_completo} (Socio ${targetSocio.nro_socio || ''})`;
+            if (!socioGroups.includes(matchedCuentaObj.numero_grupo)) {
+              socioGroups = [...socioGroups, matchedCuentaObj.numero_grupo];
+            }
+          }
+        }
+
         const bankPeriod = getBankPeriod(m.concepto, rowDateISO);
         const pendingForSocio = (targetSocio || suggestion?.learnedGroup)
           ? pendingLiquidaciones.filter(liq => liq && socioGroups.includes(liq.numero_grupo) && (liq.periodo <= bankPeriod))
@@ -3067,20 +3241,21 @@ export default function ConciliacionBancaria() {
         let initialEstado = 'PENDIENTE';
         let isAlreadyPaidMatch = false;
 
-        if (matchIndex !== -1) {
+        if (isCuentaMatch) {
+          initialEstado = 'CONCILIADO';
+          isAlreadyPaidMatch = true;
+        } else if (matchIndex !== -1) {
           initialEstado = 'CONCILIADO';
           existingMovsPool.splice(matchIndex, 1); // Remover del pool
         } else if (isMultiLiqMatch) {
-          // Multi-liquidación: los splits en DB suman el monto original
           initialEstado = 'CONCILIADO';
           isAlreadyPaidMatch = true;
-          // Remover todos los splits del pool (de mayor a menor para no romper índices)
           multiLiqIndices.sort((a, b) => b - a).forEach(idx => existingMovsPool.splice(idx, 1));
         } else if (activeLiqId && activeLiqId !== 'SALDAR_TODO') {
           const matchedLiq = pendingForSocio.find(l => String(l.liquidacion_id) === String(activeLiqId));
           if (matchedLiq) {
             const pendingAmount = Number(matchedLiq.monto_total_facturado || 0) - Number(matchedLiq.monto_abonado || 0);
-            if (pendingAmount <= 2.00) {
+            if (pendingAmount <= 2.00 || matchedLiq.estado_pago === 'ABONADO') {
               initialEstado = 'CONCILIADO';
               isAlreadyPaidMatch = true;
             }
@@ -3088,8 +3263,13 @@ export default function ConciliacionBancaria() {
         } else if (activeLiqId === 'SALDAR_TODO' && matchedIds && matchedIds.length > 0) {
           const liquidations = pendingForSocio.filter(l => matchedIds.includes(l.liquidacion_id));
           const sumPending = liquidations.reduce((sum, l) => sum + (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)), 0);
-          
           if (sumPending <= 2.00) {
+            initialEstado = 'CONCILIADO';
+            isAlreadyPaidMatch = true;
+          }
+        } else if (!activeLiqId && pendingForSocio.length > 0) {
+          const allPaid = pendingForSocio.every(l => (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0) <= 2.00) || l.estado_pago === 'ABONADO');
+          if (allPaid) {
             initialEstado = 'CONCILIADO';
             isAlreadyPaidMatch = true;
           }
@@ -3099,30 +3279,41 @@ export default function ConciliacionBancaria() {
         let warningMsg = '';
         let isDuplicateCpbte = false;
 
-        if (m.comprobante) {
-          const cleanCpbte = m.comprobante.trim();
-          if (cleanCpbte.length >= 3) {
-            // 1. Duplicado interno (en lote)
-            const isInternalDup = datosProcesados.some((other, oIdx) => 
-              oIdx !== index && 
-              other.comprobante && 
-              other.comprobante.trim() === cleanCpbte
-            );
+        if (cleanCpbte && cleanCpbte.length >= 3) {
+          // 1. Duplicado interno (en lote)
+          const isInternalDup = datosProcesados.some((other, oIdx) => 
+            oIdx !== index && 
+            other.comprobante && 
+            other.comprobante.trim() === cleanCpbte
+          );
 
-            // 2. Duplicado en base de datos (excluyendo la coincidencia legítima si ya se concilió a través de matchIndex)
-            const hasAnotherDbMov = existingMovs.some(dbMov => 
-              dbMov !== matchedDbMov && 
-              dbMov.concepto?.includes(cleanCpbte)
-            );
+          // 2. Duplicado en base de datos
+          const hasAnotherDbMov = existingMovs.some(dbMov => 
+            dbMov !== matchedDbMov && 
+            ((dbMov.comprobante && dbMov.comprobante.trim() === cleanCpbte) ||
+             (dbMov.concepto && dbMov.concepto.includes(cleanCpbte) && Math.abs(Number(dbMov.monto) - m.netoReal) < 0.05))
+          );
 
-            if (isInternalDup) {
-              warningMsg = `Comprobante #${cleanCpbte} repetido en lote`;
-              isDuplicateCpbte = true;
-            } else if (hasAnotherDbMov) {
-              warningMsg = `Comprobante #${cleanCpbte} ya registrado en base de datos`;
-              isDuplicateCpbte = true;
-            }
+          if (isInternalDup) {
+            warningMsg = `Comprobante #${cleanCpbte} repetido en lote`;
+            isDuplicateCpbte = true;
+          } else if (hasAnotherDbMov || matchIndex !== -1) {
+            warningMsg = `Comprobante #${cleanCpbte} ya procesado en base de datos`;
+            isDuplicateCpbte = true;
           }
+        }
+
+        const isActuallyDuplicate = matchIndex !== -1 || isCuentaMatch || isMultiLiqMatch || isDuplicateCpbte;
+        if (isActuallyDuplicate) {
+          initialEstado = 'CONCILIADO';
+          isAlreadyPaidMatch = true;
+        }
+
+        let selectedLiqs = [];
+        if (activeLiqId === 'SALDAR_TODO' && matchedIds) {
+          selectedLiqs = matchedIds.map(String);
+        } else if (activeLiqId) {
+          selectedLiqs = [String(activeLiqId)];
         }
 
         const defaultLines = calculateDefaultLines(dbSocioId, activeLiqId, m.netoReal, consumosList);
@@ -3131,7 +3322,7 @@ export default function ConciliacionBancaria() {
           id: index,
           fecha: m.fecha,
           concepto: m.concepto,
-          comprobante: m.comprobante || '',
+          comprobante: cleanCpbte,
           ingresoBruto: m.ingresoBruto,
           impuestos: m.impuestos,
           netoReal: m.netoReal,
@@ -3143,11 +3334,12 @@ export default function ConciliacionBancaria() {
           selectedSocioLabel: dbLabel,
           pendingList: pendingForSocio,
           selectedLiquidationId: activeLiqId,
+          selectedLiquidations: selectedLiqs,
           matchedLiquidationIds: matchedIds,
           selectedLines: defaultLines,
           estado: initialEstado,
-          isDbDuplicate: matchIndex !== -1 || isMultiLiqMatch,
-          isAlreadyPaidMatch: isAlreadyPaidMatch,
+          isDbDuplicate: isActuallyDuplicate,
+          isAlreadyPaidMatch: isActuallyDuplicate || isAlreadyPaidMatch,
           movimiento_id: matchedDbMov ? matchedDbMov.movimiento_id : null,
           dbLiquidationInfo: matchedDbMov ? matchedDbMov.liquidaciones_grupos : null,
           warningMsg: warningMsg,
@@ -3481,6 +3673,7 @@ export default function ConciliacionBancaria() {
           fetchDbMovementsForPeriod={fetchDbMovementsForPeriod}
           setActiveTab={setActiveTab}
           conciliacionHistorica={conciliacionHistorica}
+          handleOlvidarAprendizaje={handleOlvidarAprendizaje}
         />
       )}
 

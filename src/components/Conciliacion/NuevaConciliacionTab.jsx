@@ -6,6 +6,7 @@ import { registrarCobroCuenta } from '../../services/cuentaCorrienteService';
 import { registrarAprendizajeHistorico } from '../../services/conciliacionService';
 import { useConfirm } from '../../components/ui/ConfirmProvider';
 import Modal from '../Modal';
+import DetallePagoModal from './DetallePagoModal';
 
 export default function NuevaConciliacionTab({
   selectedPeriod,
@@ -40,7 +41,8 @@ export default function NuevaConciliacionTab({
   fetchPeriodSummary,
   fetchDbMovementsForPeriod,
   setActiveTab,
-  conciliacionHistorica = []
+  conciliacionHistorica = [],
+  handleOlvidarAprendizaje
 }) {
   // Local states to isolate typing and filter re-renders from parent
   const confirm = useConfirm();
@@ -79,6 +81,214 @@ export default function NuevaConciliacionTab({
   const [reportFilter, setReportFilter] = useState('ALL'); // 'ALL', 'APPLIED', 'SKIPPED', 'DEBIT_BATCH', 'ERROR'
   const [reportSearch, setReportSearch] = useState('');
   const [reportPage, setReportPage] = useState(1);
+
+  // Modal de Verificación de Pago Conciliado
+  const [detallePagoModal, setDetallePagoModal] = useState({
+    isOpen: false,
+    loading: false,
+    row: null,
+    liquidaciones: [],
+    pagosCuenta: [],
+    pagosBanco: [],
+    error: null
+  });
+
+  const handleVerPagoConciliado = async (row, specificLiqId = null) => {
+    if (!row) return;
+
+    let targetLiqIds = [];
+    if (specificLiqId) {
+      targetLiqIds = [parseInt(specificLiqId, 10)];
+    } else if (row.selectedLiquidations && row.selectedLiquidations.length > 0) {
+      targetLiqIds = row.selectedLiquidations.map(id => parseInt(id, 10)).filter(Boolean);
+    } else if (row.selectedLiquidationId && row.selectedLiquidationId !== 'SALDAR_TODO') {
+      targetLiqIds = [parseInt(row.selectedLiquidationId, 10)];
+    } else if (row.pendingList && row.pendingList.length > 0) {
+      const saldadas = row.pendingList.filter(l => {
+        const p = Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0);
+        return p <= 2.00;
+      });
+      if (saldadas.length > 0) {
+        targetLiqIds = saldadas.map(l => l.liquidacion_id);
+      } else {
+        targetLiqIds = [row.pendingList[0].liquidacion_id];
+      }
+    }
+
+    setDetallePagoModal({
+      isOpen: true,
+      loading: true,
+      row,
+      liquidaciones: [],
+      pagosCuenta: [],
+      pagosBanco: [],
+      error: null
+    });
+
+    try {
+      let liqs = [];
+      if (targetLiqIds.length > 0) {
+        const { data: liqData, error: liqErr } = await supabase
+          .from('liquidaciones_grupos')
+          .select(`
+            liquidacion_id,
+            numero_grupo,
+            periodo,
+            monto_total_facturado,
+            monto_abonado,
+            estado_pago,
+            proveedor_id,
+            updated_at,
+            proveedores!proveedor_id(nombre),
+            socio_id,
+            socios!socio_id(nombre_completo, nro_socio, cuit)
+          `)
+          .in('liquidacion_id', targetLiqIds);
+
+        if (liqErr) throw liqErr;
+        liqs = liqData || [];
+      }
+
+      // Fallback si no hay liquidación por ID
+      if (liqs.length === 0 && (row.grupo || row.selectedSocioId || row.suggestedSocio?.learnedGroup)) {
+        const gNum = row.grupo ? parseInt(row.grupo, 10) : (row.suggestedSocio?.learnedGroup ? parseInt(row.suggestedSocio.learnedGroup, 10) : null);
+        let q = supabase.from('liquidaciones_grupos').select(`
+          liquidacion_id,
+          numero_grupo,
+          periodo,
+          monto_total_facturado,
+          monto_abonado,
+          estado_pago,
+          proveedor_id,
+          updated_at,
+          proveedores!proveedor_id(nombre),
+          socio_id,
+          socios!socio_id(nombre_completo, nro_socio, cuit)
+        `);
+        if (gNum) {
+          q = q.eq('numero_grupo', gNum);
+        } else if (row.selectedSocioId) {
+          q = q.eq('socio_id', row.selectedSocioId);
+        }
+        if (selectedPeriod) q = q.eq('periodo', selectedPeriod);
+        const { data: fallbackLiqs } = await q.limit(3);
+        if (fallbackLiqs && fallbackLiqs.length > 0) {
+          liqs = fallbackLiqs;
+        }
+      }
+
+      const groups = [...new Set(liqs.map(l => l.numero_grupo).concat(row.grupo ? [parseInt(row.grupo, 10)] : []))].filter(Boolean);
+      const periods = [...new Set(liqs.map(l => l.periodo).concat(selectedPeriod ? [selectedPeriod] : []))].filter(Boolean);
+      const liqIds = liqs.map(l => l.liquidacion_id);
+
+      // 1. Buscar en movimientos_cuenta (Contaduría / Cuenta Corriente)
+      let pagosCuenta = [];
+      if (groups.length > 0) {
+        const { data: mcData, error: mcErr } = await supabase
+          .from('movimientos_cuenta')
+          .select(`
+            id,
+            fecha,
+            numero_grupo,
+            nombre,
+            importe,
+            tipo,
+            medio_pago,
+            observaciones,
+            origen,
+            created_at,
+            liquidacion_id,
+            periodo
+          `)
+          .in('numero_grupo', groups)
+          .eq('tipo', 'PAGO')
+          .order('fecha', { ascending: false });
+
+        if (!mcErr && mcData) {
+          pagosCuenta = mcData.filter(m => {
+            if (m.liquidacion_id && liqIds.includes(m.liquidacion_id)) return true;
+            if (m.periodo && periods.includes(m.periodo)) return true;
+            return false;
+          });
+
+          if (pagosCuenta.length === 0 && mcData.length > 0) {
+            pagosCuenta = mcData.slice(0, 3);
+          }
+        }
+      }
+
+      // 2. Buscar en movimientos_bancarios (Extractos)
+      let pagosBanco = [];
+      if (liqIds.length > 0) {
+        const { data: mbData, error: mbErr } = await supabase
+          .from('movimientos_bancarios')
+          .select(`
+            movimiento_id,
+            fecha_movimiento,
+            concepto,
+            monto,
+            banco,
+            comprobante,
+            observaciones,
+            tipo_movimiento,
+            created_at,
+            liquidacion_id,
+            socio_id,
+            socios(nombre_completo, nro_socio)
+          `)
+          .in('liquidacion_id', liqIds)
+          .order('fecha_movimiento', { ascending: false });
+
+        if (!mbErr && mbData) {
+          pagosBanco = mbData;
+        }
+      }
+
+      if (pagosBanco.length === 0 && groups.length > 0) {
+        const groupStr = String(groups[0]);
+        const { data: mbByConcept } = await supabase
+          .from('movimientos_bancarios')
+          .select(`
+            movimiento_id,
+            fecha_movimiento,
+            concepto,
+            monto,
+            banco,
+            comprobante,
+            observaciones,
+            tipo_movimiento,
+            created_at,
+            liquidacion_id,
+            socio_id,
+            socios(nombre_completo, nro_socio)
+          `)
+          .or(`concepto.ilike.%${groupStr}%,observaciones.ilike.%${groupStr}%`)
+          .order('fecha_movimiento', { ascending: false })
+          .limit(3);
+
+        if (mbByConcept && mbByConcept.length > 0) {
+          pagosBanco = mbByConcept;
+        }
+      }
+
+      setDetallePagoModal({
+        isOpen: true,
+        loading: false,
+        row,
+        liquidaciones: liqs,
+        pagosCuenta,
+        pagosBanco,
+        error: null
+      });
+    } catch (err) {
+      console.error("Error al obtener detalle del pago conciliado:", err);
+      setDetallePagoModal(prev => ({
+        ...prev,
+        loading: false,
+        error: "Error al consultar los movimientos del pago: " + (err.message || String(err))
+      }));
+    }
+  };
 
   // Cargar último informe guardado en localStorage para este período
   useEffect(() => {
@@ -736,23 +946,38 @@ export default function NuevaConciliacionTab({
     const minDate = datesList.length > 0 ? datesList.reduce((min, d) => d < min ? d : min, datesList[0]) : '2020-01-01';
     const maxDate = datesList.length > 0 ? datesList.reduce((max, d) => d > max ? d : max, datesList[0]) : '2030-12-31';
 
-    const { data: existingBncMovsData } = await supabase
-      .from('movimientos_bancarios')
-      .select('fecha_movimiento, monto, concepto, comprobante, socio_id, liquidacion_id, banco')
-      .gte('fecha_movimiento', minDate)
-      .lte('fecha_movimiento', maxDate)
-      .range(0, 50000);
+    let existingBncMovs = [];
+    let bncOffset = 0;
+    while (true) {
+      const { data: bncChunk, error: bncErr } = await supabase
+        .from('movimientos_bancarios')
+        .select('fecha_movimiento, monto, concepto, comprobante, socio_id, liquidacion_id, banco')
+        .gte('fecha_movimiento', minDate)
+        .lte('fecha_movimiento', maxDate)
+        .range(bncOffset, bncOffset + 999);
+      if (bncErr) throw bncErr;
+      if (!bncChunk || bncChunk.length === 0) break;
+      existingBncMovs.push(...bncChunk);
+      if (bncChunk.length < 1000) break;
+      bncOffset += 1000;
+    }
 
-    const { data: existingCcMovsData } = await supabase
-      .from('movimientos_cuenta')
-      .select('numero_grupo, fecha, importe, observaciones, medio_pago, tipo')
-      .eq('tipo', 'PAGO')
-      .gte('fecha', minDate)
-      .lte('fecha', maxDate)
-      .range(0, 50000);
-
-    const existingBncMovs = existingBncMovsData || [];
-    const existingCcMovs = existingCcMovsData || [];
+    let existingCcMovs = [];
+    let ccOffset = 0;
+    while (true) {
+      const { data: ccChunk, error: ccErr } = await supabase
+        .from('movimientos_cuenta')
+        .select('numero_grupo, fecha, importe, observaciones, medio_pago, tipo')
+        .eq('tipo', 'PAGO')
+        .gte('fecha', minDate)
+        .lte('fecha', maxDate)
+        .range(ccOffset, ccOffset + 999);
+      if (ccErr) throw ccErr;
+      if (!ccChunk || ccChunk.length === 0) break;
+      existingCcMovs.push(...ccChunk);
+      if (ccChunk.length < 1000) break;
+      ccOffset += 1000;
+    }
 
     const normalize = (str) => (str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
 
@@ -888,20 +1113,27 @@ export default function NuevaConciliacionTab({
             comprobante: payment.comprobante
           });
 
-          // 3. Registrar aprendizaje histórico (confianza máxima 98%)
-          if (payment.cuit || payment.cbu) {
-            await registrarAprendizajeHistorico({
-              cuit: payment.cuit,
-              cbu: payment.cbu,
-              nombreTransferente: payment.titular || payment.concepto,
-              numeroGrupo: gNum,
-              socioId: liq?.socio_id || null,
-              socioNombre: socioLabel,
-              banco: banco,
-              monto: payment.monto,
-              periodo: periodoTarget,
-              confianza: 98
-            });
+          // 3. Registrar aprendizaje histórico SOLO si hay coherencia de nombre comprobable
+          if ((payment.cuit || payment.cbu) && socio?.nombre_completo) {
+            const transferNameClean = String(payment.titular || payment.concepto || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            const socioNameClean = String(socio.nombre_completo || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            const sWords = socioNameClean.split(/[^a-z0-9]+/).filter(w => w.length >= 3);
+            const matchesName = sWords.some(w => transferNameClean.includes(w));
+
+            if (matchesName) {
+              await registrarAprendizajeHistorico({
+                cuit: payment.cuit,
+                cbu: payment.cbu,
+                nombreTransferente: payment.titular || payment.concepto,
+                numeroGrupo: gNum,
+                socioId: liq?.socio_id || null,
+                socioNombre: socioLabel,
+                banco: banco,
+                monto: payment.monto,
+                periodo: periodoTarget,
+                confianza: 65
+              });
+            }
           }
 
           successCount++;
@@ -979,19 +1211,26 @@ export default function NuevaConciliacionTab({
                 comprobante: payment.comprobante
               });
 
-              if (payment.cuit || payment.cbu) {
-                await registrarAprendizajeHistorico({
-                  cuit: payment.cuit,
-                  cbu: payment.cbu,
-                  nombreTransferente: payment.titular || payment.concepto,
-                  numeroGrupo: gNum,
-                  socioId: liq?.socio_id || null,
-                  socioNombre: socioLabel,
-                  banco: banco,
-                  monto: cuotaParte,
-                  periodo: periodoTarget,
-                  confianza: 98
-                });
+              if ((payment.cuit || payment.cbu) && socio?.nombre_completo) {
+                const transferNameClean = String(payment.titular || payment.concepto || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                const socioNameClean = String(socio.nombre_completo || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                const sWords = socioNameClean.split(/[^a-z0-9]+/).filter(w => w.length >= 3);
+                const matchesName = sWords.some(w => transferNameClean.includes(w));
+
+                if (matchesName) {
+                  await registrarAprendizajeHistorico({
+                    cuit: payment.cuit,
+                    cbu: payment.cbu,
+                    nombreTransferente: payment.titular || payment.concepto,
+                    numeroGrupo: gNum,
+                    socioId: liq?.socio_id || null,
+                    socioNombre: socioLabel,
+                    banco: banco,
+                    monto: cuotaParte,
+                    periodo: periodoTarget,
+                    confianza: 65
+                  });
+                }
               }
 
               multiGroupAnyApplied = true;
@@ -1194,6 +1433,8 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
   const readyToReconcileCount = useMemo(() => {
     return parsedMovements.filter(m => 
       m.estado === 'PENDIENTE' && 
+      !m.isAlreadyPaidMatch &&
+      !m.isDbDuplicate &&
       checkIsAmountMatch(m, periodConsumos)
     ).length;
   }, [parsedMovements, periodConsumos]);
@@ -1278,58 +1519,6 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
             onChange={e => setRawData(e.target.value)}
           />
 
-          {/* Configuración del Webhook de IA */}
-          <div style={{ marginBottom: '20px' }}>
-            <button
-              onClick={() => setShowConfigIA(!showConfigIA)}
-              className="action-button"
-              style={{
-                background: 'transparent',
-                color: 'var(--text-secondary)',
-                border: 'none',
-                padding: '4px 8px',
-                fontSize: '12px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                cursor: 'pointer'
-              }}
-            >
-              <Settings size={14} />
-              {showConfigIA ? 'Ocultar Configuración Webhook' : 'Configurar Webhook de Conciliación'}
-            </button>
-
-            {showConfigIA && (
-              <div 
-                className="glass-panel" 
-                style={{ 
-                  marginTop: '8px', 
-                  padding: '16px', 
-                  borderRadius: '12px', 
-                  border: '1px solid var(--border-light)',
-                  background: 'rgba(0,0,0,0.02)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '8px'
-                }}
-              >
-                <label className="form-label" style={{ fontSize: '11px', fontWeight: 700 }}>
-                  URL del Webhook de Conciliación en n8n:
-                </label>
-                <input
-                  type="text"
-                  className="premium-input"
-                  style={{ fontSize: '12px', padding: '8px 12px', height: '36px', width: '100%' }}
-                  value={n8nUrl}
-                  onChange={e => setN8nUrl(e.target.value)}
-                  placeholder="http://localhost:5678/webhook/conciliar-pago-inteligente"
-                />
-                <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-secondary)' }}>
-                  Asegúrate de que el webhook de n8n esté activo y apunte a tu puerto local o servidor.
-                </p>
-              </div>
-            )}
-          </div>
 
           {/* ──── IMPORTAR EXCEL AUDITADO ──── */}
           <div style={{
@@ -1769,11 +1958,11 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                 minWidth: '220px', 
                 height: '48px', 
                 fontSize: '14.5px', 
-                background: 'var(--surface)', 
-                color: 'var(--text-primary)',
-                border: '1px solid var(--border-light)'
+                background: 'var(--accent)', 
+                color: 'white',
+                border: '1px solid var(--accent)', boxShadow: '0 4px 12px var(--accent-shadow)'
               }}
-              disabled={loading || loadingMaster || loadingIA}
+              disabled={loading || loadingMaster}
             >
               {loading || loadingMaster ? (
                 <>
@@ -1788,33 +1977,6 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
               )}
             </button>
 
-            <button 
-              onClick={handleConciliarIA} 
-              className="action-button" 
-              style={{ 
-                flex: 1, 
-                minWidth: '220px', 
-                height: '48px', 
-                fontSize: '14.5px',
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                borderColor: '#10b981',
-                boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)',
-                color: 'white'
-              }}
-              disabled={loading || loadingMaster || loadingIA}
-            >
-              {loadingIA ? (
-                <>
-                  <Loader2 className="animate-spin" size={18} style={{ marginRight: '8px' }} />
-                  AI Conciliando...
-                </>
-              ) : (
-                <>
-                  <Sparkles size={18} style={{ marginRight: '8px' }} />
-                  Conciliar con IA (n8n)
-                </>
-              )}
-            </button>
           </div>
         </div>
       ) : (
@@ -2067,6 +2229,17 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                 }}>
                                   {row.banco}
                                 </span>
+                                {row.comprobante && (
+                                  <span style={{ 
+                                    fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '6px',
+                                    background: 'rgba(0, 0, 0, 0.05)',
+                                    color: 'var(--text-secondary)',
+                                    display: 'inline-block',
+                                    marginLeft: '4px'
+                                  }} title={`Número de comprobante: ${row.comprobante}`}>
+                                    #{row.comprobante}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </td>
@@ -2177,6 +2350,35 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                        }}>
                                          {row.suggestedSocio.reason} (Confianza: {row.suggestedSocio.confianza}%, {row.suggestedSocio.vecesVisto}x visto)
                                        </span>
+                                        {handleOlvidarAprendizaje && (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleOlvidarAprendizaje({
+                                              id: row.suggestedSocio.learnedId,
+                                              cuit: row.suggestedSocio.learnedCuit,
+                                              cbu: row.suggestedSocio.learnedCbu,
+                                              numeroGrupo: row.suggestedSocio.learnedGroup,
+                                              socioLabel: row.suggestedSocio.socio?.nombre_completo || row.selectedSocioLabel
+                                            })}
+                                            title="Olvidar y desvincular esta memoria histórica si es errónea"
+                                            style={{
+                                              background: 'rgba(239, 68, 68, 0.08)',
+                                              border: '1px solid rgba(239, 68, 68, 0.25)',
+                                              color: '#dc2626',
+                                              cursor: 'pointer',
+                                              padding: '1px 5px',
+                                              borderRadius: '4px',
+                                              fontSize: '10px',
+                                              fontWeight: 600,
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: '2px',
+                                              marginLeft: '4px'
+                                            }}
+                                          >
+                                            ✕ Olvidar
+                                          </button>
+                                        )}
                                      </div>
                                    )}
                                    {row.suggestedSocio && !row.selectedSocioId && (
@@ -2553,8 +2755,25 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                                       <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
                                                         {liq.periodo} - Gpo {liq.numero_grupo} ({providerName})
                                                       </span>
-                                                      <span style={{ fontWeight: 800, color: pendingAmount <= 0 ? 'var(--text-secondary)' : 'var(--text-primary)', fontSize: '11px', marginLeft: '6px' }}>
-                                                        {pendingAmount <= 0 ? '(Ya saldado)' : `$${pendingAmount.toLocaleString('es-AR', { minimumFractionDigits: 0 })}`}
+                                                      <span 
+                                                        onClick={(e) => {
+                                                          if (pendingAmount <= 0) {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            handleVerPagoConciliado(row, liq.liquidacion_id);
+                                                          }
+                                                        }}
+                                                        style={{ 
+                                                          fontWeight: 800, 
+                                                          color: pendingAmount <= 0 ? '#10b981' : 'var(--text-primary)', 
+                                                          fontSize: '11px', 
+                                                          marginLeft: '6px',
+                                                          cursor: pendingAmount <= 0 ? 'pointer' : 'default',
+                                                          textDecoration: pendingAmount <= 0 ? 'underline' : 'none'
+                                                        }}
+                                                        title={pendingAmount <= 0 ? "Clic para ver comprobante y movimiento del pago conciliado" : ""}
+                                                      >
+                                                        {pendingAmount <= 0 ? '(Ya saldado 👁️)' : `$${pendingAmount.toLocaleString('es-AR', { minimumFractionDigits: 0 })}`}
                                                       </span>
                                                     </div>
                                                   </label>
@@ -2688,87 +2907,145 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                     <span style={{ fontSize: '10px', color: '#10b981', fontWeight: 500 }}>(Guardado en DB)</span>
                                   ) : (
                                     <span style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 500 }}>
-                                      {row.isAlreadyPaidMatch ? '(Pago ya impactó)' : '(Ignorado / Duplicado)'}
+                                      {row.isAlreadyPaidMatch || row.isDbDuplicate ? '(Pago ya impactó)' : '(Ignorado / Duplicado)'}
                                     </span>
                                   )}
                                 </div>
-                                {row.movimiento_id && openEditConciliacionModal && (
+                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                                   <button
-                                    onClick={() => openEditConciliacionModal(row)}
+                                    onClick={() => handleVerPagoConciliado(row)}
                                     className="action-button"
                                     style={{ 
-                                      background: 'transparent', color: 'var(--accent)', border: '1px solid var(--border-light)',
-                                      padding: '4px 10px', fontSize: '11px', borderRadius: '6px', cursor: 'pointer',
-                                      height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                      background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.25)',
+                                      padding: '4px 8px', fontSize: '11px', borderRadius: '6px', cursor: 'pointer',
+                                      height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px'
                                     }}
+                                    title="Ver detalle del pago registrado"
                                   >
-                                    Editar
+                                    <CheckCircle2 size={12} />
+                                    Ver Pago
                                   </button>
-                                )}
-                                {!row.movimiento_id && deshacerMatchLocal && (
-                                  <button
-                                    onClick={() => deshacerMatchLocal(row.id)}
-                                    className="action-button"
-                                    style={{ 
-                                      background: 'transparent', color: 'var(--accent)', border: '1px solid var(--border-light)',
-                                      padding: '4px 10px', fontSize: '11px', borderRadius: '6px', cursor: 'pointer',
-                                      height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center'
-                                    }}
-                                  >
-                                    Editar
-                                  </button>
-                                )}
+                                  {row.movimiento_id && openEditConciliacionModal && (
+                                    <button
+                                      onClick={() => openEditConciliacionModal(row)}
+                                      className="action-button"
+                                      style={{ 
+                                        background: 'transparent', color: 'var(--accent)', border: '1px solid var(--border-light)',
+                                        padding: '4px 10px', fontSize: '11px', borderRadius: '6px', cursor: 'pointer',
+                                        height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                      }}
+                                    >
+                                      Editar
+                                    </button>
+                                  )}
+                                  {!row.movimiento_id && deshacerMatchLocal && (
+                                    <button
+                                      onClick={() => deshacerMatchLocal(row.id)}
+                                      className="action-button"
+                                      style={{ 
+                                        background: 'transparent', color: 'var(--accent)', border: '1px solid var(--border-light)',
+                                        padding: '4px 10px', fontSize: '11px', borderRadius: '6px', cursor: 'pointer',
+                                        height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                      }}
+                                    >
+                                      Editar
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             ) : row.estado === 'PROCESANDO' ? (
                               <Loader2 className="animate-spin" size={18} style={{ color: 'var(--accent)', margin: '0 auto' }} />
                             ) : (
                               (() => {
                                 let isAlreadySaldada = false;
-                                if (row.selectedLiquidations && row.selectedLiquidations.length > 0) {
+                                if (row.isAlreadyPaidMatch || row.isDbDuplicate || row.estado === 'CONCILIADO') {
+                                  isAlreadySaldada = true;
+                                } else if (row.selectedLiquidations && row.selectedLiquidations.length > 0) {
                                   isAlreadySaldada = row.selectedLiquidations.every(liqId => {
                                     const liq = row.pendingList?.find(l => String(l.liquidacion_id) === String(liqId));
                                     if (!liq) return false;
                                     const pending = Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0);
-                                    return pending <= 2.00;
+                                    return pending <= 2.00 || liq.estado_pago === 'ABONADO';
                                   });
                                 } else if (row.selectedLiquidationId && row.selectedLiquidationId !== 'SALDAR_TODO') {
                                   const liq = row.pendingList?.find(l => String(l.liquidacion_id) === String(row.selectedLiquidationId));
                                   if (liq) {
                                     const pending = Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0);
-                                    if (pending <= 2.00) isAlreadySaldada = true;
+                                    if (pending <= 2.00 || liq.estado_pago === 'ABONADO') isAlreadySaldada = true;
                                   }
+                                } else if (row.pendingList && row.pendingList.length > 0) {
+                                  const allSettled = row.pendingList.every(l => (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0) <= 2.00) || l.estado_pago === 'ABONADO');
+                                  if (allSettled) isAlreadySaldada = true;
                                 }
 
-                                const isAmountMatch = row.netoReal > 0 && checkIsAmountMatch(row, periodConsumos);
+                                const isAmountMatch = !isAlreadySaldada && row.netoReal > 0 && checkIsAmountMatch(row, periodConsumos);
                                 return (
                                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
-                                    <span style={{ 
-                                      display: 'inline-flex', 
-                                      alignItems: 'center', 
-                                      gap: '4px', 
-                                      fontSize: '11px', 
-                                      fontWeight: 700, 
-                                      color: isAlreadySaldada ? 'var(--text-secondary)' : (isAmountMatch ? '#16a34a' : (row.netoReal > 0 ? '#d97706' : 'var(--text-secondary)')),
-                                      background: isAlreadySaldada ? 'rgba(0,0,0,0.05)' : (isAmountMatch ? 'rgba(22, 163, 74, 0.08)' : (row.netoReal > 0 ? 'rgba(245, 158, 11, 0.08)' : 'rgba(0,0,0,0.05)')),
-                                      padding: '3px 8px',
-                                      borderRadius: '6px',
-                                      border: isAlreadySaldada ? '1px solid var(--border-light)' : (isAmountMatch ? '1px solid rgba(22, 163, 74, 0.2)' : (row.netoReal > 0 ? '1px solid rgba(245, 158, 11, 0.2)' : '1px solid var(--border-light)'))
-                                    }}>
+                                    <span 
+                                      onClick={(e) => {
+                                        if (isAlreadySaldada) {
+                                          e.stopPropagation();
+                                          handleVerPagoConciliado(row);
+                                        }
+                                      }}
+                                      style={{ 
+                                        display: 'inline-flex', 
+                                        alignItems: 'center', 
+                                        gap: '4px', 
+                                        fontSize: '11px', 
+                                        fontWeight: 700, 
+                                        color: isAlreadySaldada ? '#10b981' : (isAmountMatch ? '#16a34a' : (row.netoReal > 0 ? '#d97706' : 'var(--text-secondary)')),
+                                        background: isAlreadySaldada ? 'rgba(16, 185, 129, 0.1)' : (isAmountMatch ? 'rgba(22, 163, 74, 0.08)' : (row.netoReal > 0 ? 'rgba(245, 158, 11, 0.08)' : 'rgba(0,0,0,0.05)')),
+                                        padding: '3px 8px',
+                                        borderRadius: '6px',
+                                        border: isAlreadySaldada ? '1px solid rgba(16, 185, 129, 0.25)' : (isAmountMatch ? '1px solid rgba(22, 163, 74, 0.2)' : (row.netoReal > 0 ? '1px solid rgba(245, 158, 11, 0.2)' : '1px solid var(--border-light)')),
+                                        cursor: isAlreadySaldada ? 'pointer' : 'default',
+                                        transition: 'all 0.15s ease'
+                                      }}
+                                      title={isAlreadySaldada ? 'Liquidación ya saldada / pago ya registrado. Haga clic para ver los datos del pago' : ''}
+                                    >
                                       {isAlreadySaldada ? <CheckCircle2 size={12} /> : (isAmountMatch ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />)}
-                                      {isAlreadySaldada ? 'Ya Saldado' : (isAmountMatch ? 'Listo para conciliar' : (row.netoReal > 0 ? 'Sin Conciliar' : 'No Conciliable'))}
+                                      {isAlreadySaldada ? 'Ya Saldado 👁️' : (isAmountMatch ? 'Listo para conciliar' : (row.netoReal > 0 ? 'Sin Conciliar' : 'No Conciliable'))}
                                     </span>
                                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center' }}>
                                       {row.netoReal > 0 && (
-                                        <button 
-                                          onClick={() => conciliarFila(row.id, false, row.selectedLines)}
-                                          className="action-button"
-                                          style={{ padding: '6px 12px', fontSize: '12px', height: '32px', borderRadius: '8px', flexShrink: 0 }}
-                                          disabled={isAlreadySaldada || (!row.selectedSocioId && !isTaxOrFee)}
-                                          title={isAlreadySaldada ? 'La liquidación seleccionada ya está saldada' : ''}
-                                        >
-                                          <Save size={13} style={{ marginRight: '4px' }} />
-                                          Conciliar
-                                        </button>
+                                        isAlreadySaldada ? (
+                                          <button 
+                                            onClick={() => handleVerPagoConciliado(row)}
+                                            className="action-button"
+                                            style={{ 
+                                              padding: '6px 12px', 
+                                              fontSize: '12px', 
+                                              height: '32px', 
+                                              borderRadius: '8px', 
+                                              flexShrink: 0,
+                                              background: 'rgba(16, 185, 129, 0.12)',
+                                              color: '#10b981',
+                                              border: '1px solid rgba(16, 185, 129, 0.3)',
+                                              cursor: 'pointer'
+                                            }}
+                                            title="Liquidación ya saldada / pago ya impactó. Clic para ver el comprobante y detalle del pago"
+                                          >
+                                            <CheckCircle2 size={13} style={{ marginRight: '4px' }} />
+                                            Ver Pago
+                                          </button>
+                                        ) : (
+                                          <button 
+                                            onClick={() => conciliarFila(row.id, false, row.selectedLines)}
+                                            className="action-button"
+                                            style={{ 
+                                              padding: '6px 12px', 
+                                              fontSize: '12px', 
+                                              height: '32px', 
+                                              borderRadius: '8px', 
+                                              flexShrink: 0 
+                                            }}
+                                            disabled={!row.selectedSocioId && !isTaxOrFee}
+                                          >
+                                            <Save size={13} style={{ marginRight: '4px' }} />
+                                            Conciliar
+                                          </button>
+                                        )
                                       )}
                                       {row.netoReal > 0 && (
                                         <button 
@@ -3181,6 +3458,14 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
           </div>
         </div>
       </Modal>
+
+      {/* Modal de Detalle de Pago Conciliado */}
+      <DetallePagoModal
+        isOpen={detallePagoModal.isOpen}
+        onClose={() => setDetallePagoModal(prev => ({ ...prev, isOpen: false }))}
+        data={detallePagoModal}
+        setActiveTab={setActiveTab}
+      />
     </div>
   );
 }

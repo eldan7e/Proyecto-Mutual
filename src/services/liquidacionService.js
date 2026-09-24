@@ -51,9 +51,11 @@ export async function generarLiquidaciones({ lineasData, selectedPeriodo, select
     if (line.socio_responsable_id) {
       const gsList = line.responsable?.grupo_socio;
       const respGroup = Array.isArray(gsList) ? gsList[0]?.numero_grupo : gsList?.numero_grupo;
-      groupNum = respGroup !== undefined && respGroup !== null ? respGroup : (line.numero_grupo || 0);
+      if (respGroup !== undefined && respGroup !== null && respGroup !== 0) {
+        groupNum = respGroup;
+      }
     }
-    if (groupNum !== null && groupNum !== undefined) {
+    if (groupNum !== null && groupNum !== undefined && groupNum !== 0) {
       if (groupMinProviderMap[groupNum] === undefined || line.proveedor_id < groupMinProviderMap[groupNum]) {
         groupMinProviderMap[groupNum] = line.proveedor_id;
       }
@@ -62,14 +64,16 @@ export async function generarLiquidaciones({ lineasData, selectedPeriodo, select
 
   const gruposMap = new Map();
   lineasData.forEach(row => { 
-    let key = row.lineas.numero_grupo || 0;
-    let payingSocioId = row.lineas.socio_id;
+    let key = row.lineas?.numero_grupo || 0;
+    let payingSocioId = row.lineas?.socio_id;
 
-    if (row.lineas.socio_responsable_id) {
+    if (row.lineas?.socio_responsable_id) {
       payingSocioId = row.lineas.socio_responsable_id;
       const gsList = row.lineas.responsable?.grupo_socio;
       const respGroup = Array.isArray(gsList) ? gsList[0]?.numero_grupo : gsList?.numero_grupo;
-      key = respGroup || row.lineas.numero_grupo || 0;
+      if (respGroup !== undefined && respGroup !== null && respGroup !== 0) {
+        key = respGroup;
+      }
     }
 
     if (!gruposMap.has(key)) {

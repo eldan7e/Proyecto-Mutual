@@ -5,7 +5,7 @@ import {
   Search, Edit2, Trash2, Plus, Mail, Users, 
   ChevronRight, CreditCard, User as UserIcon, Shield, Hash,
   Clock, CheckCircle2, MessageSquare, Flag, TrendingUp, AlertCircle, Save, Loader2,
-  Phone, Activity, X, Copy, Check, ExternalLink, CheckCircle
+  Phone, Activity, X, Copy, Check, ExternalLink, CheckCircle, ShieldAlert, PauseCircle, StickyNote
 } from 'lucide-react';
 import { fetchSocioConsumosData, fetchSocioIncidentsData } from './services/socioService';
 import { useNavigate } from 'react-router-dom';
@@ -27,12 +27,19 @@ export default function Socios({ hideHeader = false }) {
   const [totalRecords, setTotalRecords] = useState(0);
   const [kpis, setKpis] = useState({ total: 0, conDto: 0, sinGrupo: 0, banco: 0, lineasActivas: 0, lineasTotales: 0 });
 
-  // Estado para la búsqueda y verificación directa de números de teléfono en base de datos
   const [isLineSearchModalOpen, setIsLineSearchModalOpen] = useState(false);
   const [lineSearchInput, setLineSearchInput] = useState('');
   const [lineSearchResult, setLineSearchResult] = useState(null);
   const [searchingLine, setSearchingLine] = useState(false);
   const [copiedPhone, setCopiedPhone] = useState(null);
+
+  // Estados para gestión de grupo y mail grupal en el modal de socio
+  const [modalGrupoNum, setModalGrupoNum] = useState('');
+  const [modalGrupoInfo, setModalGrupoInfo] = useState(null);
+  const [loadingGrupoInfo, setLoadingGrupoInfo] = useState(false);
+  const [emailPrincipalModal, setEmailPrincipalModal] = useState('');
+  const [emailGrupoModal, setEmailGrupoModal] = useState('');
+  const [sumarEmailAGrupo, setSumarEmailAGrupo] = useState(false);
 
   const executeLineLookup = async (phoneToSearch) => {
     const raw = (phoneToSearch !== undefined ? phoneToSearch : lineSearchInput).trim();
@@ -176,6 +183,55 @@ export default function Socios({ hideHeader = false }) {
       setSocioIncidents([]);
     }
   }, [isModalOpen, currentSocio]);
+
+  // Sincronizar y limpiar campos del modal de creación/edición de socio
+  useEffect(() => {
+    if (isModalOpen) {
+      const gNum = currentSocio?.grupo_codigo_str || currentSocio?.grupo_socio?.[0]?.numero_grupo || '';
+      setModalGrupoNum(gNum ? String(gNum) : '');
+      setEmailPrincipalModal(currentSocio?.email || '');
+      setEmailGrupoModal('');
+      setSumarEmailAGrupo(false);
+    } else {
+      setModalGrupoNum('');
+      setModalGrupoInfo(null);
+      setEmailPrincipalModal('');
+      setEmailGrupoModal('');
+      setSumarEmailAGrupo(false);
+    }
+  }, [isModalOpen, currentSocio]);
+
+  // Consulta en tiempo real del grupo ingresado para mostrar sus correos actuales
+  useEffect(() => {
+    if (!isModalOpen || !modalGrupoNum) {
+      setModalGrupoInfo(null);
+      return;
+    }
+    const clean = String(modalGrupoNum).trim();
+    if (!clean || isNaN(clean)) {
+      setModalGrupoInfo(null);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setLoadingGrupoInfo(true);
+      try {
+        const { data } = await supabase
+          .from('grupos')
+          .select('numero_grupo, alias_grupo, email_facturacion, emails_integrantes')
+          .eq('numero_grupo', parseInt(clean, 10))
+          .maybeSingle();
+        setModalGrupoInfo(data || null);
+      } catch (err) {
+        console.error('Error al buscar grupo en modal:', err);
+        setModalGrupoInfo(null);
+      } finally {
+        setLoadingGrupoInfo(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [modalGrupoNum, isModalOpen]);
 
   useEffect(() => {
     if (isHistoryModalOpen && currentSocio) {
@@ -335,7 +391,7 @@ export default function Socios({ hideHeader = false }) {
     const formData = new FormData(e.target);
     const socioData = Object.fromEntries(formData);
 
-    const { numero_linea, proveedor_id, numero_grupo, ...socioFields } = socioData;
+    const { numero_linea, proveedor_id, numero_grupo, email_grupo, sumar_email_a_grupo, ...socioFields } = socioData;
 
     // Clean up empty fields to null and parse correct types
     if (socioFields.nro_socio === '') socioFields.nro_socio = null;
@@ -389,15 +445,62 @@ export default function Socios({ hideHeader = false }) {
       }
     }
 
-    // Si no hubo error y se especificó un grupo, asociarlo
+    // Si no hubo error y se especificó un grupo, asociarlo y sincronizar correos grupales
     if (!hasError && numero_grupo && socioIdToUse) {
       try {
         const grupoNum = parseInt(numero_grupo, 10);
+
+        // Determinar qué email grupal sumar (si se especificó uno)
+        let emailParaSumar = (email_grupo || '').trim();
+        if (!emailParaSumar && (sumar_email_a_grupo || sumarEmailAGrupo) && socioFields.email) {
+          emailParaSumar = socioFields.email.trim();
+        }
         
-        // Asegurar que el grupo exista
+        // Obtener datos actuales del grupo (si ya existe)
+        const { data: existingGrupo } = await supabase
+          .from('grupos')
+          .select('numero_grupo, alias_grupo, email_facturacion, emails_integrantes')
+          .eq('numero_grupo', grupoNum)
+          .maybeSingle();
+
+        let finalEmailFacturacion = existingGrupo?.email_facturacion || null;
+        let finalEmailsIntegrantes = existingGrupo?.emails_integrantes || '';
+
+        if (emailParaSumar) {
+          const nuevosCorreos = emailParaSumar
+            .split(/[,;\n]+/)
+            .map(e => e.trim())
+            .filter(Boolean);
+
+          const currentList = (finalEmailsIntegrantes || '')
+            .split(/[,;\n]+/)
+            .map(e => e.trim())
+            .filter(Boolean);
+
+          // Si el grupo no tiene email_facturacion principal, asignar el primero
+          if (!finalEmailFacturacion && nuevosCorreos.length > 0) {
+            finalEmailFacturacion = nuevosCorreos[0];
+          }
+
+          // Sumar sin duplicar (insensible a mayúsculas/minúsculas)
+          nuevosCorreos.forEach(em => {
+            const lower = em.toLowerCase();
+            if (!currentList.some(c => c.toLowerCase() === lower)) {
+              currentList.push(em);
+            }
+          });
+
+          finalEmailsIntegrantes = currentList.join(', ');
+        }
+
+        // Asegurar que el grupo exista y tenga los correos grupales actualizados
         await supabase
           .from('grupos')
-          .upsert({ numero_grupo: grupoNum }, { onConflict: 'numero_grupo' });
+          .upsert({ 
+            numero_grupo: grupoNum,
+            ...(finalEmailFacturacion ? { email_facturacion: finalEmailFacturacion } : {}),
+            ...(finalEmailsIntegrantes ? { emails_integrantes: finalEmailsIntegrantes } : {})
+          }, { onConflict: 'numero_grupo' });
 
         // Eliminar asociaciones previas (por las dudas)
         await supabase
@@ -416,7 +519,7 @@ export default function Socios({ hideHeader = false }) {
 
         if (assocErr) throw assocErr;
       } catch (assocErr) {
-        alert("Socio guardado, pero error al asociar grupo: " + assocErr.message);
+        alert("Socio guardado, pero error al asociar grupo / correos grupales: " + assocErr.message);
       }
     }
 
@@ -906,16 +1009,41 @@ export default function Socios({ hideHeader = false }) {
                       </td>
                       <td>
                         <div style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '15px' }}>{s.nombre_completo}</div>
-                        <div style={{ display: 'flex', gap: '8px', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', gap: '8px', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, flexWrap: 'wrap', alignItems: 'center' }}>
                           <span>Nº SOCIO: {s.nro_socio || '---'}</span>
                           <span>•</span>
                           <span>CÓD. LEX: {s.codigo_lex || '---'}</span>
+                          {s.notas_internas && (
+                            <>
+                              <span>•</span>
+                              <span 
+                                title={`Notas: ${s.notas_internas}`}
+                                style={{ 
+                                  color: '#d97706', 
+                                  background: 'rgba(245, 158, 11, 0.1)', 
+                                  padding: '1px 6px', 
+                                  borderRadius: '6px', 
+                                  fontSize: '10px', 
+                                  fontWeight: 800,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px'
+                                }}
+                              >
+                                <StickyNote size={10} /> Con Notas
+                              </span>
+                            </>
+                          )}
                         </div>
                         {s.lineas && s.lineas.length > 0 && (
                           <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '5px' }}>
                             {s.lineas.slice(0, 3).map((l, idx) => {
                               const cleanDigits = search.replace(/\D/g, '');
                               const isMatch = cleanDigits.length >= 4 && l.numero_linea && l.numero_linea.includes(cleanDigits);
+                              const normEst = String(l.estado || '').toUpperCase();
+                              const isBaja = normEst === 'BAJA';
+                              const isSusp = normEst === 'SUSPENDIDA' || normEst === 'SUSPENDIDO';
+
                               return (
                                 <span
                                   key={idx}
@@ -924,15 +1052,19 @@ export default function Socios({ hideHeader = false }) {
                                     fontWeight: isMatch ? 800 : 600,
                                     padding: '2px 7px',
                                     borderRadius: '6px',
-                                    background: isMatch ? 'rgba(16, 185, 129, 0.18)' : 'rgba(0, 0, 0, 0.04)',
-                                    color: isMatch ? '#047857' : 'var(--text-secondary)',
-                                    border: `1px solid ${isMatch ? 'rgba(16, 185, 129, 0.4)' : 'var(--border-light)'}`,
+                                    background: isBaja ? 'rgba(239, 68, 68, 0.1)' : isSusp ? 'rgba(245, 158, 11, 0.1)' : isMatch ? 'rgba(16, 185, 129, 0.18)' : 'rgba(0, 0, 0, 0.04)',
+                                    color: isBaja ? '#dc2626' : isSusp ? '#d97706' : isMatch ? '#047857' : 'var(--text-secondary)',
+                                    border: `1px solid ${isBaja ? 'rgba(239, 68, 68, 0.3)' : isSusp ? 'rgba(245, 158, 11, 0.3)' : isMatch ? 'rgba(16, 185, 129, 0.4)' : 'var(--border-light)'}`,
                                     display: 'inline-flex',
                                     alignItems: 'center',
-                                    gap: '4px'
+                                    gap: '4px',
+                                    textDecoration: isBaja ? 'line-through' : 'none'
                                   }}
                                 >
-                                  <Phone size={10} /> {l.numero_linea}
+                                  <Phone size={10} /> 
+                                  <span>{l.numero_linea}</span>
+                                  {isBaja && <span style={{ fontSize: '9px', fontWeight: 800, color: '#dc2626', textDecoration: 'none' }}>(BAJA)</span>}
+                                  {isSusp && <span style={{ fontSize: '9px', fontWeight: 800, color: '#d97706', textDecoration: 'none' }}>(SUSP)</span>}
                                 </span>
                               );
                             })}
@@ -1120,7 +1252,8 @@ export default function Socios({ hideHeader = false }) {
                 className="form-input" 
                 type="email" 
                 name="email" 
-                defaultValue={currentSocio?.email || ''} 
+                value={emailPrincipalModal}
+                onChange={(e) => setEmailPrincipalModal(e.target.value)}
                 placeholder="correo@ejemplo.com"
                 style={{ width: '100%', marginBottom: 0 }}
               />
@@ -1172,9 +1305,125 @@ export default function Socios({ hideHeader = false }) {
                 className="form-input" 
                 type="number"
                 name="numero_grupo" 
+                value={modalGrupoNum}
+                onChange={(e) => setModalGrupoNum(e.target.value)}
                 placeholder="Nº Grupo" 
                 style={{ width: '100%', marginBottom: 0 }}
               />
+            </div>
+          </div>
+
+          {/* Opción de Mail Grupal vinculado al Grupo de Facturación */}
+          <div style={{ 
+            background: 'var(--bg-app, rgba(0,0,0,0.02))', 
+            border: '1px solid var(--border-light)', 
+            borderRadius: '16px', 
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px'
+          }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', alignItems: 'flex-start' }}>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <label className="form-label" style={{ marginBottom: 0, fontWeight: 700 }}>Mail Grupal</label>
+                  {emailPrincipalModal && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEmailGrupoModal(emailPrincipalModal);
+                        setSumarEmailAGrupo(true);
+                      }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--accent)',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        padding: 0,
+                        textDecoration: 'underline'
+                      }}
+                      title="Copiar el correo del Email Principal"
+                    >
+                      Copiar Principal
+                    </button>
+                  )}
+                </div>
+                <input 
+                  className="form-input" 
+                  type="email" 
+                  name="email_grupo" 
+                  value={emailGrupoModal}
+                  onChange={(e) => setEmailGrupoModal(e.target.value)}
+                  placeholder="correo.grupo@ejemplo.com"
+                  style={{ width: '100%', marginBottom: '8px' }}
+                />
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--text-secondary)', cursor: 'pointer', userSelect: 'none' }}>
+                  <input 
+                    type="checkbox" 
+                    name="sumar_email_a_grupo" 
+                    checked={sumarEmailAGrupo || !!emailGrupoModal}
+                    onChange={(e) => setSumarEmailAGrupo(e.target.checked)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  Sumar a los mails del grupo ya creado
+                </label>
+              </div>
+
+              <div>
+                <label className="form-label" style={{ marginBottom: '6px', opacity: 0.8 }}>Detalle del Grupo</label>
+                {loadingGrupoInfo ? (
+                  <div style={{ padding: '10px 14px', borderRadius: '10px', background: 'rgba(0,0,0,0.03)', fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Loader2 size={15} className="animate-spin" /> Verificando grupo #{modalGrupoNum}...
+                  </div>
+                ) : modalGrupoInfo ? (
+                  <div style={{ 
+                    padding: '10px 12px', 
+                    borderRadius: '10px', 
+                    background: 'rgba(59, 130, 246, 0.08)', 
+                    border: '1px solid rgba(59, 130, 246, 0.25)',
+                    fontSize: '11.5px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 800, color: '#2563eb' }}>
+                      <Users size={13} /> Grupo #{modalGrupoInfo.numero_grupo} {modalGrupoInfo.alias_grupo ? `(${modalGrupoInfo.alias_grupo})` : ''}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
+                      <strong style={{ color: 'var(--text-primary)' }}>Mails actuales:</strong> {modalGrupoInfo.emails_integrantes || modalGrupoInfo.email_facturacion || 'Sin mails previos'}
+                    </div>
+                  </div>
+                ) : modalGrupoNum ? (
+                  <div style={{ 
+                    padding: '10px 12px', 
+                    borderRadius: '10px', 
+                    background: 'rgba(234, 179, 8, 0.08)', 
+                    border: '1px solid rgba(234, 179, 8, 0.25)',
+                    fontSize: '11px',
+                    color: '#b45309',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontWeight: 600
+                  }}>
+                    <AlertCircle size={14} /> Grupo #{modalGrupoNum} nuevo (se creará al guardar)
+                  </div>
+                ) : (
+                  <div style={{ 
+                    padding: '10px 12px', 
+                    borderRadius: '10px', 
+                    background: 'rgba(0,0,0,0.02)', 
+                    border: '1px dashed var(--border-light)',
+                    fontSize: '11px',
+                    color: 'var(--text-secondary)',
+                    lineHeight: 1.4
+                  }}>
+                    Ingresá el Grupo de Facturación para sumar este mail a los correos del grupo.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1330,26 +1579,71 @@ export default function Socios({ hideHeader = false }) {
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '50vh', overflowY: 'auto' }}>
                     {lineSearchResult.lines.map((l, idx) => {
-                      const isActive = String(l.estado || '').toUpperCase() === 'ACTIVA' || String(l.estado || '').toUpperCase() === 'ACTIVO';
+                      const normEst = String(l.estado || '').toUpperCase();
+                      const isActive = normEst === 'ACTIVA' || normEst === 'ACTIVO';
+                      const isSuspended = normEst === 'SUSPENDIDA' || normEst === 'SUSPENDIDO';
+                      const isBaja = normEst === 'BAJA';
                       const isCopied = copiedPhone === l.numero_linea;
 
                       return (
                         <div
                           key={idx}
                           style={{
-                            border: '1px solid var(--border-light)',
+                            border: isBaja ? '1.5px solid rgba(239, 68, 68, 0.4)' : isSuspended ? '1.5px solid rgba(245, 158, 11, 0.4)' : '1px solid var(--border-light)',
                             borderRadius: '14px',
                             padding: '16px',
-                            background: 'var(--card-bg, rgba(255,255,255,0.02))',
+                            background: isBaja ? 'rgba(239, 68, 68, 0.02)' : isSuspended ? 'rgba(245, 158, 11, 0.02)' : 'var(--card-bg, rgba(255,255,255,0.02))',
                             display: 'flex',
                             flexDirection: 'column',
                             gap: '12px'
                           }}
                         >
+                          {/* Banner de alerta si está dada de baja o suspendida */}
+                          {isBaja && (
+                            <div style={{
+                              padding: '10px 14px',
+                              borderRadius: '10px',
+                              background: 'rgba(239, 68, 68, 0.08)',
+                              border: '1.5px solid rgba(239, 68, 68, 0.3)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              color: '#b91c1c',
+                              fontSize: '12.5px',
+                              fontWeight: 700
+                            }}>
+                              <ShieldAlert size={16} />
+                              <span>ATENCIÓN: Esta línea telefónica figura <strong>DADA DE BAJA</strong> en la base de datos.</span>
+                            </div>
+                          )}
+                          {isSuspended && (
+                            <div style={{
+                              padding: '10px 14px',
+                              borderRadius: '10px',
+                              background: 'rgba(245, 158, 11, 0.08)',
+                              border: '1.5px solid rgba(245, 158, 11, 0.3)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              color: '#b45309',
+                              fontSize: '12.5px',
+                              fontWeight: 700
+                            }}>
+                              <PauseCircle size={16} />
+                              <span>AVISO: Esta línea telefónica figura en estado <strong>SUSPENDIDA</strong>.</span>
+                            </div>
+                          )}
+
                           {/* Cabecera de la línea */}
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                              <span style={{ fontSize: '18px', fontWeight: 900, color: 'var(--text-primary)', letterSpacing: '0.5px' }}>
+                              <span style={{ 
+                                fontSize: '18px', 
+                                fontWeight: 900, 
+                                color: isBaja ? '#dc2626' : 'var(--text-primary)', 
+                                letterSpacing: '0.5px',
+                                textDecoration: isBaja ? 'line-through' : 'none'
+                              }}>
                                 {l.numero_linea}
                               </span>
                               <button
@@ -1372,17 +1666,43 @@ export default function Socios({ hideHeader = false }) {
                               </button>
                             </div>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                              <span style={{
-                                padding: '4px 10px',
-                                borderRadius: '12px',
-                                fontSize: '11px',
-                                fontWeight: 800,
-                                background: isActive ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                                color: isActive ? '#059669' : '#dc2626',
-                                border: `1px solid ${isActive ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`
-                              }}>
-                                {l.estado || 'SIN ESTADO'}
-                              </span>
+                              {isActive ? (
+                                <span style={{
+                                  padding: '4px 10px',
+                                  borderRadius: '12px',
+                                  fontSize: '11px',
+                                  fontWeight: 800,
+                                  background: 'rgba(16, 185, 129, 0.15)',
+                                  color: '#059669',
+                                  border: '1px solid rgba(16, 185, 129, 0.3)'
+                                }}>
+                                  ✅ ACTIVA
+                                </span>
+                              ) : isSuspended ? (
+                                <span style={{
+                                  padding: '4px 10px',
+                                  borderRadius: '12px',
+                                  fontSize: '11px',
+                                  fontWeight: 800,
+                                  background: 'rgba(245, 158, 11, 0.15)',
+                                  color: '#d97706',
+                                  border: '1px solid rgba(245, 158, 11, 0.3)'
+                                }}>
+                                  ⏸️ SUSPENDIDA
+                                </span>
+                              ) : (
+                                <span style={{
+                                  padding: '4px 10px',
+                                  borderRadius: '12px',
+                                  fontSize: '11px',
+                                  fontWeight: 800,
+                                  background: 'rgba(239, 68, 68, 0.15)',
+                                  color: '#dc2626',
+                                  border: '1px solid rgba(239, 68, 68, 0.3)'
+                                }}>
+                                  🛑 DADA DE BAJA
+                                </span>
+                              )}
                               {l.proveedores?.nombre && (
                                 <span style={{
                                   padding: '4px 10px',

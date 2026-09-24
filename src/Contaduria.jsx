@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Calculator, Search, DollarSign, TrendingUp, 
   Loader2, RefreshCw, Plus, CheckCircle2, ChevronDown, ChevronUp, 
   Download, Settings, Building, 
   FileText, Eye, Edit3, X, Receipt,
-  AlertCircle, Phone, Printer, Coins, Banknote, ArrowRightLeft, Check, CreditCard
+  AlertCircle, Phone, Printer, Coins, Banknote, ArrowRightLeft, Check, CreditCard,
+  Calendar
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import Modal from './components/Modal';
@@ -18,10 +19,10 @@ import {
 import { fetchPeriods } from './services/conciliacionService';
 import { 
   recalcularSaldosGrupo, imputarCobroFIFO, formatMoney, formatFecha,
-  calcularDiasMora, calcularInteresMora, DEFAULT_TNA 
+  formatFechaVencimiento, calcularDiasMora, calcularInteresMora, obtenerMesesDeudaGrupo, DEFAULT_TNA 
 } from './utils/cuentaCorrienteEngine';
 import { 
-  exportFacturasXLSX, exportSaldosXLSX, exportExtractoXLSX, exportLineasXLSX 
+  exportFacturasXLSX, exportSaldosXLSX, exportExtractoXLSX, exportSoloDeudaXLSX, exportLineasXLSX 
 } from './utils/exportContaduria';
 
 export default function Contaduria() {
@@ -48,6 +49,21 @@ export default function Contaduria() {
   const [lineasGrupo, setLineasGrupo] = useState([]);
   const [lineasPeriodoFiltro, setLineasPeriodoFiltro] = useState(null);
   const [periodosDisponiblesState, setPeriodosDisponiblesState] = useState([]);
+  const [extractoPeriodoFilter, setExtractoPeriodoFilter] = useState('TODOS');
+  const [exportExtractoMenuOpen, setExportExtractoMenuOpen] = useState(false);
+  const exportExtractoRef = useRef(null);
+
+  // Cerrar menú de opciones de exportación al hacer click fuera
+  useEffect(() => {
+    if (!exportExtractoMenuOpen) return;
+    const handleClickOutside = (e) => {
+      if (exportExtractoRef.current && !exportExtractoRef.current.contains(e.target)) {
+        setExportExtractoMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [exportExtractoMenuOpen]);
 
   // Loaders
   const [loading, setLoading] = useState(false);
@@ -64,6 +80,7 @@ export default function Contaduria() {
   // Filtros de Búsqueda
   const [searchGrupo, setSearchGrupo] = useState('');
   const [soloDeudores, setSoloDeudores] = useState(false);
+  const [saldosPeriodoFilter, setSaldosPeriodoFilter] = useState('TODOS');
   const [saldosData, setSaldosData] = useState([]);
 
   // Modal de cobro FIFO / Factura Específica
@@ -76,6 +93,7 @@ export default function Contaduria() {
   const [fechaCobro, setFechaCobro] = useState(getTodayISO());
   const [procesandoCobro, setProcesandoCobro] = useState(false);
   const [resultadoFifo, setResultadoFifo] = useState(null);
+  const [eximirMora, setEximirMora] = useState(false); // Permite al cajero perdonar o eximir mora y cobrar solo capital
 
   // Manejo de Efectivo en Oficina y Falta de Cambio
   const [efectivoEntregado, setEfectivoEntregado] = useState('');
@@ -154,7 +172,7 @@ export default function Contaduria() {
   // Cargar detalles cuando cambia el grupo seleccionado, el período de líneas, la fecha de corte o la TNA
   useEffect(() => {
     if (selectedGrupo !== null) {
-      loadMovimientos(selectedGrupo, fechaCalculoExtracto);
+      loadMovimientos(selectedGrupo, tna, fechaCalculoExtracto);
       loadLiquidaciones(selectedGrupo);
       loadLineasGrupo(selectedGrupo, lineasPeriodoFiltro);
     }
@@ -298,11 +316,12 @@ export default function Contaduria() {
     }
   }
 
-  async function loadMovimientos(numeroGrupo, fCalculo = fechaCalculoExtracto) {
+  async function loadMovimientos(numeroGrupo, customTna, fCalculo = fechaCalculoExtracto) {
     setLoading(true);
     try {
       const rawMovs = await fetchMovimientosGrupo(numeroGrupo);
-      const procesados = recalcularSaldosGrupo(rawMovs, tna, fCalculo || new Date());
+      const effectiveTna = customTna !== undefined ? customTna : tna;
+      const procesados = recalcularSaldosGrupo(rawMovs, effectiveTna, fCalculo || new Date());
       setMovimientos(procesados);
     } catch (err) {
       console.error('Error al cargar movimientos:', err);
@@ -489,6 +508,7 @@ export default function Contaduria() {
     setSelectedGrupo(gNum);
     setTargetFactura(target);
     setTargetLinea(null);
+    setEximirMora(true);
     // Cargar notas internas del grupo al abrir el modal
     loadNotasGrupo(gNum);
 
@@ -499,7 +519,9 @@ export default function Contaduria() {
       } else {
         saldoPend = Math.max(0, Number(target.monto_total_facturado) - Number(target.monto_abonado || 0));
       }
-      const montoInicial = saldoPend > 0 ? saldoPend : Number(target.monto_total_facturado || 0);
+      // Por regla de negocio, el pago sugerido es únicamente el capital/factura adeudada sin mora
+      const totalSugerido = saldoPend;
+      const montoInicial = totalSugerido > 0 ? totalSugerido : saldoPend;
       const strMonto = montoInicial > 0 ? String(montoInicial) : '';
       setMontoCobro(strMonto);
       setEfectivoEntregado(strMonto);
@@ -523,6 +545,7 @@ export default function Contaduria() {
     setSelectedGrupo(gNum);
     setTargetFactura(targetLiq);
     setTargetLinea(linea.numero_linea);
+    setEximirMora(true);
     loadNotasGrupo(gNum);
 
     const val = Number(linea.total_linea || 0);
@@ -539,18 +562,49 @@ export default function Contaduria() {
   // Cálculos dinámicos de importe adeudado y diferencia de cambio
   const montoTeoricoCobro = useMemo(() => {
     if (targetFactura) {
-      if (targetFactura.saldo_impago !== undefined) {
-        return Math.max(0, Number(targetFactura.saldo_impago));
-      }
-      return Math.max(0, Number(targetFactura.monto_total_facturado || 0) - Number(targetFactura.monto_abonado || 0));
+      const base = targetFactura.saldo_impago !== undefined
+        ? Math.max(0, Number(targetFactura.saldo_impago))
+        : Math.max(0, Number(targetFactura.monto_total_facturado || 0) - Number(targetFactura.monto_abonado || 0));
+      const dias = calcularDiasMora(targetFactura.periodo || targetFactura.fecha_emision, fechaCobro);
+      const int = (!eximirMora && dias > 0 && tna > 0) ? calcularInteresMora(base, dias, tna) : 0;
+      return Math.round((base + int) * 100) / 100;
     }
     return Math.max(0, Number(ultimoMovGrupo?.saldo_final || 0));
-  }, [targetFactura, ultimoMovGrupo]);
+  }, [targetFactura, ultimoMovGrupo, fechaCobro, tna, eximirMora]);
 
   const diferenciaCambio = useMemo(() => {
     const entregado = parseFloat(efectivoEntregado) || 0;
     return Math.round((entregado - montoTeoricoCobro) * 100) / 100;
   }, [efectivoEntregado, montoTeoricoCobro]);
+
+  // Detección de deudas pendientes en períodos anteriores al de la factura seleccionada
+  const deudasPreviasInfo = useMemo(() => {
+    if (!targetFactura || !movimientos || movimientos.length === 0) return null;
+    const targetPeriodo = targetFactura.periodo;
+    if (!targetPeriodo) return null;
+
+    // Movimientos tipo FACTURA con período anterior al seleccionado y saldo impago
+    const anteriores = movimientos.filter(m => 
+      m.tipo === 'FACTURA' && 
+      m.periodo && 
+      m.periodo < targetPeriodo && 
+      (m.saldo_final > 1 || (Number(m.importe) - Number(m.pago_aplicado_capital || 0)) > 1)
+    );
+
+    if (anteriores.length === 0) return null;
+
+    const periodos = [...new Set(anteriores.map(m => m.periodo))].sort();
+    const totalDeudaAnterior = anteriores.reduce((sum, m) => {
+      const pend = Math.max(0, Number(m.importe) - Number(m.pago_aplicado_capital || 0));
+      return sum + pend;
+    }, 0);
+
+    return {
+      periodos,
+      totalDeudaAnterior,
+      cantidadFacturas: anteriores.length
+    };
+  }, [targetFactura, movimientos]);
 
   // Abrir comprobante oficial de pago para una factura cancelada o abonada
   function handleAbrirComprobanteFactura(group) {
@@ -598,7 +652,7 @@ export default function Contaduria() {
       observaciones: m.observaciones || `Cobro acreditado e imputado en cuenta corriente`,
       desgloses: [{
         observaciones: m.observaciones || `Pago Período ${m.periodo || 'General'} (${m.empresa || 'MUTUAL'})`,
-        pagoAplicadoCapital: Number(m.pago_aplicado_capital || monto),
+        pagoAplicadoCapital: (m.pago_aplicado_capital !== undefined && m.pago_aplicado_capital !== null) ? Number(m.pago_aplicado_capital) : monto,
         pagoAplicadoInteres: Number(m.pago_aplicado_interes || 0)
       }],
       saldo_restante: Number(m.saldo_final || 0)
@@ -625,22 +679,64 @@ export default function Contaduria() {
       return;
     }
 
-    const facturasPendientes = movimientos
-      .filter(m => m.tipo === 'FACTURA' && (m.saldo_final > 0 || (m.importe - (m.pago_aplicado_capital || 0)) > 0))
-      .map(m => ({
-        id: m.id,
-        fecha: m.fecha,
-        numero_linea: m.numero_linea,
-        empresa: m.empresa,
-        observaciones: m.observaciones,
-        importe: m.importe,
-        pago_aplicado_capital: m.pago_aplicado_capital || 0,
-        pago_aplicado_interes: m.pago_aplicado_interes || 0
-      }));
+    let facturasPendientes;
 
-    const resultado = imputarCobroFIFO(facturasPendientes, val, tna, fechaCobro);
+    if (targetFactura) {
+      // Factura específica seleccionada: buscar el movimiento correspondiente a esa factura
+      const movTarget = movimientos.find(m => 
+        m.tipo === 'FACTURA' && 
+        m.periodo === targetFactura.periodo && 
+        (m.empresa === (targetFactura.proveedores?.nombre || targetFactura.empresa) || !targetFactura.proveedores?.nombre)
+      );
+      
+      if (movTarget) {
+        facturasPendientes = [{
+          id: movTarget.id,
+          fecha: movTarget.fecha,
+          periodo: movTarget.periodo,
+          numero_linea: movTarget.numero_linea,
+          empresa: movTarget.empresa,
+          observaciones: movTarget.observaciones,
+          importe: movTarget.importe,
+          pago_aplicado_capital: movTarget.pago_aplicado_capital || 0,
+          pago_aplicado_interes: movTarget.pago_aplicado_interes || 0
+        }];
+      } else {
+        // Fallback: usar datos del targetFactura directamente
+        const saldoPend = Math.max(0, Number(targetFactura.monto_total_facturado || targetFactura.saldo_impago || 0) - Number(targetFactura.monto_abonado || 0));
+        facturasPendientes = [{
+          id: targetFactura.id || 0,
+          fecha: targetFactura.fecha_emision || targetFactura.fecha || (targetFactura.periodo ? targetFactura.periodo + '-10' : ''),
+          periodo: targetFactura.periodo,
+          numero_linea: targetFactura.numero_linea,
+          empresa: targetFactura.proveedores?.nombre || targetFactura.empresa || 'MUTUAL',
+          observaciones: `Facturación Período ${targetFactura.periodo}`,
+          importe: saldoPend,
+          pago_aplicado_capital: 0,
+          pago_aplicado_interes: 0
+        }];
+      }
+    } else {
+      // Deuda Total: procesar TODAS las facturas pendientes (FIFO)
+      facturasPendientes = movimientos
+        .filter(m => m.tipo === 'FACTURA' && (m.saldo_final > 0 || (m.importe - (m.pago_aplicado_capital || 0)) > 0))
+        .map(m => ({
+          id: m.id,
+          fecha: m.fecha,
+          periodo: m.periodo,
+          numero_linea: m.numero_linea,
+          empresa: m.empresa,
+          observaciones: m.observaciones,
+          importe: m.importe,
+          pago_aplicado_capital: m.pago_aplicado_capital || 0,
+          pago_aplicado_interes: m.pago_aplicado_interes || 0
+        }));
+    }
+
+    const tnaEfectiva = eximirMora ? 0 : tna;
+    const resultado = imputarCobroFIFO(facturasPendientes, val, tnaEfectiva, fechaCobro);
     setResultadoFifo(resultado);
-  }, [montoCobro, efectivoEntregado, medioPago, cobroModalOpen, movimientos, tna, fechaCobro]);
+  }, [montoCobro, efectivoEntregado, medioPago, cobroModalOpen, movimientos, tna, fechaCobro, targetFactura, eximirMora]);
 
   // Ejecutar Cobro
   async function handleConfirmarCobro(e) {
@@ -687,18 +783,14 @@ export default function Contaduria() {
         medio_pago: medioPago,
         observaciones: obsFinal,
         interesPagado: resultadoFifo?.totalInteresCancelado || 0,
-        capitalPagado: val,
+        capitalPagado: resultadoFifo?.totalCapitalCancelado || val,
         remanenteSaldoAFavor: resultadoFifo?.remanenteSaldoAFavor || 0,
         monto_factura: targetFactura?.monto_total_facturado || val,
-        desgloses: targetFactura ? [{
-          observaciones: `Facturación Período ${targetFactura.periodo} (${targetFactura.proveedores?.nombre || 'MUTUAL'})`,
-          pagoAplicadoCapital: val,
-          pagoAplicadoInteres: 0
-        }] : (resultadoFifo?.desgloses || [{
-          observaciones: `Cobro en cuenta corriente - ${medioPago}`,
-          pagoAplicadoCapital: val,
-          pagoAplicadoInteres: 0
-        }])
+        desgloses: (resultadoFifo?.desgloses && resultadoFifo.desgloses.length > 0) ? resultadoFifo.desgloses : [{
+          observaciones: targetFactura ? `Facturación Período ${targetFactura.periodo} (${targetFactura.proveedores?.nombre || 'MUTUAL'})` : `Cobro en cuenta corriente - ${medioPago}`,
+          pagoAplicadoCapital: resultadoFifo?.totalCapitalCancelado || val,
+          pagoAplicadoInteres: resultadoFifo?.totalInteresCancelado || 0
+        }]
       });
 
       // 3. Limpiar cache de lineas del grupo para forzar recarga en vivo de pagos
@@ -878,13 +970,144 @@ export default function Contaduria() {
   const pageSizeFacturas = 50;
 
   // Lista de períodos de facturación disponibles ordenados de más reciente a más antiguo
+  // NOTA: Se basa en los períodos de liquidación reales (liquidaciones_grupos / movimientos),
+  // respetando que los servicios se liquidan y pagan a mes vencido (el último período cerrado es 2026-08).
   const periodosDisponibles = useMemo(() => {
     const pSet = new Set(periodosDisponiblesState);
     liquidacionesAll.forEach(l => {
       if (l.periodo) pSet.add(l.periodo);
     });
+    movimientos.forEach(m => {
+      if (m.periodo) pSet.add(m.periodo);
+    });
     return Array.from(pSet).filter(Boolean).sort().reverse();
-  }, [liquidacionesAll, periodosDisponiblesState]);
+  }, [liquidacionesAll, periodosDisponiblesState, movimientos]);
+
+  // Helper para obtener Set de los últimos N períodos de facturación cerrados y disponibles
+  const getUltimosPeriodosSet = (n) => {
+    return new Set(periodosDisponibles.slice(0, n));
+  };
+
+  // Años disponibles derivados de períodos y movimientos para el selector de extracto
+  const aniosDisponibles = useMemo(() => {
+    const ySet = new Set();
+    ySet.add('2026'); // Asegurar año 2026 siempre seleccionable
+    periodosDisponibles.forEach(p => {
+      if (p && p.length >= 4) ySet.add(p.slice(0, 4));
+    });
+    movimientos.forEach(m => {
+      if (m.periodo && m.periodo.length >= 4) ySet.add(m.periodo.slice(0, 4));
+      else if (m.fecha && m.fecha.length >= 4) ySet.add(m.fecha.slice(0, 4));
+    });
+    return Array.from(ySet).filter(Boolean).sort().reverse();
+  }, [periodosDisponibles, movimientos]);
+
+  // Etiqueta legible del filtro de período en extracto
+  const extractoFiltroLabel = useMemo(() => {
+    if (!extractoPeriodoFilter || extractoPeriodoFilter === 'TODOS') return 'Histórico Completo';
+    if (extractoPeriodoFilter === 'LAST_3') return 'Últimos 3 Meses';
+    if (extractoPeriodoFilter === 'LAST_6') return 'Últimos 6 Meses';
+    if (extractoPeriodoFilter.startsWith('YEAR_')) return `Año ${extractoPeriodoFilter.replace('YEAR_', '')}`;
+    return `Período ${extractoPeriodoFilter}`;
+  }, [extractoPeriodoFilter]);
+
+  // Movimientos del extracto filtrados según el selector de período / año
+  const movimientosExtractoFiltrados = useMemo(() => {
+    if (!extractoPeriodoFilter || extractoPeriodoFilter === 'TODOS') {
+      return movimientos;
+    }
+    if (extractoPeriodoFilter === 'LAST_3' || extractoPeriodoFilter === 'LAST_6') {
+      const targetPeriods = getUltimosPeriodosSet(extractoPeriodoFilter === 'LAST_3' ? 3 : 6);
+      return movimientos.filter(m => {
+        const per = m.periodo || (m.fecha ? m.fecha.slice(0, 7) : null);
+        return per && targetPeriods.has(per);
+      });
+    }
+    const anio = extractoPeriodoFilter.startsWith('YEAR_') ? extractoPeriodoFilter.replace('YEAR_', '') : null;
+    return movimientos.filter(m => {
+      if (anio) {
+        return (m.periodo && m.periodo.startsWith(anio)) || (m.fecha && m.fecha.startsWith(anio));
+      }
+      return m.periodo === extractoPeriodoFilter || (m.fecha && m.fecha.startsWith(extractoPeriodoFilter));
+    });
+  }, [movimientos, extractoPeriodoFilter, periodosDisponibles]);
+
+  // Movimiento visible más reciente según el filtro (o último movimiento histórico si no hay filtrados)
+  const ultimoMovVisible = useMemo(() => {
+    if (movimientosExtractoFiltrados.length > 0) {
+      return movimientosExtractoFiltrados[movimientosExtractoFiltrados.length - 1];
+    }
+    return ultimoMovGrupo;
+  }, [movimientosExtractoFiltrados, ultimoMovGrupo]);
+
+  // Resumen de actividad (facturación y cobros) en el período seleccionado del extracto
+  const resumenActividadExtracto = useMemo(() => {
+    let facturado = 0;
+    let pagado = 0;
+    movimientosExtractoFiltrados.forEach(m => {
+      const imp = Math.abs(Number(m.importe) || 0);
+      if (m.tipo === 'FACTURA') facturado += imp;
+      else if (m.tipo === 'PAGO') pagado += imp;
+    });
+    return {
+      facturado: Math.round(facturado * 100) / 100,
+      pagado: Math.round(pagado * 100) / 100
+    };
+  }, [movimientosExtractoFiltrados]);
+
+  // Lista de meses que presentan deuda en el grupo según el período seleccionado, con interés ya aplicado
+  const mesesDeudaExtracto = useMemo(() => {
+    if (!selectedGrupo) return [];
+    return obtenerMesesDeudaGrupo({
+      liquidacionesGrupo,
+      movimientos,
+      tna,
+      periodoFiltro: extractoPeriodoFilter,
+      fechaCalculo: new Date()
+    });
+  }, [selectedGrupo, liquidacionesGrupo, movimientos, tna, extractoPeriodoFilter]);
+
+  // Resumen consolidado de deuda para el período seleccionado
+  const resumenDeudaExtracto = useMemo(() => {
+    const capital = mesesDeudaExtracto.reduce((s, d) => s + Number(d.saldoImpago || 0), 0);
+    const interes = mesesDeudaExtracto.reduce((s, d) => s + Number(d.interesMora || 0), 0);
+    const total = capital + interes;
+    return {
+      capital: Math.round(capital * 100) / 100,
+      interes: Math.round(interes * 100) / 100,
+      total: Math.round(total * 100) / 100,
+      cantidadMeses: mesesDeudaExtracto.length
+    };
+  }, [mesesDeudaExtracto]);
+
+  // Exportar todos los movimientos del extracto
+  function handleExportarTodosMovimientos() {
+    try {
+      const listToExport = extractoPeriodoFilter === 'TODOS' ? movimientos : movimientosExtractoFiltrados;
+      if (!listToExport || listToExport.length === 0) {
+        addToast('No hay movimientos para exportar en el período seleccionado', 'warning');
+        return;
+      }
+      exportExtractoXLSX(listToExport, selectedGrupo, titularSeleccionadoInfo?.nombre, extractoFiltroLabel);
+      addToast(`Extracto exportado exitosamente (${extractoFiltroLabel})`, 'success');
+    } catch (err) {
+      addToast('Error al exportar extracto: ' + err.message, 'error');
+    }
+  }
+
+  // Exportar solo deuda con interés aplicado
+  function handleExportarSoloDeuda() {
+    try {
+      if (!mesesDeudaExtracto || mesesDeudaExtracto.length === 0) {
+        addToast(`El Grupo #${selectedGrupo} no registra meses adeudados en ${extractoFiltroLabel}.`, 'info');
+        return;
+      }
+      exportSoloDeudaXLSX(mesesDeudaExtracto, selectedGrupo, titularSeleccionadoInfo?.nombre, extractoFiltroLabel, tna);
+      addToast(`Deuda exportada exitosamente (${mesesDeudaExtracto.length} meses con interés ya aplicado)`, 'success');
+    } catch (err) {
+      addToast('Error al exportar reporte de deuda: ' + err.message, 'error');
+    }
+  }
 
   // Reset página cuando cambian los filtros
   useEffect(() => {
@@ -895,9 +1118,12 @@ export default function Contaduria() {
   const liquidacionesBaseKPIs = useMemo(() => {
     const hasSearch = Boolean(searchGrupo.trim());
     let targetPeriod = null;
+    let allowedPeriodsSet = null;
 
     if (periodoFilter === 'AUTO') {
       targetPeriod = periodosDisponibles.length > 0 ? periodosDisponibles[0] : null;
+    } else if (periodoFilter === 'LAST_3' || periodoFilter === 'LAST_6') {
+      allowedPeriodsSet = getUltimosPeriodosSet(periodoFilter === 'LAST_3' ? 3 : 6);
     } else if (periodoFilter !== 'TODOS') {
       targetPeriod = periodoFilter;
     }
@@ -907,6 +1133,7 @@ export default function Contaduria() {
 
       // Filtro por Período
       if (targetPeriod && l.periodo !== targetPeriod) return false;
+      if (allowedPeriodsSet && (!l.periodo || !allowedPeriodsSet.has(l.periodo))) return false;
 
       // Filtro por Operadora
       const opNombre = (l.proveedores?.nombre || '').toUpperCase();
@@ -1087,12 +1314,125 @@ export default function Contaduria() {
     return facturasAgrupadas.slice(start, start + pageSizeFacturas);
   }, [facturasAgrupadas, currentPageFacturas]);
 
+  // Etiqueta legible del filtro de período en cuentas corrientes y saldos
+  const saldosFiltroLabel = useMemo(() => {
+    if (!saldosPeriodoFilter || saldosPeriodoFilter === 'TODOS') return 'Histórico Completo';
+    if (saldosPeriodoFilter === 'LAST_3') return 'Últimos 3 Meses';
+    if (saldosPeriodoFilter === 'LAST_6') return 'Últimos 6 Meses';
+    if (saldosPeriodoFilter.startsWith('YEAR_')) return `Año ${saldosPeriodoFilter.replace('YEAR_', '')}`;
+    return `Período ${saldosPeriodoFilter}`;
+  }, [saldosPeriodoFilter]);
+
+  // Recalcular saldos de grupos según el período seleccionado
+  const saldosCalculados = useMemo(() => {
+    if (!saldosPeriodoFilter || saldosPeriodoFilter === 'TODOS') {
+      return saldosData;
+    }
+
+    // 1. Determinar el conjunto de períodos válidos
+    let allowedPeriods = null;
+    let anioFiltro = null;
+    let mesFiltro = null;
+
+    if (saldosPeriodoFilter === 'LAST_3' || saldosPeriodoFilter === 'LAST_6') {
+      allowedPeriods = getUltimosPeriodosSet(saldosPeriodoFilter === 'LAST_3' ? 3 : 6);
+    } else if (saldosPeriodoFilter.startsWith('YEAR_')) {
+      anioFiltro = saldosPeriodoFilter.replace('YEAR_', '');
+    } else {
+      mesFiltro = saldosPeriodoFilter;
+    }
+
+    // 2. Agrupar liquidaciones válidas por numero_grupo
+    const liqsPorGrupo = new Map();
+    liquidacionesAll.forEach(l => {
+      const per = l.periodo;
+      if (!per) return;
+      if (allowedPeriods && !allowedPeriods.has(per)) return;
+      if (anioFiltro && !per.startsWith(anioFiltro)) return;
+      if (mesFiltro && per !== mesFiltro) return;
+
+      if (!liqsPorGrupo.has(l.numero_grupo)) {
+        liqsPorGrupo.set(l.numero_grupo, []);
+      }
+      liqsPorGrupo.get(l.numero_grupo).push(l);
+    });
+
+    // 3. Crear base de todos los grupos conocidos preservando sus saldos reales de cuenta corriente (saldosData)
+    const baseGrupos = saldosData.length > 0 ? saldosData : gruposList;
+    const gruposMap = new Map();
+
+    baseGrupos.forEach(g => {
+      gruposMap.set(g.numero_grupo, {
+        numero_grupo: g.numero_grupo,
+        nombre: g.nombre || `Grupo ${g.numero_grupo}`,
+        total_lineas: g.total_lineas ?? 0,
+        empresas: g.empresas || 'N/D',
+        totalFacturas: 0,
+        totalPagos: 0,
+        // Los saldos capital, mora y consolidado provienen de la cuenta corriente real
+        saldoCapitalUltimo: Number(g.saldoCapitalUltimo || 0),
+        interesPendUltimo: Number(g.interesPendUltimo || 0),
+        saldoFinalUltimo: Number(g.saldoFinalUltimo || 0),
+        movimientosCount: g.movimientosCount || 0,
+        ultimoMovimientoFecha: g.ultimoMovimientoFecha || 'Sin movimientos'
+      });
+    });
+
+    // 4. Calcular importes facturados y cobrados por grupo para el período filtrado
+    liqsPorGrupo.forEach((liqs, numGrupo) => {
+      let grupoObj = gruposMap.get(numGrupo);
+      if (!grupoObj) {
+        grupoObj = {
+          numero_grupo: numGrupo,
+          nombre: `Grupo ${numGrupo}`,
+          total_lineas: 0,
+          empresas: 'N/D',
+          totalFacturas: 0,
+          totalPagos: 0,
+          saldoCapitalUltimo: 0,
+          interesPendUltimo: 0,
+          saldoFinalUltimo: 0,
+          movimientosCount: 0,
+          ultimoMovimientoFecha: 'Sin movimientos'
+        };
+        gruposMap.set(numGrupo, grupoObj);
+      }
+
+      let totalFact = 0;
+      let totalPag = 0;
+      const empresasSet = new Set();
+
+      liqs.forEach(l => {
+        totalFact += Number(l.monto_total_facturado || 0);
+        totalPag += Number(l.monto_abonado || 0);
+        if (l.proveedores?.nombre) empresasSet.add(l.proveedores.nombre);
+      });
+
+      grupoObj.totalFacturas = Math.round(totalFact * 100) / 100;
+      grupoObj.totalPagos = Math.round(totalPag * 100) / 100;
+      grupoObj.movimientosCount = liqs.length;
+      if (empresasSet.size > 0 && (!grupoObj.empresas || grupoObj.empresas === 'N/D')) {
+        grupoObj.empresas = Array.from(empresasSet).join(', ');
+      }
+    });
+
+    return Array.from(gruposMap.values()).sort((a, b) => a.numero_grupo - b.numero_grupo);
+  }, [saldosData, liquidacionesAll, gruposList, saldosPeriodoFilter]);
+
   // --- FILTRADO DE SALDOS / CUENTAS CORRIENTES ---
   const saldosFiltrados = useMemo(() => {
-    return saldosData.filter(row => {
+    return saldosCalculados.filter(row => {
       if (row.numero_grupo === 0) return false;
 
       if (soloDeudores && row.saldoFinalUltimo <= 5) return false;
+
+      // Si hay un filtro de período activo y no se busca un grupo específico,
+      // mostrar solo grupos que tengan facturación, pagos o saldo en este período
+      if (saldosPeriodoFilter !== 'TODOS' && !soloDeudores && !searchGrupo.trim()) {
+        if (row.totalFacturas <= 0 && row.totalPagos <= 0 && row.saldoFinalUltimo <= 0) {
+          return false;
+        }
+      }
 
       if (searchGrupo.trim()) {
         const s = searchGrupo.toLowerCase().trim();
@@ -1104,7 +1444,18 @@ export default function Contaduria() {
 
       return true;
     });
-  }, [saldosData, soloDeudores, searchGrupo]);
+  }, [saldosCalculados, soloDeudores, searchGrupo, saldosPeriodoFilter]);
+
+  // Totales consolidados de la vista de saldos actual
+  const totalesSaldos = useMemo(() => {
+    return saldosFiltrados.reduce((acc, row) => ({
+      facturado: acc.facturado + (Number(row.totalFacturas) || 0),
+      pagado: acc.pagado + (Number(row.totalPagos) || 0),
+      capital: acc.capital + (Number(row.saldoCapitalUltimo) || 0),
+      interes: acc.interes + (Number(row.interesPendUltimo) || 0),
+      saldo: acc.saldo + (Number(row.saldoFinalUltimo) || 0),
+    }), { facturado: 0, pagado: 0, capital: 0, interes: 0, saldo: 0 });
+  }, [saldosFiltrados]);
 
   // --- CÁLCULO DE KPIs GLOBALES DINÁMICOS (ACTUALIZADOS SEGÚN PERÍODO / OPERADORA) ---
   const statsGlobales = useMemo(() => {
@@ -1211,7 +1562,7 @@ export default function Contaduria() {
                   fontSize: '11px',
                   fontWeight: 700
                 }}>
-                  Período: {periodoFilter === 'AUTO' ? (periodosDisponibles[0] || 'Actual') : periodoFilter === 'TODOS' ? 'Histórico General' : periodoFilter}
+                  Período: {periodoFilter === 'AUTO' ? (periodosDisponibles[0] || 'Actual') : periodoFilter === 'TODOS' ? 'Histórico General' : periodoFilter === 'LAST_3' ? 'Últimos 3 Meses' : periodoFilter === 'LAST_6' ? 'Últimos 6 Meses' : periodoFilter}
                 </span>
               </div>
               <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '4px 0 0', fontWeight: 500 }}>
@@ -1304,7 +1655,7 @@ export default function Contaduria() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '10px', fontSize: '11.5px', color: 'var(--text-secondary)', fontWeight: 600 }}>
             <span>{statsGlobales.totalComprobantes} comprobantes</span>
             <span style={{ background: 'rgba(255, 255, 255, 0.05)', padding: '2px 6px', borderRadius: '4px' }}>
-              {periodoFilter === 'AUTO' ? `Período ${periodosDisponibles[0] || ''}` : periodoFilter === 'TODOS' ? 'Histórico' : periodoFilter}
+              {periodoFilter === 'AUTO' ? `Período ${periodosDisponibles[0] || ''}` : periodoFilter === 'TODOS' ? 'Histórico' : periodoFilter === 'LAST_3' ? 'Últimos 3 Meses' : periodoFilter === 'LAST_6' ? 'Últimos 6 Meses' : periodoFilter}
             </span>
           </div>
         </div>
@@ -1516,9 +1867,15 @@ export default function Contaduria() {
                 >
                   <option value="AUTO">Último Período ({periodosDisponibles[0] || 'Actual'})</option>
                   <option value="TODOS">Todos los Períodos</option>
-                  {periodosDisponibles.map(p => (
-                    <option key={p} value={p}>Período {p}</option>
-                  ))}
+                  <optgroup label="Rangos Rápidos">
+                    <option value="LAST_3">Últimos 3 meses</option>
+                    <option value="LAST_6">Últimos 6 meses</option>
+                  </optgroup>
+                  <optgroup label="Por Período">
+                    {periodosDisponibles.map(p => (
+                      <option key={p} value={p}>Período {p}</option>
+                    ))}
+                  </optgroup>
                 </select>
               </div>
 
@@ -1605,18 +1962,18 @@ export default function Contaduria() {
           </div>
 
           {/* TABLA PRINCIPAL DE COMPROBANTES */}
-          <div className="table-responsive" style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '13px' }}>
+          <div className="table-responsive">
+            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '12.5px' }}>
               <thead>
                 <tr style={{ background: 'rgba(0,0,0,0.02)', textAlign: 'left' }}>
-                  <th style={{ padding: '12px 14px', borderRadius: '12px 0 0 12px' }}>PERÍODO / ID</th>
-                  <th style={{ padding: '12px 14px' }}>GRUPO / SOCIO TITULAR</th>
-                  <th style={{ padding: '12px 14px' }}>OPERADORA</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>TOTAL FACTURADO</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>ABONADO</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>SALDO IMPAGO</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'center' }}>ESTADO</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'center', borderRadius: '0 12px 12px 0' }}>ACCIONES</th>
+                  <th style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', borderRadius: '10px 0 0 10px' }}>PERÍODO / ID</th>
+                  <th style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>GRUPO / SOCIO TITULAR</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>OPERADORA</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>TOTAL FACTURADO</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>ABONADO</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>SALDO IMPAGO</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', whiteSpace: 'nowrap' }}>ESTADO</th>
+                  <th style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', whiteSpace: 'nowrap', borderRadius: '0 10px 10px 0' }}>ACCIONES</th>
                 </tr>
               </thead>
               <tbody>
@@ -1638,6 +1995,10 @@ export default function Contaduria() {
                     const isExpanded = expandedGruposFacturas.has(group.key);
                     const isCobrada = group.estado_consolidado === 'ABONADO';
                     const isParcial = group.estado_consolidado === 'PARCIAL';
+                    const diasMora = !isCobrada ? calcularDiasMora(group.periodo || group.items[0]?.fecha_emision) : 0;
+                    const fechaVenc = !isCobrada ? formatFechaVencimiento(group.periodo || group.items[0]?.fecha_emision) : '';
+                    const interesMora = (!isCobrada && diasMora > 0 && tna > 0) ? calcularInteresMora(group.saldo_impago, diasMora, tna) : 0;
+                    const totalConMora = group.saldo_impago + interesMora;
 
                     return (
                       <React.Fragment key={group.key}>
@@ -1652,23 +2013,23 @@ export default function Contaduria() {
                           }}
                         >
                           {/* 1. PERÍODO */}
-                          <td style={{ padding: '14px 16px', fontWeight: 800, whiteSpace: 'nowrap' }}>
-                            <div style={{ color: 'var(--text-primary)', fontSize: '13px' }}>{group.periodo}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 500, marginTop: '2px' }}>
+                          <td style={{ padding: '8px 10px', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                            <div style={{ color: 'var(--text-primary)', fontSize: '12.5px' }}>{group.periodo}</div>
+                            <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)', fontWeight: 500, marginTop: '1px' }}>
                               {group.isMultiProvider ? `${group.items.length} liquidaciones` : `${group.total_lineas} ${group.total_lineas === 1 ? 'línea' : 'líneas'}`}
                             </div>
                           </td>
 
                           {/* 2. GRUPO / SOCIO */}
-                          <td style={{ padding: '14px 16px' }}>
-                            <div style={{ fontWeight: 800, fontSize: '13.5px', color: 'var(--text-primary)' }}>
+                          <td style={{ padding: '8px 10px', maxWidth: '190px' }}>
+                            <div style={{ fontWeight: 800, fontSize: '12.5px', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={group.socio?.nombre_completo || `Grupo ${group.numero_grupo}`}>
                               {group.socio?.nombre_completo || `Grupo ${group.numero_grupo}`}
                             </div>
-                            <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                               <span>Grupo #{group.numero_grupo}</span>
                               {/* Mostrar teléfono directamente si hay 1 sola línea */}
                               {group.total_lineas === 1 && group.items[0]?.numero_linea && (
-                                <span style={{ color: 'var(--accent)', fontWeight: 800, fontSize: '11px', fontFamily: 'monospace' }}>
+                                <span style={{ color: 'var(--accent)', fontWeight: 800, fontSize: '10.5px', fontFamily: 'monospace' }}>
                                   📞 {group.items[0].numero_linea}
                                 </span>
                               )}
@@ -1684,23 +2045,23 @@ export default function Contaduria() {
                                   border: 'none',
                                   color: 'var(--accent)',
                                   cursor: 'pointer',
-                                  fontSize: '11.5px',
+                                  fontSize: '11px',
                                   fontWeight: 700,
                                   padding: '0',
                                   display: 'inline-flex',
                                   alignItems: 'center',
-                                  gap: '3px'
+                                  gap: '2px'
                                 }}
                               >
                                 {isExpanded ? 'Ocultar' : 'Ver desglose'}
-                                {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                                {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                               </button>
                             </div>
                           </td>
 
                           {/* 3. OPERADORAS */}
-                          <td style={{ padding: '14px 16px' }}>
-                            <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>
+                            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
                               {group.items.map(item => {
                                 const op = item.proveedores?.nombre || 'OPERADORA';
                                 const isClaro = op === 'CLARO';
@@ -1709,11 +2070,11 @@ export default function Contaduria() {
                                   <span 
                                     key={item.liquidacion_id} 
                                     style={{
-                                      padding: '2px 8px',
-                                      borderRadius: '6px',
-                                      fontSize: '10px',
+                                      padding: '2px 6px',
+                                      borderRadius: '5px',
+                                      fontSize: '9.5px',
                                       fontWeight: 800,
-                                      letterSpacing: '0.3px',
+                                      letterSpacing: '0.2px',
                                       background: isClaro ? 'rgba(239, 68, 68, 0.1)' : isMovistar ? 'rgba(16, 185, 129, 0.1)' : 'rgba(59, 130, 246, 0.1)',
                                       color: isClaro ? '#f87171' : isMovistar ? '#34d399' : '#60a5fa',
                                       border: isClaro ? '1px solid rgba(239, 68, 68, 0.2)' : isMovistar ? '1px solid rgba(16, 185, 129, 0.2)' : '1px solid rgba(59, 130, 246, 0.2)'
@@ -1727,56 +2088,111 @@ export default function Contaduria() {
                           </td>
 
                           {/* 4. TOTAL FACTURADO */}
-                          <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 800, fontSize: '13.5px' }}>
+                          <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, fontSize: '12.5px', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                             {formatMoney(group.monto_total_facturado)}
                           </td>
 
                           {/* 5. ABONADO */}
-                          <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 800, color: '#10b981', fontSize: '13.5px' }}>
+                          <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, color: '#10b981', fontSize: '12.5px', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                             {formatMoney(group.monto_abonado)}
                           </td>
 
                           {/* 6. SALDO IMPAGO */}
-                          <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 900, fontSize: '13.5px', color: group.saldo_impago > 5 ? '#ef4444' : 'var(--text-primary)' }}>
-                            {formatMoney(group.saldo_impago)}
+                          <td style={{ padding: '8px 8px', textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                            <div style={{ fontWeight: 900, fontSize: '12.5px', color: group.saldo_impago > 5 ? '#ef4444' : 'var(--text-primary)' }}>
+                              {formatMoney(group.saldo_impago)}
+                            </div>
+                            {interesMora > 0 && (
+                              <div style={{ fontSize: '10.5px', color: '#f59e0b', fontWeight: 800, marginTop: '1px' }} title={`Interés por ${diasMora} días de mora (TNA ${tna}%)`}>
+                                + {formatMoney(interesMora)} mora
+                              </div>
+                            )}
+                            {interesMora > 0 && (
+                              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 700 }}>
+                                Total: <strong style={{ color: '#ef4444' }}>{formatMoney(totalConMora)}</strong>
+                              </div>
+                            )}
                           </td>
 
                           {/* 7. ESTADO */}
-                          <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                          <td style={{ padding: '8px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
                             <span style={{
                               display: 'inline-flex',
                               alignItems: 'center',
-                              gap: '6px',
+                              gap: '5px',
                               background: isCobrada ? 'rgba(16, 185, 129, 0.12)' : isParcial ? 'rgba(245, 158, 11, 0.12)' : 'rgba(239, 68, 68, 0.12)',
                               color: isCobrada ? '#10b981' : isParcial ? '#f59e0b' : '#ef4444',
                               border: isCobrada ? '1px solid rgba(16, 185, 129, 0.25)' : isParcial ? '1px solid rgba(245, 158, 11, 0.25)' : '1px solid rgba(239, 68, 68, 0.25)',
-                              padding: '4px 11px',
-                              borderRadius: '20px',
+                              padding: '3px 9px',
+                              borderRadius: '16px',
                               fontWeight: 800,
-                              fontSize: '11px'
+                              fontSize: '10.5px'
                             }}>
                               <span style={{
-                                width: '6px',
-                                height: '6px',
+                                width: '5px',
+                                height: '5px',
                                 borderRadius: '50%',
                                 background: isCobrada ? '#10b981' : isParcial ? '#f59e0b' : '#ef4444'
                               }} />
                               {isCobrada ? 'ABONADA' : isParcial ? 'PARCIAL' : 'IMPAGA'}
                             </span>
+
+                            {!isCobrada && (
+                              <div style={{ marginTop: '3px' }}>
+                                {diasMora > 0 ? (
+                                  <span 
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '2px',
+                                      background: diasMora > 30 ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                                      color: diasMora > 30 ? '#ef4444' : '#f59e0b',
+                                      border: diasMora > 30 ? '1px solid rgba(239, 68, 68, 0.25)' : '1px solid rgba(245, 158, 11, 0.25)',
+                                      padding: '1px 6px',
+                                      borderRadius: '8px',
+                                      fontWeight: 800,
+                                      fontSize: '9.5px',
+                                      whiteSpace: 'nowrap'
+                                    }} 
+                                    title={`Vencimiento: ${fechaVenc} • Interés acumulado: ${formatMoney(interesMora)} (TNA ${tna}%)`}
+                                  >
+                                    ⏱️ {diasMora}d atraso {interesMora > 0 ? `(+${formatMoney(interesMora)})` : ''}
+                                  </span>
+                                ) : (
+                                  <span 
+                                    style={{
+                                      fontSize: '9.5px',
+                                      color: '#10b981',
+                                      fontWeight: 700
+                                    }}
+                                    title={`Vencimiento: ${fechaVenc}`}
+                                  >
+                                    En plazo (vence {fechaVenc})
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </td>
 
                           {/* 8. ACCIONES */}
-                          <td style={{ padding: '14px 16px', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
-                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
+                          <td 
+                            style={{ 
+                              padding: '8px 10px', 
+                              textAlign: 'center',
+                              whiteSpace: 'nowrap'
+                            }} 
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div style={{ display: 'inline-flex', gap: '5px', justifyContent: 'center', alignItems: 'center' }}>
                               {isCobrada ? (
                                 <span 
                                   onClick={() => handleAbrirComprobanteFactura(group)}
                                   style={{
                                     display: 'inline-flex',
                                     alignItems: 'center',
-                                    gap: '5px',
-                                    padding: '5px 11px',
-                                    borderRadius: '8px',
+                                    gap: '4px',
+                                    padding: '5px 9px',
+                                    borderRadius: '7px',
                                     fontSize: '11px',
                                     fontWeight: 800,
                                     background: 'rgba(16, 185, 129, 0.12)',
@@ -1793,13 +2209,13 @@ export default function Contaduria() {
                                   onClick={() => handleOpenCobroModal(group, group.numero_grupo)}
                                   className="air-btn-primary"
                                   style={{ 
-                                    padding: '6px 12px', 
+                                    padding: '5px 9px', 
                                     fontSize: '11px', 
-                                    borderRadius: '8px', 
+                                    borderRadius: '7px', 
                                     fontWeight: 800,
                                     display: 'inline-flex',
                                     alignItems: 'center',
-                                    gap: '4px',
+                                    gap: '3px',
                                     background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)'
                                   }}
                                   title="Registrar cobro a este grupo"
@@ -1814,13 +2230,13 @@ export default function Contaduria() {
                                 }}
                                 className="air-btn"
                                 style={{ 
-                                  padding: '6px 12px', 
+                                  padding: '5px 9px', 
                                   fontSize: '11px', 
-                                  borderRadius: '8px', 
+                                  borderRadius: '7px', 
                                   fontWeight: 700,
                                   display: 'inline-flex',
                                   alignItems: 'center',
-                                  gap: '4px',
+                                  gap: '3px',
                                   background: 'var(--accent-light)',
                                   color: 'var(--accent)',
                                   border: '1px solid var(--border-light)'
@@ -1936,46 +2352,76 @@ export default function Contaduria() {
                                             <span style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Abonado</span>
                                             <span style={{ fontSize: '13px', fontWeight: 800, color: '#10b981' }}>{formatMoney(subAbonado)}</span>
                                           </div>
-                                          <div style={{ textAlign: 'right' }}>
-                                            <span style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Saldo</span>
-                                            <span style={{ fontSize: '13px', fontWeight: 900, color: subPendiente > 5 ? '#ef4444' : '#10b981' }}>{formatMoney(subPendiente)}</span>
-                                          </div>
+                                          {(() => {
+                                            const subDiasMora = !subIsCobrada ? calcularDiasMora(group.periodo || subLiq.fecha_emision) : 0;
+                                            const subInteresMora = (!subIsCobrada && subDiasMora > 0 && tna > 0) ? calcularInteresMora(subPendiente, subDiasMora, tna) : 0;
+                                            const subTotalConMora = subPendiente + subInteresMora;
 
-                                          <span style={{
-                                            padding: '4px 10px',
-                                            borderRadius: '20px',
-                                            fontSize: '10px',
-                                            fontWeight: 800,
-                                            background: subIsCobrada ? 'rgba(16,185,129,0.12)' : subIsParcial ? 'rgba(245,158,11,0.12)' : 'rgba(239,68,68,0.12)',
-                                            color: subIsCobrada ? '#059669' : subIsParcial ? '#d97706' : '#dc2626',
-                                            border: `1px solid ${subIsCobrada ? 'rgba(16,185,129,0.25)' : subIsParcial ? 'rgba(245,158,11,0.25)' : 'rgba(239,68,68,0.25)'}`,
-                                            whiteSpace: 'nowrap'
-                                          }}>
-                                            {subIsCobrada ? '✓ COBRADA' : subIsParcial ? 'PARCIAL' : 'IMPAGA'}
-                                          </span>
+                                            return (
+                                              <>
+                                                <div style={{ textAlign: 'right' }}>
+                                                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Saldo</span>
+                                                  <span style={{ fontSize: '13px', fontWeight: 900, color: subPendiente > 5 ? '#ef4444' : '#10b981' }}>{formatMoney(subPendiente)}</span>
+                                                  {subInteresMora > 0 && (
+                                                    <span style={{ fontSize: '10px', fontWeight: 800, color: '#f59e0b', display: 'block', marginTop: '1px' }}>
+                                                      +{formatMoney(subInteresMora)} mora
+                                                    </span>
+                                                  )}
+                                                </div>
 
-                                          {!subIsCobrada && (
-                                            <button
-                                              type="button"
-                                              onClick={(e) => { e.stopPropagation(); handleOpenCobroModal(subLiq, group.numero_grupo); }}
-                                              className="air-btn-primary"
-                                              style={{
-                                                padding: '6px 12px',
-                                                fontSize: '11px',
-                                                borderRadius: '8px',
-                                                fontWeight: 800,
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                gap: '4px',
-                                                background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
-                                                border: 'none',
-                                                cursor: 'pointer',
-                                                whiteSpace: 'nowrap'
-                                              }}
-                                            >
-                                              <DollarSign size={12} /> Cobrar Total {subOp}
-                                            </button>
-                                          )}
+                                                <span style={{
+                                                  padding: '4px 10px',
+                                                  borderRadius: '20px',
+                                                  fontSize: '10px',
+                                                  fontWeight: 800,
+                                                  background: subIsCobrada ? 'rgba(16,185,129,0.12)' : subIsParcial ? 'rgba(245,158,11,0.12)' : 'rgba(239,68,68,0.12)',
+                                                  color: subIsCobrada ? '#059669' : subIsParcial ? '#d97706' : '#dc2626',
+                                                  border: `1px solid ${subIsCobrada ? 'rgba(16,185,129,0.25)' : subIsParcial ? 'rgba(245,158,11,0.25)' : 'rgba(239,68,68,0.25)'}`,
+                                                  whiteSpace: 'nowrap'
+                                                }}>
+                                                  {subIsCobrada ? '✓ COBRADA' : subIsParcial ? 'PARCIAL' : 'IMPAGA'}
+                                                </span>
+
+                                                {!subIsCobrada && subDiasMora > 0 && (
+                                                  <span style={{
+                                                    padding: '3px 8px',
+                                                    borderRadius: '10px',
+                                                    fontSize: '9.5px',
+                                                    fontWeight: 800,
+                                                    background: subDiasMora > 30 ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)',
+                                                    color: subDiasMora > 30 ? '#ef4444' : '#f59e0b',
+                                                    border: subDiasMora > 30 ? '1px solid rgba(239,68,68,0.2)' : '1px solid rgba(245,158,11,0.2)',
+                                                    whiteSpace: 'nowrap'
+                                                  }}>
+                                                    ⏱️ {subDiasMora}d {subInteresMora > 0 ? `(+${formatMoney(subInteresMora)})` : ''}
+                                                  </span>
+                                                )}
+
+                                                {!subIsCobrada && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={(e) => { e.stopPropagation(); handleOpenCobroModal(subLiq, group.numero_grupo); }}
+                                                    className="air-btn-primary"
+                                                    style={{
+                                                      padding: '6px 12px',
+                                                      fontSize: '11px',
+                                                      borderRadius: '8px',
+                                                      fontWeight: 800,
+                                                      display: 'inline-flex',
+                                                      alignItems: 'center',
+                                                      gap: '4px',
+                                                      background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                                                      border: 'none',
+                                                      cursor: 'pointer',
+                                                      whiteSpace: 'nowrap'
+                                                    }}
+                                                  >
+                                                    <DollarSign size={12} /> Cobrar Total {subOp} {subInteresMora > 0 ? `(${formatMoney(subTotalConMora)})` : ''}
+                                                  </button>
+                                                )}
+                                              </>
+                                            );
+                                          })()}
                                         </div>
                                       </div>
 
@@ -2130,21 +2576,58 @@ export default function Contaduria() {
 
       {/* PESTAÑA 2: ESTADO GENERAL DE CUENTAS (SALDOS POR GRUPO / AGING DE DEUDA) */}
       {activeTab === 'saldos' && (
-        <div className="bento-card" style={{ padding: '24px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: '280px' }}>
-              <div style={{ position: 'relative', width: '100%', maxWidth: '400px' }}>
-                <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+        <div className="bento-card" style={{ padding: '18px 20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: '260px', flexWrap: 'wrap' }}>
+              <div style={{ position: 'relative', width: '100%', maxWidth: '320px' }}>
+                <Search size={17} style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
                 <input
                   type="text"
                   placeholder="Buscar por grupo, socio o proveedor..."
                   value={searchGrupo}
                   onChange={(e) => setSearchGrupo(e.target.value)}
                   className="premium-input"
-                  style={{ width: '100%', paddingLeft: '42px', height: '42px' }}
+                  style={{ width: '100%', paddingLeft: '40px', height: '40px', fontSize: '13px' }}
                 />
               </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', userSelect: 'none' }}>
+
+              {/* SELECTOR DE PERÍODO / AÑO DE SALDOS */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Calendar size={15} style={{ color: 'var(--text-secondary)' }} />
+                <select
+                  value={saldosPeriodoFilter}
+                  onChange={(e) => setSaldosPeriodoFilter(e.target.value)}
+                  className="premium-input"
+                  style={{ 
+                    fontSize: '12.5px', fontWeight: 800, padding: '8px 12px', height: '40px', minWidth: '190px',
+                    borderColor: saldosPeriodoFilter !== 'TODOS' ? 'var(--accent)' : undefined,
+                    background: saldosPeriodoFilter !== 'TODOS' ? 'rgba(59, 130, 246, 0.04)' : undefined
+                  }}
+                  title="Filtrar cuentas y saldos por período o rango"
+                >
+                  <option value="TODOS">Todos los períodos (Histórico)</option>
+                  <optgroup label="Rangos Rápidos">
+                    <option value="LAST_3">Últimos 3 meses</option>
+                    <option value="LAST_6">Últimos 6 meses</option>
+                  </optgroup>
+                  <optgroup label="Filtrar por Año">
+                    {aniosDisponibles.map(anio => (
+                      <option key={anio} value={`YEAR_${anio}`}>
+                        Año {anio}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Filtrar por Mes / Período">
+                    {periodosDisponibles.map(p => (
+                      <option key={p} value={p}>
+                        Período {p}
+                      </option>
+                    ))}
+                  </optgroup>
+                </select>
+              </div>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '12.5px', fontWeight: 700, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
                 <input
                   type="checkbox"
                   checked={soloDeudores}
@@ -2155,48 +2638,74 @@ export default function Contaduria() {
               </label>
             </div>
 
-            <button 
-              onClick={loadSaldosGeneral}
-              className="air-btn"
-              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '10px', fontSize: '12px', fontWeight: 700 }}
-            >
-              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Actualizar Saldos
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <button 
+                onClick={loadSaldosGeneral}
+                className="air-btn"
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', borderRadius: '10px', fontSize: '12px', fontWeight: 700 }}
+              >
+                <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Actualizar Saldos
+              </button>
 
-            <button 
-              onClick={() => {
-                try {
-                  exportSaldosXLSX(saldosFiltrados);
-                  addToast('Exportación de saldos descargada exitosamente', 'success');
-                } catch (err) {
-                  addToast('Error al exportar: ' + err.message, 'error');
-                }
-              }}
-              className="air-btn"
-              style={{ 
-                display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '10px', fontSize: '12px', fontWeight: 700,
-                background: 'rgba(16, 185, 129, 0.08)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.2)'
-              }}
-              title="Exportar saldos a Excel (.xlsx)"
-              disabled={saldosFiltrados.length === 0}
-            >
-              <Download size={14} /> Exportar .xlsx
-            </button>
+              <button 
+                onClick={() => {
+                  try {
+                    exportSaldosXLSX(saldosFiltrados, saldosFiltroLabel);
+                    addToast(`Exportación de saldos (${saldosFiltroLabel}) descargada exitosamente`, 'success');
+                  } catch (err) {
+                    addToast('Error al exportar: ' + err.message, 'error');
+                  }
+                }}
+                className="air-btn"
+                style={{ 
+                  display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', borderRadius: '10px', fontSize: '12px', fontWeight: 700,
+                  background: 'rgba(16, 185, 129, 0.08)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.2)'
+                }}
+                title="Exportar saldos a Excel (.xlsx)"
+                disabled={saldosFiltrados.length === 0}
+              >
+                <Download size={14} /> Exportar .xlsx
+              </button>
+            </div>
           </div>
 
-          <div className="table-responsive" style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '13px' }}>
+          {/* BANNER INFORMATIVO CUANDO HAY UN FILTRO DE PERÍODO ACTIVO */}
+          {saldosPeriodoFilter !== 'TODOS' && (
+            <div style={{
+              background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.25)',
+              borderRadius: '10px', padding: '10px 16px', display: 'flex', justifyContent: 'space-between',
+              alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px'
+            }}>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#1d4ed8', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <AlertCircle size={16} />
+                <span>
+                  Filtro activo: <strong>{saldosFiltroLabel}</strong> — {saldosFiltrados.length} cuentas ({saldosFiltrados.filter(g => g.saldoFinalUltimo > 5).length} con deuda) | Facturado: <strong>{formatMoney(totalesSaldos.facturado)}</strong> | Cobrado: <strong>{formatMoney(totalesSaldos.pagado)}</strong> | Deuda consolidada: <strong>{formatMoney(totalesSaldos.saldo)}</strong>
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSaldosPeriodoFilter('TODOS')}
+                className="air-btn"
+                style={{ padding: '5px 12px', fontSize: '11.5px', fontWeight: 800, color: '#1d4ed8', border: '1px solid rgba(59, 130, 246, 0.35)', borderRadius: '6px', background: '#ffffff', cursor: 'pointer' }}
+              >
+                Restablecer a Histórico Completo
+              </button>
+            </div>
+          )}
+
+          <div className="table-responsive">
+            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '12.5px' }}>
               <thead>
                 <tr style={{ background: 'rgba(0,0,0,0.02)', textAlign: 'left' }}>
-                  <th style={{ padding: '12px 16px', borderRadius: '12px 0 0 12px' }}>GRUPO / CUENTA</th>
-                  <th style={{ padding: '12px 16px' }}>TITULAR REGISTRADO</th>
-                  <th style={{ padding: '12px 16px' }}>OPERADORA</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>FACTURADO</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>PAGADO</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>CAPITAL PEND.</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>INT. MORA</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>SALDO FINAL</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'center', borderRadius: '0 12px 12px 0' }}>ACCIONES</th>
+                  <th style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', borderRadius: '10px 0 0 10px' }}>GRUPO / CUENTA</th>
+                  <th style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>TITULAR REGISTRADO</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', whiteSpace: 'nowrap' }}>LÍNEAS</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>FACTURADO</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>PAGADO</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>CAPITAL PEND.</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>INT. MORA</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>SALDO FINAL</th>
+                  <th style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', whiteSpace: 'nowrap', borderRadius: '0 10px 10px 0' }}>ACCIONES</th>
                 </tr>
               </thead>
               <tbody>
@@ -2217,63 +2726,93 @@ export default function Contaduria() {
                   saldosFiltrados.map((row) => {
                     const isDeudor = row.saldoFinalUltimo > 5;
                     const isCredito = row.saldoFinalUltimo < -5;
+                    const sinFacturas = row.totalFacturas === 0 && row.totalPagos > 0;
+                    const excesoPago = row.totalFacturas > 0 && row.totalPagos > row.totalFacturas * 1.5;
 
                     return (
                       <tr 
                         key={row.numero_grupo}
-                        style={{ borderBottom: '1px solid var(--border-light)', background: selectedGrupo === row.numero_grupo ? 'rgba(16,185,129,0.05)' : 'transparent' }}
+                        style={{ borderBottom: '1px solid var(--border-light)', background: selectedGrupo === row.numero_grupo ? 'rgba(16,185,129,0.05)' : sinFacturas ? 'rgba(245,158,11,0.04)' : 'transparent' }}
                       >
-                        <td style={{ padding: '12px 16px', fontWeight: 900 }}>
-                          <span style={{ background: 'var(--surface-hover)', padding: '4px 10px', borderRadius: '8px', fontSize: '13px' }}>
+                        <td style={{ padding: '8px 10px', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                          <span style={{ background: 'var(--surface-hover)', padding: '3px 8px', borderRadius: '6px', fontSize: '12px', display: 'inline-block' }}>
                             Grupo #{row.numero_grupo}
                           </span>
+                          {sinFacturas && (
+                            <span title="⚠ Este grupo tiene pagos registrados pero ninguna factura. Posible error de asignación." style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', marginLeft: '6px', padding: '2px 6px', borderRadius: '5px', fontSize: '9px', fontWeight: 800, background: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)' }}>
+                              ⚠ SIN FACT.
+                            </span>
+                          )}
+                          {excesoPago && !sinFacturas && (
+                            <span title="⚠ Los pagos superan significativamente la facturación. Verificar posibles pagos duplicados o mal asignados." style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', marginLeft: '6px', padding: '2px 6px', borderRadius: '5px', fontSize: '9px', fontWeight: 800, background: 'rgba(59,130,246,0.12)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.25)' }}>
+                              ⚠ EXCESO
+                            </span>
+                          )}
                         </td>
-                        <td style={{ padding: '12px 16px', fontWeight: 700 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            {row.nombre}
+                        <td style={{ padding: '8px 10px', fontWeight: 700, maxWidth: '170px' }} title={row.nombre}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '12.5px' }}>
+                              {row.nombre}
+                            </span>
                             <button 
                               onClick={() => handleOpenEditGrupo(row.numero_grupo)} 
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.5 }}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.5, padding: '2px', display: 'flex', alignItems: 'center', flexShrink: 0 }}
                               title="Editar nombre del titular"
                             >
-                              <Edit3 size={12} />
+                              <Edit3 size={11} />
                             </button>
                           </div>
                         </td>
-                        <td style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                          {row.empresas}
+                        <td style={{ padding: '8px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                          <span style={{ 
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            background: 'var(--surface-hover)',
+                            color: 'var(--text-primary)',
+                            padding: '3px 8px',
+                            borderRadius: '6px',
+                            fontSize: '11.5px',
+                            fontWeight: 800
+                          }} title={`${row.total_lineas ?? (gruposList.find(gl => gl.numero_grupo === row.numero_grupo)?.total_lineas ?? 0)} línea(s) activa(s)`}>
+                            <Phone size={11} style={{ opacity: 0.6 }} />
+                            {row.total_lineas ?? (gruposList.find(gl => gl.numero_grupo === row.numero_grupo)?.total_lineas ?? 0)}
+                          </span>
                         </td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 600 }}>
+                        <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontSize: '12.5px' }}>
                           {formatMoney(row.totalFacturas)}
                         </td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 600, color: 'var(--accent)' }}>
+                        <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 600, color: 'var(--accent)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontSize: '12.5px' }}>
                           {formatMoney(row.totalPagos)}
                         </td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700 }}>
+                        <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontSize: '12.5px' }}>
                           {formatMoney(row.saldoCapitalUltimo)}
                         </td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#f59e0b' }}>
+                        <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 700, color: '#f59e0b', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontSize: '12.5px' }}>
                           {formatMoney(row.interesPendUltimo)}
                         </td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 900, color: isDeudor ? '#ef4444' : isCredito ? '#3b82f6' : 'var(--accent)' }}>
+                        <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 900, color: isDeudor ? '#ef4444' : isCredito ? '#3b82f6' : 'var(--accent)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontSize: '12.5px' }}>
                           {formatMoney(row.saldoFinalUltimo)}
                         </td>
-                        <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                        <td style={{ padding: '8px 10px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                          <div style={{ display: 'inline-flex', gap: '5px', justifyContent: 'center', alignItems: 'center' }}>
                             <button
                               onClick={() => {
                                 setSelectedGrupo(row.numero_grupo);
+                                setExtractoPeriodoFilter(saldosPeriodoFilter);
                                 setActiveTab('extracto');
                               }}
                               className="air-btn"
-                              style={{ padding: '6px 12px', fontSize: '11px', fontWeight: 800, background: 'var(--accent-light)', color: 'var(--accent)', borderRadius: '8px' }}
+                              style={{ padding: '5px 9px', fontSize: '11px', fontWeight: 800, background: 'var(--accent-light)', color: 'var(--accent)', borderRadius: '7px', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                              title="Ver Extracto de Cuenta"
                             >
-                              <Eye size={14} /> Extracto
+                              <Eye size={13} /> Extracto
                             </button>
                             <button
                               onClick={() => handleOpenCobroModal(null, row.numero_grupo)}
                               className="air-btn-primary"
-                              style={{ padding: '6px 12px', fontSize: '11px', fontWeight: 800, borderRadius: '8px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                              style={{ padding: '5px 9px', fontSize: '11px', fontWeight: 800, borderRadius: '7px', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                              title="Registrar Cobro"
                             >
                               <DollarSign size={13} /> Cobrar
                             </button>
@@ -2293,31 +2832,79 @@ export default function Contaduria() {
       {activeTab === 'extracto' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           
-          <div className="bento-card" style={{ padding: '24px' }}>
+          <div 
+            className="bento-card" 
+            style={{ 
+              padding: '24px', 
+              overflow: 'visible', 
+              position: 'relative', 
+              zIndex: exportExtractoMenuOpen ? 100 : 10 
+            }}
+          >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-              <div>
-                <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SELECCIONAR GRUPO</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
-                  <select 
-                    value={selectedGrupo || ''}
-                    onChange={(e) => setSelectedGrupo(Number(e.target.value))}
-                    className="premium-input"
-                    style={{ fontSize: '16px', fontWeight: 900, padding: '8px 16px', height: '44px' }}
-                  >
-                    {gruposList.map(g => (
-                      <option key={g.numero_grupo} value={g.numero_grupo}>
-                        Grupo #{g.numero_grupo} - {g.nombre}
-                      </option>
-                    ))}
-                  </select>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SELECCIONAR GRUPO</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                    <select 
+                      value={selectedGrupo || ''}
+                      onChange={(e) => setSelectedGrupo(Number(e.target.value))}
+                      className="premium-input"
+                      style={{ fontSize: '15px', fontWeight: 900, padding: '8px 14px', height: '44px' }}
+                    >
+                      {gruposList.map(g => (
+                        <option key={g.numero_grupo} value={g.numero_grupo}>
+                          Grupo #{g.numero_grupo} - {g.nombre}
+                        </option>
+                      ))}
+                    </select>
 
-                  <button 
-                    onClick={() => handleOpenEditGrupo(selectedGrupo)}
-                    className="air-btn"
-                    style={{ padding: '8px 12px', borderRadius: '10px', fontSize: '12px', fontWeight: 700 }}
-                  >
-                    <Edit3 size={14} /> Editar Titular
-                  </button>
+                    <button 
+                      onClick={() => handleOpenEditGrupo(selectedGrupo)}
+                      className="air-btn"
+                      style={{ padding: '8px 12px', borderRadius: '10px', fontSize: '12px', fontWeight: 700 }}
+                    >
+                      <Edit3 size={14} /> Editar Titular
+                    </button>
+                  </div>
+                </div>
+
+                {/* SELECTOR DE PERÍODO / AÑO DE EXTRACTO */}
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>PERÍODO / AÑO</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                    <select
+                      value={extractoPeriodoFilter}
+                      onChange={(e) => setExtractoPeriodoFilter(e.target.value)}
+                      className="premium-input"
+                      style={{ 
+                        fontSize: '13.5px', fontWeight: 800, padding: '8px 12px', height: '44px', minWidth: '190px',
+                        borderColor: extractoPeriodoFilter !== 'TODOS' ? 'var(--accent)' : undefined,
+                        background: extractoPeriodoFilter !== 'TODOS' ? 'rgba(59, 130, 246, 0.04)' : undefined
+                      }}
+                      title="Filtrar movimientos y calcular deuda de un año o período específico"
+                    >
+                      <option value="TODOS">Todos los períodos (Histórico)</option>
+                      <optgroup label="Rangos Rápidos">
+                        <option value="LAST_3">Últimos 3 meses</option>
+                        <option value="LAST_6">Últimos 6 meses</option>
+                      </optgroup>
+                      <optgroup label="Filtrar por Año">
+                        {aniosDisponibles.map(anio => (
+                          <option key={anio} value={`YEAR_${anio}`}>
+                            Año {anio}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Filtrar por Mes / Período">
+                        {periodosDisponibles.map(p => (
+                          <option key={p} value={p}>
+                            Período {p}
+                          </option>
+                        ))}
+                      </optgroup>
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -2343,6 +2930,42 @@ export default function Contaduria() {
                 </button>
               </div>
 
+              <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                    {extractoPeriodoFilter === 'TODOS' ? 'SALDO CAPITAL' : `SALDO CAPITAL (${extractoFiltroLabel})`}
+                  </div>
+                  <div style={{ fontSize: '18px', fontWeight: 900, color: (ultimoMovVisible?.saldo_capital || 0) > 5 ? '#ef4444' : 'var(--accent)' }}>
+                    {formatMoney(ultimoMovVisible?.saldo_capital || 0)}
+                  </div>
+                </div>
+
+                {(ultimoMovVisible?.interes_pend_final || 0) > 1 && (
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 800, color: '#d97706', textTransform: 'uppercase' }}>
+                      INT. MORA PEND. {tna > 0 ? `(${tna}% TNA)` : ''}
+                    </div>
+                    <div style={{ fontSize: '18px', fontWeight: 900, color: '#d97706' }}>
+                      +{formatMoney(ultimoMovVisible?.interes_pend_final || 0)}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                    {extractoPeriodoFilter === 'TODOS' ? 'SALDO TOTAL CONSOLIDADO' : `SALDO TOTAL (${extractoFiltroLabel})`}
+                  </div>
+                  <div style={{ fontSize: '24px', fontWeight: 900, color: (ultimoMovVisible?.saldo_final || 0) > 5 ? '#ef4444' : 'var(--accent)' }}>
+                    {formatMoney(ultimoMovVisible?.saldo_final || 0)}
+                  </div>
+                  {extractoPeriodoFilter !== 'TODOS' && ultimoMovVisible?.id !== ultimoMovGrupo?.id && (
+                    <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                      Saldo actual cuenta: {formatMoney(ultimoMovGrupo?.saldo_final || 0)}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                 <button 
                   onClick={() => handleOpenCobroModal(null, selectedGrupo)}
@@ -2352,25 +2975,82 @@ export default function Contaduria() {
                   <Plus size={16} /> Imputar Cobro
                 </button>
 
-                <button 
-                  onClick={() => {
-                    try {
-                      exportExtractoXLSX(movimientos, selectedGrupo, titularSeleccionadoInfo?.nombre);
-                      addToast('Extracto exportado exitosamente', 'success');
-                    } catch (err) {
-                      addToast('Error al exportar: ' + err.message, 'error');
-                    }
-                  }}
-                  className="air-btn"
-                  style={{ 
-                    display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 16px', borderRadius: '12px', fontWeight: 700, fontSize: '13px',
-                    background: 'rgba(16, 185, 129, 0.08)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.2)'
-                  }}
-                  title="Exportar extracto a Excel (.xlsx) con fórmulas del libro mayor"
-                  disabled={movimientos.length === 0}
-                >
-                  <Download size={14} /> Exportar .xlsx
-                </button>
+                {/* BOTÓN Y MENÚ DESPLEGABLE DE EXPORTACIÓN */}
+                <div ref={exportExtractoRef} style={{ position: 'relative' }}>
+                  <button 
+                    onClick={() => setExportExtractoMenuOpen(prev => !prev)}
+                    className="air-btn"
+                    style={{ 
+                      display: 'flex', alignItems: 'center', gap: '6px', padding: '12px 16px', borderRadius: '12px', fontWeight: 700, fontSize: '13px',
+                      background: 'rgba(16, 185, 129, 0.08)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.25)', cursor: 'pointer'
+                    }}
+                    title="Exportar opciones de extracto a Excel (.xlsx)"
+                  >
+                    <Download size={14} /> Exportar .xlsx <ChevronDown size={13} style={{ transform: exportExtractoMenuOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }} />
+                  </button>
+
+                  {exportExtractoMenuOpen && (
+                    <div style={{
+                      position: 'absolute', right: 0, top: 'calc(100% + 8px)', zIndex: 1000,
+                      background: 'var(--surface, #ffffff)', borderRadius: '14px', 
+                      boxShadow: '0 16px 36px -4px rgba(0, 0, 0, 0.25), 0 4px 16px -2px rgba(0, 0, 0, 0.12)',
+                      border: '1px solid var(--border-light, rgba(0,0,0,0.12))', minWidth: '330px', maxWidth: 'calc(100vw - 32px)', padding: '8px', 
+                      overflow: 'hidden', animation: 'fadeIn 0.15s ease-out'
+                    }}>
+                      {/* Opción 1: Exportar todos los movimientos */}
+                      <button
+                        onClick={() => {
+                          setExportExtractoMenuOpen(false);
+                          handleExportarTodosMovimientos();
+                        }}
+                        style={{
+                          width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: '8px',
+                          display: 'flex', alignItems: 'flex-start', gap: '10px', border: 'none', background: 'transparent', cursor: 'pointer',
+                          transition: 'background 0.15s ease'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(16, 185, 129, 0.08)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      >
+                        <FileText size={18} color="#10b981" style={{ marginTop: '2px', flexShrink: 0 }} />
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: '13px', color: 'var(--text-primary, #111827)' }}>
+                            Exportar todos los movimientos
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary, #6b7280)', marginTop: '2px' }}>
+                            Libro Mayor completo con facturas, cobros y saldos ({extractoPeriodoFilter === 'TODOS' ? 'Histórico completo' : extractoFiltroLabel})
+                          </div>
+                        </div>
+                      </button>
+
+                      <div style={{ height: '1px', background: 'var(--border-light, rgba(0,0,0,0.08))', margin: '6px 0' }} />
+
+                      {/* Opción 2: Exportar solo deuda */}
+                      <button
+                        onClick={() => {
+                          setExportExtractoMenuOpen(false);
+                          handleExportarSoloDeuda();
+                        }}
+                        style={{
+                          width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: '8px',
+                          display: 'flex', alignItems: 'flex-start', gap: '10px', border: 'none', background: 'transparent', cursor: 'pointer',
+                          transition: 'background 0.15s ease'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      >
+                        <AlertCircle size={18} color="#ef4444" style={{ marginTop: '2px', flexShrink: 0 }} />
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: '13px', color: '#dc2626' }}>
+                            Exportar solo deuda
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary, #6b7280)', marginTop: '2px' }}>
+                            Solo meses impagos con el interés ya aplicado ({extractoPeriodoFilter === 'TODOS' ? 'Todos los meses impagos' : extractoFiltroLabel})
+                          </div>
+                        </div>
+                      </button>
+                    </div>
+                  )}
+                </div>
 
                 <button 
                   onClick={() => {
@@ -2433,58 +3113,92 @@ export default function Contaduria() {
           </div>
 
           <div className="bento-card" style={{ padding: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
               <div>
                 <h3 style={{ fontSize: '16px', fontWeight: 900, margin: 0 }}>
                   Extracto / Libro Mayor de Cuenta (Grupo #{selectedGrupo})
                 </h3>
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, display: 'block', marginTop: '2px' }}>
                   Historial cronológico de facturación, cobros e intereses calculados al corte ({formatFecha(fechaCalculoExtracto)})
                 </span>
               </div>
-              <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 700 }}>
-                {movimientos.length} movimientos
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 700 }}>
+                  {movimientos.length} movimientos
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsTnaModalOpen(true)}
+                  className="air-btn"
+                  style={{ fontSize: '11px', fontWeight: 700, padding: '5px 12px', borderRadius: '8px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                  title="Configurar Tasa Nominal Anual (TNA)"
+                >
+                  <Settings size={13} /> TNA: {tna}%
+                </button>
+              </div>
             </div>
 
-            <div className="table-responsive" style={{ overflowX: 'auto' }}>
+            {/* BANNER INFORMATIVO CUANDO HAY UN FILTRO DE PERÍODO / AÑO ACTIVO */}
+            {extractoPeriodoFilter !== 'TODOS' && (
+              <div style={{
+                background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.25)',
+                borderRadius: '10px', padding: '10px 16px', display: 'flex', justifyContent: 'space-between',
+                alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px'
+              }}>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#1d4ed8', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <AlertCircle size={16} />
+                  <span>
+                    Filtro activo: <strong>{extractoFiltroLabel}</strong> — {movimientosExtractoFiltrados.length} movimientos | Facturado en período: <strong>{formatMoney(resumenActividadExtracto.facturado)}</strong> | Pagado en período: <strong>{formatMoney(resumenActividadExtracto.pagado)}</strong> | Saldo cuenta al corte: <strong>{formatMoney(ultimoMovVisible?.saldo_final || 0)}</strong>
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setExtractoPeriodoFilter('TODOS')}
+                  className="air-btn"
+                  style={{ padding: '5px 12px', fontSize: '11.5px', fontWeight: 800, color: '#1d4ed8', border: '1px solid rgba(59, 130, 246, 0.35)', borderRadius: '6px', background: '#ffffff', cursor: 'pointer' }}
+                >
+                  Restablecer a Histórico Completo
+                </button>
+              </div>
+            )}
+
+            <div className="table-responsive">
               <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '12px' }}>
                 <thead>
                   <tr style={{ background: 'rgba(0,0,0,0.02)', textAlign: 'left' }}>
-                    <th style={{ padding: '12px 10px' }}>FECHA</th>
-                    <th style={{ padding: '12px 10px' }}>TIPO</th>
-                    <th style={{ padding: '12px 10px' }}>PERÍODO</th>
-                    <th style={{ padding: '12px 10px' }}>OPERADORA / CONCEPTO</th>
-                    <th style={{ padding: '12px 10px', textAlign: 'right' }}>IMPORTE</th>
-                    <th style={{ padding: '12px 10px', textAlign: 'center' }}>PLAZO</th>
-                    <th style={{ padding: '12px 10px', textAlign: 'right' }}>INT. MORA</th>
-                    <th style={{ padding: '12px 10px', textAlign: 'right' }}>SALDO CAPITAL</th>
-                    <th style={{ padding: '12px 10px', textAlign: 'right' }}>INT. PEND. FINAL</th>
-                    <th style={{ padding: '12px 10px', textAlign: 'right' }}>DEUDA ACTUALIZADA</th>
-                    <th style={{ padding: '12px 10px', textAlign: 'center' }}>RECIBO</th>
+                    <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', borderRadius: '10px 0 0 10px' }}>FECHA</th>
+                    <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>TIPO</th>
+                    <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>PERÍODO</th>
+                    <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>OPERADORA / CONCEPTO</th>
+                    <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>IMPORTE</th>
+                    <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', whiteSpace: 'nowrap' }}>DÍAS INT.</th>
+                    <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>MONTO INTERÉS</th>
+                    <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>SALDO CAPITAL</th>
+                    <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>SALDO TOTAL</th>
+                    <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', whiteSpace: 'nowrap', borderRadius: '0 10px 10px 0' }}>COMPROBANTE</th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan="11" style={{ textAlign: 'center', padding: '30px' }}>
+                      <td colSpan="10" style={{ textAlign: 'center', padding: '30px' }}>
                         <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto', color: 'var(--accent)' }} />
                       </td>
                     </tr>
-                  ) : movimientos.length === 0 ? (
+                  ) : movimientosExtractoFiltrados.length === 0 ? (
                     <tr>
-                      <td colSpan="11" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary)' }}>
-                        Este grupo no registra movimientos de cuenta corriente aún.
+                      <td colSpan="10" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary)' }}>
+                        Este grupo no registra movimientos {extractoPeriodoFilter !== 'TODOS' ? `para ${extractoFiltroLabel}` : 'de cuenta corriente aún'}.
                       </td>
                     </tr>
                   ) : (
-                    movimientos.map((m) => {
+                    movimientosExtractoFiltrados.map((m) => {
                       const isPago = m.tipo === 'PAGO';
                       const isNC = m.tipo === 'NOTA_CREDITO';
                       const isUltimo = m.is_ultimo_movimiento;
                       return (
                         <tr key={m.id} style={{ borderBottom: '1px solid var(--border-light)', background: isUltimo ? 'rgba(59, 130, 246, 0.03)' : 'transparent' }}>
-                          <td style={{ padding: '10px 10px', fontWeight: 700 }}>
+                          <td style={{ padding: '8px 8px', fontWeight: 700, whiteSpace: 'nowrap' }}>
                             {formatFecha(m.fecha)}
                             {isUltimo && (
                               <span style={{ display: 'block', fontSize: '9.5px', color: '#3b82f6', fontWeight: 800 }}>
@@ -2492,41 +3206,149 @@ export default function Contaduria() {
                               </span>
                             )}
                           </td>
-                          <td style={{ padding: '10px 10px' }}>
+                          <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>
                             <span style={{
                               background: isPago || isNC ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
                               color: isPago || isNC ? '#10b981' : '#ef4444',
-                              padding: '3px 8px', borderRadius: '6px', fontWeight: 800, fontSize: '10.5px'
+                              padding: '2px 7px', borderRadius: '5px', fontWeight: 800, fontSize: '10.5px'
                             }}>
                               {m.tipo}
                             </span>
                           </td>
-                          <td style={{ padding: '10px 10px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11px' }}>
+                          <td style={{ padding: '8px 8px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', whiteSpace: 'nowrap' }}>
                             {m.periodo || '—'}
                           </td>
-                          <td style={{ padding: '10px 10px' }}>
-                            <div style={{ fontWeight: 700 }}>{m.empresa || 'GENERAL'}</div>
-                            <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>{m.observaciones || ''}</div>
+                          <td style={{ padding: '8px 8px', maxWidth: '180px' }}>
+                            <div style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.empresa || 'GENERAL'}>{m.empresa || 'GENERAL'}</div>
+                            <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.observaciones || ''}>{m.observaciones || ''}</div>
+                            {isPago && m.medio_pago && (
+                              <div style={{ marginTop: '3px', display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                <span style={{
+                                  fontSize: '10px',
+                                  fontWeight: 800,
+                                  padding: '1px 6px',
+                                  borderRadius: '4px',
+                                  background: m.medio_pago.includes('EFECTIVO') ? 'rgba(16, 185, 129, 0.12)' : 'rgba(59, 130, 246, 0.12)',
+                                  color: m.medio_pago.includes('EFECTIVO') ? '#059669' : '#2563eb',
+                                  border: `1px solid ${m.medio_pago.includes('EFECTIVO') ? 'rgba(16, 185, 129, 0.3)' : 'rgba(59, 130, 246, 0.3)'}`
+                                }}>
+                                  {m.medio_pago.includes('EFECTIVO') ? '💵' : '🏦'} {m.medio_pago}
+                                </span>
+                              </div>
+                            )}
+                            {isPago && m.pago_aplicado_interes > 0 && (
+                              <div style={{ fontSize: '10px', color: '#059669', fontWeight: 700, marginTop: '2px', whiteSpace: 'nowrap' }}>
+                                ✓ Amortizó {formatMoney(m.pago_aplicado_capital)} cap. + {formatMoney(m.pago_aplicado_interes)} int.
+                              </div>
+                            )}
                           </td>
-                          <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 800, color: isPago || isNC ? '#10b981' : 'var(--text-primary)' }}>
+                          <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, fontSize: '12.5px', color: isPago || isNC ? '#10b981' : 'var(--text-primary)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                             {formatMoney(m.importe)}
                           </td>
-                          <td style={{ padding: '10px 10px', textAlign: 'center', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                            {m.plazo_dias > 0 ? `${m.plazo_dias}d` : '0d'}
+
+                          {/* COLUMNA: DÍAS DE INTERÉS DESDE LA FACTURA HASTA EL PAGO */}
+                          <td style={{ padding: '8px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                            {isPago ? (
+                              m.dias_desde_factura > 0 ? (
+                                <div>
+                                  <span style={{
+                                    background: 'rgba(245, 158, 11, 0.12)',
+                                    color: '#d97706',
+                                    border: '1px solid rgba(245, 158, 11, 0.28)',
+                                    padding: '2px 6px',
+                                    borderRadius: '6px',
+                                    fontWeight: 800,
+                                    fontSize: '10px',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '2px'
+                                  }}>
+                                    ⏱️ {m.dias_desde_factura}d
+                                  </span>
+                                  {m.fecha_factura_origen && (
+                                    <div style={{ fontSize: '9px', color: 'var(--text-secondary)', marginTop: '1px' }}>
+                                      {formatFecha(m.fecha_factura_origen)} → {formatFecha(m.fecha)}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '10.5px' }}>0d</span>
+                              )
+                            ) : (
+                              m.plazo_dias > 0 ? (
+                                <div>
+                                  <span style={{
+                                    background: 'rgba(239, 68, 68, 0.08)',
+                                    color: '#ef4444',
+                                    border: '1px solid rgba(239, 68, 68, 0.18)',
+                                    padding: '1px 5px',
+                                    borderRadius: '5px',
+                                    fontWeight: 700,
+                                    fontSize: '10px'
+                                  }}>
+                                    {m.plazo_dias}d
+                                  </span>
+                                  <div style={{ fontSize: '9px', color: 'var(--text-secondary)', marginTop: '1px' }}>
+                                    plazo
+                                  </div>
+                                </div>
+                              ) : (
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '10.5px' }}>—</span>
+                              )
+                            )}
                           </td>
-                          <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 600, color: m.interes_mora > 0 ? '#f59e0b' : 'var(--text-secondary)' }}>
-                            {formatMoney(m.interes_mora)}
+
+                          {/* COLUMNA: MONTO DE LOS INTERESES */}
+                          <td style={{ padding: '8px 8px', textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                            {isPago ? (
+                              m.pago_aplicado_interes > 0 ? (
+                                <div>
+                                  <span style={{ color: '#d97706', fontWeight: 800, fontSize: '12px' }}>
+                                    {formatMoney(m.pago_aplicado_interes)}
+                                  </span>
+                                  <span style={{ display: 'block', fontSize: '9.5px', color: '#059669', fontWeight: 700 }}>
+                                    cobrado
+                                  </span>
+                                </div>
+                              ) : (
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '10.5px' }}>$ 0,00</span>
+                              )
+                            ) : (
+                              m.interes_mora > 0 ? (
+                                <div>
+                                  <span style={{ color: '#ef4444', fontWeight: 800, fontSize: '12px' }}>
+                                    +{formatMoney(m.interes_mora)}
+                                  </span>
+                                  <span style={{ display: 'block', fontSize: '9px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                                    devengado
+                                  </span>
+                                </div>
+                              ) : (
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '10.5px' }}>—</span>
+                              )
+                            )}
                           </td>
-                          <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 700 }}>
+
+                          {/* COLUMNA: SALDO CAPITAL */}
+                          <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, fontSize: '12.5px', color: m.saldo_capital > 5 ? '#ef4444' : 'var(--accent)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                             {formatMoney(m.saldo_capital)}
                           </td>
-                          <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 700, color: m.interes_pend_final > 0 ? '#f59e0b' : 'var(--text-secondary)' }}>
-                            {formatMoney(m.interes_pend_final)}
+
+                          {/* COLUMNA: SALDO TOTAL ACUMULADO */}
+                          <td style={{ padding: '8px 8px', textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                            <span style={{ fontWeight: 900, fontSize: '12.5px', color: m.saldo_final > 5 ? '#ef4444' : 'var(--accent)' }}>
+                              {formatMoney(m.saldo_final)}
+                            </span>
+                            {m.interes_pend_final > 1 && (
+                              <div style={{ fontSize: '9px', color: '#d97706', fontWeight: 700, marginTop: '1px' }}>
+                                (+{formatMoney(m.interes_pend_final)} int.)
+                              </div>
+                            )}
                           </td>
-                          <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 900, color: m.saldo_final > 5 ? '#ef4444' : 'var(--accent)' }}>
-                            {formatMoney(m.saldo_final)}
-                          </td>
-                          <td style={{ padding: '10px 10px', textAlign: 'center' }}>
+
+                          <td 
+                            style={{ padding: '8px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}
+                          >
                             {isPago ? (
                               <button
                                 onClick={() => handleAbrirComprobanteMovimiento(m)}
@@ -2627,18 +3449,18 @@ export default function Contaduria() {
             </div>
           </div>
 
-          <div className="table-responsive" style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '12.5px' }}>
+          <div className="table-responsive">
+            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '12px' }}>
               <thead>
                 <tr style={{ background: 'rgba(0,0,0,0.02)', textAlign: 'left' }}>
-                  <th style={{ padding: '12px 14px' }}>LÍNEA TELEFÓNICA</th>
-                  <th style={{ padding: '12px 14px' }}>SOCIO RESPONSABLE</th>
-                  <th style={{ padding: '12px 14px' }}>OPERADORA</th>
-                  <th style={{ padding: '12px 14px' }}>PLAN CONTRATADO</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>VALOR ABONO</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>EXCEDENTES</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>FACTURADO ({lineasPeriodoFiltro})</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'center' }}>ESTADO</th>
+                  <th style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', borderRadius: '10px 0 0 10px' }}>LÍNEA TELEFÓNICA</th>
+                  <th style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>SOCIO RESPONSABLE</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>OPERADORA</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>PLAN CONTRATADO</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>VALOR ABONO</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>EXCEDENTES</th>
+                  <th style={{ padding: '10px 8px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right', whiteSpace: 'nowrap' }}>FACTURADO ({lineasPeriodoFiltro})</th>
+                  <th style={{ padding: '10px 10px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', whiteSpace: 'nowrap', borderRadius: '0 10px 10px 0' }}>ESTADO</th>
                 </tr>
               </thead>
               <tbody>
@@ -2658,24 +3480,28 @@ export default function Contaduria() {
                   <>
                     {lineasGrupo.map(l => (
                       <tr key={l.numero_linea} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                        <td style={{ padding: '12px 14px', fontWeight: 900, color: 'var(--accent)' }}>{l.numero_linea}</td>
-                        <td style={{ padding: '12px 14px', fontWeight: 700 }}>{l.socios?.nombre_completo || 'Sin socio asignado'}</td>
-                        <td style={{ padding: '12px 14px', fontWeight: 700 }}>{l.proveedores?.nombre || 'N/D'}</td>
-                        <td style={{ padding: '12px 14px' }}>{l.plan_facturado || l.planes_abonos?.nombre_plan || 'Plan Estándar'}</td>
-                        <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700 }}>
+                        <td style={{ padding: '8px 10px', fontWeight: 900, color: 'var(--accent)', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>{l.numero_linea}</td>
+                        <td style={{ padding: '8px 10px', fontWeight: 700, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={l.socios?.nombre_completo || 'Sin socio asignado'}>
+                          {l.socios?.nombre_completo || 'Sin socio asignado'}
+                        </td>
+                        <td style={{ padding: '8px 8px', fontWeight: 700, whiteSpace: 'nowrap' }}>{l.proveedores?.nombre || 'N/D'}</td>
+                        <td style={{ padding: '8px 8px', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={l.plan_facturado || l.planes_abonos?.nombre_plan || 'Plan Estándar'}>
+                          {l.plan_facturado || l.planes_abonos?.nombre_plan || 'Plan Estándar'}
+                        </td>
+                        <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                           {formatMoney(l.costo_abono_real || l.planes_abonos?.precio || 0)}
                         </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'right', color: (l.excedentes || 0) > 0 ? '#f59e0b' : 'var(--text-secondary)', fontWeight: (l.excedentes || 0) > 0 ? 800 : 500 }}>
+                        <td style={{ padding: '8px 8px', textAlign: 'right', color: (l.excedentes || 0) > 0 ? '#f59e0b' : 'var(--text-secondary)', fontWeight: (l.excedentes || 0) > 0 ? 800 : 500, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                           {formatMoney(l.excedentes || 0)}
                         </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 900, fontSize: '13px', color: 'var(--text-primary)' }}>
+                        <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 900, fontSize: '12.5px', color: 'var(--text-primary)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                           {formatMoney(l.facturado_periodo || 0)}
                         </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                        <td style={{ padding: '8px 10px', textAlign: 'center', whiteSpace: 'nowrap' }}>
                           <span style={{
                             background: 'rgba(16, 185, 129, 0.1)',
                             color: '#10b981',
-                            padding: '4px 10px', borderRadius: '8px', fontWeight: 900, fontSize: '11px'
+                            padding: '3px 8px', borderRadius: '6px', fontWeight: 900, fontSize: '10.5px'
                           }}>
                             ACTIVA
                           </span>
@@ -2758,9 +3584,174 @@ export default function Contaduria() {
             </div>
           )}
 
-          {targetFactura && (
-            <div style={{ background: 'var(--accent-light)', color: 'var(--accent)', padding: '12px 16px', borderRadius: '12px', fontSize: '13px', fontWeight: 700 }}>
-              Factura Seleccionada: Período {targetFactura.periodo} ({targetFactura.proveedores?.nombre || 'MUTUAL'}) — Total: {formatMoney(targetFactura.monto_total_facturado)} | Abonado: {formatMoney(targetFactura.monto_abonado || 0)} | Pendiente: {formatMoney(montoTeoricoCobro)}
+          {targetFactura && (() => {
+            const modalDiasMora = calcularDiasMora(targetFactura.periodo || targetFactura.fecha_emision, fechaCobro);
+            const modalSaldoBase = targetFactura.saldo_impago !== undefined
+              ? Math.max(0, Number(targetFactura.saldo_impago))
+              : Math.max(0, Number(targetFactura.monto_total_facturado || 0) - Number(targetFactura.monto_abonado || 0));
+            const modalInteresMora = (modalDiasMora > 0 && tna > 0) ? calcularInteresMora(modalSaldoBase, modalDiasMora, tna) : 0;
+            const modalTotalConMora = Math.round((modalSaldoBase + modalInteresMora) * 100) / 100;
+            const modalFechaVenc = formatFechaVencimiento(targetFactura.periodo || targetFactura.fecha_emision);
+
+            return (
+              <div style={{
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '14px',
+                padding: '14px 16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
+                  <span style={{ fontWeight: 800, fontSize: '13px', color: 'var(--text-primary)' }}>
+                    📄 Factura Seleccionada: Período {targetFactura.periodo} {targetFactura.proveedores?.nombre ? `(${targetFactura.proveedores.nombre})` : ''}
+                  </span>
+                  <span style={{
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    padding: '2px 8px',
+                    borderRadius: '8px',
+                    background: modalDiasMora > 0 ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                    color: modalDiasMora > 0 ? '#ef4444' : '#10b981'
+                  }}>
+                    📅 Vto: {modalFechaVenc} {modalDiasMora > 0 ? `· ⏱️ ${modalDiasMora}d atraso` : '· Al día'}
+                  </span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: modalInteresMora > 0 ? '1fr 1fr 1fr' : '1fr 1fr', gap: '10px' }}>
+                  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '10px 12px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Capital Adeudado</div>
+                    <div style={{ fontSize: '15px', fontWeight: 900, color: 'var(--text-primary)', marginTop: '2px' }}>{formatMoney(modalSaldoBase)}</div>
+                  </div>
+                  {modalInteresMora > 0 && (
+                    <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px', padding: '10px 12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '10px', fontWeight: 800, color: '#b45309', textTransform: 'uppercase' }}>Interés Mora ({modalDiasMora}d - {tna}%)</div>
+                      <div style={{ fontSize: '15px', fontWeight: 900, color: '#d97706', marginTop: '2px' }}>+{formatMoney(modalInteresMora)}</div>
+                    </div>
+                  )}
+                  <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '10px', padding: '10px 12px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 800, color: '#047857', textTransform: 'uppercase' }}>Total a Cobrar</div>
+                    <div style={{ fontSize: '15px', fontWeight: 900, color: '#059669', marginTop: '2px' }}>{formatMoney(eximirMora ? modalSaldoBase : modalTotalConMora)}</div>
+                  </div>
+                </div>
+
+                {/* OPCIÓN EXIMIR MORA Y BOTONES RÁPIDOS */}
+                {modalInteresMora > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', paddingTop: '4px' }}>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 700, color: eximirMora ? '#ef4444' : 'var(--text-secondary)' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={eximirMora} 
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setEximirMora(checked);
+                          const targetVal = checked ? modalSaldoBase : modalTotalConMora;
+                          setMontoCobro(String(targetVal.toFixed(2)));
+                          setEfectivoEntregado(String(targetVal.toFixed(2)));
+                        }}
+                        style={{ width: '16px', height: '16px', accentColor: '#ef4444', cursor: 'pointer' }}
+                      />
+                      <span>Eximir / Bonificar interés por mora</span>
+                    </label>
+
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEximirMora(false);
+                          setMontoCobro(String(modalTotalConMora.toFixed(2)));
+                          setEfectivoEntregado(String(modalTotalConMora.toFixed(2)));
+                        }}
+                        style={{
+                          padding: '5px 10px',
+                          borderRadius: '8px',
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          border: !eximirMora ? '2px solid #10b981' : '1px solid #e2e8f0',
+                          background: !eximirMora ? '#ecfdf5' : '#fff',
+                          color: !eximirMora ? '#059669' : 'var(--text-secondary)'
+                        }}
+                      >
+                        Con Mora ({formatMoney(modalTotalConMora)})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEximirMora(true);
+                          setMontoCobro(String(modalSaldoBase.toFixed(2)));
+                          setEfectivoEntregado(String(modalSaldoBase.toFixed(2)));
+                        }}
+                        style={{
+                          padding: '5px 10px',
+                          borderRadius: '8px',
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          border: eximirMora ? '2px solid #ef4444' : '1px solid #e2e8f0',
+                          background: eximirMora ? '#fef2f2' : '#fff',
+                          color: eximirMora ? '#dc2626' : 'var(--text-secondary)'
+                        }}
+                      >
+                        Solo Capital ({formatMoney(modalSaldoBase)})
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* ALERTA DE DEUDA PREVIA DE PERÍODOS ANTERIORES */}
+          {targetFactura && deudasPreviasInfo && (
+            <div style={{
+              background: 'rgba(239, 68, 68, 0.08)',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              padding: '12px 16px',
+              borderRadius: '12px',
+              fontSize: '12.5px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <AlertCircle size={16} color="#ef4444" style={{ flexShrink: 0 }} />
+                <span style={{ fontWeight: 800, color: '#ef4444' }}>
+                  ⚠️ Atención: Este grupo tiene deuda pendiente de períodos anteriores
+                </span>
+              </div>
+              <div style={{ color: 'var(--text-primary)', fontSize: '12px', lineHeight: 1.4 }}>
+                Registra deuda impaga por un total de <strong>{formatMoney(deudasPreviasInfo.totalDeudaAnterior)}</strong> en los períodos: <strong>{deudasPreviasInfo.periodos.join(', ')}</strong>.
+              </div>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginTop: '2px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTargetFactura(null);
+                    const s = String((ultimoMovGrupo?.saldo_final || 0).toFixed(2));
+                    setMontoCobro(s);
+                    setEfectivoEntregado(s);
+                    setObservacionesCobro(`Cobro Total Deuda Acumulada - Grupo #${selectedGrupo}`);
+                  }}
+                  className="air-btn"
+                  style={{
+                    background: '#ef4444',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '6px 12px',
+                    borderRadius: '8px',
+                    fontSize: '11.5px',
+                    fontWeight: 800,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cambiar a Cobro de Deuda Total
+                </button>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                  (Aplica imputación FIFO desde la deuda más antigua)
+                </span>
+              </div>
             </div>
           )}
 
@@ -2876,6 +3867,71 @@ export default function Contaduria() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: '#3b82f6', fontWeight: 800, marginTop: '6px', paddingTop: '6px', borderTop: '1px solid var(--border-light)' }}>
                   <span>Saldo a Favor del Grupo:</span>
                   <span>{formatMoney(resultadoFifo.remanenteSaldoAFavor)}</span>
+                </div>
+              )}
+
+              {/* TABLA DETALLADA POR FACTURA */}
+              {resultadoFifo.desgloses && resultadoFifo.desgloses.length > 0 && (
+                <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border-light)' }}>
+                  <div style={{ fontWeight: 800, marginBottom: '8px', fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    📋 Detalle por factura pendiente:
+                  </div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                      <thead>
+                        <tr style={{ background: 'rgba(0,0,0,0.04)', textAlign: 'left' }}>
+                          <th style={{ padding: '8px 6px', fontWeight: 800, fontSize: '10px', color: 'var(--text-secondary)' }}>PERÍODO</th>
+                          <th style={{ padding: '8px 6px', fontWeight: 800, fontSize: '10px', color: 'var(--text-secondary)' }}>VENC.</th>
+                          <th style={{ padding: '8px 6px', fontWeight: 800, fontSize: '10px', color: 'var(--text-secondary)', textAlign: 'center' }}>DÍAS ATRASO</th>
+                          <th style={{ padding: '8px 6px', fontWeight: 800, fontSize: '10px', color: 'var(--text-secondary)', textAlign: 'right' }}>CAPITAL PEND.</th>
+                          <th style={{ padding: '8px 6px', fontWeight: 800, fontSize: '10px', color: 'var(--text-secondary)', textAlign: 'right' }}>INTERÉS MORA</th>
+                          <th style={{ padding: '8px 6px', fontWeight: 800, fontSize: '10px', color: 'var(--text-secondary)', textAlign: 'right' }}>PAGO → INT.</th>
+                          <th style={{ padding: '8px 6px', fontWeight: 800, fontSize: '10px', color: 'var(--text-secondary)', textAlign: 'right' }}>PAGO → CAP.</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {resultadoFifo.desgloses.map((d, idx) => (
+                          <tr key={idx} style={{ borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
+                            <td style={{ padding: '7px 6px', fontWeight: 700 }}>
+                              {d.periodo || '—'}
+                              {d.empresa ? <span style={{ fontSize: '10px', color: 'var(--text-secondary)', marginLeft: '4px' }}>({d.empresa})</span> : ''}
+                            </td>
+                            <td style={{ padding: '7px 6px', fontSize: '10.5px' }}>
+                              {d.fechaVencimiento || '—'}
+                            </td>
+                            <td style={{ padding: '7px 6px', textAlign: 'center', fontWeight: 800 }}>
+                              <span style={{
+                                display: 'inline-block',
+                                padding: '2px 8px',
+                                borderRadius: '10px',
+                                fontSize: '11px',
+                                background: d.diasMora > 30 ? 'rgba(239,68,68,0.1)' : d.diasMora > 0 ? 'rgba(245,158,11,0.1)' : 'rgba(16,185,129,0.1)',
+                                color: d.diasMora > 30 ? '#ef4444' : d.diasMora > 0 ? '#f59e0b' : '#10b981',
+                                fontWeight: 800
+                              }}>
+                                {d.diasMora > 0 ? `${d.diasMora} días` : 'En plazo'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '7px 6px', textAlign: 'right', fontWeight: 700 }}>
+                              {formatMoney(d.capitalPendiente)}
+                            </td>
+                            <td style={{ padding: '7px 6px', textAlign: 'right', fontWeight: 700, color: d.interesCalculado > 0 ? '#f59e0b' : 'var(--text-secondary)' }}>
+                              {d.interesCalculado > 0 ? formatMoney(d.interesCalculado) : '—'}
+                            </td>
+                            <td style={{ padding: '7px 6px', textAlign: 'right', fontWeight: 700, color: d.pagoAplicadoInteres > 0 ? '#10b981' : 'var(--text-secondary)' }}>
+                              {d.pagoAplicadoInteres > 0 ? formatMoney(d.pagoAplicadoInteres) : '—'}
+                            </td>
+                            <td style={{ padding: '7px 6px', textAlign: 'right', fontWeight: 700, color: d.pagoAplicadoCapital > 0 ? '#10b981' : 'var(--text-secondary)' }}>
+                              {d.pagoAplicadoCapital > 0 ? formatMoney(d.pagoAplicadoCapital) : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ marginTop: '8px', fontSize: '10px', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                    TNA aplicada: {tna}% · Vencimiento: día 12 de cada mes · Interés diario: {(tna / 365).toFixed(4)}%
+                  </div>
                 </div>
               )}
             </div>

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  ChevronDown, ChevronUp, ArrowUpDown, Loader2, Search, Plus, Tag
+  ChevronDown, ChevronUp, ArrowUpDown, Loader2, Search, Plus, Tag, Download
 } from 'lucide-react';
 import DescuentoModal from '../CargaManual/DescuentoModal';
+import { exportLiquidacionesSociosXLSX } from '../../utils/exportFacturacion';
 
 export default function LiquidacionesSocio({
   sortedSocioData,
@@ -144,7 +145,8 @@ export default function LiquidacionesSocio({
           </div>
           <button 
             className="btn-primary" 
-            onClick={exportSociosToCSV} 
+            onClick={() => exportLiquidacionesSociosXLSX({ data: filteredSocios, periodo: selectedPeriod, operadora: localProv || filterProv })} 
+            disabled={filteredSocios.length === 0}
             style={{ 
               display: 'flex', 
               alignItems: 'center', 
@@ -153,14 +155,13 @@ export default function LiquidacionesSocio({
               borderRadius: '14px',
               fontSize: '14px',
               fontWeight: 700,
-              boxShadow: '0 8px 16px rgba(16, 185, 129, 0.2)'
+              boxShadow: '0 8px 16px rgba(16, 185, 129, 0.2)',
+              cursor: filteredSocios.length === 0 ? 'not-allowed' : 'pointer',
+              opacity: filteredSocios.length === 0 ? 0.5 : 1
             }}
+            title="Exportar liquidación final a Excel (.xlsx) con las mismas columnas"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="7 10 12 15 17 10"></polyline>
-              <line x1="12" y1="15" x2="12" y2="3"></line>
-            </svg>
+            <Download size={20} />
             Exportar Excel
           </button>
         </div>
@@ -253,7 +254,41 @@ export default function LiquidacionesSocio({
                       )}
                     </td>
                     <td>
-                      <div style={{ fontWeight: 700 }}>{d.numero_linea}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ 
+                          fontWeight: 700, 
+                          textDecoration: String(d.lineas?.estado || '').toUpperCase() === 'BAJA' ? 'line-through' : 'none',
+                          color: String(d.lineas?.estado || '').toUpperCase() === 'BAJA' ? '#dc2626' : 'inherit'
+                        }}>
+                          {d.numero_linea}
+                        </span>
+                        {String(d.lineas?.estado || '').toUpperCase() === 'BAJA' && (
+                          <span style={{
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            fontSize: '9.5px',
+                            fontWeight: 800,
+                            background: '#fee2e2',
+                            color: '#b91c1c',
+                            border: '1px solid #f87171'
+                          }} title="Línea dada de baja en la base de datos">
+                            🛑 DADA DE BAJA
+                          </span>
+                        )}
+                        {(String(d.lineas?.estado || '').toUpperCase() === 'SUSPENDIDA' || String(d.lineas?.estado || '').toUpperCase() === 'SUSPENDIDO') && (
+                          <span style={{
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            fontSize: '9.5px',
+                            fontWeight: 800,
+                            background: '#fef3c7',
+                            color: '#b45309',
+                            border: '1px solid #fcd34d'
+                          }} title="Línea suspendida en la base de datos">
+                            ⏸️ SUSPENDIDA
+                          </span>
+                        )}
+                      </div>
                       <div style={{ fontSize: '11px', opacity: 0.6 }}>{d.lineas?.planes_abonos?.nombre_plan || 'Plan S/D'}</div>
                     </td>
                     <td style={{ textAlign: 'right', fontWeight: 600 }}>

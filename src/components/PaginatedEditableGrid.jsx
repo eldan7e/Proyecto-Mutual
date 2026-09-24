@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  Search, AlertTriangle, TrendingUp, Hash, Info, Percent, RefreshCw, Loader2, Tag, Zap
+  Search, AlertTriangle, TrendingUp, Hash, Info, Percent, RefreshCw, Loader2, Tag, Zap, Ticket, Clock, Check
 } from 'lucide-react';
 import DescuentoModal from './CargaManual/DescuentoModal';
 
@@ -256,11 +256,14 @@ const updatePlanBtnStyle = {
   transition: 'all 0.2s'
 };
 
-const GridRow = React.memo(function GridRow({ row, selectedProvider, dbLines, allSocios, handleAssignLinea, handleAssignSocio, onUpdateLineaPlan, onOpenDescuento }) {
+const GridRow = React.memo(function GridRow({ row, selectedProvider, dbLines, allSocios, handleAssignLinea, handleAssignSocio, onUpdateLineaPlan, onOpenDescuento, onCreateTicket, openTickets }) {
   const prevPrice = row.prevAbonoBase || 0;
   const currentPrice = row.abono || 0;
   const diffPct = prevPrice > 0 ? ((currentPrice - prevPrice) / prevPrice) * 100 : 0;
   const isError = row.montoFactura < row.abono;
+  const cleanLineaNum = String(row.linea || '').replace(/\D/g, '');
+  const hasOpenTicket = openTickets ? openTickets.has(cleanLineaNum) : false;
+  const hasVigencia = row.descuentoMesesRestantes !== undefined && row.descuentoMesesRestantes !== null;
 
   return (
     <tr className={isError ? 'row-error' : ''} style={{ 
@@ -278,7 +281,26 @@ const GridRow = React.memo(function GridRow({ row, selectedProvider, dbLines, al
             />
           </div>
         ) : (
-          <div style={{ fontWeight: 800, fontSize: '14px' }}>{row.linea}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ 
+              fontWeight: 800, 
+              fontSize: '14px',
+              textDecoration: row.estadoDb === 'BAJA' ? 'line-through' : 'none',
+              color: row.estadoDb === 'BAJA' ? '#dc2626' : 'inherit'
+            }}>
+              {row.linea}
+            </span>
+            {row.estadoDb === 'BAJA' && (
+              <span style={{ fontSize: '9px', fontWeight: 800, background: '#fee2e2', color: '#b91c1c', border: '1px solid #f87171', padding: '1px 5px', borderRadius: '4px' }}>
+                BAJA
+              </span>
+            )}
+            {(row.estadoDb === 'SUSPENDIDA' || row.estadoDb === 'SUSPENDIDO') && (
+              <span style={{ fontSize: '9px', fontWeight: 800, background: '#fef3c7', color: '#b45309', border: '1px solid #fcd34d', padding: '1px 5px', borderRadius: '4px' }}>
+                SUSP
+              </span>
+            )}
+          </div>
         )}
          <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Mut: {row.planOficial}</div>
         <div style={{ fontSize: '10px', color: '#2563eb', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
@@ -344,14 +366,84 @@ const GridRow = React.memo(function GridRow({ row, selectedProvider, dbLines, al
                 const descPct = pLista > 0 ? ((pLista - row.abono) / pLista) * 100 : 0;
                 const expectedPct = row.descuentoEsperado || (selectedProvider === 'claro' ? 85 : 80);
                 const meets80 = descPct >= (expectedPct - 2.5);
+                const hasVigencia = row.descuentoMesesRestantes !== undefined && row.descuentoMesesRestantes !== null;
+                const isExpiring = row.descuentoMesesRestantes === 0;
+
                 return (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
                     <span style={{ color: meets80 ? '#10b981' : '#ef4444', fontWeight: 800 }}>
                       {descPct > 0 ? `${descPct.toFixed(2)}%` : '0%'}
                     </span>
                     <span style={{ fontSize: '9px', color: meets80 ? '#059669' : '#dc2626' }}>
                       (Esp: {expectedPct}%)
                     </span>
+                    {hasVigencia && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onCreateTicket && !hasOpenTicket) {
+                            onCreateTicket(row);
+                          }
+                        }}
+                        style={{
+                          background: hasOpenTicket
+                            ? 'rgba(16, 185, 129, 0.12)'
+                            : isExpiring
+                            ? 'rgba(239, 68, 68, 0.14)'
+                            : (row.descuentoMesesRestantes <= 1)
+                            ? 'rgba(249, 115, 22, 0.14)'
+                            : 'rgba(99, 102, 241, 0.12)',
+                          color: hasOpenTicket
+                            ? '#059669'
+                            : isExpiring
+                            ? '#dc2626'
+                            : (row.descuentoMesesRestantes <= 1)
+                            ? '#ea580c'
+                            : '#4f46e5',
+                          border: hasOpenTicket
+                            ? '1px solid rgba(16, 185, 129, 0.35)'
+                            : isExpiring
+                            ? '1px solid rgba(239, 68, 68, 0.35)'
+                            : (row.descuentoMesesRestantes <= 1)
+                            ? '1px solid rgba(249, 115, 22, 0.35)'
+                            : '1px solid rgba(99, 102, 241, 0.25)',
+                          padding: '3px 8px',
+                          borderRadius: '6px',
+                          fontSize: '9.5px',
+                          fontWeight: 800,
+                          cursor: hasOpenTicket ? 'default' : 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          marginTop: '3px',
+                          transition: 'all 0.15s ease',
+                          boxShadow: hasOpenTicket ? 'none' : '0 1px 3px rgba(0,0,0,0.06)'
+                        }}
+                        disabled={hasOpenTicket}
+                        title={
+                          hasOpenTicket
+                            ? '✓ Ticket de vencimiento ya creado y asignado en Tareas'
+                            : `Clic para crear y asignar Ticket "VENCIMIENTO BONIFICACION" en Tareas (${row.descuentoMesActual}/${row.descuentoMesesTotal} - ${row.descuentoMesesRestantes}m restantes)`
+                        }
+                      >
+                        {hasOpenTicket ? (
+                          <>
+                            <Check size={11} color="#059669" />
+                            <span>Ticket Asignado</span>
+                          </>
+                        ) : isExpiring ? (
+                          <>
+                            <span>⚠️ Vence este mes</span>
+                            <span style={{ fontSize: '8px', opacity: 0.85, textDecoration: 'underline' }}>(+ Ticket)</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>{row.descuentoMesActual}/{row.descuentoMesesTotal} ({row.descuentoMesesRestantes}m)</span>
+                            <span style={{ fontSize: '8px', opacity: 0.85, textDecoration: 'underline' }}>(+ Ticket)</span>
+                          </>
+                        )}
+                      </button>
+                    )}
                   </div>
                 );
               })()
@@ -394,14 +486,39 @@ const GridRow = React.memo(function GridRow({ row, selectedProvider, dbLines, al
         </div>
       </td>
       <td style={{ textAlign: 'center' }}>
-        <button
-          onClick={() => onOpenDescuento(row)}
-          title="Aplicar o gestionar descuento"
-          className="air-btn"
-          style={descuentoBtnStyle}
-        >
-          <Tag size={12} /> Descuento
-        </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'center' }}>
+          <button
+            onClick={() => onOpenDescuento(row)}
+            title="Aplicar o gestionar descuento"
+            className="air-btn"
+            style={descuentoBtnStyle}
+          >
+            <Tag size={12} /> Descuento
+          </button>
+          {onCreateTicket && hasVigencia && !hasOpenTicket && (
+            <button
+              onClick={() => onCreateTicket(row)}
+              title="Crear ticket VENCIMIENTO BONIFICACION en Tareas"
+              className="air-btn"
+              style={{
+                fontSize: '10px',
+                padding: '3px 8px',
+                borderRadius: '6px',
+                background: 'rgba(239, 68, 68, 0.08)',
+                color: '#dc2626',
+                border: '1px solid rgba(239, 68, 68, 0.25)',
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '3px',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              <Ticket size={11} /> Ticket Vto.
+            </button>
+          )}
+        </div>
       </td>
     </tr>
   );
@@ -426,7 +543,9 @@ export function PaginatedEditableGrid({
   onUpdateLineaPlan,
   onUpdateAllLineasPlanes,
   isUpdatingPlanes,
-  onApplyDescuento
+  onApplyDescuento,
+  onCreateTicket,
+  openTickets
 }) {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
@@ -437,6 +556,8 @@ export function PaginatedEditableGrid({
   const [isDescuentoModalOpen, setIsDescuentoModalOpen] = useState(false);
   const [showBonifDropdown, setShowBonifDropdown] = useState(false);
   const [filterBonifPct, setFilterBonifPct] = useState(null);
+  const [filterMeses, setFilterMeses] = useState(null);
+  const [showMesesDropdown, setShowMesesDropdown] = useState(false);
 
   // Identifica si una fila tiene cambio de plan, plan sin registrar o número sin datos
   const isPlanOrDataIssue = useCallback((row) => {
@@ -495,6 +616,39 @@ export function PaginatedEditableGrid({
       .map(([pct, count]) => ({ pct, count }));
   }, [fileData]);
 
+  // Calcular estadísticas y grupos de meses restantes / vigencia
+  const mesesStats = React.useMemo(() => {
+    if (!fileData || !fileData.length) return { groups: [], expiringCount: 0, upcomingCount: 0, totalWithVigencia: 0 };
+    const countByMeses = new Map();
+    let expiringCount = 0;
+    let upcomingCount = 0;
+    let totalWithVigencia = 0;
+
+    fileData.forEach(row => {
+      const m = row.descuentoMesesRestantes;
+      if (m !== undefined && m !== null) {
+        totalWithVigencia++;
+        countByMeses.set(m, (countByMeses.get(m) || 0) + 1);
+        if (m === 0) expiringCount++;
+        if (m <= 1) upcomingCount++;
+      }
+    });
+
+    const groups = Array.from(countByMeses.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([meses, count]) => ({ meses, count }));
+
+    return { groups, expiringCount, upcomingCount, totalWithVigencia };
+  }, [fileData]);
+
+  // Cerrar dropdown de meses al hacer clic fuera
+  useEffect(() => {
+    if (!showMesesDropdown) return;
+    const close = () => setShowMesesDropdown(false);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [showMesesDropdown]);
+
 
   const filteredData = React.useMemo(() => {
     return fileData
@@ -508,6 +662,15 @@ export function PaginatedEditableGrid({
 
         if (filterExcedentes) {
           return (row.excedentes || 0) > 0;
+        }
+
+        if (filterMeses !== null) {
+          const m = row.descuentoMesesRestantes;
+          if (m === undefined || m === null) return false;
+          if (filterMeses === 'EXPIRING') return m === 0;
+          if (filterMeses === 'UPCOMING') return m <= 1;
+          if (filterMeses === 'ALL_VIGENCIA') return true;
+          if (typeof filterMeses === 'number') return m === filterMeses;
         }
 
         if (filterBonifPct !== null) {
@@ -566,6 +729,12 @@ export function PaginatedEditableGrid({
           return bPlanDiff - aPlanDiff;
         }
 
+        if (filterMeses !== null) {
+          const mA = a.descuentoMesesRestantes ?? 999;
+          const mB = b.descuentoMesesRestantes ?? 999;
+          if (mA !== mB) return mA - mB;
+        }
+
         if (filterExcedentes) {
           const excA = a.excedentes || 0;
           const excB = b.excedentes || 0;
@@ -609,7 +778,7 @@ export function PaginatedEditableGrid({
 
         return 0;
       });
-  }, [fileData, search, sortByAnomalies, filterExcedentes, filterBonificacion, filterBonifPct, filterAumentos, selectedProvider]);
+  }, [fileData, search, sortByAnomalies, filterExcedentes, filterBonificacion, filterBonifPct, filterAumentos, filterMeses, selectedProvider]);
 
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);
   const paginatedData = filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -655,6 +824,8 @@ export function PaginatedEditableGrid({
               setFilterBonificacion(false);
               setFilterBonifPct(null);
               setShowBonifDropdown(false);
+              setFilterMeses(null);
+              setShowMesesDropdown(false);
               setFilterAumentos(false);
               setSortByAnomalies(!sortByAnomalies);
             }}
@@ -685,6 +856,8 @@ export function PaginatedEditableGrid({
                 setSortByAnomalies(false);
                 setFilterExcedentes(false);
                 setFilterAumentos(false);
+                setFilterMeses(null);
+                setShowMesesDropdown(false);
                 setShowBonifDropdown(false);
                 if (filterBonifPct !== null || filterBonificacion) {
                   setFilterBonificacion(false);
@@ -708,7 +881,10 @@ export function PaginatedEditableGrid({
             {/* Chevron para abrir el dropdown de % de bonificación */}
             <button
               title="Ver distribución de % de bonificación"
-              onClick={() => setShowBonifDropdown(prev => !prev)}
+              onClick={() => {
+                setShowBonifDropdown(prev => !prev);
+                setShowMesesDropdown(false);
+              }}
               className="air-btn"
               style={{
                 background: showBonifDropdown || filterBonifPct !== null || filterBonificacion ? 'rgba(168, 85, 247, 0.18)' : 'var(--surface)',
@@ -768,6 +944,8 @@ export function PaginatedEditableGrid({
                         setFilterExcedentes(false);
                         setSortByAnomalies(false);
                         setFilterAumentos(false);
+                        setFilterMeses(null);
+                        setShowMesesDropdown(false);
                         setShowBonifDropdown(false);
                       }}
                       style={{
@@ -801,6 +979,233 @@ export function PaginatedEditableGrid({
             )}
           </div>
 
+          {/* Button: Filtro por Meses de Vigencia + Dropdown */}
+          <div style={{ position: 'relative', display: 'inline-flex' }} onClick={e => e.stopPropagation()}>
+            <button 
+              onClick={() => {
+                setSortByAnomalies(false);
+                setFilterExcedentes(false);
+                setFilterAumentos(false);
+                setFilterBonificacion(false);
+                setFilterBonifPct(null);
+                setShowBonifDropdown(false);
+                setShowMesesDropdown(false);
+                if (filterMeses !== null) {
+                  setFilterMeses(null);
+                } else {
+                  setFilterMeses(mesesStats.expiringCount > 0 ? 'EXPIRING' : 'ALL_VIGENCIA');
+                }
+              }}
+              className="air-btn" 
+              style={{ 
+                background: filterMeses !== null
+                  ? (filterMeses === 'EXPIRING' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(99, 102, 241, 0.12)')
+                  : 'var(--surface)', 
+                color: filterMeses !== null
+                  ? (filterMeses === 'EXPIRING' ? '#dc2626' : '#4f46e5')
+                  : 'var(--text-secondary)',
+                border: `1px solid ${filterMeses !== null ? (filterMeses === 'EXPIRING' ? '#dc2626' : '#4f46e5') : 'var(--border-light)'}`,
+                display: 'flex', alignItems: 'center', gap: '8px',
+                borderRadius: '10px 0 0 10px',
+                borderRight: 'none'
+              }}
+              title={filterMeses !== null ? "Quitar filtro de meses" : "Filtrar por meses de bonificación / vencimiento"}
+            >
+              <Clock size={16} />
+              <span>
+                {filterMeses === 'EXPIRING' ? `⚠️ Vence este mes (${mesesStats.expiringCount})` :
+                 filterMeses === 'UPCOMING' ? `⚡ Vence ≤ 1m (${mesesStats.upcomingCount})` :
+                 filterMeses === 'ALL_VIGENCIA' ? `Con Vigencia (${mesesStats.totalWithVigencia})` :
+                 typeof filterMeses === 'number' ? `Meses Rest: ${filterMeses}m` :
+                 `Meses Bonificación${mesesStats.expiringCount > 0 ? ` (${mesesStats.expiringCount} urgentes)` : ''}`}
+              </span>
+            </button>
+            <button
+              title="Opciones de filtro por meses restantes"
+              onClick={() => {
+                setShowMesesDropdown(prev => !prev);
+                setShowBonifDropdown(false);
+              }}
+              className="air-btn"
+              style={{
+                background: showMesesDropdown || filterMeses !== null
+                  ? (filterMeses === 'EXPIRING' ? 'rgba(239, 68, 68, 0.18)' : 'rgba(99, 102, 241, 0.18)')
+                  : 'var(--surface)',
+                color: filterMeses !== null
+                  ? (filterMeses === 'EXPIRING' ? '#dc2626' : '#4f46e5')
+                  : 'var(--text-secondary)',
+                border: `1px solid ${filterMeses !== null ? (filterMeses === 'EXPIRING' ? '#dc2626' : '#4f46e5') : 'var(--border-light)'}`,
+                borderRadius: '0 10px 10px 0',
+                padding: '8px 10px',
+                display: 'flex', alignItems: 'center', gap: '4px',
+                fontSize: '11px', fontWeight: 700
+              }}
+            >
+              ▾
+            </button>
+            {showMesesDropdown && (
+              <div style={{
+                position: 'absolute',
+                top: 'calc(100% + 6px)',
+                left: 0,
+                minWidth: '240px',
+                background: 'var(--modal-bg, #ffffff)',
+                border: '1px solid var(--border-light)',
+                borderRadius: '12px',
+                boxShadow: 'var(--shadow-premium)',
+                zIndex: 1000,
+                overflow: 'hidden'
+              }}>
+                <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-light)', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>
+                  MESES DE BONIFICACIÓN RESTANTES
+                </div>
+                <div
+                  onClick={() => { setFilterMeses(null); setShowMesesDropdown(false); }}
+                  style={{
+                    padding: '8px 14px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    borderBottom: '1px solid var(--border-light)',
+                    background: filterMeses === null ? 'rgba(99, 102, 241, 0.08)' : 'transparent',
+                    color: filterMeses === null ? '#4f46e5' : 'var(--text-secondary)',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                  }}
+                >
+                  <span>Todas las líneas</span>
+                  <span style={{ fontSize: '10px', background: 'var(--border-light)', padding: '2px 6px', borderRadius: '6px' }}>{fileData.length}</span>
+                </div>
+
+                {mesesStats.expiringCount > 0 && (
+                  <div
+                    onClick={() => {
+                      setFilterMeses('EXPIRING');
+                      setShowMesesDropdown(false);
+                      setSortByAnomalies(false);
+                      setFilterExcedentes(false);
+                      setFilterAumentos(false);
+                      setFilterBonificacion(false);
+                      setFilterBonifPct(null);
+                    }}
+                    style={{
+                      padding: '8px 14px',
+                      fontSize: '12px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      borderBottom: '1px solid var(--border-light)',
+                      background: filterMeses === 'EXPIRING' ? 'rgba(239, 68, 68, 0.12)' : 'transparent',
+                      color: '#dc2626',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                    }}
+                  >
+                    <span>⚠️ Vence este mes (0m)</span>
+                    <span style={{ fontSize: '10px', background: 'rgba(239, 68, 68, 0.2)', color: '#dc2626', padding: '2px 6px', borderRadius: '6px', fontWeight: 800 }}>
+                      {mesesStats.expiringCount}
+                    </span>
+                  </div>
+                )}
+
+                {mesesStats.upcomingCount > mesesStats.expiringCount && (
+                  <div
+                    onClick={() => {
+                      setFilterMeses('UPCOMING');
+                      setShowMesesDropdown(false);
+                      setSortByAnomalies(false);
+                      setFilterExcedentes(false);
+                      setFilterAumentos(false);
+                      setFilterBonificacion(false);
+                      setFilterBonifPct(null);
+                    }}
+                    style={{
+                      padding: '8px 14px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      borderBottom: '1px solid var(--border-light)',
+                      background: filterMeses === 'UPCOMING' ? 'rgba(249, 115, 22, 0.12)' : 'transparent',
+                      color: '#ea580c',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                    }}
+                  >
+                    <span>⚡ Próximos a vencer (≤ 1m)</span>
+                    <span style={{ fontSize: '10px', background: 'rgba(249, 115, 22, 0.2)', color: '#ea580c', padding: '2px 6px', borderRadius: '6px', fontWeight: 800 }}>
+                      {mesesStats.upcomingCount}
+                    </span>
+                  </div>
+                )}
+
+                {mesesStats.groups.map(({ meses, count }) => (
+                  <div
+                    key={meses}
+                    onClick={() => {
+                      setFilterMeses(meses);
+                      setShowMesesDropdown(false);
+                      setSortByAnomalies(false);
+                      setFilterExcedentes(false);
+                      setFilterAumentos(false);
+                      setFilterBonificacion(false);
+                      setFilterBonifPct(null);
+                    }}
+                    style={{
+                      padding: '8px 14px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      borderBottom: '1px solid var(--border-light)',
+                      background: filterMeses === meses ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
+                      color: meses === 0 ? '#dc2626' : (meses === 1 ? '#ea580c' : 'var(--text-primary)'),
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                    }}
+                    onMouseEnter={e => { if (filterMeses !== meses) e.currentTarget.style.background = 'rgba(99, 102, 241, 0.05)'; }}
+                    onMouseLeave={e => { if (filterMeses !== meses) e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    <span>
+                      <span style={{ color: meses === 0 ? '#dc2626' : '#6366f1', marginRight: '6px' }}>●</span>
+                      {meses === 0 ? '0 meses (vence este mes)' : `${meses} ${meses === 1 ? 'mes restante' : 'meses restantes'}`}
+                    </span>
+                    <span style={{
+                      fontSize: '10px',
+                      background: filterMeses === meses ? 'rgba(99, 102, 241, 0.15)' : 'var(--border-light)',
+                      color: filterMeses === meses ? '#4f46e5' : 'var(--text-secondary)',
+                      padding: '2px 7px', borderRadius: '6px', fontWeight: 800
+                    }}>{count} líneas</span>
+                  </div>
+                ))}
+
+                {mesesStats.totalWithVigencia > 0 && (
+                  <div
+                    onClick={() => {
+                      setFilterMeses('ALL_VIGENCIA');
+                      setShowMesesDropdown(false);
+                      setSortByAnomalies(false);
+                      setFilterExcedentes(false);
+                      setFilterAumentos(false);
+                      setFilterBonificacion(false);
+                      setFilterBonifPct(null);
+                    }}
+                    style={{
+                      padding: '8px 14px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      background: filterMeses === 'ALL_VIGENCIA' ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
+                      color: '#4f46e5',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                    }}
+                  >
+                    <span>Todas con vigencia</span>
+                    <span style={{ fontSize: '10px', background: 'rgba(99, 102, 241, 0.15)', color: '#4f46e5', padding: '2px 6px', borderRadius: '6px', fontWeight: 800 }}>
+                      {mesesStats.totalWithVigencia}
+                    </span>
+                  </div>
+                )}
+                {mesesStats.totalWithVigencia === 0 && (
+                  <div style={{ padding: '12px 14px', fontSize: '12px', color: 'var(--text-secondary)' }}>Sin datos de vigencia/meses</div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Button 3: Priorizar Excedentes */}
           <button 
             onClick={() => {
@@ -808,6 +1213,8 @@ export function PaginatedEditableGrid({
               setFilterBonificacion(false);
               setFilterBonifPct(null);
               setShowBonifDropdown(false);
+              setFilterMeses(null);
+              setShowMesesDropdown(false);
               setFilterAumentos(false);
               setFilterExcedentes(!filterExcedentes);
             }}
@@ -830,6 +1237,8 @@ export function PaginatedEditableGrid({
               setFilterBonificacion(false);
               setFilterBonifPct(null);
               setShowBonifDropdown(false);
+              setFilterMeses(null);
+              setShowMesesDropdown(false);
               setFilterExcedentes(false);
               setFilterAumentos(!filterAumentos);
             }}
@@ -891,6 +1300,8 @@ export function PaginatedEditableGrid({
                   setSelectedRowForDescuento(r);
                   setIsDescuentoModalOpen(true);
                 }}
+                onCreateTicket={onCreateTicket}
+                openTickets={openTickets}
               />
             ))}
           {paginatedData.length === 0 && (

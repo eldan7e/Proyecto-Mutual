@@ -63,7 +63,7 @@ export async function fetchGruposUnicos() {
       .not('numero_grupo', 'is', null),
     supabase
       .from('lineas')
-      .select('numero_grupo, socio_id, socios:socio_id(nombre_completo)')
+      .select('numero_grupo, estado, socio_id, socios:socio_id(nombre_completo)')
       .not('numero_grupo', 'is', null),
     supabase
       .from('movimientos_cuenta')
@@ -75,6 +75,15 @@ export async function fetchGruposUnicos() {
       .not('numero_grupo', 'is', null)
   ]);
 
+  // Contar líneas activas por grupo
+  const lineasCountMap = {};
+  (lineasData || []).forEach(row => {
+    const g = row.numero_grupo;
+    if (g && (row.estado || 'ACTIVA').toUpperCase() !== 'BAJA') {
+      lineasCountMap[g] = (lineasCountMap[g] || 0) + 1;
+    }
+  });
+
   const mapa = {};
 
   // 1. Cargar desde grupo_socio (prioridad a titulares)
@@ -84,7 +93,8 @@ export async function fetchGruposUnicos() {
       if (!mapa[g] || (row.es_titular && row.socios?.nombre_completo)) {
         mapa[g] = {
           numero_grupo: g,
-          nombre: row.socios?.nombre_completo || `Grupo ${g}`
+          nombre: row.socios?.nombre_completo || `Grupo ${g}`,
+          total_lineas: lineasCountMap[g] || 0
         };
       }
     }
@@ -96,7 +106,8 @@ export async function fetchGruposUnicos() {
     if (g !== null && g !== undefined && g !== 0 && !mapa[g]) {
       mapa[g] = {
         numero_grupo: g,
-        nombre: row.socios?.nombre_completo || `Grupo ${g}`
+        nombre: row.socios?.nombre_completo || `Grupo ${g}`,
+        total_lineas: lineasCountMap[g] || 0
       };
     }
   });
@@ -108,7 +119,8 @@ export async function fetchGruposUnicos() {
       if (!mapa[g]) {
         mapa[g] = {
           numero_grupo: g,
-          nombre: row.nombre || `Grupo ${g}`
+          nombre: row.nombre || `Grupo ${g}`,
+          total_lineas: lineasCountMap[g] || 0
         };
       }
     }
@@ -120,7 +132,8 @@ export async function fetchGruposUnicos() {
     if (g && row.alias_grupo && row.alias_grupo.trim()) {
       mapa[g] = {
         numero_grupo: g,
-        nombre: row.alias_grupo.trim()
+        nombre: row.alias_grupo.trim(),
+        total_lineas: lineasCountMap[g] || 0
       };
     }
   });
@@ -137,12 +150,26 @@ export async function fetchMovimientosGrupo(numeroGrupo) {
     .select('*')
     .eq('numero_grupo', numeroGrupo)
     .order('fecha', { ascending: true })
+    .order('tipo', { ascending: true })
     .order('id', { ascending: true });
 
   if (error) throw error;
-  return (data || []).sort(sortMovimientosCuenta);
+  // Excluir transferencias internas entre cuentas propias de la Mutual
+  const filtered = (data || []).filter(m => !isTransferenciaInterna(m));
+  return filtered.sort(sortMovimientosCuenta);
 }
 
+
+/**
+ * Detecta si un movimiento es una transferencia interna entre cuentas propias de la Mutual
+ * (no debe computarse como pago de un socio/grupo)
+ */
+function isTransferenciaInterna(mov) {
+  if (!mov.observaciones) return false;
+  const obs = mov.observaciones.toUpperCase();
+  return (obs.includes('CTAS. PROPIAS') || obs.includes('CTAS PROPIAS')) &&
+         (obs.includes('MUTUAL') || obs.includes('30708841656') || obs.includes('AUNAR'));
+}
 
 /**
  * Obtiene la lista resumida de todos los grupos con sus saldos actuales
@@ -156,7 +183,7 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
   while (true) {
     let query = supabase
       .from('movimientos_cuenta')
-      .select('id, numero_grupo, nombre, empresa, fecha, importe, tipo')
+      .select('id, numero_grupo, nombre, empresa, fecha, importe, tipo, periodo, observaciones')
       .not('numero_grupo', 'is', null)
       .order('numero_grupo', { ascending: true })
       .order('fecha', { ascending: true })
@@ -171,6 +198,14 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
     offset += limit;
   }
 
+  // 1b. Filtrar transferencias internas entre cuentas propias de la Mutual
+  // Estas no son pagos de socios y distorsionan los saldos
+  const transferenciasExcluidas = allData.filter(m => isTransferenciaInterna(m));
+  if (transferenciasExcluidas.length > 0) {
+    console.info(`[Saldos] Se excluyen ${transferenciasExcluidas.length} transferencia(s) interna(s) entre cuentas propias de la Mutual`);
+  }
+  allData = allData.filter(m => !isTransferenciaInterna(m));
+
   // 2. Obtener la TNA vigente
   let tna = DEFAULT_TNA;
   try {
@@ -180,11 +215,13 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
     }
   } catch (_) { /* usar default */ }
 
-  // 3. Pre-cargar nombres de grupos
+  // 3. Pre-cargar nombres y líneas de grupos
   const todosLosGrupos = await fetchGruposUnicos().catch(() => []);
   const nombresMap = {};
+  const lineasMap = {};
   todosLosGrupos.forEach(g => {
     nombresMap[g.numero_grupo] = g.nombre || `Grupo ${g.numero_grupo}`;
+    lineasMap[g.numero_grupo] = g.total_lineas || 0;
   });
 
   // 4. Agrupar movimientos por numero_grupo
@@ -206,6 +243,7 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
     gruposMap[g.numero_grupo] = {
       numero_grupo: g.numero_grupo,
       nombre: g.nombre || `Grupo ${g.numero_grupo}`,
+      total_lineas: g.total_lineas || 0,
       empresas: new Set(),
       totalFacturas: 0,
       totalPagos: 0,
@@ -234,17 +272,44 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
 
     movimientos.forEach(mov => {
       const imp = Math.abs(Number(mov.importe) || 0);
-      if (mov.tipo === 'FACTURA') totalFacturas += imp;
+      if (mov.tipo === 'FACTURA') {
+        totalFacturas += imp;
+        if (mov.empresa) {
+          const empNorm = mov.empresa.toUpperCase().trim();
+          if (empNorm.startsWith('CLARO')) empresas.add('CLARO');
+          else if (empNorm.startsWith('MOVISTAR')) empresas.add('MOVISTAR');
+          else if (empNorm.startsWith('PERSONAL')) empresas.add('PERSONAL');
+          else if (['CLARO', 'MOVISTAR', 'PERSONAL'].some(op => empNorm.includes(op))) {
+            if (empNorm.includes('CLARO')) empresas.add('CLARO');
+            if (empNorm.includes('MOVISTAR')) empresas.add('MOVISTAR');
+            if (empNorm.includes('PERSONAL')) empresas.add('PERSONAL');
+          } else {
+            empresas.add(empNorm);
+          }
+        }
+      }
       if (mov.tipo === 'PAGO') totalPagos += imp;
-      if (mov.empresa) empresas.add(mov.empresa);
       if (mov.nombre && (nombreGrupo === `Grupo ${g}` || !nombreGrupo)) {
         nombreGrupo = mov.nombre;
       }
     });
 
+    // Fallback: si no tuvo facturas con empresa, buscar en pagos solo operadoras reconocidas
+    if (empresas.size === 0) {
+      movimientos.forEach(mov => {
+        if (mov.empresa) {
+          const empNorm = mov.empresa.toUpperCase().trim();
+          if (empNorm.startsWith('CLARO')) empresas.add('CLARO');
+          else if (empNorm.startsWith('MOVISTAR')) empresas.add('MOVISTAR');
+          else if (empNorm.startsWith('PERSONAL')) empresas.add('PERSONAL');
+        }
+      });
+    }
+
     gruposMap[g] = {
       numero_grupo: g,
       nombre: nombreGrupo,
+      total_lineas: lineasMap[g] || 0,
       empresas,
       totalFacturas,
       totalPagos,
@@ -259,6 +324,7 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
   // 6. Formatear resultado
   let resultado = Object.values(gruposMap).map(g => ({
     ...g,
+    total_lineas: g.total_lineas ?? (lineasMap[g.numero_grupo] || 0),
     empresas: g.empresas instanceof Set ? Array.from(g.empresas).join(', ') || 'N/D' : (g.empresas || 'N/D')
   }));
 
@@ -291,7 +357,8 @@ export async function registrarCobroCuenta({
   fecha = new Date().toISOString().slice(0, 10),
   periodo = null,
   imputaciones = [],
-  numero_linea = null
+  numero_linea = null,
+  skipLiqUpdate = false
 }) {
   const monto = parseFloat(importe);
   if (isNaN(monto) || monto <= 0) throw new Error('El importe ingresado es inválido.');
@@ -388,10 +455,10 @@ export async function registrarCobroCuenta({
   if (error) throw error;
 
   // 2. Sincronizar automáticamente liquidaciones_grupos asociadas al grupo
-  //    Si se pasa un período específico, imputar SOLO a ese período.
-  //    Si no se pasa período, hacer FIFO global (fallback para pagos desde frontend).
-  try {
-    let query = supabase
+  //    Si skipLiqUpdate es true, no actualizar liquidaciones_grupos (porque ya fue actualizado por quien llamó)
+  if (!skipLiqUpdate) {
+    try {
+      let query = supabase
       .from('liquidaciones_grupos')
       .select('liquidacion_id, periodo, monto_total_facturado, monto_abonado, estado_pago')
       .eq('numero_grupo', numero_grupo)
@@ -405,7 +472,8 @@ export async function registrarCobroCuenta({
     const { data: liqsPendientes } = await query.order('periodo', { ascending: true });
 
     if (liqsPendientes && liqsPendientes.length > 0) {
-      let remanenteCobro = monto;
+      // Usar pagoAplicadoCapital si se desglosó mora vs capital para no sobre-amortizar facturas
+      let remanenteCobro = pagoAplicadoCapital > 0 ? pagoAplicadoCapital : monto;
       for (const liq of liqsPendientes) {
         if (remanenteCobro <= 0) break;
 
@@ -416,8 +484,12 @@ export async function registrarCobroCuenta({
         if (pendiente <= 0) continue;
 
         const abonoAplicado = Math.min(remanenteCobro, pendiente);
-        const nuevoAbonado = pagadoActual + abonoAplicado;
-        const nuevoEstado = nuevoAbonado >= (totalFact - 1) ? 'ABONADO' : 'PARCIAL';
+        let nuevoAbonado = pagadoActual + abonoAplicado;
+        const isFullyPaid = nuevoAbonado >= (totalFact - 2);
+        const nuevoEstado = isFullyPaid ? 'ABONADO' : 'PARCIAL';
+        if (isFullyPaid) {
+          nuevoAbonado = totalFact;
+        }
 
         await supabase
           .from('liquidaciones_grupos')
@@ -431,8 +503,9 @@ export async function registrarCobroCuenta({
         remanenteCobro -= abonoAplicado;
       }
     }
-  } catch (errLiq) {
-    console.warn('Error al sincronizar estado en liquidaciones_grupos:', errLiq);
+    } catch (errLiq) {
+      console.warn('Error al sincronizar estado en liquidaciones_grupos:', errLiq);
+    }
   }
 
   // Registrar audit log

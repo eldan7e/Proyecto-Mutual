@@ -1,7 +1,7 @@
 import EditableAbonoCell from './EditableAbonoCell';
-import { Plus, Tag } from 'lucide-react';
+import { Plus, Tag, Ticket, Check } from 'lucide-react';
 
-export default function AuditLineRow({ d, isPeriodoLiquidado, adicionalesData, onEditBonif, onSaveAbono, onSaveExcedente, onOpenDescuento }) {
+export default function AuditLineRow({ d, isPeriodoLiquidado, adicionalesData, onEditBonif, onSaveAbono, onSaveExcedente, onOpenDescuento, onCreateTicket, openTickets }) {
   return (
     <tr className={d.error ? 'bg-red-50' : ''}>
       <td style={{ padding: '8px 12px' }}>
@@ -81,20 +81,104 @@ export default function AuditLineRow({ d, isPeriodoLiquidado, adicionalesData, o
             ⚠️ {d.calculado.portabilityWarning}
           </div>
         )}
-        {d.calculado?.operatorDiscountPct > 0 && (
-          <div style={{ 
-            fontSize: '10px', 
-            color: d.calculado.hasDiscountAlert ? '#dc2626' : '#16a34a',
-            fontWeight: 800,
-            background: d.calculado.hasDiscountAlert ? '#fee2e2' : '#f0fdf4',
-            padding: '2px 6px',
-            borderRadius: '4px',
-            display: 'inline-block',
-            marginTop: '4px',
-            border: d.calculado.hasDiscountAlert ? '1px solid #fca5a5' : '1px solid #bcf0da'
-          }}>
-            {d.calculado.operatorDiscountPct}% Desc. Operadora
-            {d.calculado.hasDiscountAlert && ' ⚠️'}
+        {((d.calculado?.operatorDiscountPct > 0) || (d.calculado?.descuentoMesesRestantes !== undefined && d.calculado?.descuentoMesesRestantes !== null)) && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '3px', marginTop: '4px' }}>
+            {d.calculado?.operatorDiscountPct > 0 && (
+              <div style={{ 
+                fontSize: '10px', 
+                color: d.calculado.hasDiscountAlert ? '#dc2626' : '#16a34a',
+                fontWeight: 800,
+                background: d.calculado.hasDiscountAlert ? '#fee2e2' : '#f0fdf4',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                display: 'inline-block',
+                border: d.calculado.hasDiscountAlert ? '1px solid #fca5a5' : '1px solid #bcf0da'
+              }}>
+                {d.calculado.operatorDiscountPct}% Desc. Operadora
+                {d.calculado.hasDiscountAlert && ' ⚠️'}
+              </div>
+            )}
+            
+            {(() => {
+              const mRest = d.calculado?.descuentoMesesRestantes ?? d.descuento_meses_restantes ?? d.lineas?.descuento_meses_restantes;
+              const mActual = d.calculado?.descuentoMesActual ?? d.descuento_mes_actual ?? d.lineas?.descuento_mes_actual;
+              const mTotal = d.calculado?.descuentoMesesTotal ?? d.descuento_meses_total ?? d.lineas?.descuento_meses_total;
+              const vigenciaStr = d.calculado?.descuentoVigencia ?? d.descuento_vigencia ?? d.lineas?.descuento_vigencia;
+              
+              if (mRest === undefined || mRest === null) return null;
+              const isExpiring = mRest === 0;
+              const cleanLineaNum = String(d.numero_linea || '').replace(/\D/g, '');
+              const hasOpenTicket = openTickets ? openTickets.has(cleanLineaNum) : false;
+
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (onCreateTicket && !hasOpenTicket) {
+                        onCreateTicket(d);
+                      }
+                    }}
+                    style={{
+                      background: hasOpenTicket
+                        ? 'rgba(16, 185, 129, 0.12)'
+                        : isExpiring
+                        ? '#fef2f2'
+                        : (mRest <= 1)
+                        ? '#fff7ed'
+                        : '#eef2ff',
+                      color: hasOpenTicket
+                        ? '#059669'
+                        : isExpiring
+                        ? '#dc2626'
+                        : (mRest <= 1)
+                        ? '#ea580c'
+                        : '#4f46e5',
+                      border: hasOpenTicket
+                        ? '1px solid rgba(16, 185, 129, 0.35)'
+                        : isExpiring
+                        ? '1px solid #fca5a5'
+                        : (mRest <= 1)
+                        ? '1px solid #fed7aa'
+                        : '1px solid #c7d2fe',
+                      padding: '2px 8px',
+                      borderRadius: '6px',
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      whiteSpace: 'nowrap',
+                      cursor: hasOpenTicket ? 'default' : 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                    disabled={hasOpenTicket}
+                    title={
+                      hasOpenTicket
+                        ? '✓ Ticket de vencimiento ya creado y asignado en Tareas'
+                        : `Clic para crear y asignar Ticket "VENCIMIENTO BONIFICACION" en Tareas (${mActual || '?'}/${mTotal || '?'} - ${mRest}m rest.)`
+                    }
+                  >
+                    {hasOpenTicket ? (
+                      <>
+                        <Check size={11} color="#059669" />
+                        <span>Ticket Asignado</span>
+                      </>
+                    ) : isExpiring ? (
+                      <>
+                        <span>⚠️ Vence este mes</span>
+                        <span style={{ fontSize: '8.5px', opacity: 0.85, textDecoration: 'underline' }}>(+ Ticket)</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>{vigenciaStr || `Mes ${mActual}/${mTotal}`} ({mRest}m rest.)</span>
+                        <span style={{ fontSize: '8.5px', opacity: 0.85, textDecoration: 'underline' }}>(+ Ticket)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              );
+            })()}
           </div>
         )}
       </td>

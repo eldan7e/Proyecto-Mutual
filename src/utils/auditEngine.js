@@ -227,25 +227,20 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
     // 5. DESCUENTO / ADICIONAL DEL SOCIO (Clavado al Excel con soporte para recargos y overrides)
     let discountPct = Number(socioInfo?.desc_adicionales || 0);
 
-    // Si la línea tiene un descuento_esperado no nulo, tiene prioridad sobre el del socio (incluso si es 0)
-    if (lineInfo?.descuento_esperado !== undefined && lineInfo?.descuento_esperado !== null) {
-      // Los planes A100E (fijos/internet) no deben heredar o usar el 90% (evita arrastre de móviles)
+    // En Personal y Claro (y descuentos corporativos >= 50%), descuento_esperado es el descuento
+    // que la OPERADORA le hace a AUNAR (ej. 75%, 80%, 90%), NO un descuento hacia el socio.
+    // Solo se debe tomar como descuento del socio si no es Personal ni Claro y es un descuento genuino de socio (< 50%).
+    if (!isPersonal && !isClaro && lineInfo?.descuento_esperado !== undefined && lineInfo?.descuento_esperado !== null) {
       const isA100E = dbInfo?.nombre_plan?.includes('A100E') || lineInfo?.plan_db === 'A100E';
       if (!(isA100E && Number(lineInfo.descuento_esperado) === 90)) {
-        discountPct = Number(lineInfo.descuento_esperado);
+        if (Number(lineInfo.descuento_esperado) < 50) {
+          discountPct = Number(lineInfo.descuento_esperado);
+        }
       }
     }
     
     if (consumo.numero_linea === '2213084915' && period && period.startsWith('2026-01')) {
       discountPct = 5;
-    }
-
-    if (consumo.numero_linea === '2215940741' && isPersonal) {
-      if (period && period.startsWith('2026-01')) {
-        discountPct = 0;
-      } else {
-        discountPct = 80;
-      }
     }
     
     // Soporte para Overrides históricos específicos de Claro
@@ -366,7 +361,13 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
         extraAmount: cargosExtra,
         isPorted: lineInfo?.proveedor_id !== parseInt(providerId),
         operatorAudit,
-        movistarAudit
+        movistarAudit,
+        operatorDiscountPct: operatorAudit?.actualDiscountPct || Number(consumo.descuento_pct || 0),
+        hasDiscountAlert: operatorAudit ? !operatorAudit.meetsAgreement : false,
+        descuentoMesesRestantes: consumo.descuento_meses_restantes ?? lineInfo?.descuento_meses_restantes ?? null,
+        descuentoMesActual: consumo.descuento_mes_actual ?? lineInfo?.descuento_mes_actual ?? null,
+        descuentoMesesTotal: consumo.descuento_meses_total ?? lineInfo?.descuento_meses_total ?? null,
+        descuentoVigencia: consumo.descuento_vigencia ?? lineInfo?.descuento_vigencia ?? null
       }
     };
   } catch (err) {
@@ -504,6 +505,23 @@ export function auditLineItem(item, dbInfo, context) {
     auditStatus = 'WARN';
   }
 
+  // Alerta si la línea está dada de baja o suspendida en nuestro sistema
+  if (dbInfo) {
+    const normEstado = String(dbInfo.estado || '').toUpperCase();
+    if (normEstado === 'BAJA') {
+      alertas.push({
+        tipo: 'CRITICAL',
+        msg: '🛑 LÍNEA DADA DE BAJA en sistema (la operadora continúa facturándola)'
+      });
+      auditStatus = 'WARN';
+    } else if (normEstado === 'SUSPENDIDA' || normEstado === 'SUSPENDIDO') {
+      alertas.push({
+        tipo: 'INFO',
+        msg: '⏸️ LÍNEA SUSPENDIDA en sistema'
+      });
+    }
+  }
+
   const provMap = { 'claro': 1, 'movistar': 2, 'personal': 3 };
   if (dbInfo && dbInfo.proveedor_id !== provMap[selectedProvider]) {
     const currentProvName = dbInfo.proveedor_id === 1 ? 'CLARO' : dbInfo.proveedor_id === 2 ? 'MOVISTAR' : 'PERSONAL';
@@ -577,8 +595,32 @@ export function auditLineItem(item, dbInfo, context) {
     }
   }
 
+  // ALERTA DE VIGENCIA DE DESCUENTO (PERSONAL)
+  if (item.descuentoMesesRestantes !== undefined && item.descuentoMesesRestantes !== null) {
+    if (item.descuentoMesesRestantes === 0) {
+      alertas.push({
+        tipo: 'CRITICAL',
+        msg: `⚠️ VENCE DESCUENTO: Último mes (${item.descuentoVigencia || 'Vigencia finalizada'})`
+      });
+    } else if (item.descuentoMesesRestantes === 1) {
+      alertas.push({
+        tipo: 'INFO',
+        msg: `⏳ Promo por vencer: Queda 1 mes (${item.descuentoVigencia})`
+      });
+    }
+  }
+
   // AUDITORÍA: Comparación contra el mes pasado (SOLO ABONO BASE)
-  const prevData = prevConsumosData.find(c => c.numero_linea && c.numero_linea.endsWith(item.telefono.slice(-10)));
+  const cleanTel = (item.telefono || '').replace(/\D/g, '');
+  const prevData = prevConsumosData.find(c => {
+    if (!c.numero_linea) return false;
+    const cleanC = String(c.numero_linea).replace(/\D/g, '');
+    if (cleanTel && cleanC && cleanTel === cleanC) return true;
+    if (cleanTel.length >= 10 && cleanC.length >= 10) {
+      return cleanTel.slice(-10) === cleanC.slice(-10);
+    }
+    return false;
+  });
   const prevAbonoBase = prevData ? Number(prevData.costo_abono_real) : 0;
   const variacion = realAbono - prevAbonoBase;
 
@@ -592,7 +634,11 @@ export function auditLineItem(item, dbInfo, context) {
     auditStatus,
     alertas,
     prevAbonoBase,
-    variacion
+    variacion,
+    descuentoMesActual: item.descuentoMesActual ?? null,
+    descuentoMesesTotal: item.descuentoMesesTotal ?? null,
+    descuentoMesesRestantes: item.descuentoMesesRestantes ?? null,
+    descuentoVigencia: item.descuentoVigencia || null
   };
 }
 

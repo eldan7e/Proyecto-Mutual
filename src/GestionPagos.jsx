@@ -1,11 +1,12 @@
 // Sincronización final - Auditoría Aunar 2026 - OK
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { supabase } from './supabaseClient';
 import { 
   Loader2, Calculator, CheckCircle2, AlertCircle, Save, 
   Calendar, Search, Filter, ArrowRight, Download, RefreshCw,
   TrendingUp, Users, ShieldCheck, DollarSign, Edit2, X, Trash2,
-  Settings2, AlertTriangle, ArrowUpDown, ChevronDown, ChevronUp
+  Settings2, AlertTriangle, ArrowUpDown, ChevronDown, ChevronUp,
+  Percent, Clock
 } from 'lucide-react';
 
 import { useSearchParams, Link } from 'react-router-dom';
@@ -18,6 +19,8 @@ import useDebounce from './hooks/useDebounce';
 import BatchModal from './components/GestionPagos/BatchModal';
 import AuditLineRow from './components/GestionPagos/AuditLineRow';
 import DescuentoModal from './components/CargaManual/DescuentoModal';
+import { exportAuditoriaLineasXLSX } from './utils/exportFacturacion';
+import { crearTicketVencimientoBonificacion, getOpenVencimientoTickets } from './services/ticketService';
 import { useToast } from './components/ui/ToastProvider';
 import { useConfirm } from './components/ui/ConfirmProvider';
 import useBodyScrollLock from './hooks/useBodyScrollLock';
@@ -39,6 +42,14 @@ export default function GestionPagos() {
   const [showMissing, setShowMissing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebounce(searchTerm, 300);
+  const [openTickets, setOpenTickets] = useState(new Set());
+
+  useEffect(() => {
+    if (lineasData && lineasData.length > 0) {
+      const lineas = lineasData.map(l => l.numero_linea);
+      getOpenVencimientoTickets(lineas).then(setOpenTickets);
+    }
+  }, [lineasData]);
 
   const filterOptions = useMemo(() => ({
     initialSortKey: 'totalCobrar',
@@ -71,17 +82,140 @@ export default function GestionPagos() {
   }), []);
 
   const [filterAumentos, setFilterAumentos] = useState(false);
+  const [filterBonificacion, setFilterBonificacion] = useState(false);
+  const [filterBonifPct, setFilterBonifPct] = useState(null);
+  const [showBonifDropdown, setShowBonifDropdown] = useState(false);
+  const [filterMeses, setFilterMeses] = useState(null);
+  const [showMesesDropdown, setShowMesesDropdown] = useState(false);
+
+  // Helper para obtener el % de bonificación de una línea
+  const getBonifPct = useCallback((d) => {
+    if (d.calculado?.operatorDiscountPct !== undefined && d.calculado?.operatorDiscountPct !== null && Number(d.calculado.operatorDiscountPct) > 0) {
+      return Math.round(Number(d.calculado.operatorDiscountPct));
+    }
+    if (d.calculado?.movistarAudit?.actualDiscountPct !== undefined && d.calculado?.movistarAudit?.actualDiscountPct !== null && Number(d.calculado.movistarAudit.actualDiscountPct) > 0) {
+      return Math.round(Number(d.calculado.movistarAudit.actualDiscountPct));
+    }
+    if (d.descuento_pct !== undefined && d.descuento_pct !== null && Number(d.descuento_pct) > 0) {
+      return Math.round(Number(d.descuento_pct));
+    }
+    const pLista = Number(d.precio_lista_audit || d.lineas?.planes_abonos?.precio || 0);
+    const costo = Number(d.costo_abono_real || d.calculado?.baseAb || 0);
+    if (pLista > 0 && costo > 0 && costo < pLista) {
+      return Math.round(((pLista - costo) / pLista) * 100);
+    }
+    return null;
+  }, []);
+
+  // Helper para obtener meses restantes de bonificación
+  const getMesesRestantes = useCallback((d) => {
+    const m = d.calculado?.descuentoMesesRestantes ?? d.descuento_meses_restantes ?? d.lineas?.descuento_meses_restantes;
+    return (m !== undefined && m !== null) ? Number(m) : null;
+  }, []);
+
+  // Calcular grupos de % de bonificación presentes en los datos
+  const bonifGroups = useMemo(() => {
+    if (!lineasData || !lineasData.length) return [];
+    const countByPct = new Map();
+    lineasData.forEach(d => {
+      const pct = getBonifPct(d);
+      if (pct !== null && pct >= 0 && pct <= 100) {
+        countByPct.set(pct, (countByPct.get(pct) || 0) + 1);
+      }
+    });
+    return Array.from(countByPct.entries())
+      .sort((a, b) => b[0] - a[0])
+      .map(([pct, count]) => ({ pct, count }));
+  }, [lineasData, getBonifPct]);
+
+  // Calcular estadísticas y grupos de meses restantes / vigencia
+  const mesesStats = useMemo(() => {
+    if (!lineasData || !lineasData.length) return { groups: [], expiringCount: 0, upcomingCount: 0, totalWithVigencia: 0 };
+    const countByMeses = new Map();
+    let expiringCount = 0;
+    let upcomingCount = 0;
+    let totalWithVigencia = 0;
+
+    lineasData.forEach(d => {
+      const m = getMesesRestantes(d);
+      if (m !== null) {
+        totalWithVigencia++;
+        countByMeses.set(m, (countByMeses.get(m) || 0) + 1);
+        if (m === 0) expiringCount++;
+        if (m <= 1) upcomingCount++;
+      }
+    });
+
+    const groups = Array.from(countByMeses.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([meses, count]) => ({ meses, count }));
+
+    return { groups, expiringCount, upcomingCount, totalWithVigencia };
+  }, [lineasData, getMesesRestantes]);
+
+  // Cerrar dropdown de bonificación al hacer clic afuera
+  useEffect(() => {
+    if (!showBonifDropdown) return;
+    const close = () => setShowBonifDropdown(false);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [showBonifDropdown]);
+
+  // Cerrar dropdown de meses al hacer clic afuera
+  useEffect(() => {
+    if (!showMesesDropdown) return;
+    const close = () => setShowMesesDropdown(false);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [showMesesDropdown]);
 
   const processedDataForFilters = useMemo(() => {
-    if (!filterAumentos) return lineasData;
-    return lineasData.filter(d => {
-      const hasPortabilityWarning = !!d.calculado?.portabilityWarning;
-      const isMovistarUnmet = d.calculado?.movistarAudit && !d.calculado.movistarAudit.meetsAgreement;
-      const hasDiscountAlert = d.calculado?.hasDiscountAlert || d.calculado?.auditStatus === 'WARN';
-      const hasExcedentes = (d.calculado?.excedentes || 0) > 0;
-      return hasPortabilityWarning || isMovistarUnmet || hasDiscountAlert || hasExcedentes;
-    });
-  }, [lineasData, filterAumentos]);
+    let data = lineasData;
+
+    if (filterMeses !== null) {
+      data = data.filter(d => {
+        const m = getMesesRestantes(d);
+        if (m === null) return false;
+        if (filterMeses === 'EXPIRING') return m === 0;
+        if (filterMeses === 'UPCOMING') return m <= 1;
+        if (filterMeses === 'ALL_VIGENCIA') return true;
+        if (typeof filterMeses === 'number') return m === filterMeses;
+        return true;
+      });
+    }
+
+    if (filterBonifPct !== null) {
+      data = data.filter(d => getBonifPct(d) === filterBonifPct);
+    } else if (filterBonificacion) {
+      const hasAnyBonifAlert = lineasData.some(d => 
+        d.calculado?.hasDiscountAlert || 
+        (d.calculado?.movistarAudit && !d.calculado.movistarAudit.meetsAgreement)
+      );
+      if (hasAnyBonifAlert) {
+        data = data.filter(d => 
+          d.calculado?.hasDiscountAlert || 
+          (d.calculado?.movistarAudit && !d.calculado.movistarAudit.meetsAgreement)
+        );
+      } else {
+        data = data.filter(d => {
+          const pct = getBonifPct(d);
+          return pct !== null && pct > 0;
+        });
+      }
+    }
+
+    if (filterAumentos) {
+      data = data.filter(d => {
+        const hasPortabilityWarning = !!d.calculado?.portabilityWarning;
+        const isMovistarUnmet = d.calculado?.movistarAudit && !d.calculado.movistarAudit.meetsAgreement;
+        const hasDiscountAlert = d.calculado?.hasDiscountAlert || d.calculado?.auditStatus === 'WARN';
+        const hasExcedentes = (d.calculado?.excedentes || 0) > 0;
+        return hasPortabilityWarning || isMovistarUnmet || hasDiscountAlert || hasExcedentes;
+      });
+    }
+
+    return data;
+  }, [lineasData, filterAumentos, filterBonificacion, filterBonifPct, filterMeses, getBonifPct, getMesesRestantes]);
 
   const {
     search,
@@ -342,6 +476,11 @@ export default function GestionPagos() {
     setGlobalDiscount(0);
     setGlobalDiscountType('$');
     setFilterAumentos(false);
+    setFilterBonificacion(false);
+    setFilterBonifPct(null);
+    setShowBonifDropdown(false);
+    setFilterMeses(null);
+    setShowMesesDropdown(false);
     
     const periodo = selectedPeriodo;
     const providerId = parseInt(selectedProveedor);
@@ -443,7 +582,37 @@ export default function GestionPagos() {
     }
   }
 
+  const handleCreateTicket = useCallback(async (d) => {
+    try {
+      const mRest = d.calculado?.descuentoMesesRestantes ?? d.descuento_meses_restantes ?? d.lineas?.descuento_meses_restantes;
+      const vigenciaStr = d.calculado?.descuentoVigencia ?? d.descuento_vigencia ?? d.lineas?.descuento_vigencia;
+      const descPct = d.calculado?.operatorDiscountPct ?? d.descuento_pct;
+      const provName = proveedores.find(p => p.proveedor_id === Number(selectedProveedor))?.nombre_proveedor || 'Operadora';
 
+      const res = await crearTicketVencimientoBonificacion({
+        linea: d.numero_linea,
+        socioNombre: d.lineas?.socios?.nombre_completo,
+        numeroGrupo: d.lineas?.numero_grupo,
+        plan: d.lineas?.planes_abonos?.nombre_plan,
+        vigencia: vigenciaStr,
+        mesesRestantes: mRest,
+        descuentoPct: descPct,
+        proveedor: provName
+      });
+
+      if (!res.success && res.alreadyExists) {
+        addToast(res.message, 'warning');
+        setOpenTickets(prev => new Set([...prev, String(d.numero_linea).replace(/\D/g, '')]));
+        return;
+      }
+
+      addToast(res.message, 'success');
+      setOpenTickets(prev => new Set([...prev, String(d.numero_linea).replace(/\D/g, '')]));
+    } catch (err) {
+      console.error("Error creating ticket:", err);
+      addToast("Error al crear ticket: " + err.message, 'error');
+    }
+  }, [proveedores, selectedProveedor, addToast]);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -654,6 +823,16 @@ export default function GestionPagos() {
             </button>
           )}
           <button 
+            onClick={() => exportAuditoriaLineasXLSX({ data: sortedData, periodo: selectedPeriodo, operadora: provName })}
+            disabled={sortedData.length === 0}
+            className="btn-ghost"
+            style={{ height: '40px', display: 'flex', alignItems: 'center', gap: '8px', padding: '0 16px', borderRadius: '12px', color: sortedData.length === 0 ? 'var(--text-secondary)' : '#10b981', border: '1px solid rgba(16, 185, 129, 0.3)', background: 'rgba(16, 185, 129, 0.05)', cursor: sortedData.length === 0 ? 'not-allowed' : 'pointer' }}
+            title="Exportar auditoría a Excel (.xlsx)"
+          >
+            <Download size={16} />
+            <span style={{ fontSize: '13px', fontWeight: 700 }}>Exportar Excel</span>
+          </button>
+          <button 
             onClick={handleEliminarCargaMasiva}
             className="btn-ghost"
             style={{ height: '40px', display: 'flex', alignItems: 'center', gap: '6px', padding: '0 14px', borderRadius: '12px', color: '#ef4444' }}
@@ -780,12 +959,399 @@ export default function GestionPagos() {
                 onChange={e => setSearchTerm(e.target.value)} 
               />
             </div>
+            {/* Botón: Priorizar Bonificación + Dropdown de % */}
+            <div style={{ position: 'relative', display: 'inline-flex' }} onClick={e => e.stopPropagation()}>
+              <button 
+                onClick={() => {
+                  setFilterAumentos(false);
+                  setFilterMeses(null);
+                  setShowMesesDropdown(false);
+                  setShowBonifDropdown(false);
+                  if (filterBonifPct !== null || filterBonificacion) {
+                    setFilterBonificacion(false);
+                    setFilterBonifPct(null);
+                  } else {
+                    setFilterBonificacion(true);
+                  }
+                }}
+                style={{ 
+                  height: '42px',
+                  padding: '0 14px',
+                  background: (filterBonificacion || filterBonifPct !== null) ? 'rgba(168, 85, 247, 0.1)' : 'var(--surface)', 
+                  color: (filterBonificacion || filterBonifPct !== null) ? '#9333ea' : 'var(--text-secondary)',
+                  border: `1px solid ${(filterBonificacion || filterBonifPct !== null) ? '#9333ea' : 'var(--border-light)'}`,
+                  borderRight: 'none',
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '8px',
+                  borderRadius: '14px 0 0 14px',
+                  fontSize: '13px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+                title={filterBonifPct !== null || filterBonificacion ? "Quitar filtro de bonificación" : "Priorizar o filtrar por bonificación"}
+              >
+                <Percent size={16} /> 
+                <span>{filterBonifPct !== null ? `Bonif: ${filterBonifPct}%` : 'Priorizar Bonificación'}</span>
+              </button>
+              <button
+                title="Ver distribución de % de bonificación"
+                onClick={() => {
+                  setShowBonifDropdown(prev => !prev);
+                  setShowMesesDropdown(false);
+                }}
+                style={{
+                  height: '42px',
+                  padding: '0 10px',
+                  background: showBonifDropdown || filterBonifPct !== null || filterBonificacion ? 'rgba(168, 85, 247, 0.18)' : 'var(--surface)',
+                  color: (filterBonifPct !== null || filterBonificacion) ? '#9333ea' : 'var(--text-secondary)',
+                  border: `1px solid ${(filterBonifPct !== null || filterBonificacion) ? '#9333ea' : 'var(--border-light)'}`,
+                  borderRadius: '0 14px 14px 0',
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  fontSize: '12px', 
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                ▾
+              </button>
+
+              {/* Dropdown de % de bonificación */}
+              {showBonifDropdown && (
+                <div style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  left: 0,
+                  minWidth: '230px',
+                  background: 'var(--modal-bg, #ffffff)',
+                  border: '1px solid var(--border-light)',
+                  borderRadius: '14px',
+                  boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                  zIndex: 1000,
+                  overflow: 'hidden'
+                }}>
+                  <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-light)', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>
+                    % BONIFICACIÓN POR GRUPO
+                  </div>
+                  {/* Opción para quitar el filtro */}
+                  <div
+                    onClick={() => { setFilterBonifPct(null); setFilterBonificacion(false); setShowBonifDropdown(false); }}
+                    style={{
+                      padding: '9px 14px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      borderBottom: '1px solid var(--border-light)',
+                      background: (filterBonifPct === null && !filterBonificacion) ? 'rgba(168, 85, 247, 0.08)' : 'transparent',
+                      color: (filterBonifPct === null && !filterBonificacion) ? '#9333ea' : 'var(--text-secondary)',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      transition: 'background 0.15s'
+                    }}
+                    onMouseEnter={e => { if (filterBonifPct !== null || filterBonificacion) e.currentTarget.style.background = 'rgba(168, 85, 247, 0.05)'; }}
+                    onMouseLeave={e => { if (filterBonifPct !== null || filterBonificacion) e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    <span>Todas las líneas</span>
+                    <span style={{ fontSize: '10px', background: 'var(--border-light)', padding: '2px 6px', borderRadius: '6px', fontWeight: 800 }}>{lineasData.length}</span>
+                  </div>
+                  {bonifGroups.length === 0 ? (
+                    <div style={{ padding: '12px 14px', fontSize: '12px', color: 'var(--text-secondary)' }}>Sin datos de bonificación</div>
+                  ) : (
+                    bonifGroups.map(({ pct, count }) => (
+                      <div
+                        key={pct}
+                        onClick={() => {
+                          setFilterBonifPct(pct);
+                          setFilterBonificacion(true);
+                          setFilterAumentos(false);
+                          setFilterMeses(null);
+                          setShowMesesDropdown(false);
+                          setShowBonifDropdown(false);
+                        }}
+                        style={{
+                          padding: '9px 14px',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          borderBottom: '1px solid var(--border-light)',
+                          background: filterBonifPct === pct ? 'rgba(168, 85, 247, 0.1)' : 'transparent',
+                          color: filterBonifPct === pct ? '#9333ea' : 'var(--text-primary)',
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          transition: 'background 0.15s'
+                        }}
+                        onMouseEnter={e => { if (filterBonifPct !== pct) e.currentTarget.style.background = 'rgba(168, 85, 247, 0.05)'; }}
+                        onMouseLeave={e => { if (filterBonifPct !== pct) e.currentTarget.style.background = 'transparent'; }}
+                      >
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ color: '#9333ea' }}>●</span>
+                          Bonif. {pct}%
+                        </span>
+                        <span style={{
+                          fontSize: '10px',
+                          background: filterBonifPct === pct ? 'rgba(168, 85, 247, 0.15)' : 'var(--border-light)',
+                          color: filterBonifPct === pct ? '#9333ea' : 'var(--text-secondary)',
+                          padding: '2px 7px', borderRadius: '6px', fontWeight: 800
+                        }}>{count} líneas</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Botón: Filtro por Meses de Vigencia + Dropdown */}
+            <div style={{ position: 'relative', display: 'inline-flex' }} onClick={e => e.stopPropagation()}>
+              <button 
+                onClick={() => {
+                  setFilterAumentos(false);
+                  setFilterBonificacion(false);
+                  setFilterBonifPct(null);
+                  setShowBonifDropdown(false);
+                  setShowMesesDropdown(false);
+                  if (filterMeses !== null) {
+                    setFilterMeses(null);
+                  } else {
+                    setFilterMeses(mesesStats.expiringCount > 0 ? 'EXPIRING' : 'ALL_VIGENCIA');
+                  }
+                }}
+                style={{ 
+                  height: '42px',
+                  padding: '0 14px',
+                  background: filterMeses !== null 
+                    ? (filterMeses === 'EXPIRING' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(99, 102, 241, 0.12)')
+                    : 'var(--surface)', 
+                  color: filterMeses !== null 
+                    ? (filterMeses === 'EXPIRING' ? '#dc2626' : '#4f46e5')
+                    : 'var(--text-secondary)',
+                  border: `1px solid ${filterMeses !== null ? (filterMeses === 'EXPIRING' ? '#dc2626' : '#4f46e5') : 'var(--border-light)'}`,
+                  borderRight: 'none',
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '8px',
+                  borderRadius: '14px 0 0 14px',
+                  fontSize: '13px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+                title={filterMeses !== null ? "Quitar filtro de meses" : "Filtrar por meses de bonificación / vencimiento"}
+              >
+                <Clock size={16} /> 
+                <span>
+                  {filterMeses === 'EXPIRING' ? `⚠️ Vence este mes (${mesesStats.expiringCount})` :
+                   filterMeses === 'UPCOMING' ? `⚡ Vence ≤ 1m (${mesesStats.upcomingCount})` :
+                   filterMeses === 'ALL_VIGENCIA' ? `Con Vigencia (${mesesStats.totalWithVigencia})` :
+                   typeof filterMeses === 'number' ? `Meses Rest: ${filterMeses}m` :
+                   `Meses Vigencia${mesesStats.expiringCount > 0 ? ` (${mesesStats.expiringCount} urgentes)` : ''}`}
+                </span>
+              </button>
+              <button
+                title="Ver distribución de meses restantes de bonificación"
+                onClick={() => {
+                  setShowMesesDropdown(prev => !prev);
+                  setShowBonifDropdown(false);
+                }}
+                style={{
+                  height: '42px',
+                  padding: '0 10px',
+                  background: showMesesDropdown || filterMeses !== null
+                    ? (filterMeses === 'EXPIRING' ? 'rgba(239, 68, 68, 0.18)' : 'rgba(99, 102, 241, 0.18)')
+                    : 'var(--surface)',
+                  color: filterMeses !== null
+                    ? (filterMeses === 'EXPIRING' ? '#dc2626' : '#4f46e5')
+                    : 'var(--text-secondary)',
+                  border: `1px solid ${filterMeses !== null ? (filterMeses === 'EXPIRING' ? '#dc2626' : '#4f46e5') : 'var(--border-light)'}`,
+                  borderRadius: '0 14px 14px 0',
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  fontSize: '12px', 
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                ▾
+              </button>
+
+              {/* Dropdown de meses de vigencia */}
+              {showMesesDropdown && (
+                <div style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  left: 0,
+                  minWidth: '240px',
+                  background: 'var(--modal-bg, #ffffff)',
+                  border: '1px solid var(--border-light)',
+                  borderRadius: '14px',
+                  boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                  zIndex: 1000,
+                  overflow: 'hidden'
+                }}>
+                  <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-light)', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>
+                    MESES DE BONIFICACIÓN RESTANTES
+                  </div>
+                  {/* Opción para quitar el filtro */}
+                  <div
+                    onClick={() => { setFilterMeses(null); setShowMesesDropdown(false); }}
+                    style={{
+                      padding: '9px 14px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      borderBottom: '1px solid var(--border-light)',
+                      background: filterMeses === null ? 'rgba(99, 102, 241, 0.08)' : 'transparent',
+                      color: filterMeses === null ? '#4f46e5' : 'var(--text-secondary)',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      transition: 'background 0.15s'
+                    }}
+                    onMouseEnter={e => { if (filterMeses !== null) e.currentTarget.style.background = 'rgba(99, 102, 241, 0.05)'; }}
+                    onMouseLeave={e => { if (filterMeses !== null) e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    <span>Todas las líneas</span>
+                    <span style={{ fontSize: '10px', background: 'var(--border-light)', padding: '2px 6px', borderRadius: '6px', fontWeight: 800 }}>{lineasData.length}</span>
+                  </div>
+
+                  {mesesStats.expiringCount > 0 && (
+                    <div
+                      onClick={() => {
+                        setFilterMeses('EXPIRING');
+                        setFilterAumentos(false);
+                        setFilterBonificacion(false);
+                        setFilterBonifPct(null);
+                        setShowMesesDropdown(false);
+                      }}
+                      style={{
+                        padding: '9px 14px',
+                        fontSize: '12px',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        borderBottom: '1px solid var(--border-light)',
+                        background: filterMeses === 'EXPIRING' ? 'rgba(239, 68, 68, 0.12)' : 'transparent',
+                        color: '#dc2626',
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                      }}
+                    >
+                      <span>⚠️ Vence este mes (0m)</span>
+                      <span style={{ fontSize: '10px', background: 'rgba(239, 68, 68, 0.2)', color: '#dc2626', padding: '2px 6px', borderRadius: '6px', fontWeight: 800 }}>
+                        {mesesStats.expiringCount}
+                      </span>
+                    </div>
+                  )}
+
+                  {mesesStats.upcomingCount > mesesStats.expiringCount && (
+                    <div
+                      onClick={() => {
+                        setFilterMeses('UPCOMING');
+                        setFilterAumentos(false);
+                        setFilterBonificacion(false);
+                        setFilterBonifPct(null);
+                        setShowMesesDropdown(false);
+                      }}
+                      style={{
+                        padding: '9px 14px',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        borderBottom: '1px solid var(--border-light)',
+                        background: filterMeses === 'UPCOMING' ? 'rgba(249, 115, 22, 0.12)' : 'transparent',
+                        color: '#ea580c',
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                      }}
+                    >
+                      <span>⚡ Próximos a vencer (≤ 1m)</span>
+                      <span style={{ fontSize: '10px', background: 'rgba(249, 115, 22, 0.2)', color: '#ea580c', padding: '2px 6px', borderRadius: '6px', fontWeight: 800 }}>
+                        {mesesStats.upcomingCount}
+                      </span>
+                    </div>
+                  )}
+
+                  {mesesStats.groups.map(({ meses, count }) => (
+                    <div
+                      key={meses}
+                      onClick={() => {
+                        setFilterMeses(meses);
+                        setFilterAumentos(false);
+                        setFilterBonificacion(false);
+                        setFilterBonifPct(null);
+                        setShowMesesDropdown(false);
+                      }}
+                      style={{
+                        padding: '9px 14px',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        borderBottom: '1px solid var(--border-light)',
+                        background: filterMeses === meses ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
+                        color: meses === 0 ? '#dc2626' : (meses === 1 ? '#ea580c' : 'var(--text-primary)'),
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        transition: 'background 0.15s'
+                      }}
+                      onMouseEnter={e => { if (filterMeses !== meses) e.currentTarget.style.background = 'rgba(99, 102, 241, 0.05)'; }}
+                      onMouseLeave={e => { if (filterMeses !== meses) e.currentTarget.style.background = 'transparent'; }}
+                    >
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ color: meses === 0 ? '#dc2626' : '#6366f1' }}>●</span>
+                        {meses === 0 ? '0 meses (vence este mes)' : `${meses} ${meses === 1 ? 'mes restante' : 'meses restantes'}`}
+                      </span>
+                      <span style={{
+                        fontSize: '10px',
+                        background: filterMeses === meses ? 'rgba(99, 102, 241, 0.15)' : 'var(--border-light)',
+                        color: filterMeses === meses ? '#4f46e5' : 'var(--text-secondary)',
+                        padding: '2px 7px', borderRadius: '6px', fontWeight: 800
+                      }}>{count} líneas</span>
+                    </div>
+                  ))}
+
+                  {mesesStats.totalWithVigencia > 0 && (
+                    <div
+                      onClick={() => {
+                        setFilterMeses('ALL_VIGENCIA');
+                        setFilterAumentos(false);
+                        setFilterBonificacion(false);
+                        setFilterBonifPct(null);
+                        setShowMesesDropdown(false);
+                      }}
+                      style={{
+                        padding: '9px 14px',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        background: filterMeses === 'ALL_VIGENCIA' ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
+                        color: '#4f46e5',
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                      }}
+                    >
+                      <span>Todas con vigencia</span>
+                      <span style={{ fontSize: '10px', background: 'rgba(99, 102, 241, 0.15)', color: '#4f46e5', padding: '2px 6px', borderRadius: '6px', fontWeight: 800 }}>
+                        {mesesStats.totalWithVigencia}
+                      </span>
+                    </div>
+                  )}
+
+                  {mesesStats.totalWithVigencia === 0 && (
+                    <div style={{ padding: '12px 14px', fontSize: '12px', color: 'var(--text-secondary)' }}>Sin datos de vigencia/meses</div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <button 
-              onClick={() => setFilterAumentos(!filterAumentos)}
+              onClick={() => {
+                setFilterBonificacion(false);
+                setFilterBonifPct(null);
+                setShowBonifDropdown(false);
+                setFilterMeses(null);
+                setShowMesesDropdown(false);
+                setFilterAumentos(!filterAumentos);
+              }}
               className="icon-button-edit" 
               style={{ 
-                height: '40px', 
-                width: '40px', 
+                height: '42px', 
+                width: '42px', 
                 background: filterAumentos ? 'rgba(239, 68, 68, 0.1)' : 'var(--surface)', 
                 color: filterAumentos ? '#ef4444' : 'var(--text-secondary)',
                 border: `1px solid ${filterAumentos ? '#ef4444' : 'var(--border-light)'}`,
@@ -793,11 +1359,36 @@ export default function GestionPagos() {
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: 'pointer',
+                borderRadius: '14px',
                 transition: 'all 0.15s ease'
               }}
               title={filterAumentos ? "Mostrar todos" : "Filtrar aumentos, desvíos y excedentes"}
             >
               <Filter size={18} />
+            </button>
+            <button 
+              onClick={() => exportAuditoriaLineasXLSX({ data: sortedData, periodo: selectedPeriodo, operadora: provName })}
+              disabled={sortedData.length === 0}
+              className="btn-ghost" 
+              style={{ 
+                height: '42px', 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '8px', 
+                padding: '0 16px', 
+                borderRadius: '14px', 
+                color: sortedData.length === 0 ? 'var(--text-secondary)' : '#10b981',
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+                background: 'rgba(16, 185, 129, 0.06)',
+                fontWeight: 800,
+                fontSize: '13px',
+                cursor: sortedData.length === 0 ? 'not-allowed' : 'pointer',
+                opacity: sortedData.length === 0 ? 0.5 : 1
+              }}
+              title="Descargar detalle de auditoría a Excel (.xlsx) con las mismas columnas"
+            >
+              <Download size={16} />
+              <span>Exportar Excel</span>
             </button>
           </div>
         </div>
@@ -866,6 +1457,8 @@ export default function GestionPagos() {
                       onSaveAbono={handleSaveAbono}
                       onSaveExcedente={handleSaveExcedente}
                       onOpenDescuento={handleOpenDescuento}
+                      onCreateTicket={handleCreateTicket}
+                      openTickets={openTickets}
                     />
                   ))}
                   {sortedData.length === 0 && (

@@ -5,6 +5,7 @@ import {
 import { supabase } from '../../supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '../ui/ToastProvider';
+import { exportLiquidacionesGruposXLSX } from '../../utils/exportFacturacion';
 
 export default function ResumenGrupos({
   liquidacionesAgrupadas,
@@ -103,7 +104,13 @@ export default function ResumenGrupos({
             {filteredGroups.length} de {liquidacionesAgrupadas.length} Grupos liquidados en {selectedPeriod || 'Todos los Períodos'}
           </div>
         </div>
-        <button onClick={exportResumenToCSV} className="btn-batch-primary" style={{ flex: 'none', padding: '10px 20px' }}>
+        <button 
+          onClick={() => exportLiquidacionesGruposXLSX({ data: filteredGroups, periodo: selectedPeriod })} 
+          disabled={filteredGroups.length === 0}
+          className="btn-batch-primary" 
+          style={{ flex: 'none', padding: '10px 20px', cursor: filteredGroups.length === 0 ? 'not-allowed' : 'pointer', opacity: filteredGroups.length === 0 ? 0.5 : 1 }}
+          title="Exportar resumen de grupos a Excel (.xlsx)"
+        >
           <Download size={16} /> Exportar Excel
         </button>
       </div>
@@ -223,7 +230,22 @@ export default function ResumenGrupos({
                                             {sl.lineas?.socios?.nombre_completo || 'Titular de Línea'}
                                           </td>
                                           <td style={{ padding: '12px 8px', fontFamily: 'monospace', color: 'var(--text-primary)', borderBottom: '1px solid var(--border-light)' }}>
-                                            {sl.numero_linea}
+                                            <span style={{ 
+                                              textDecoration: String(sl.lineas?.estado || '').toUpperCase() === 'BAJA' ? 'line-through' : 'none',
+                                              color: String(sl.lineas?.estado || '').toUpperCase() === 'BAJA' ? '#dc2626' : 'inherit'
+                                            }}>
+                                              {sl.numero_linea}
+                                            </span>
+                                            {String(sl.lineas?.estado || '').toUpperCase() === 'BAJA' && (
+                                              <span style={{ marginLeft: '6px', padding: '1px 5px', borderRadius: '4px', fontSize: '9px', fontWeight: 800, background: '#fee2e2', color: '#b91c1c', border: '1px solid #f87171' }}>
+                                                BAJA
+                                              </span>
+                                            )}
+                                            {(String(sl.lineas?.estado || '').toUpperCase() === 'SUSPENDIDA' || String(sl.lineas?.estado || '').toUpperCase() === 'SUSPENDIDO') && (
+                                              <span style={{ marginLeft: '6px', padding: '1px 5px', borderRadius: '4px', fontSize: '9px', fontWeight: 800, background: '#fef3c7', color: '#b45309', border: '1px solid #fcd34d' }}>
+                                                SUSP
+                                              </span>
+                                            )}
                                           </td>
                                           <td style={{ padding: '12px 8px', color: 'var(--text-primary)', borderBottom: '1px solid var(--border-light)' }}>
                                             {sl.lineas?.planes_abonos?.nombre_plan || 'Plan S/D'}

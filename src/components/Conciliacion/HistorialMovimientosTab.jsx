@@ -37,10 +37,12 @@ export default function HistorialMovimientosTab({
         const matchSocio = h.socios?.nombre_completo?.toLowerCase().includes(term);
         const matchBanco = h.banco?.toLowerCase().includes(term);
         const matchTipo = (h.tipo_movimiento || '').toLowerCase().includes(term) || getTipoMovimientoLabel(h.tipo_movimiento).toLowerCase().includes(term);
+        const matchGrupo = String(h.numero_grupo || '').includes(term) || (h.liquidaciones_grupos?.numero_grupo && String(h.liquidaciones_grupos.numero_grupo).includes(term));
+        const matchLiq = String(h.liquidacion_id || '').includes(term);
         const amountStr = Math.abs(Number(h.monto || 0)).toString();
         const matchMonto = amountStr.includes(term) || amountStr.replace('.', '').replace(',', '').includes(term);
         
-        return matchConcepto || matchSocio || matchBanco || matchTipo || matchMonto;
+        return matchConcepto || matchSocio || matchBanco || matchTipo || matchGrupo || matchLiq || matchMonto;
       });
     }
     if (filtroTipoHistorial !== 'TODOS') {
@@ -112,7 +114,7 @@ export default function HistorialMovimientosTab({
               <Search size={16} style={{ marginRight: '8px', color: 'var(--text-secondary)' }} />
               <input
                 type="text"
-                placeholder="Buscar movimientos por nombre, tipo o monto..."
+                placeholder="Buscar por grupo (ej: 70127), socio, concepto o monto..."
                 value={searchHistorial}
                 onChange={(e) => setSearchHistorial(e.target.value)}
                 style={{ background: 'none', border: 'none', outline: 'none', width: '100%', color: 'var(--text-primary)', fontSize: '13px' }}

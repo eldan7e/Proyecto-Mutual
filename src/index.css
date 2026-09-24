@@ -1448,3 +1448,60 @@ body.modal-open {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ==========================================================================
+   RESPONSIVE TABLES & CONTAINERS (CUENTAS CORRIENTES Y SALDOS)
+   ========================================================================== */
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156, 163, 175, 0.4) transparent;
+}
+
+.table-responsive::-webkit-scrollbar {
+  height: 6px;
+}
+
+.table-responsive::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.table-responsive::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.35);
+  border-radius: 4px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.6);
+}
+
+
+/* Media Queries for Viewport Adaptation */
+@media (max-width: 1440px) {
+  .app-container {
+    padding: 20px;
+    gap: 20px;
+  }
+}
+
+@media (max-width: 1200px) {
+  .app-container {
+    padding: 14px;
+    gap: 14px;
+  }
+  .bento-card {
+    padding: 18px !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-container {
+    padding: 10px;
+    gap: 10px;
+  }
+  .bento-card {
+    padding: 14px !important;
+  }
+}
