@@ -49,8 +49,9 @@ export async function generarLiquidaciones({ lineasData, selectedPeriodo, select
   (activeLines || []).forEach(line => {
     let groupNum = line.numero_grupo;
     if (line.socio_responsable_id) {
-      const respGroup = line.responsable?.grupo_socio?.[0]?.numero_grupo;
-      groupNum = respGroup !== undefined ? respGroup : 0;
+      const gsList = line.responsable?.grupo_socio;
+      const respGroup = Array.isArray(gsList) ? gsList[0]?.numero_grupo : gsList?.numero_grupo;
+      groupNum = respGroup !== undefined && respGroup !== null ? respGroup : (line.numero_grupo || 0);
     }
     if (groupNum !== null && groupNum !== undefined) {
       if (groupMinProviderMap[groupNum] === undefined || line.proveedor_id < groupMinProviderMap[groupNum]) {
@@ -66,8 +67,9 @@ export async function generarLiquidaciones({ lineasData, selectedPeriodo, select
 
     if (row.lineas.socio_responsable_id) {
       payingSocioId = row.lineas.socio_responsable_id;
-      const respGroup = row.lineas.responsable?.grupo_socio?.[0]?.numero_grupo;
-      key = respGroup || 0;
+      const gsList = row.lineas.responsable?.grupo_socio;
+      const respGroup = Array.isArray(gsList) ? gsList[0]?.numero_grupo : gsList?.numero_grupo;
+      key = respGroup || row.lineas.numero_grupo || 0;
     }
 
     if (!gruposMap.has(key)) {

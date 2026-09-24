@@ -14,8 +14,8 @@
  * 9. Saldo Final      = SaldoCapital + IntPendFinal
  */
 
-// TASA ANUAL DEFAULT: 0% (sin cálculo de intereses por mora para períodos históricos)
-export const DEFAULT_TNA = 0;
+// TASA ANUAL DEFAULT: 120% anual (1.2 en Excel)
+export const DEFAULT_TNA = 120;
 export const DIA_TOPE_PAGO = 15;
 
 /**
@@ -33,110 +33,186 @@ export function formatFecha(isoDate) {
 }
 
 /**
- * Función de ordenamiento canónico de movimientos de cuenta corriente:
- * 1° Por PERÍODO contable ascendente (2026-01, 2026-02...)
- * 2° FACTURAS antes que PAGOS (las facturas del período generan la deuda y los pagos la cancelan)
- * 3° Por FECHA ascendente dentro del mismo tipo
- * 4° Por ID ascendente
+ * Helper para parsear fechas de forma segura en UTC evitando desfases por huso horario (GMT-3)
  */
-export function sortMovimientosCuenta(a, b) {
-  const pA = a.periodo || (a.fecha ? a.fecha.slice(0, 7) : '9999-99');
-  const pB = b.periodo || (b.fecha ? b.fecha.slice(0, 7) : '9999-99');
-  if (pA !== pB) return pA.localeCompare(pB);
-
-  const orderA = a.tipo === 'FACTURA' ? 1 : a.tipo === 'NOTA_DEBITO' ? 2 : a.tipo === 'NOTA_CREDITO' ? 3 : 4;
-  const orderB = b.tipo === 'FACTURA' ? 1 : b.tipo === 'NOTA_DEBITO' ? 2 : b.tipo === 'NOTA_CREDITO' ? 3 : 4;
-  if (orderA !== orderB) return orderA - orderB;
-
-  const fA = a.fecha || '';
-  const fB = b.fecha || '';
-  if (fA !== fB) return fA.localeCompare(fB);
-
-  return (a.id || 0) - (b.id || 0);
+export function parseDateUTC(d) {
+  if (!d) return null;
+  if (d instanceof Date) {
+    return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  }
+  const str = String(d).trim().split('T')[0];
+  const parts = str.split('-');
+  if (parts.length === 3 && parts[0].length === 4) {
+    return new Date(Date.UTC(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10)));
+  }
+  const dObj = new Date(d);
+  if (!isNaN(dObj.getTime())) {
+    return new Date(Date.UTC(dObj.getFullYear(), dObj.getMonth(), dObj.getDate()));
+  }
+  return null;
 }
 
 /**
- * Recalcula los saldos de un grupo EXACTAMENTE como lo hace el Excel AUNAR.
- * Procesa los movimientos de UN grupo en orden contable canónico (por período, FACTURA antes que PAGO)
+ * Diferencia en días entre dos fechas (d2 - d1)
+ */
+export function getDaysDiff(d1, d2) {
+  const p1 = parseDateUTC(d1);
+  const p2 = parseDateUTC(d2);
+  if (!p1 || !p2) return 0;
+  const ms = p2.getTime() - p1.getTime();
+  return Math.round(ms / (1000 * 60 * 60 * 24));
+}
+
+/**
+ * Función de ordenamiento canónico de movimientos de cuenta corriente:
+ * Coincide con SORT(REGISTROS_ANEXADOS, 2, 1) del Excel:
+ * 1° Por FECHA ascendente (orden cronológico estricto de los hechos contables)
+ * 2° Si misma fecha, FACTURAS antes que AJUSTES y estos antes que PAGOS
+ * 3° Por ID ascendente
+ */
+export function sortMovimientosCuenta(a, b) {
+  const fA = a.fecha ? String(a.fecha).split('T')[0] : '';
+  const fB = b.fecha ? String(b.fecha).split('T')[0] : '';
+  if (fA !== fB) return fA.localeCompare(fB);
+
+  // Si misma fecha y tienen IDs diferentes, respetar el orden de creación/registro contable
+  if (a.id !== undefined && b.id !== undefined && a.id !== b.id) {
+    return (a.id || 0) - (b.id || 0);
+  }
+
+  // Orden de tipos en la misma fecha: FACTURA genera saldo, PAGO lo cancela
+  const order = { FACTURA: 1, NOTA_DEBITO: 2, AJUSTE: 3, NOTA_CREDITO: 4, PAGO: 5 };
+  const oA = order[a.tipo] || 3;
+  const oB = order[b.tipo] || 3;
+  if (oA !== oB) return oA - oB;
+
+  return 0;
+}
+
+/**
+ * Recalcula los saldos de un grupo EXACTAMENTE como lo hace el Excel AUNAR (hoja REGISTROS_ANEXADOS).
+ * Procesa los movimientos de UN grupo en orden cronológico estricto
  * y produce las 9 columnas calculadas del Excel.
  * 
+ * FÓRMULAS EXACTAS DEL EXCEL:
+ * 1. Plazo Días (Col L):
+ *    IF([Orden Mov]="Ultimo movimiento", MAX(0, fechaCalculo - fecha_actual), fecha_actual - fecha_ant)
+ * 2. Interés % (Col M):
+ *    (TNA / 365) * [Plazo Días]
+ * 3. Intereses $ (Col N):
+ *    pago_a_cap = MAX(0, ABS(Importe) - int_ant)
+ *    cap_nuevo = cap_ant + IF(Tipo="FACTURA", Importe, -pago_a_cap)
+ *    base_interes = MAX(0, IF(Orden Mov="Ultimo movimiento", cap_nuevo, cap_ant))
+ *    Intereses $ = base_interes * Interes%
+ * 4. Int Pend Acum (Col O):
+ *    int_ant + [Intereses $]
+ * 5. Pago a Interés (Col P):
+ *    IF(Tipo="PAGO", MIN(ABS(Importe), [Int. Pend. Acumulado]), 0)
+ * 6. Pago a Capital (Col Q):
+ *    IF(Tipo="PAGO", MAX(ABS(Importe) - [Int. Pend. Acumulado], 0), 0)
+ * 7. Saldo Capital (Col S):
+ *    [Saldo Capital Anterior] + IF(Tipo="FACTURA", Importe, 0) - [Pago aplicado a capital]
+ * 8. Int Pend Final (Col T):
+ *    [Int. Pend. Acumulado] - [Pago aplicado a interés]
+ * 9. Saldo Final (Col U):
+ *    [Saldo Capital] + [Int. Pend. Final]
+ * 
  * @param {Array} movimientos - Movimientos de UN grupo
- * @param {number} [tnaPct=0] - Tasa nominal anual en PORCENTAJE
+ * @param {number} [tnaPct=120] - Tasa nominal anual en PORCENTAJE (ej 120 para 120%)
+ * @param {string|Date} [fechaCalculo=new Date()] - Fecha de cálculo/corte de intereses
  * @returns {Array} Movimientos enriquecidos con las columnas de cálculo del Excel
  */
-export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA) {
-  // Convertir TNA porcentaje a decimal (120% → 1.20) para coincidir con el Excel
-  const tnaDecimal = tnaPct / 100;
+export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA, fechaCalculo = new Date()) {
+  const tnaDecimal = (Number(tnaPct) || 0) / 100;
   const tasaDiaria = tnaDecimal / 365;
 
-  let saldoCapAnt = 0;
-  let intPendAnt = 0;
+  let capAnt = 0;
+  let intAnt = 0;
   let fechaAnt = null;
 
-  // Ordenar canónicamente por período, tipo (FACTURA antes que PAGO) y fecha
+  // Ordenar canónicamente por FECHA cronológica y tipo
   const sortedMovs = [...(movimientos || [])].sort(sortMovimientosCuenta);
+  const total = sortedMovs.length;
 
-  return sortedMovs.map((m) => {
-
-
-    // Determinar tipo de movimiento
+  return sortedMovs.map((m, idx) => {
+    const isUltimo = (idx === total - 1);
     const isPago = m.tipo === 'PAGO';
-    // Importe: positivo para facturas, negativo para pagos (tal cual viene del Excel)
+    const isNC = m.tipo === 'NOTA_CREDITO';
     const importeOriginal = Number(m.importe) || 0;
 
-    // 1. Plazo Dias: diferencia en días entre esta fila y la anterior
+    // 1. Plazo Dias (Col L de Excel)
     let plazoDias = 0;
-    if (fechaAnt) {
-      const dAnt = new Date(fechaAnt);
-      const dAct = new Date(m.fecha);
-      const diffMs = dAct - dAnt;
-      plazoDias = diffMs > 0 ? Math.floor(diffMs / (1000 * 60 * 60 * 24)) : 0;
+    if (isUltimo) {
+      plazoDias = Math.max(0, getDaysDiff(m.fecha, fechaCalculo));
+    } else if (fechaAnt) {
+      plazoDias = Math.max(0, getDaysDiff(fechaAnt, m.fecha));
     }
 
-    // 2. Interes % (tasa diaria × plazo)
+    // 2. Interes % (Col M de Excel)
     const interesPct = tasaDiaria * plazoDias;
 
-    // 3. Intereses $ (SaldoCapitalAnterior × Interes%)
-    const interesMora = saldoCapAnt * interesPct;
+    // 3. Intereses $ (Col N de Excel)
+    const pagoACapProvisional = isPago ? Math.max(0, Math.abs(importeOriginal) - intAnt) : 0;
+    let capNuevo;
+    if (isPago) {
+      capNuevo = capAnt - pagoACapProvisional;
+    } else if (isNC) {
+      capNuevo = capAnt - Math.abs(importeOriginal);
+    } else {
+      capNuevo = capAnt + importeOriginal;
+    }
 
-    // 4. Interes Pendiente Acumulado = interés anterior + interés nuevo
-    const intPendAcum = intPendAnt + interesMora;
+    const baseInteres = Math.max(0, isUltimo ? capNuevo : capAnt);
+    const interesMora = baseInteres * interesPct;
 
-    // 5 & 6. Imputación de pagos: primero a interés, luego a capital
+    // 4. Interes Pendiente Acumulado (Col O de Excel)
+    const intPendAcum = intAnt + interesMora;
+
+    // 5 & 6. Imputación de pagos: primero a interés, luego a capital (Cols P & Q de Excel)
     let pagoAInteres = 0;
     let pagoACapital = 0;
-
     if (isPago) {
       const montoAbsoluto = Math.abs(importeOriginal);
       pagoAInteres = Math.min(montoAbsoluto, intPendAcum);
-      pagoACapital = montoAbsoluto - pagoAInteres;
+      pagoACapital = Math.max(0, montoAbsoluto - intPendAcum);
     }
 
-    // 7. Saldo Capital = anterior + importe + pagoAInteres (para facturas suma importe, para pagos resta solo pagoACapital)
-    const saldoCapital = isPago ? (saldoCapAnt - pagoACapital) : (saldoCapAnt + importeOriginal);
+    // 7. Saldo Capital (Col S de Excel)
+    let saldoCapital;
+    if (isPago) {
+      saldoCapital = capAnt - pagoACapital;
+    } else if (isNC) {
+      saldoCapital = capAnt - Math.abs(importeOriginal);
+    } else {
+      saldoCapital = capAnt + importeOriginal;
+    }
 
-    // 8. Interes Pendiente Final = acumulado - lo que se pagó de interés
+    // 8. Interes Pendiente Final (Col T de Excel)
     const intPendFinal = intPendAcum - pagoAInteres;
 
-    // 9. Saldo Final = capital + interés pendiente
+    // 9. Saldo Final (Col U de Excel)
     const saldoFinal = saldoCapital + intPendFinal;
 
-    // Guardar acumuladores para la siguiente fila
+    const saldoCapAntPrev = capAnt;
+
+    // Guardar acumuladores con precisión flotante para la siguiente fila
     fechaAnt = m.fecha;
-    saldoCapAnt = saldoCapital;
-    intPendAnt = intPendFinal;
+    capAnt = saldoCapital;
+    intAnt = intPendFinal;
 
     return {
       ...m,
       plazo_dias: plazoDias,
       interes_pct: interesPct,
-      interes_mora: interesMora,
-      interes_pend_acumulado: intPendAcum,
-      pago_aplicado_interes: pagoAInteres,
-      pago_aplicado_capital: pagoACapital,
-      saldo_capital: saldoCapital,
-      interes_pend_final: intPendFinal,
-      saldo_final: saldoFinal
+      interes_mora: Math.round(interesMora * 100) / 100,
+      interes_pend_acumulado: Math.round(intPendAcum * 100) / 100,
+      pago_aplicado_interes: Math.round(pagoAInteres * 100) / 100,
+      pago_aplicado_capital: Math.round(pagoACapital * 100) / 100,
+      saldo_capital_anterior: Math.round(saldoCapAntPrev * 100) / 100,
+      saldo_capital: Math.round(saldoCapital * 100) / 100,
+      interes_pend_final: Math.round(intPendFinal * 100) / 100,
+      saldo_final: Math.round(saldoFinal * 100) / 100,
+      is_ultimo_movimiento: isUltimo
     };
   });
 }

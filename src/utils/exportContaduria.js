@@ -162,10 +162,14 @@ export function exportExtractoXLSX(movimientos, grupoNum, titular) {
     'Observaciones': m.observaciones || '',
     'Medio de Pago': m.medio_pago || '',
     'Importe': fmtMoney(m.importe),
-    'Pago Aplicado Capital': fmtMoney(m.pago_aplicado_capital),
+    'Plazo Días': m.plazo_dias || 0,
+    'Interés %': m.interes_pct ? Number((m.interes_pct * 100).toFixed(4)) : 0,
+    'Intereses $': fmtMoney(m.interes_mora),
+    'Int. Pend. Acumulado': fmtMoney(m.interes_pend_acumulado),
     'Pago Aplicado Interés': fmtMoney(m.pago_aplicado_interes),
+    'Pago Aplicado Capital': fmtMoney(m.pago_aplicado_capital),
     'Saldo Capital': fmtMoney(m.saldo_capital),
-    'Interés Pendiente': fmtMoney(m.interes_pend_final),
+    'Interés Pend. Final': fmtMoney(m.interes_pend_final),
     'Saldo Final Acumulado': fmtMoney(m.saldo_final)
   }));
 
@@ -182,10 +186,14 @@ export function exportExtractoXLSX(movimientos, grupoNum, titular) {
     'Observaciones': `Total Facturas: $${fmtMoneyStr(sumFacturas)} | Total Pagos: $${fmtMoneyStr(sumPagos)}`,
     'Medio de Pago': '',
     'Importe': '',
-    'Pago Aplicado Capital': '',
+    'Plazo Días': '',
+    'Interés %': '',
+    'Intereses $': '',
+    'Int. Pend. Acumulado': '',
     'Pago Aplicado Interés': '',
+    'Pago Aplicado Capital': '',
     'Saldo Capital': fmtMoney(ultimo?.saldo_capital || 0),
-    'Interés Pendiente': fmtMoney(ultimo?.interes_pend_final || 0),
+    'Interés Pend. Final': fmtMoney(ultimo?.interes_pend_final || 0),
     'Saldo Final Acumulado': fmtMoney(ultimo?.saldo_final || 0)
   });
 

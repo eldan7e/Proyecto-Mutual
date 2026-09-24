@@ -15,7 +15,7 @@ export async function getParametrosCuenta() {
     console.error('Error al obtener parametros_cuenta:', error);
   }
 
-  let tnaVal = 120;
+  let tnaVal = DEFAULT_TNA;
   if (data && data.tasa_anual !== undefined && data.tasa_anual !== null) {
     const raw = Number(data.tasa_anual);
     tnaVal = raw <= 2 ? raw * 100 : raw;
@@ -136,8 +136,6 @@ export async function fetchMovimientosGrupo(numeroGrupo) {
     .from('movimientos_cuenta')
     .select('*')
     .eq('numero_grupo', numeroGrupo)
-    .order('periodo', { ascending: true })
-    .order('tipo', { ascending: true })
     .order('fecha', { ascending: true })
     .order('id', { ascending: true });
 
@@ -149,7 +147,7 @@ export async function fetchMovimientosGrupo(numeroGrupo) {
 /**
  * Obtiene la lista resumida de todos los grupos con sus saldos actuales
  */
-export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = false } = {}) {
+export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = false, fechaCalculo = new Date() } = {}) {
   // 1. Cargar TODOS los movimientos con campos necesarios para el recálculo
   let allData = [];
   const limit = 1000;
@@ -223,7 +221,7 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
     const g = Number(grupoNum);
 
     // Recalcular con el motor del Excel
-    const procesados = recalcularSaldosGrupo(movimientos, tna);
+    const procesados = recalcularSaldosGrupo(movimientos, tna, fechaCalculo);
 
     // Obtener el último movimiento procesado para extraer los saldos finales
     const ultimo = procesados.length > 0 ? procesados[procesados.length - 1] : null;
@@ -343,7 +341,7 @@ export async function registrarCobroCuenta({
   if (ultErr) throw ultErr;
 
   const saldoCapitalAnterior = ultimos && ultimos.length > 0 ? Number(ultimos[0].saldo_capital || 0) : 0;
-  const nuevoSaldoCapital = saldoCapitalAnterior - monto;
+  const interesPendAnterior = ultimos && ultimos.length > 0 ? Number(ultimos[0].interes_pend_final || 0) : 0;
 
   // Sumar desgloses de interés vs capital de la imputación FIFO
   let pagoAplicadoInteres = 0;
@@ -353,7 +351,14 @@ export async function registrarCobroCuenta({
     pagoAplicadoCapital += Number(imp.pagoAplicadoCapital || 0);
   });
 
-  if (pagoAplicadoCapital === 0) pagoAplicadoCapital = monto;
+  if (pagoAplicadoCapital === 0 && pagoAplicadoInteres === 0) {
+    pagoAplicadoInteres = Math.min(monto, interesPendAnterior);
+    pagoAplicadoCapital = Math.max(0, monto - pagoAplicadoInteres);
+  }
+
+  const nuevoSaldoCapital = saldoCapitalAnterior - pagoAplicadoCapital;
+  const nuevoIntPendFinal = Math.max(0, interesPendAnterior - pagoAplicadoInteres);
+  const nuevoSaldoFinal = nuevoSaldoCapital + nuevoIntPendFinal;
 
   const nuevoMovimiento = {
     fecha,
@@ -370,7 +375,8 @@ export async function registrarCobroCuenta({
     pago_aplicado_capital: Math.round(pagoAplicadoCapital * 100) / 100,
     saldo_capital_anterior: Math.round(saldoCapitalAnterior * 100) / 100,
     saldo_capital: Math.round(nuevoSaldoCapital * 100) / 100,
-    saldo_final: Math.round(nuevoSaldoCapital * 100) / 100
+    interes_pend_final: Math.round(nuevoIntPendFinal * 100) / 100,
+    saldo_final: Math.round(nuevoSaldoFinal * 100) / 100
   };
 
   const { data, error } = await supabase

@@ -88,6 +88,9 @@ export default function Contaduria() {
   const [conceptoAjuste, setConceptoAjuste] = useState('');
   const [procesandoAjuste, setProcesandoAjuste] = useState(false);
 
+  // Fecha de Corte para Cálculo de Intereses en Extracto (por defecto Hoy, como en Excel B2=TODAY())
+  const [fechaCalculoExtracto, setFechaCalculoExtracto] = useState(getTodayISO());
+
   // Modal de Comprobante de Cobro
   const [comprobanteModalOpen, setComprobanteModalOpen] = useState(false);
   const [comprobanteData, setComprobanteData] = useState(null);
@@ -114,6 +117,25 @@ export default function Contaduria() {
     return movimientos[movimientos.length - 1];
   }, [movimientos]);
 
+  // Resumen del grupo seleccionado (equivalente a RESUMEN CLIENTE en Excel AUNAR)
+  const resumenGrupo = useMemo(() => {
+    let totalFacturas = 0;
+    let totalPagos = 0;
+    (movimientos || []).forEach(m => {
+      const imp = Math.abs(Number(m.importe) || 0);
+      if (m.tipo === 'FACTURA') totalFacturas += imp;
+      if (m.tipo === 'PAGO') totalPagos += imp;
+    });
+    const ultimo = movimientos && movimientos.length > 0 ? movimientos[movimientos.length - 1] : null;
+    return {
+      totalFacturas,
+      totalPagos,
+      saldoCapital: ultimo ? ultimo.saldo_capital : 0,
+      interesMora: ultimo ? ultimo.interes_pend_final : 0,
+      saldoFinal: ultimo ? ultimo.saldo_final : 0
+    };
+  }, [movimientos]);
+
   // --- CARGA INICIAL ---
   useEffect(() => {
     loadInicial();
@@ -122,21 +144,21 @@ export default function Contaduria() {
   // Cargar saldos de informe general
   useEffect(() => {
     loadSaldosGeneral();
-  }, [soloDeudores, tna]);
+  }, [soloDeudores, tna, fechaCalculoExtracto]);
 
   // Cargar todas las liquidaciones (facturas)
   useEffect(() => {
     loadTodasLiquidaciones();
   }, []);
 
-  // Cargar detalles cuando cambia el grupo seleccionado o el período de líneas
+  // Cargar detalles cuando cambia el grupo seleccionado, el período de líneas, la fecha de corte o la TNA
   useEffect(() => {
     if (selectedGrupo !== null) {
-      loadMovimientos(selectedGrupo);
+      loadMovimientos(selectedGrupo, fechaCalculoExtracto);
       loadLiquidaciones(selectedGrupo);
       loadLineasGrupo(selectedGrupo, lineasPeriodoFiltro);
     }
-  }, [selectedGrupo, lineasPeriodoFiltro]);
+  }, [selectedGrupo, lineasPeriodoFiltro, fechaCalculoExtracto, tna]);
 
   // Suscripción Realtime para actualizar movimientos en vivo
   useEffect(() => {
@@ -267,7 +289,7 @@ export default function Contaduria() {
   async function loadSaldosGeneral() {
     setLoading(true);
     try {
-      const data = await fetchInformeSaldosGeneral({ search: searchGrupo, soloDeudores });
+      const data = await fetchInformeSaldosGeneral({ search: searchGrupo, soloDeudores, fechaCalculo: fechaCalculoExtracto });
       setSaldosData(data);
     } catch (err) {
       console.error('Error al cargar informe de saldos:', err);
@@ -276,11 +298,11 @@ export default function Contaduria() {
     }
   }
 
-  async function loadMovimientos(numeroGrupo) {
+  async function loadMovimientos(numeroGrupo, fCalculo = fechaCalculoExtracto) {
     setLoading(true);
     try {
       const rawMovs = await fetchMovimientosGrupo(numeroGrupo);
-      const procesados = recalcularSaldosGrupo(rawMovs, tna);
+      const procesados = recalcularSaldosGrupo(rawMovs, tna, fCalculo || new Date());
       setMovimientos(procesados);
     } catch (err) {
       console.error('Error al cargar movimientos:', err);
@@ -2299,18 +2321,33 @@ export default function Contaduria() {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SALDO ACUMULADO FINAL</div>
-                  <div style={{ fontSize: '24px', fontWeight: 900, color: (ultimoMovGrupo?.saldo_final || 0) > 5 ? '#ef4444' : 'var(--accent)' }}>
-                    {formatMoney(ultimoMovGrupo?.saldo_final || 0)}
-                  </div>
+              {/* Selector de Fecha de Corte para Cálculo de Intereses (como en Excel B2/F2) */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(0,0,0,0.03)', padding: '6px 12px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
+                <div>
+                  <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>FECHA CORTE INTERESES</div>
+                  <input
+                    type="date"
+                    value={fechaCalculoExtracto}
+                    onChange={(e) => setFechaCalculoExtracto(e.target.value)}
+                    className="premium-input"
+                    style={{ fontSize: '12px', padding: '4px 8px', height: '32px', border: 'none', background: 'transparent' }}
+                  />
                 </div>
+                <button
+                  onClick={() => setFechaCalculoExtracto(getTodayISO())}
+                  className="air-btn"
+                  style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '6px', fontWeight: 700 }}
+                  title="Restablecer a fecha de hoy"
+                >
+                  Hoy
+                </button>
+              </div>
 
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                 <button 
                   onClick={() => handleOpenCobroModal(null, selectedGrupo)}
                   className="air-btn-primary"
-                  style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '12px 20px', borderRadius: '12px', fontWeight: 800 }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 18px', borderRadius: '12px', fontWeight: 800 }}
                 >
                   <Plus size={16} /> Imputar Cobro
                 </button>
@@ -2326,10 +2363,10 @@ export default function Contaduria() {
                   }}
                   className="air-btn"
                   style={{ 
-                    display: 'flex', alignItems: 'center', gap: '6px', padding: '12px 16px', borderRadius: '12px', fontWeight: 700, fontSize: '13px',
+                    display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 16px', borderRadius: '12px', fontWeight: 700, fontSize: '13px',
                     background: 'rgba(16, 185, 129, 0.08)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.2)'
                   }}
-                  title="Exportar extracto a Excel (.xlsx)"
+                  title="Exportar extracto a Excel (.xlsx) con fórmulas del libro mayor"
                   disabled={movimientos.length === 0}
                 >
                   <Download size={14} /> Exportar .xlsx
@@ -2346,50 +2383,97 @@ export default function Contaduria() {
                   }}
                   className="air-btn"
                   style={{ 
-                    display: 'flex', alignItems: 'center', gap: '6px', padding: '12px 16px', borderRadius: '12px', fontWeight: 700, fontSize: '13px',
+                    display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 16px', borderRadius: '12px', fontWeight: 700, fontSize: '13px',
                     background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.3)'
                   }}
                   title="Generar comprobante oficial de pago para imprimir o enviar"
                 >
-                  <Printer size={15} /> Imprimir Comprobante
+                  <Printer size={15} /> Recibo
                 </button>
+              </div>
+            </div>
+
+            {/* BANNER RESUMEN CLIENTE (IDÉNTICO A HOJA RESUMEN CLIENTE DE EXCEL) */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '14px', marginTop: '20px', paddingTop: '18px', borderTop: '1px solid var(--border-light)' }}>
+              <div style={{ background: 'var(--surface-hover)', padding: '12px 16px', borderRadius: '12px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>T. FACTURAS</div>
+                <div style={{ fontSize: '18px', fontWeight: 900, color: 'var(--text-primary)', marginTop: '2px' }}>
+                  {formatMoney(resumenGrupo.totalFacturas)}
+                </div>
+              </div>
+
+              <div style={{ background: 'var(--surface-hover)', padding: '12px 16px', borderRadius: '12px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>T. PAGOS</div>
+                <div style={{ fontSize: '18px', fontWeight: 900, color: 'var(--accent)', marginTop: '2px' }}>
+                  {formatMoney(resumenGrupo.totalPagos)}
+                </div>
+              </div>
+
+              <div style={{ background: 'var(--surface-hover)', padding: '12px 16px', borderRadius: '12px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>SALDO CAPITAL</div>
+                <div style={{ fontSize: '18px', fontWeight: 900, color: resumenGrupo.saldoCapital > 5 ? '#ef4444' : 'var(--text-primary)', marginTop: '2px' }}>
+                  {formatMoney(resumenGrupo.saldoCapital)}
+                </div>
+              </div>
+
+              <div style={{ background: 'var(--surface-hover)', padding: '12px 16px', borderRadius: '12px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>INTERESES MORA (TNA {tna}%)</div>
+                <div style={{ fontSize: '18px', fontWeight: 900, color: '#f59e0b', marginTop: '2px' }}>
+                  {formatMoney(resumenGrupo.interesMora)}
+                </div>
+              </div>
+
+              <div style={{ background: resumenGrupo.saldoFinal > 5 ? 'rgba(239, 68, 68, 0.08)' : 'rgba(16, 185, 129, 0.08)', padding: '12px 16px', borderRadius: '12px', border: `1px solid ${resumenGrupo.saldoFinal > 5 ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)'}` }}>
+                <div style={{ fontSize: '11px', fontWeight: 800, color: resumenGrupo.saldoFinal > 5 ? '#ef4444' : '#10b981', textTransform: 'uppercase' }}>DEUDA ACTUALIZADA</div>
+                <div style={{ fontSize: '20px', fontWeight: 900, color: resumenGrupo.saldoFinal > 5 ? '#ef4444' : '#10b981', marginTop: '2px' }}>
+                  {formatMoney(resumenGrupo.saldoFinal)}
+                </div>
               </div>
             </div>
           </div>
 
           <div className="bento-card" style={{ padding: '24px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: 900, margin: 0 }}>
-                Extracto / Libro Mayor de Cuenta (Grupo #{selectedGrupo})
-              </h3>
-              <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                Historial contable de Facturación y Cobros
+              <div>
+                <h3 style={{ fontSize: '16px', fontWeight: 900, margin: 0 }}>
+                  Extracto / Libro Mayor de Cuenta (Grupo #{selectedGrupo})
+                </h3>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                  Historial cronológico de facturación, cobros e intereses calculados al corte ({formatFecha(fechaCalculoExtracto)})
+                </span>
+              </div>
+              <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 700 }}>
+                {movimientos.length} movimientos
               </span>
             </div>
 
             <div className="table-responsive" style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '12.5px' }}>
+              <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '12px' }}>
                 <thead>
                   <tr style={{ background: 'rgba(0,0,0,0.02)', textAlign: 'left' }}>
-                    <th style={{ padding: '12px 14px' }}>FECHA</th>
-                    <th style={{ padding: '12px 14px' }}>TIPO</th>
-                    <th style={{ padding: '12px 14px' }}>PERÍODO</th>
-                    <th style={{ padding: '12px 14px' }}>OPERADORA / CONCEPTO</th>
-                    <th style={{ padding: '12px 14px', textAlign: 'right' }}>IMPORTE</th>
-                    <th style={{ padding: '12px 14px', textAlign: 'right' }}>SALDO ACUMULADO</th>
-                    <th style={{ padding: '12px 14px', textAlign: 'center' }}>COMPROBANTE</th>
+                    <th style={{ padding: '12px 10px' }}>FECHA</th>
+                    <th style={{ padding: '12px 10px' }}>TIPO</th>
+                    <th style={{ padding: '12px 10px' }}>PERÍODO</th>
+                    <th style={{ padding: '12px 10px' }}>OPERADORA / CONCEPTO</th>
+                    <th style={{ padding: '12px 10px', textAlign: 'right' }}>IMPORTE</th>
+                    <th style={{ padding: '12px 10px', textAlign: 'center' }}>PLAZO</th>
+                    <th style={{ padding: '12px 10px', textAlign: 'right' }}>INT. MORA</th>
+                    <th style={{ padding: '12px 10px', textAlign: 'right' }}>SALDO CAPITAL</th>
+                    <th style={{ padding: '12px 10px', textAlign: 'right' }}>INT. PEND. FINAL</th>
+                    <th style={{ padding: '12px 10px', textAlign: 'right' }}>DEUDA ACTUALIZADA</th>
+                    <th style={{ padding: '12px 10px', textAlign: 'center' }}>RECIBO</th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan="7" style={{ textAlign: 'center', padding: '30px' }}>
+                      <td colSpan="11" style={{ textAlign: 'center', padding: '30px' }}>
                         <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto', color: 'var(--accent)' }} />
                       </td>
                     </tr>
                   ) : movimientos.length === 0 ? (
                     <tr>
-                      <td colSpan="7" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary)' }}>
+                      <td colSpan="11" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary)' }}>
                         Este grupo no registra movimientos de cuenta corriente aún.
                       </td>
                     </tr>
@@ -2397,54 +2481,74 @@ export default function Contaduria() {
                     movimientos.map((m) => {
                       const isPago = m.tipo === 'PAGO';
                       const isNC = m.tipo === 'NOTA_CREDITO';
+                      const isUltimo = m.is_ultimo_movimiento;
                       return (
-                        <tr key={m.id} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                          <td style={{ padding: '12px 14px', fontWeight: 700 }}>{formatFecha(m.fecha)}</td>
-                          <td style={{ padding: '12px 14px' }}>
+                        <tr key={m.id} style={{ borderBottom: '1px solid var(--border-light)', background: isUltimo ? 'rgba(59, 130, 246, 0.03)' : 'transparent' }}>
+                          <td style={{ padding: '10px 10px', fontWeight: 700 }}>
+                            {formatFecha(m.fecha)}
+                            {isUltimo && (
+                              <span style={{ display: 'block', fontSize: '9.5px', color: '#3b82f6', fontWeight: 800 }}>
+                                Corte: {formatFecha(fechaCalculoExtracto)}
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ padding: '10px 10px' }}>
                             <span style={{
                               background: isPago || isNC ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
                               color: isPago || isNC ? '#10b981' : '#ef4444',
-                              padding: '4px 10px', borderRadius: '6px', fontWeight: 800, fontSize: '11px'
+                              padding: '3px 8px', borderRadius: '6px', fontWeight: 800, fontSize: '10.5px'
                             }}>
                               {m.tipo}
                             </span>
                           </td>
-                          <td style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '12px' }}>
+                          <td style={{ padding: '10px 10px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11px' }}>
                             {m.periodo || '—'}
                           </td>
-                          <td style={{ padding: '12px 14px' }}>
+                          <td style={{ padding: '10px 10px' }}>
                             <div style={{ fontWeight: 700 }}>{m.empresa || 'GENERAL'}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>{m.observaciones || ''}</div>
+                            <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>{m.observaciones || ''}</div>
                           </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, fontSize: '13px', color: isPago || isNC ? '#10b981' : 'var(--text-primary)' }}>
+                          <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 800, color: isPago || isNC ? '#10b981' : 'var(--text-primary)' }}>
                             {formatMoney(m.importe)}
                           </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 900, fontSize: '13.5px', color: m.saldo_capital > 5 ? '#ef4444' : 'var(--accent)' }}>
+                          <td style={{ padding: '10px 10px', textAlign: 'center', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                            {m.plazo_dias > 0 ? `${m.plazo_dias}d` : '0d'}
+                          </td>
+                          <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 600, color: m.interes_mora > 0 ? '#f59e0b' : 'var(--text-secondary)' }}>
+                            {formatMoney(m.interes_mora)}
+                          </td>
+                          <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 700 }}>
                             {formatMoney(m.saldo_capital)}
                           </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                          <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 700, color: m.interes_pend_final > 0 ? '#f59e0b' : 'var(--text-secondary)' }}>
+                            {formatMoney(m.interes_pend_final)}
+                          </td>
+                          <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 900, color: m.saldo_final > 5 ? '#ef4444' : 'var(--accent)' }}>
+                            {formatMoney(m.saldo_final)}
+                          </td>
+                          <td style={{ padding: '10px 10px', textAlign: 'center' }}>
                             {isPago ? (
                               <button
                                 onClick={() => handleAbrirComprobanteMovimiento(m)}
                                 className="air-btn"
                                 style={{
-                                  padding: '5px 10px',
-                                  fontSize: '11px',
-                                  borderRadius: '8px',
+                                  padding: '4px 8px',
+                                  fontSize: '10.5px',
+                                  borderRadius: '6px',
                                   fontWeight: 700,
                                   display: 'inline-flex',
                                   alignItems: 'center',
-                                  gap: '4px',
+                                  gap: '3px',
                                   background: 'rgba(16, 185, 129, 0.1)',
                                   color: '#10b981',
                                   border: '1px solid rgba(16, 185, 129, 0.25)'
                                 }}
                                 title="Generar e imprimir comprobante de este cobro"
                               >
-                                <Printer size={12} /> Recibo
+                                <Printer size={11} /> Recibo
                               </button>
                             ) : (
-                              <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>—</span>
+                              <span style={{ color: 'var(--text-secondary)', fontSize: '10px' }}>—</span>
                             )}
                           </td>
                         </tr>
