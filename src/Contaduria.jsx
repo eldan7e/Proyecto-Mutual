@@ -14,7 +14,8 @@ import { useToast } from './components/ui/ToastProvider';
 import { useConfirm } from './components/ui/ConfirmProvider';
 import { 
   getParametrosCuenta, updateTasaAnual, fetchGruposUnicos, 
-  fetchMovimientosGrupo, fetchInformeSaldosGeneral, registrarCobroCuenta 
+  fetchMovimientosGrupo, fetchInformeSaldosGeneral, registrarCobroCuenta,
+  fetchDetalleGrupoParaReasignacion, reasignarPagoCuentaCorriente, reasignarGrupoCompleto
 } from './services/cuentaCorrienteService';
 import { fetchPeriods } from './services/conciliacionService';
 import { 
@@ -118,6 +119,18 @@ export default function Contaduria() {
   const [grupoEditData, setGrupoEditData] = useState(null);
   const [editTitularNombre, setEditTitularNombre] = useState('');
   const [savingGrupoEdit, setSavingGrupoEdit] = useState(false);
+
+  // Modal de Reasignación de Pagos / Grupos
+  const [reasignarModalOpen, setReasignarModalOpen] = useState(false);
+  const [reasignarTargetMov, setReasignarTargetMov] = useState(null);
+  const [reasignarGrupoOrigen, setReasignarGrupoOrigen] = useState(null);
+  const [reasignarModo, setReasignarModo] = useState('movimiento'); // 'movimiento' | 'grupo_completo'
+  const [targetGrupoInput, setTargetGrupoInput] = useState('');
+  const [targetGrupoDetalle, setTargetGrupoDetalle] = useState(null);
+  const [loadingTargetDetalle, setLoadingTargetDetalle] = useState(false);
+  const [targetPeriodoInput, setTargetPeriodoInput] = useState('');
+  const [motivoReasignacion, setMotivoReasignacion] = useState('Error de asignación en planilla original');
+  const [savingReasignacion, setSavingReasignacion] = useState(false);
 
   // Notas internas del grupo (para empleados, persistentes en Supabase)
   const [notasGrupo, setNotasGrupo] = useState('');
@@ -961,6 +974,107 @@ export default function Contaduria() {
       addToast('Error al actualizar nombre: ' + err.message, 'error');
     } finally {
       setSavingGrupoEdit(false);
+    }
+  }
+
+  // --- REASIGNACIÓN DE COBROS Y GRUPOS ERRÓNEOS ---
+  useEffect(() => {
+    if (!targetGrupoInput || isNaN(targetGrupoInput) || parseInt(targetGrupoInput) <= 0) {
+      setTargetGrupoDetalle(null);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setLoadingTargetDetalle(true);
+      try {
+        const det = await fetchDetalleGrupoParaReasignacion(targetGrupoInput);
+        setTargetGrupoDetalle(det);
+        if (det?.periodos_pendientes?.length > 0 && !targetPeriodoInput) {
+          setTargetPeriodoInput(det.periodos_pendientes[0].periodo);
+        }
+      } catch (err) {
+        console.error('Error al obtener detalle del grupo destino:', err);
+      } finally {
+        setLoadingTargetDetalle(false);
+      }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [targetGrupoInput]);
+
+  function handleOpenReasignarMovimiento(mov) {
+    setReasignarTargetMov(mov);
+    setReasignarGrupoOrigen(mov.numero_grupo);
+    setReasignarModo('movimiento');
+    setTargetGrupoInput('');
+    setTargetGrupoDetalle(null);
+    setTargetPeriodoInput(mov.periodo || '');
+    setMotivoReasignacion('Error de asignación en planilla original');
+    setReasignarModalOpen(true);
+  }
+
+  function handleOpenReasignarGrupoCompleto(grupoNum) {
+    setReasignarTargetMov(null);
+    setReasignarGrupoOrigen(grupoNum);
+    setReasignarModo('grupo_completo');
+    setTargetGrupoInput('');
+    setTargetGrupoDetalle(null);
+    setTargetPeriodoInput('');
+    setMotivoReasignacion('Error de asignación en planilla original');
+    setReasignarModalOpen(true);
+  }
+
+  async function handleSubmitReasignacion(e) {
+    e.preventDefault();
+    if (!targetGrupoInput || isNaN(targetGrupoInput) || parseInt(targetGrupoInput) <= 0) {
+      addToast('Por favor ingrese un número de grupo destino válido', 'warning');
+      return;
+    }
+    const gDestino = parseInt(targetGrupoInput);
+    if (gDestino === reasignarGrupoOrigen) {
+      addToast('El grupo destino no puede ser idéntico al grupo origen', 'warning');
+      return;
+    }
+
+    setSavingReasignacion(true);
+    try {
+      if (reasignarModo === 'movimiento') {
+        const res = await reasignarPagoCuentaCorriente({
+          movimientoId: reasignarTargetMov.id,
+          nuevoNumeroGrupo: gDestino,
+          nuevoPeriodo: targetPeriodoInput || null,
+          motivo: motivoReasignacion,
+          actualizarBanco: true
+        });
+        addToast(`Cobro de ${formatMoney(Math.abs(reasignarTargetMov.importe))} reasignado exitosamente al Grupo #${gDestino} (${res.nuevoTitular})`, 'success');
+      } else {
+        const res = await reasignarGrupoCompleto({
+          oldNumeroGrupo: reasignarGrupoOrigen,
+          nuevoNumeroGrupo: gDestino,
+          motivo: motivoReasignacion,
+          actualizarBanco: true
+        });
+        addToast(`Se reasignaron ${res.cantidadMovimientos} cobros (${formatMoney(res.totalMonto)}) al Grupo #${gDestino} (${res.nuevoTitular})`, 'success');
+      }
+
+      setReasignarModalOpen(false);
+
+      // Recargar datos y vistas
+      await loadInicial();
+      await loadSaldosGeneral();
+      if (selectedGrupo) {
+        if (selectedGrupo === reasignarGrupoOrigen) {
+          setSelectedGrupo(gDestino);
+          await loadMovimientos(gDestino);
+          await loadLiquidaciones(gDestino);
+        } else {
+          await loadMovimientos(selectedGrupo);
+          await loadLiquidaciones(selectedGrupo);
+        }
+      }
+    } catch (err) {
+      console.error('Error al reasignar:', err);
+      addToast('Error al reasignar: ' + err.message, 'error');
+    } finally {
+      setSavingReasignacion(false);
     }
   }
 
@@ -2816,6 +2930,27 @@ export default function Contaduria() {
                             >
                               <DollarSign size={13} /> Cobrar
                             </button>
+                            {sinFacturas && (
+                              <button
+                                onClick={() => handleOpenReasignarGrupoCompleto(row.numero_grupo)}
+                                className="air-btn"
+                                style={{
+                                  padding: '5px 9px',
+                                  fontSize: '11px',
+                                  fontWeight: 800,
+                                  borderRadius: '7px',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px',
+                                  background: 'rgba(245, 158, 11, 0.15)',
+                                  color: '#d97706',
+                                  border: '1px solid rgba(245, 158, 11, 0.35)'
+                                }}
+                                title="Reasignar cobros de este grupo a su grupo correspondiente (error en planilla original)"
+                              >
+                                <ArrowRightLeft size={12} /> Reasignar
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -3138,6 +3273,55 @@ export default function Contaduria() {
               </div>
             </div>
 
+            {/* ALERTA SI EL GRUPO TIENE PAGOS PERO NINGUNA FACTURA */}
+            {resumenGrupo.totalFacturas === 0 && resumenGrupo.totalPagos > 0 && (
+              <div style={{
+                background: 'rgba(245, 158, 11, 0.09)',
+                border: '1px solid rgba(245, 158, 11, 0.35)',
+                borderRadius: '10px',
+                padding: '12px 16px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '16px',
+                flexWrap: 'wrap',
+                gap: '12px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <AlertCircle size={20} color="#d97706" style={{ flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: '13px', color: '#b45309' }}>
+                      Este grupo registra cobros pero no posee facturación propia ({formatMoney(resumenGrupo.totalPagos)} a favor)
+                    </div>
+                    <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      Error común de tipeo de grupo en la planilla original. Puedes reasignar los cobros a su grupo correspondiente con un solo clic.
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleOpenReasignarGrupoCompleto(selectedGrupo)}
+                  className="air-btn"
+                  style={{
+                    padding: '7px 14px',
+                    fontSize: '12px',
+                    fontWeight: 800,
+                    borderRadius: '8px',
+                    background: '#d97706',
+                    color: '#fff',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    border: 'none',
+                    boxShadow: '0 2px 6px rgba(217, 119, 6, 0.3)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <ArrowRightLeft size={14} /> Reasignar todos los cobros
+                </button>
+              </div>
+            )}
+
             {/* BANNER INFORMATIVO CUANDO HAY UN FILTRO DE PERÍODO / AÑO ACTIVO */}
             {extractoPeriodoFilter !== 'TODOS' && (
               <div style={{
@@ -3350,25 +3534,47 @@ export default function Contaduria() {
                             style={{ padding: '8px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}
                           >
                             {isPago ? (
-                              <button
-                                onClick={() => handleAbrirComprobanteMovimiento(m)}
-                                className="air-btn"
-                                style={{
-                                  padding: '4px 8px',
-                                  fontSize: '10.5px',
-                                  borderRadius: '6px',
-                                  fontWeight: 700,
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '3px',
-                                  background: 'rgba(16, 185, 129, 0.1)',
-                                  color: '#10b981',
-                                  border: '1px solid rgba(16, 185, 129, 0.25)'
-                                }}
-                                title="Generar e imprimir comprobante de este cobro"
-                              >
-                                <Printer size={11} /> Recibo
-                              </button>
+                              <div style={{ display: 'inline-flex', gap: '4px', alignItems: 'center' }}>
+                                <button
+                                  onClick={() => handleAbrirComprobanteMovimiento(m)}
+                                  className="air-btn"
+                                  style={{
+                                    padding: '4px 8px',
+                                    fontSize: '10.5px',
+                                    borderRadius: '6px',
+                                    fontWeight: 700,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    background: 'rgba(16, 185, 129, 0.1)',
+                                    color: '#10b981',
+                                    border: '1px solid rgba(16, 185, 129, 0.25)'
+                                  }}
+                                  title="Generar e imprimir comprobante de este cobro"
+                                >
+                                  <Printer size={11} /> Recibo
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenReasignarMovimiento(m)}
+                                  className="air-btn"
+                                  style={{
+                                    padding: '4px 8px',
+                                    fontSize: '10.5px',
+                                    borderRadius: '6px',
+                                    fontWeight: 700,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    background: 'rgba(59, 130, 246, 0.1)',
+                                    color: '#2563eb',
+                                    border: '1px solid rgba(59, 130, 246, 0.25)'
+                                  }}
+                                  title="Reasignar este cobro a otro grupo (por error en planilla original)"
+                                >
+                                  <ArrowRightLeft size={11} /> Reasignar
+                                </button>
+                              </div>
                             ) : (
                               <span style={{ color: 'var(--text-secondary)', fontSize: '10px' }}>—</span>
                             )}
@@ -4085,6 +4291,276 @@ export default function Contaduria() {
               {savingGrupoEdit ? <Loader2 size={16} className="animate-spin" /> : 'Guardar Nombre'}
             </button>
           </div>
+        </form>
+      </Modal>
+
+      {/* MODAL DE REASIGNACIÓN DE COBROS / GRUPOS ERRÓNEOS */}
+      <Modal 
+        isOpen={reasignarModalOpen} 
+        onClose={() => setReasignarModalOpen(false)} 
+        title={reasignarModo === 'movimiento' ? 'Reasignar Cobro a Otro Grupo' : `Reasignar Cobros del Grupo #${reasignarGrupoOrigen}`}
+        maxWidth="560px"
+      >
+        <form onSubmit={handleSubmitReasignacion} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          
+          {/* TARJETA DETALLE ORIGEN */}
+          <div style={{
+            background: 'var(--surface-hover)',
+            border: '1px solid var(--border-light)',
+            borderRadius: '12px',
+            padding: '14px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px'
+          }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+              ORIGEN DEL COBRO
+            </div>
+
+            {reasignarModo === 'movimiento' && reasignarTargetMov ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
+                <div>
+                  <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>Grupo Actual</div>
+                  <div style={{ fontWeight: 800, fontSize: '13px' }}>Grupo #{reasignarTargetMov.numero_grupo}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>Monto Cobro</div>
+                  <div style={{ fontWeight: 900, fontSize: '13px', color: 'var(--accent)' }}>
+                    {formatMoney(Math.abs(reasignarTargetMov.importe))}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>Fecha</div>
+                  <div style={{ fontWeight: 700, fontSize: '12px' }}>{formatFecha(reasignarTargetMov.fecha)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>Período Original</div>
+                  <div style={{ fontWeight: 700, fontSize: '12px' }}>{reasignarTargetMov.periodo || 'Sin asignar'}</div>
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>Detalle / Concepto</div>
+                  <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', wordBreak: 'break-word', marginTop: '2px' }}>
+                    {reasignarTargetMov.observaciones || 'Sin observaciones'}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div style={{ fontWeight: 800, fontSize: '14px' }}>Grupo #{reasignarGrupoOrigen}</div>
+                <div style={{ fontSize: '12px', color: '#d97706', marginTop: '2px', fontWeight: 600 }}>
+                  ⚠️ Se transferirán todos los pagos registrados actualmente en el Grupo #{reasignarGrupoOrigen} al grupo destino que selecciones a continuación.
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* SELECTOR / ENTRADA DE GRUPO DESTINO */}
+          <div>
+            <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Número de Grupo Destino *</span>
+              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                Escribe el número de grupo
+              </span>
+            </label>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="number"
+                min="1"
+                placeholder="Ej: 5051, 70041, 180..."
+                value={targetGrupoInput}
+                onChange={(e) => setTargetGrupoInput(e.target.value)}
+                className="form-input"
+                style={{ flex: 1, fontSize: '14px', fontWeight: 800 }}
+                required
+                autoFocus
+              />
+              <select
+                onChange={(e) => {
+                  if (e.target.value) setTargetGrupoInput(e.target.value);
+                }}
+                className="form-input"
+                style={{ maxWidth: '170px', fontSize: '12px' }}
+                value={targetGrupoInput}
+              >
+                <option value="">Buscar en lista...</option>
+                {gruposList
+                  .filter(g => g.numero_grupo !== reasignarGrupoOrigen)
+                  .map(g => (
+                    <option key={g.numero_grupo} value={g.numero_grupo}>
+                      #{g.numero_grupo} - {g.nombre?.slice(0, 20)}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          </div>
+
+          {/* VISTA PREVIA DEL GRUPO DESTINO */}
+          {loadingTargetDetalle ? (
+            <div style={{ padding: '16px', textAlign: 'center', background: 'var(--surface-hover)', borderRadius: '10px' }}>
+              <Loader2 size={18} className="animate-spin" style={{ margin: '0 auto', color: 'var(--accent)' }} />
+              <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', display: 'block' }}>
+                Buscando datos del Grupo #{targetGrupoInput}...
+              </span>
+            </div>
+          ) : targetGrupoDetalle ? (
+            <div style={{
+              background: 'rgba(59, 130, 246, 0.05)',
+              border: '1px solid rgba(59, 130, 246, 0.3)',
+              borderRadius: '12px',
+              padding: '14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: '#2563eb', textTransform: 'uppercase' }}>
+                  GRUPO DESTINO CONFIRMADO
+                </span>
+                <span style={{ fontSize: '11px', fontWeight: 800, background: '#3b82f6', color: '#fff', padding: '2px 8px', borderRadius: '6px' }}>
+                  Grupo #{targetGrupoDetalle.numero_grupo}
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px', marginTop: '4px' }}>
+                <div>
+                  <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>Titular</div>
+                  <div style={{ fontWeight: 800, fontSize: '13px', color: 'var(--text-primary)' }}>
+                    {targetGrupoDetalle.titular}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>Líneas Activas</div>
+                  <div style={{ fontWeight: 800, fontSize: '13px' }}>
+                    {targetGrupoDetalle.total_lineas} línea(s)
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>Saldo Capital Actual</div>
+                  <div style={{ fontWeight: 900, fontSize: '13px', color: targetGrupoDetalle.saldo_capital > 5 ? '#ef4444' : 'var(--accent)' }}>
+                    {formatMoney(targetGrupoDetalle.saldo_capital)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Períodos pendientes de imputar */}
+              {targetGrupoDetalle.periodos_pendientes?.length > 0 ? (
+                <div style={{ marginTop: '6px', paddingTop: '8px', borderTop: '1px dashed rgba(59, 130, 246, 0.25)' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: '#1e40af' }}>
+                    Facturas impagas en este grupo que se amortizarán:
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
+                    {targetGrupoDetalle.periodos_pendientes.slice(0, 4).map(p => (
+                      <span key={p.periodo} style={{ fontSize: '11px', fontWeight: 700, background: 'rgba(239, 68, 68, 0.1)', color: '#dc2626', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+                        {p.periodo}: {formatMoney(p.saldo_pendiente)}
+                      </span>
+                    ))}
+                    {targetGrupoDetalle.periodos_pendientes.length > 4 && (
+                      <span style={{ fontSize: '10.5px', color: 'var(--text-secondary)', alignSelf: 'center' }}>
+                        +{targetGrupoDetalle.periodos_pendientes.length - 4} más...
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ marginTop: '4px', fontSize: '11.5px', color: '#059669', fontWeight: 600 }}>
+                  ✓ Este grupo no tiene facturas vencidas impagas. El pago generará saldo a favor en cuenta corriente.
+                </div>
+              )}
+            </div>
+          ) : targetGrupoInput ? (
+            <div style={{ padding: '10px 14px', background: 'rgba(239, 68, 68, 0.08)', borderRadius: '8px', color: '#dc2626', fontSize: '12px', fontWeight: 600 }}>
+              ⚠️ No se encontró ningún grupo existente con el número #{targetGrupoInput}. Si confirmas, se creará la cuenta para ese grupo.
+            </div>
+          ) : null}
+
+          {/* PERÍODO A IMPUTAR */}
+          <div>
+            <label className="form-label">Período de Imputación (Opcional)</label>
+            <input
+              type="text"
+              placeholder="Ej: 2026-07 (dejar vacío para usar período original)"
+              value={targetPeriodoInput}
+              onChange={(e) => setTargetPeriodoInput(e.target.value)}
+              className="form-input"
+              style={{ fontSize: '13px' }}
+            />
+            {targetGrupoDetalle?.periodos_pendientes?.length > 0 && (
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
+                <span style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>Sugeridos:</span>
+                {targetGrupoDetalle.periodos_pendientes.map(p => (
+                  <button
+                    key={p.periodo}
+                    type="button"
+                    onClick={() => setTargetPeriodoInput(p.periodo)}
+                    style={{
+                      background: targetPeriodoInput === p.periodo ? 'var(--accent)' : 'var(--surface-hover)',
+                      color: targetPeriodoInput === p.periodo ? '#fff' : 'var(--text-primary)',
+                      border: '1px solid var(--border-light)',
+                      borderRadius: '5px',
+                      padding: '2px 6px',
+                      fontSize: '10.5px',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {p.periodo}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* MOTIVO */}
+          <div>
+            <label className="form-label">Motivo o Justificación</label>
+            <input
+              type="text"
+              value={motivoReasignacion}
+              onChange={(e) => setMotivoReasignacion(e.target.value)}
+              className="form-input"
+              style={{ fontSize: '13px' }}
+              placeholder="Ej: Error de tipeo en el Excel original"
+            />
+          </div>
+
+          {/* ACCIONES */}
+          <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+            <button 
+              type="button" 
+              onClick={() => setReasignarModalOpen(false)} 
+              className="air-btn" 
+              style={{ flex: 1 }}
+              disabled={savingReasignacion}
+            >
+              Cancelar
+            </button>
+            <button 
+              type="submit" 
+              disabled={savingReasignacion || !targetGrupoInput} 
+              className="air-btn-primary" 
+              style={{ 
+                flex: 1.5, 
+                display: 'inline-flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                gap: '6px',
+                background: '#2563eb' 
+              }}
+            >
+              {savingReasignacion ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Reasignando...
+                </>
+              ) : (
+                <>
+                  <ArrowRightLeft size={16} />
+                  Confirmar Reasignación
+                </>
+              )}
+            </button>
+          </div>
+
         </form>
       </Modal>
 

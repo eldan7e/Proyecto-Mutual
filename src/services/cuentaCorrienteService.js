@@ -522,3 +522,354 @@ export async function registrarCobroCuenta({
 
   return data;
 }
+
+/**
+ * Obtiene el detalle rápido de un grupo para la vista previa de reasignación
+ */
+export async function fetchDetalleGrupoParaReasignacion(numeroGrupo) {
+  const g = parseInt(numeroGrupo);
+  if (isNaN(g) || g <= 0) return null;
+
+  // 1. Alias y datos de grupo
+  const { data: grp } = await supabase
+    .from('grupos')
+    .select('alias_grupo')
+    .eq('numero_grupo', g)
+    .maybeSingle();
+
+  // 2. Titular de grupo_socio
+  let titular = grp?.alias_grupo || null;
+  const { data: gs } = await supabase
+    .from('grupo_socio')
+    .select('es_titular, socio_id')
+    .eq('numero_grupo', g);
+
+  if (!titular && gs && gs.length > 0) {
+    const titId = gs.find(x => x.es_titular)?.socio_id || gs[0].socio_id;
+    const { data: s } = await supabase
+      .from('socios')
+      .select('nombre_completo')
+      .eq('id', titId)
+      .maybeSingle();
+    titular = s?.nombre_completo;
+  }
+
+  // 3. Titular de lineas si aún no tiene
+  if (!titular) {
+    const { data: l } = await supabase
+      .from('lineas')
+      .select('socio_id, socios:socio_id(nombre_completo)')
+      .eq('numero_grupo', g)
+      .limit(1);
+    if (l && l[0]?.socios?.nombre_completo) {
+      titular = l[0].socios.nombre_completo;
+    }
+  }
+
+  // 4. Nombre histórico en movimientos_cuenta
+  if (!titular) {
+    const { data: mc } = await supabase
+      .from('movimientos_cuenta')
+      .select('nombre')
+      .eq('numero_grupo', g)
+      .not('nombre', 'is', null)
+      .limit(1);
+    titular = mc?.[0]?.nombre;
+  }
+
+  if (!titular) {
+    titular = `Grupo ${g}`;
+  }
+
+  // 5. Total líneas activas
+  const { count: lineasCount } = await supabase
+    .from('lineas')
+    .select('numero_linea', { count: 'exact', head: true })
+    .eq('numero_grupo', g)
+    .neq('estado', 'BAJA');
+
+  // 6. Facturas / liquidaciones pendientes
+  const { data: liqs } = await supabase
+    .from('liquidaciones_grupos')
+    .select('liquidacion_id, periodo, monto_total_facturado, monto_abonado, estado_pago')
+    .eq('numero_grupo', g)
+    .neq('estado_pago', 'ABONADO')
+    .order('periodo', { ascending: true });
+
+  const periodosPendientes = (liqs || []).map(l => ({
+    liquidacion_id: l.liquidacion_id,
+    periodo: l.periodo,
+    monto_total: Number(l.monto_total_facturado || 0),
+    monto_abonado: Number(l.monto_abonado || 0),
+    saldo_pendiente: Math.max(0, Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)),
+    estado_pago: l.estado_pago
+  }));
+
+  // 7. Saldo capital rápido en movimientos_cuenta
+  const { data: movs } = await supabase
+    .from('movimientos_cuenta')
+    .select('importe')
+    .eq('numero_grupo', g);
+  
+  const saldoCapital = (movs || []).reduce((acc, m) => acc + Number(m.importe || 0), 0);
+
+  return {
+    numero_grupo: g,
+    titular,
+    total_lineas: lineasCount || 0,
+    saldo_capital: saldoCapital,
+    periodos_pendientes: periodosPendientes
+  };
+}
+
+/**
+ * Reasigna un movimiento de pago individual a otro grupo
+ */
+export async function reasignarPagoCuentaCorriente({
+  movimientoId,
+  nuevoNumeroGrupo,
+  nuevoPeriodo = null,
+  motivo = '',
+  actualizarBanco = true
+}) {
+  const gDestino = parseInt(nuevoNumeroGrupo);
+  if (isNaN(gDestino) || gDestino <= 0) {
+    throw new Error('Debe especificar un número de grupo destino válido');
+  }
+
+  // 1. Obtener el movimiento a reasignar
+  const { data: mov, error: errMov } = await supabase
+    .from('movimientos_cuenta')
+    .select('*')
+    .eq('id', movimientoId)
+    .single();
+
+  if (errMov || !mov) {
+    throw new Error('No se encontró el movimiento a reasignar');
+  }
+
+  const oldNumeroGrupo = mov.numero_grupo;
+  if (oldNumeroGrupo === gDestino) {
+    throw new Error('El grupo destino no puede ser igual al grupo origen');
+  }
+
+  // 2. Obtener datos del grupo destino
+  const infoDestino = await fetchDetalleGrupoParaReasignacion(gDestino);
+  const nuevoTitular = infoDestino?.titular || `Grupo ${gDestino}`;
+
+  // 3. Actualizar movimiento en movimientos_cuenta
+  const auditNota = ` [Reasignado de Grupo #${oldNumeroGrupo} a #${gDestino}${motivo ? ': ' + motivo : ''}]`;
+  const nuevaObs = ((mov.observaciones || '') + auditNota).trim();
+  const updateData = {
+    numero_grupo: gDestino,
+    nombre: nuevoTitular,
+    observaciones: nuevaObs
+  };
+  if (nuevoPeriodo) {
+    updateData.periodo = nuevoPeriodo;
+  }
+
+  const { error: errUpd } = await supabase
+    .from('movimientos_cuenta')
+    .update(updateData)
+    .eq('id', movimientoId);
+
+  if (errUpd) throw errUpd;
+
+  // 4. Actualizar movimiento bancario coincidente si existe
+  if (actualizarBanco) {
+    try {
+      const montoAbs = Math.abs(Number(mov.importe));
+      const { data: mbMatches } = await supabase
+        .from('movimientos_bancarios')
+        .select('movimiento_id, numero_grupo, monto')
+        .eq('numero_grupo', oldNumeroGrupo)
+        .gte('monto', montoAbs - 1)
+        .lte('monto', montoAbs + 1);
+
+      if (mbMatches && mbMatches.length > 0) {
+        await supabase
+          .from('movimientos_bancarios')
+          .update({
+            numero_grupo: gDestino,
+            nombre_socio: nuevoTitular,
+            periodo: nuevoPeriodo || undefined
+          })
+          .eq('movimiento_id', mbMatches[0].movimiento_id);
+      }
+    } catch (errMb) {
+      console.warn('No se pudo actualizar movimiento_bancario:', errMb);
+    }
+  }
+
+  // 5. Imputar/amortizar liquidación pendiente en el grupo destino si corresponde
+  const montoCobro = Math.abs(Number(mov.importe));
+  try {
+    let queryLiq = supabase
+      .from('liquidaciones_grupos')
+      .select('liquidacion_id, periodo, monto_total_facturado, monto_abonado, estado_pago')
+      .eq('numero_grupo', gDestino)
+      .neq('estado_pago', 'ABONADO');
+
+    if (nuevoPeriodo) {
+      queryLiq = queryLiq.eq('periodo', nuevoPeriodo);
+    }
+
+    const { data: liqsPend } = await queryLiq.order('periodo', { ascending: true });
+    if (liqsPend && liqsPend.length > 0) {
+      let remanente = montoCobro;
+      for (const liq of liqsPend) {
+        if (remanente <= 0) break;
+        const totalFact = Number(liq.monto_total_facturado || 0);
+        const pagadoActual = Number(liq.monto_abonado || 0);
+        const pendiente = Math.max(0, totalFact - pagadoActual);
+        if (pendiente <= 0) continue;
+
+        const amort = Math.min(remanente, pendiente);
+        let nuevoAbonado = pagadoActual + amort;
+        const isAbonado = nuevoAbonado >= (totalFact - 2);
+        if (isAbonado) nuevoAbonado = totalFact;
+
+        await supabase
+          .from('liquidaciones_grupos')
+          .update({
+            monto_abonado: Math.round(nuevoAbonado * 100) / 100,
+            estado_pago: isAbonado ? 'ABONADO' : 'PARCIAL',
+            updated_at: new Date().toISOString()
+          })
+          .eq('liquidacion_id', liq.liquidacion_id);
+
+        remanente -= amort;
+      }
+    }
+  } catch (errLiq) {
+    console.warn('Error al sincronizar liquidaciones_grupos destino:', errLiq);
+  }
+
+  // 6. Verificar si el grupo origen quedó huérfano (0 movimientos, 0 líneas, 0 socios)
+  await limpiarGrupoHuerfanoSiAplica(oldNumeroGrupo);
+
+  // 7. Audit Log
+  try {
+    await supabase.from('audit_log').insert({
+      tipo_evento: 'REASIGNACION_PAGO',
+      descripcion: `Pago ID ${movimientoId} ($${montoCobro}) reasignado de Grupo #${oldNumeroGrupo} a Grupo #${gDestino} (${nuevoTitular}). Motivo: ${motivo || 'Error en planilla original'}`,
+      monto: montoCobro,
+      usuario: 'admin@aunar.com'
+    });
+  } catch (e) {
+    console.warn('Audit log warn:', e);
+  }
+
+  return {
+    success: true,
+    movimientoId,
+    oldNumeroGrupo,
+    nuevoNumeroGrupo: gDestino,
+    nuevoTitular,
+    monto: montoCobro
+  };
+}
+
+/**
+ * Reasigna todos los pagos y movimientos de un grupo huérfano o erróneo a otro grupo
+ */
+export async function reasignarGrupoCompleto({
+  oldNumeroGrupo,
+  nuevoNumeroGrupo,
+  motivo = '',
+  actualizarBanco = true
+}) {
+  const gOrigen = parseInt(oldNumeroGrupo);
+  const gDestino = parseInt(nuevoNumeroGrupo);
+  if (isNaN(gOrigen) || isNaN(gDestino) || gOrigen === gDestino) {
+    throw new Error('Números de grupo inválidos');
+  }
+
+  // 1. Obtener todos los movimientos de pago del grupo origen
+  const { data: movs, error: errMovs } = await supabase
+    .from('movimientos_cuenta')
+    .select('*')
+    .eq('numero_grupo', gOrigen)
+    .eq('tipo', 'PAGO');
+
+  if (errMovs) throw errMovs;
+  if (!movs || movs.length === 0) {
+    throw new Error(`El Grupo #${gOrigen} no tiene pagos registrados para reasignar`);
+  }
+
+  const infoDestino = await fetchDetalleGrupoParaReasignacion(gDestino);
+  const nuevoTitular = infoDestino?.titular || `Grupo ${gDestino}`;
+
+  let totalReasignado = 0;
+  for (const m of movs) {
+    await reasignarPagoCuentaCorriente({
+      movimientoId: m.id,
+      nuevoNumeroGrupo: gDestino,
+      nuevoPeriodo: m.periodo,
+      motivo: motivo || 'Reasignación masiva de grupo erróneo',
+      actualizarBanco
+    });
+    totalReasignado += Math.abs(Number(m.importe || 0));
+  }
+
+  // Limpiar grupo origen si quedó huérfano
+  await limpiarGrupoHuerfanoSiAplica(gOrigen);
+
+  return {
+    success: true,
+    cantidadMovimientos: movs.length,
+    totalMonto: totalReasignado,
+    oldNumeroGrupo: gOrigen,
+    nuevoNumeroGrupo: gDestino,
+    nuevoTitular
+  };
+}
+
+/**
+ * Limpia un grupo huérfano (creado por error tipográfico) si no tiene más movimientos ni socios ni líneas
+ */
+async function limpiarGrupoHuerfanoSiAplica(numeroGrupo) {
+  try {
+    const g = parseInt(numeroGrupo);
+    if (isNaN(g)) return;
+
+    // Verificar si quedan movimientos en movimientos_cuenta
+    const { count: countMovs } = await supabase
+      .from('movimientos_cuenta')
+      .select('id', { count: 'exact', head: true })
+      .eq('numero_grupo', g);
+
+    if (countMovs && countMovs > 0) return;
+
+    // Verificar si tiene facturas / liquidaciones
+    const { count: countLiqs } = await supabase
+      .from('liquidaciones_grupos')
+      .select('liquidacion_id', { count: 'exact', head: true })
+      .eq('numero_grupo', g);
+
+    if (countLiqs && countLiqs > 0) return;
+
+    // Verificar si tiene líneas telefónicas
+    const { count: countLineas } = await supabase
+      .from('lineas')
+      .select('numero_linea', { count: 'exact', head: true })
+      .eq('numero_grupo', g);
+
+    if (countLineas && countLineas > 0) return;
+
+    // Verificar si tiene socios asociados
+    const { count: countSocios } = await supabase
+      .from('grupo_socio')
+      .select('socio_id', { count: 'exact', head: true })
+      .eq('numero_grupo', g);
+
+    if (countSocios && countSocios > 0) return;
+
+    // Si no tiene nada, eliminar el grupo dummy de la tabla grupos
+    await supabase.from('grupos').delete().eq('numero_grupo', g);
+  } catch (errClean) {
+    console.warn('Advertencia al limpiar grupo huérfano:', errClean);
+  }
+}
+
