@@ -108,7 +108,7 @@ export default function GestionDeuda() {
     try {
       const { data } = await fetchLiquidacionesPaginated({
         periodo: selectedPeriod,
-        estado: selectedStatus,
+        estado: selectedStatus === 'MOROSOS_CRITICOS' ? 'DEUDOR' : selectedStatus,
         search: debouncedSearch,
       });
       setLiquidaciones(data || []);
@@ -135,7 +135,7 @@ export default function GestionDeuda() {
     try {
       const stats = await fetchLiquidacionesStats({
         periodo: selectedPeriod,
-        estado: selectedStatus,
+        estado: selectedStatus === 'MOROSOS_CRITICOS' ? 'DEUDOR' : selectedStatus,
       });
       const cobroRate = stats.totalFacturado > 0 ? (stats.totalAbonado / stats.totalFacturado) * 100 : 0;
       setKpis({
@@ -198,6 +198,9 @@ export default function GestionDeuda() {
   // Sort and filter groups by search query
   const sortedGroups = useMemo(() => {
     let result = [...groupedData];
+    if (selectedStatus === 'MOROSOS_CRITICOS') {
+      result = result.filter(group => (group.pendientesCount || 0) > 4);
+    }
     if (search.trim()) {
       const s = search.toLowerCase().trim();
       result = result.filter(group => 
@@ -207,7 +210,7 @@ export default function GestionDeuda() {
     }
     result.sort((a, b) => b.totalPendiente - a.totalPendiente);
     return result;
-  }, [groupedData, search]);
+  }, [groupedData, search, selectedStatus]);
 
   // Synchronize pagination total with filtered count
   useEffect(() => {
@@ -413,6 +416,7 @@ export default function GestionDeuda() {
                 <option value="Todos">Todos</option>
                 <option value="DEUDOR">Con deuda</option>
                 <option value="MOROSO">Morosos</option>
+                <option value="MOROSOS_CRITICOS">Críticos (+4 períodos sin pago)</option>
                 <option value="AL_DIA">Al día</option>
               </select>
             </div>
