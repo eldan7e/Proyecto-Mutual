@@ -2196,6 +2196,8 @@ export default function ConciliacionBancaria() {
           insertedId = insertedMovs[0].movimiento_id;
         }
 
+        let groupNum = null;
+
         // Update liquidaciones_grupos
         for (const liqIdStr of Object.keys(aggPayments)) {
           const liqId = parseInt(liqIdStr, 10);
@@ -2203,6 +2205,9 @@ export default function ConciliacionBancaria() {
           const liqObj = row.pendingList.find(l => l.liquidacion_id === liqId);
           
           if (liqObj) {
+            if (!groupNum && liqObj.numero_grupo) {
+              groupNum = liqObj.numero_grupo;
+            }
             // Leer monto_abonado FRESCO de la DB para evitar race conditions y doble contabilización
             const { data: freshLiq } = await supabase
               .from('liquidaciones_grupos')
@@ -2223,6 +2228,23 @@ export default function ConciliacionBancaria() {
               })
               .eq('liquidacion_id', liqId);
             if (liqError) throw liqError;
+          }
+        }
+
+        // Registrar cobro en Cuenta Corriente unificada por grupo
+        if (groupNum) {
+          try {
+            await registrarCobroCuenta({
+              numero_grupo: groupNum,
+              nombre: row.selectedSocioLabel || `Grupo ${groupNum}`,
+              importe: Number(row.netoReal),
+              medio_pago: row.banco || 'TRANSFERENCIA',
+              observaciones: `Conciliación Bancaria - ${row.concepto}${row.comprobante ? ` (Cpbte: ${row.comprobante})` : ''}`,
+              periodo: selectedPeriod || null,
+              skipLiqUpdate: true
+            });
+          } catch (errCuenta) {
+            console.warn("Aviso al registrar cobro en cuenta corriente:", errCuenta);
           }
         }
 

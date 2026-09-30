@@ -695,39 +695,78 @@ export default function Contaduria() {
     let facturasPendientes;
 
     if (targetFactura) {
-      // Factura específica seleccionada: buscar el movimiento correspondiente a esa factura
-      const movTarget = movimientos.find(m => 
-        m.tipo === 'FACTURA' && 
-        m.periodo === targetFactura.periodo && 
-        (m.empresa === (targetFactura.proveedores?.nombre || targetFactura.empresa) || !targetFactura.proveedores?.nombre)
-      );
-      
-      if (movTarget) {
-        facturasPendientes = [{
-          id: movTarget.id,
-          fecha: movTarget.fecha,
-          periodo: movTarget.periodo,
-          numero_linea: movTarget.numero_linea,
-          empresa: movTarget.empresa,
-          observaciones: movTarget.observaciones,
-          importe: movTarget.importe,
-          pago_aplicado_capital: movTarget.pago_aplicado_capital || 0,
-          pago_aplicado_interes: movTarget.pago_aplicado_interes || 0
-        }];
+      if (targetFactura.isMultiProvider || (targetFactura.items && targetFactura.items.length > 1)) {
+        // Grupo multi-operadora: incluir TODAS las facturas de ese período para el grupo
+        const movTargets = movimientos.filter(m => 
+          m.tipo === 'FACTURA' && 
+          m.periodo === targetFactura.periodo && 
+          (m.saldo_final > 0 || (Number(m.importe) - Number(m.pago_aplicado_capital || 0)) > 0)
+        );
+
+        if (movTargets.length > 0) {
+          facturasPendientes = movTargets.map(m => ({
+            id: m.id,
+            fecha: m.fecha,
+            periodo: m.periodo,
+            numero_linea: m.numero_linea,
+            empresa: m.empresa,
+            observaciones: m.observaciones,
+            importe: m.importe,
+            pago_aplicado_capital: m.pago_aplicado_capital || 0,
+            pago_aplicado_interes: m.pago_aplicado_interes || 0
+          }));
+        } else {
+          // Fallback: usar los items de targetFactura
+          facturasPendientes = (targetFactura.items || []).map(subLiq => {
+            const saldoPend = Math.max(0, Number(subLiq.monto_total_facturado || 0) - Number(subLiq.monto_abonado || 0));
+            return {
+              id: subLiq.liquidacion_id || 0,
+              fecha: subLiq.fecha_emision || (targetFactura.periodo ? targetFactura.periodo + '-10' : ''),
+              periodo: targetFactura.periodo,
+              numero_linea: subLiq.numero_linea,
+              empresa: subLiq.proveedores?.nombre || 'MUTUAL',
+              observaciones: `Facturación Período ${targetFactura.periodo} (${subLiq.proveedores?.nombre || ''})`,
+              importe: saldoPend,
+              pago_aplicado_capital: 0,
+              pago_aplicado_interes: 0
+            };
+          });
+        }
       } else {
-        // Fallback: usar datos del targetFactura directamente
-        const saldoPend = Math.max(0, Number(targetFactura.monto_total_facturado || targetFactura.saldo_impago || 0) - Number(targetFactura.monto_abonado || 0));
-        facturasPendientes = [{
-          id: targetFactura.id || 0,
-          fecha: targetFactura.fecha_emision || targetFactura.fecha || (targetFactura.periodo ? targetFactura.periodo + '-10' : ''),
-          periodo: targetFactura.periodo,
-          numero_linea: targetFactura.numero_linea,
-          empresa: targetFactura.proveedores?.nombre || targetFactura.empresa || 'MUTUAL',
-          observaciones: `Facturación Período ${targetFactura.periodo}`,
-          importe: saldoPend,
-          pago_aplicado_capital: 0,
-          pago_aplicado_interes: 0
-        }];
+        // Factura específica seleccionada: buscar el movimiento correspondiente a esa factura
+        const movTarget = movimientos.find(m => 
+          m.tipo === 'FACTURA' && 
+          m.periodo === targetFactura.periodo && 
+          (m.empresa === (targetFactura.proveedores?.nombre || targetFactura.empresa) || !targetFactura.proveedores?.nombre)
+        );
+        
+        if (movTarget) {
+          facturasPendientes = [{
+            id: movTarget.id,
+            fecha: movTarget.fecha,
+            periodo: movTarget.periodo,
+            numero_linea: movTarget.numero_linea,
+            empresa: movTarget.empresa,
+            observaciones: movTarget.observaciones,
+            importe: movTarget.importe,
+            pago_aplicado_capital: movTarget.pago_aplicado_capital || 0,
+            pago_aplicado_interes: movTarget.pago_aplicado_interes || 0
+          }];
+        } else {
+          // Fallback: usar datos del targetFactura directamente
+          const saldoPend = Math.max(0, Number(targetFactura.monto_total_facturado || targetFactura.saldo_impago || 0) - Number(targetFactura.monto_abonado || 0));
+          facturasPendientes = [{
+            id: targetFactura.id || 0,
+            fecha: targetFactura.fecha_emision || targetFactura.fecha || (targetFactura.periodo ? targetFactura.periodo + '-10' : ''),
+            periodo: targetFactura.periodo,
+            numero_linea: targetFactura.numero_linea,
+            empresa: targetFactura.proveedores?.nombre || targetFactura.empresa || 'MUTUAL',
+            observaciones: `Facturación Período ${targetFactura.periodo}`,
+            importe: saldoPend,
+            pago_aplicado_capital: 0,
+            pago_aplicado_interes: 0
+          }];
+        }
       }
     } else {
       // Deuda Total: procesar TODAS las facturas pendientes (FIFO)
