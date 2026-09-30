@@ -601,7 +601,7 @@ export default function Contaduria() {
       m.tipo === 'FACTURA' && 
       m.periodo && 
       m.periodo < targetPeriodo && 
-      (m.saldo_final > 1 || (Number(m.importe) - Number(m.pago_aplicado_capital || 0)) > 1)
+      (Number(m.importe) - Number(m.pago_aplicado_capital || 0)) > 1
     );
 
     if (anteriores.length === 0) return null;
@@ -673,6 +673,136 @@ export default function Contaduria() {
     setComprobanteModalOpen(true);
   }
 
+  // Función pura para obtener las facturas pendientes a imputar según target o deuda total
+  function obtenerFacturasPendientesParaCobro(target, movs) {
+    if (!movs || movs.length === 0) {
+      if (target) {
+        if (target.isMultiProvider || (target.items && target.items.length > 1)) {
+          return (target.items || []).map(subLiq => {
+            const saldoPend = Math.max(0, Number(subLiq.monto_total_facturado || 0) - Number(subLiq.monto_abonado || 0));
+            return {
+              id: subLiq.liquidacion_id || 0,
+              fecha: subLiq.fecha_emision || (target.periodo ? target.periodo + '-10' : ''),
+              periodo: target.periodo,
+              numero_linea: subLiq.numero_linea,
+              empresa: subLiq.proveedores?.nombre || 'MUTUAL',
+              observaciones: `Facturación Período ${target.periodo} (${subLiq.proveedores?.nombre || ''})`,
+              importe: saldoPend,
+              pago_aplicado_capital: 0,
+              pago_aplicado_interes: 0
+            };
+          }).filter(f => f.importe > 1);
+        } else {
+          const saldoPend = Math.max(0, Number(target.monto_total_facturado || target.saldo_impago || 0) - Number(target.monto_abonado || 0));
+          return [{
+            id: target.id || 0,
+            fecha: target.fecha_emision || target.fecha || (target.periodo ? target.periodo + '-10' : ''),
+            periodo: target.periodo,
+            numero_linea: target.numero_linea,
+            empresa: target.proveedores?.nombre || target.empresa || 'MUTUAL',
+            observaciones: `Facturación Período ${target.periodo}`,
+            importe: saldoPend,
+            pago_aplicado_capital: 0,
+            pago_aplicado_interes: 0
+          }].filter(f => f.importe > 1);
+        }
+      }
+      return [];
+    }
+
+    if (target) {
+      if (target.isMultiProvider || (target.items && target.items.length > 1)) {
+        // Grupo multi-operadora: incluir TODAS las facturas de ese período cuyo capital esté impago
+        const movTargets = movs.filter(m => 
+          m.tipo === 'FACTURA' && 
+          m.periodo === target.periodo && 
+          (Number(m.importe) - Number(m.pago_aplicado_capital || 0)) > 1
+        );
+
+        if (movTargets.length > 0) {
+          return movTargets.map(m => ({
+            id: m.id,
+            fecha: m.fecha,
+            periodo: m.periodo,
+            numero_linea: m.numero_linea,
+            empresa: m.empresa,
+            observaciones: m.observaciones,
+            importe: m.importe,
+            pago_aplicado_capital: m.pago_aplicado_capital || 0,
+            pago_aplicado_interes: m.pago_aplicado_interes || 0
+          }));
+        } else {
+          // Fallback: usar los items de target
+          return (target.items || []).map(subLiq => {
+            const saldoPend = Math.max(0, Number(subLiq.monto_total_facturado || 0) - Number(subLiq.monto_abonado || 0));
+            return {
+              id: subLiq.liquidacion_id || 0,
+              fecha: subLiq.fecha_emision || (target.periodo ? target.periodo + '-10' : ''),
+              periodo: target.periodo,
+              numero_linea: subLiq.numero_linea,
+              empresa: subLiq.proveedores?.nombre || 'MUTUAL',
+              observaciones: `Facturación Período ${target.periodo} (${subLiq.proveedores?.nombre || ''})`,
+              importe: saldoPend,
+              pago_aplicado_capital: 0,
+              pago_aplicado_interes: 0
+            };
+          }).filter(f => f.importe > 1);
+        }
+      } else {
+        // Factura específica seleccionada: buscar el movimiento correspondiente
+        const movTarget = movs.find(m => 
+          m.tipo === 'FACTURA' && 
+          m.periodo === target.periodo && 
+          (m.empresa === (target.proveedores?.nombre || target.empresa) || !target.proveedores?.nombre) &&
+          (Number(m.importe) - Number(m.pago_aplicado_capital || 0)) > 1
+        );
+        
+        if (movTarget) {
+          return [{
+            id: movTarget.id,
+            fecha: movTarget.fecha,
+            periodo: movTarget.periodo,
+            numero_linea: movTarget.numero_linea,
+            empresa: movTarget.empresa,
+            observaciones: movTarget.observaciones,
+            importe: movTarget.importe,
+            pago_aplicado_capital: movTarget.pago_aplicado_capital || 0,
+            pago_aplicado_interes: movTarget.pago_aplicado_interes || 0
+          }];
+        } else {
+          // Fallback: usar datos del target directamente
+          const saldoPend = Math.max(0, Number(target.monto_total_facturado || target.saldo_impago || 0) - Number(target.monto_abonado || 0));
+          return [{
+            id: target.id || 0,
+            fecha: target.fecha_emision || target.fecha || (target.periodo ? target.periodo + '-10' : ''),
+            periodo: target.periodo,
+            numero_linea: target.numero_linea,
+            empresa: target.proveedores?.nombre || target.empresa || 'MUTUAL',
+            observaciones: `Facturación Período ${target.periodo}`,
+            importe: saldoPend,
+            pago_aplicado_capital: 0,
+            pago_aplicado_interes: 0
+          }].filter(f => f.importe > 1);
+        }
+      }
+    } else {
+      // Deuda Total: procesar TODAS las facturas pendientes de capital (FIFO)
+      return movs
+        .filter(m => m.tipo === 'FACTURA' && (Number(m.importe) - Number(m.pago_aplicado_capital || 0)) > 1)
+        .map(m => ({
+          id: m.id,
+          fecha: m.fecha,
+          periodo: m.periodo,
+          numero_linea: m.numero_linea,
+          empresa: m.empresa,
+          observaciones: m.observaciones,
+          importe: m.importe,
+          pago_aplicado_capital: m.pago_aplicado_capital || 0,
+          pago_aplicado_interes: m.pago_aplicado_interes || 0
+        }));
+    }
+  }
+
   // --- CÁLCULO DE FIFO Y COBRO ---
   useEffect(() => {
     if (!cobroModalOpen) {
@@ -692,99 +822,7 @@ export default function Contaduria() {
       return;
     }
 
-    let facturasPendientes;
-
-    if (targetFactura) {
-      if (targetFactura.isMultiProvider || (targetFactura.items && targetFactura.items.length > 1)) {
-        // Grupo multi-operadora: incluir TODAS las facturas de ese período para el grupo
-        const movTargets = movimientos.filter(m => 
-          m.tipo === 'FACTURA' && 
-          m.periodo === targetFactura.periodo && 
-          (m.saldo_final > 0 || (Number(m.importe) - Number(m.pago_aplicado_capital || 0)) > 0)
-        );
-
-        if (movTargets.length > 0) {
-          facturasPendientes = movTargets.map(m => ({
-            id: m.id,
-            fecha: m.fecha,
-            periodo: m.periodo,
-            numero_linea: m.numero_linea,
-            empresa: m.empresa,
-            observaciones: m.observaciones,
-            importe: m.importe,
-            pago_aplicado_capital: m.pago_aplicado_capital || 0,
-            pago_aplicado_interes: m.pago_aplicado_interes || 0
-          }));
-        } else {
-          // Fallback: usar los items de targetFactura
-          facturasPendientes = (targetFactura.items || []).map(subLiq => {
-            const saldoPend = Math.max(0, Number(subLiq.monto_total_facturado || 0) - Number(subLiq.monto_abonado || 0));
-            return {
-              id: subLiq.liquidacion_id || 0,
-              fecha: subLiq.fecha_emision || (targetFactura.periodo ? targetFactura.periodo + '-10' : ''),
-              periodo: targetFactura.periodo,
-              numero_linea: subLiq.numero_linea,
-              empresa: subLiq.proveedores?.nombre || 'MUTUAL',
-              observaciones: `Facturación Período ${targetFactura.periodo} (${subLiq.proveedores?.nombre || ''})`,
-              importe: saldoPend,
-              pago_aplicado_capital: 0,
-              pago_aplicado_interes: 0
-            };
-          });
-        }
-      } else {
-        // Factura específica seleccionada: buscar el movimiento correspondiente a esa factura
-        const movTarget = movimientos.find(m => 
-          m.tipo === 'FACTURA' && 
-          m.periodo === targetFactura.periodo && 
-          (m.empresa === (targetFactura.proveedores?.nombre || targetFactura.empresa) || !targetFactura.proveedores?.nombre)
-        );
-        
-        if (movTarget) {
-          facturasPendientes = [{
-            id: movTarget.id,
-            fecha: movTarget.fecha,
-            periodo: movTarget.periodo,
-            numero_linea: movTarget.numero_linea,
-            empresa: movTarget.empresa,
-            observaciones: movTarget.observaciones,
-            importe: movTarget.importe,
-            pago_aplicado_capital: movTarget.pago_aplicado_capital || 0,
-            pago_aplicado_interes: movTarget.pago_aplicado_interes || 0
-          }];
-        } else {
-          // Fallback: usar datos del targetFactura directamente
-          const saldoPend = Math.max(0, Number(targetFactura.monto_total_facturado || targetFactura.saldo_impago || 0) - Number(targetFactura.monto_abonado || 0));
-          facturasPendientes = [{
-            id: targetFactura.id || 0,
-            fecha: targetFactura.fecha_emision || targetFactura.fecha || (targetFactura.periodo ? targetFactura.periodo + '-10' : ''),
-            periodo: targetFactura.periodo,
-            numero_linea: targetFactura.numero_linea,
-            empresa: targetFactura.proveedores?.nombre || targetFactura.empresa || 'MUTUAL',
-            observaciones: `Facturación Período ${targetFactura.periodo}`,
-            importe: saldoPend,
-            pago_aplicado_capital: 0,
-            pago_aplicado_interes: 0
-          }];
-        }
-      }
-    } else {
-      // Deuda Total: procesar TODAS las facturas pendientes (FIFO)
-      facturasPendientes = movimientos
-        .filter(m => m.tipo === 'FACTURA' && (m.saldo_final > 0 || (m.importe - (m.pago_aplicado_capital || 0)) > 0))
-        .map(m => ({
-          id: m.id,
-          fecha: m.fecha,
-          periodo: m.periodo,
-          numero_linea: m.numero_linea,
-          empresa: m.empresa,
-          observaciones: m.observaciones,
-          importe: m.importe,
-          pago_aplicado_capital: m.pago_aplicado_capital || 0,
-          pago_aplicado_interes: m.pago_aplicado_interes || 0
-        }));
-    }
-
+    const facturasPendientes = obtenerFacturasPendientesParaCobro(targetFactura, movimientos);
     const tnaEfectiva = eximirMora ? 0 : tna;
     const resultado = imputarCobroFIFO(facturasPendientes, val, tnaEfectiva, fechaCobro);
     setResultadoFifo(resultado);
@@ -809,6 +847,11 @@ export default function Contaduria() {
         obsFinal = `Cobro registrado en Contaduría - ${medioPago}`;
       }
 
+      // Re-calcular FIFO de forma sincrónica con el valor exacto enviado para evitar race conditions
+      const tnaEfectiva = eximirMora ? 0 : tna;
+      const facturasPendientesActual = obtenerFacturasPendientesParaCobro(targetFactura, movimientos);
+      const resultadoFifoFresco = imputarCobroFIFO(facturasPendientesActual, val, tnaEfectiva, fechaCobro);
+
       // 1. Registrar el cobro en cuenta corriente
       const nuevoMov = await registrarCobroCuenta({
         numero_grupo: selectedGrupo,
@@ -818,7 +861,7 @@ export default function Contaduria() {
         observaciones: obsFinal,
         fecha: fechaCobro,
         periodo: targetFactura?.periodo || null,
-        imputaciones: resultadoFifo?.desgloses || [],
+        imputaciones: resultadoFifoFresco?.desgloses || [],
         numero_linea: targetLinea || null
       });
 
@@ -834,14 +877,14 @@ export default function Contaduria() {
         monto_cobrado: val,
         medio_pago: medioPago,
         observaciones: obsFinal,
-        interesPagado: resultadoFifo?.totalInteresCancelado || 0,
-        capitalPagado: resultadoFifo?.totalCapitalCancelado || val,
-        remanenteSaldoAFavor: resultadoFifo?.remanenteSaldoAFavor || 0,
+        interesPagado: resultadoFifoFresco?.totalInteresCancelado || 0,
+        capitalPagado: resultadoFifoFresco?.totalCapitalCancelado || val,
+        remanenteSaldoAFavor: resultadoFifoFresco?.remanenteSaldoAFavor || 0,
         monto_factura: targetFactura?.monto_total_facturado || val,
-        desgloses: (resultadoFifo?.desgloses && resultadoFifo.desgloses.length > 0) ? resultadoFifo.desgloses : [{
+        desgloses: (resultadoFifoFresco?.desgloses && resultadoFifoFresco.desgloses.length > 0) ? resultadoFifoFresco.desgloses : [{
           observaciones: targetFactura ? `Facturación Período ${targetFactura.periodo} (${targetFactura.proveedores?.nombre || 'MUTUAL'})` : `Cobro en cuenta corriente - ${medioPago}`,
-          pagoAplicadoCapital: resultadoFifo?.totalCapitalCancelado || val,
-          pagoAplicadoInteres: resultadoFifo?.totalInteresCancelado || 0
+          pagoAplicadoCapital: resultadoFifoFresco?.totalCapitalCancelado || val,
+          pagoAplicadoInteres: resultadoFifoFresco?.totalInteresCancelado || 0
         }]
       });
 
@@ -1360,10 +1403,12 @@ export default function Contaduria() {
     });
 
     return Array.from(map.values()).map(g => {
-      const isCobrada = g.saldo_impago <= 1;
+      const saldoImpagoConsolidado = Math.max(0, Math.round((g.monto_total_facturado - g.monto_abonado) * 100) / 100);
+      const isCobrada = saldoImpagoConsolidado <= 1;
       const isParcial = !isCobrada && g.monto_abonado > 0;
       return {
         ...g,
+        saldo_impago: saldoImpagoConsolidado,
         estado_consolidado: isCobrada ? 'ABONADO' : isParcial ? 'PARCIAL' : 'PENDIENTE',
         isMultiProvider: g.items.length > 1
       };

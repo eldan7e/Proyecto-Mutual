@@ -379,14 +379,12 @@ export async function registrarCobroCuenta({
       
       const obsNew = String(observaciones || '').trim();
       const obsOld = String(d.observaciones || '').trim();
-      if (!obsNew && !obsOld) return true;
-      if (obsNew && obsOld) {
-        if (obsNew === obsOld) return true;
-        // Extraer comprobante si existe (ej: "Cpbte: 667001")
-        const cNew = obsNew.match(/Cpbte:\s*([A-Za-z0-9_-]+)/i)?.[1];
-        const cOld = obsOld.match(/Cpbte:\s*([A-Za-z0-9_-]+)/i)?.[1];
-        if (cNew && cOld && cNew === cOld) return true;
-      }
+      const cNew = obsNew.match(/Cpbte:\s*([A-Za-z0-9_-]+)/i)?.[1];
+      const cOld = obsOld.match(/Cpbte:\s*([A-Za-z0-9_-]+)/i)?.[1];
+      // Si ambos tienen comprobante y difieren, no es duplicado
+      if (cNew && cOld && cNew !== cOld) return false;
+      // Si coinciden en texto o comprobante, o uno de los dos no tiene observación, es duplicado de mismo grupo/fecha/monto
+      if (!obsNew || !obsOld || obsNew === obsOld || (cNew && cOld && cNew === cOld)) return true;
       return false;
     });
 
@@ -420,6 +418,9 @@ export async function registrarCobroCuenta({
 
   if (pagoAplicadoCapital === 0 && pagoAplicadoInteres === 0) {
     pagoAplicadoInteres = Math.min(monto, interesPendAnterior);
+    pagoAplicadoCapital = Math.max(0, monto - pagoAplicadoInteres);
+  } else if (Math.abs((pagoAplicadoCapital + pagoAplicadoInteres) - monto) > 0.05) {
+    // Si la suma de imputaciones difiere del monto pagado (por redondeos o payload), ajustar capital
     pagoAplicadoCapital = Math.max(0, monto - pagoAplicadoInteres);
   }
 
@@ -472,8 +473,8 @@ export async function registrarCobroCuenta({
     const { data: liqsPendientes } = await query.order('periodo', { ascending: true });
 
     if (liqsPendientes && liqsPendientes.length > 0) {
-      // Usar pagoAplicadoCapital si se desglosó mora vs capital para no sobre-amortizar facturas
-      let remanenteCobro = pagoAplicadoCapital > 0 ? pagoAplicadoCapital : monto;
+      // Usar pagoAplicadoCapital para no sobre-amortizar facturas con cobros que fueron a intereses
+      let remanenteCobro = pagoAplicadoCapital;
       for (const liq of liqsPendientes) {
         if (remanenteCobro <= 0) break;
 
@@ -623,6 +624,43 @@ export async function fetchDetalleGrupoParaReasignacion(numeroGrupo) {
 }
 
 /**
+ * Recalcula y actualiza en la base de datos los saldos persistidos (saldo_capital, saldo_final)
+ * de todos los movimientos de un grupo en orden cronológico estricto.
+ */
+export async function sincronizarSaldosPersistidosGrupo(numeroGrupo) {
+  try {
+    const g = parseInt(numeroGrupo, 10);
+    if (isNaN(g) || g <= 0) return;
+
+    const { data: movs, error } = await supabase
+      .from('movimientos_cuenta')
+      .select('*')
+      .eq('numero_grupo', g);
+
+    if (error || !movs || movs.length === 0) return;
+
+    const procesados = recalcularSaldosGrupo(movs);
+    for (const p of procesados) {
+      if (p.id) {
+        await supabase
+          .from('movimientos_cuenta')
+          .update({
+            saldo_capital_anterior: p.saldo_capital_anterior,
+            saldo_capital: p.saldo_capital,
+            pago_aplicado_interes: p.pago_aplicado_interes,
+            pago_aplicado_capital: p.pago_aplicado_capital,
+            interes_pend_final: p.interes_pend_final,
+            saldo_final: p.saldo_final
+          })
+          .eq('id', p.id);
+      }
+    }
+  } catch (err) {
+    console.warn(`[cuentaCorrienteService] Error al sincronizar saldos de Grupo ${numeroGrupo}:`, err);
+  }
+}
+
+/**
  * Reasigna un movimiento de pago individual a otro grupo
  */
 export async function reasignarPagoCuentaCorriente({
@@ -702,6 +740,44 @@ export async function reasignarPagoCuentaCorriente({
     }
   }
 
+  // 4b. Revertir amortización en liquidaciones_grupos del grupo origen si corresponde
+  try {
+    let queryOldLiq = supabase
+      .from('liquidaciones_grupos')
+      .select('liquidacion_id, periodo, monto_total_facturado, monto_abonado, estado_pago')
+      .eq('numero_grupo', oldNumeroGrupo);
+
+    if (mov.periodo) {
+      queryOldLiq = queryOldLiq.eq('periodo', mov.periodo);
+    }
+    const { data: oldLiqs } = await queryOldLiq.order('periodo', { ascending: false });
+    if (oldLiqs && oldLiqs.length > 0) {
+      let remanenteRevertir = montoCobro;
+      for (const oldLiq of oldLiqs) {
+        if (remanenteRevertir <= 0) break;
+        const abonadoActual = Number(oldLiq.monto_abonado || 0);
+        if (abonadoActual <= 0) continue;
+
+        const reversa = Math.min(remanenteRevertir, abonadoActual);
+        const nuevoAbonado = Math.max(0, Math.round((abonadoActual - reversa) * 100) / 100);
+        const nuevoEstado = nuevoAbonado <= 1 ? 'PENDIENTE' : 'PARCIAL';
+
+        await supabase
+          .from('liquidaciones_grupos')
+          .update({
+            monto_abonado: nuevoAbonado,
+            estado_pago: nuevoEstado,
+            updated_at: new Date().toISOString()
+          })
+          .eq('liquidacion_id', oldLiq.liquidacion_id);
+
+        remanenteRevertir -= reversa;
+      }
+    }
+  } catch (errRev) {
+    console.warn('Error al revertir liquidaciones_grupos en grupo origen:', errRev);
+  }
+
   // 5. Imputar/amortizar liquidación pendiente en el grupo destino si corresponde
   const montoCobro = Math.abs(Number(mov.importe));
   try {
@@ -745,6 +821,10 @@ export async function reasignarPagoCuentaCorriente({
   } catch (errLiq) {
     console.warn('Error al sincronizar liquidaciones_grupos destino:', errLiq);
   }
+
+  // 5b. Recalcular y sincronizar saldos persistidos en ambos grupos para evitar saldos corruptos
+  await sincronizarSaldosPersistidosGrupo(oldNumeroGrupo);
+  await sincronizarSaldosPersistidosGrupo(gDestino);
 
   // 6. Verificar si el grupo origen quedó huérfano (0 movimientos, 0 líneas, 0 socios)
   await limpiarGrupoHuerfanoSiAplica(oldNumeroGrupo);

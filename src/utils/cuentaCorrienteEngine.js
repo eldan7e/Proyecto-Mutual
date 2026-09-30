@@ -75,16 +75,16 @@ export function sortMovimientosCuenta(a, b) {
   const fB = b.fecha ? String(b.fecha).split('T')[0] : (b.periodo ? `${b.periodo}-01` : '');
   if (fA !== fB) return fA.localeCompare(fB);
 
-  // Si misma fecha y tienen IDs diferentes, respetar el orden de creación/registro contable
-  if (a.id !== undefined && b.id !== undefined && a.id !== b.id) {
-    return (a.id || 0) - (b.id || 0);
-  }
-
-  // Orden de tipos en la misma fecha: FACTURA genera saldo, PAGO lo cancela
+  // 1° Orden de tipos en la misma fecha: FACTURA genera saldo antes de que PAGO lo cancele
   const order = { FACTURA: 1, NOTA_DEBITO: 2, AJUSTE: 3, NOTA_CREDITO: 4, PAGO: 5 };
   const oA = order[a.tipo] || 3;
   const oB = order[b.tipo] || 3;
   if (oA !== oB) return oA - oB;
+
+  // 2° Si misma fecha y mismo tipo, respetar el orden de creación por ID
+  if (a.id !== undefined && b.id !== undefined && a.id !== b.id) {
+    return (a.id || 0) - (b.id || 0);
+  }
 
   return 0;
 }
@@ -140,35 +140,23 @@ export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA, fechaCa
     const isNC = m.tipo === 'NOTA_CREDITO';
     const importeOriginal = Number(m.importe) || 0;
 
-    // 1. Plazo Dias (Col L de Excel)
+    // 1. Plazo Dias entre la fecha anterior y la de este movimiento (Col L de Excel)
     let plazoDias = 0;
-    if (isUltimo) {
-      plazoDias = Math.max(0, getDaysDiff(m.fecha, fechaCalculo));
-    } else if (fechaAnt) {
+    if (fechaAnt) {
       plazoDias = Math.max(0, getDaysDiff(fechaAnt, m.fecha));
     }
 
     // 2. Interes % (Col M de Excel)
     const interesPct = tasaDiaria * plazoDias;
 
-    // 3. Intereses $ (Col N de Excel)
-    const pagoACapProvisional = isPago ? Math.max(0, Math.abs(importeOriginal) - intAnt) : 0;
-    let capNuevo;
-    if (isPago) {
-      capNuevo = capAnt - pagoACapProvisional;
-    } else if (isNC) {
-      capNuevo = capAnt - Math.abs(importeOriginal);
-    } else {
-      capNuevo = capAnt + importeOriginal;
-    }
-
-    const baseInteres = Math.max(0, isUltimo ? capNuevo : capAnt);
+    // 3. Intereses $ devengados en el intervalo entre movimientos sobre el saldo anterior
+    const baseInteres = Math.max(0, capAnt);
     const interesMora = baseInteres * interesPct;
 
-    // 4. Interes Pendiente Acumulado (Col O de Excel)
+    // 4. Interes Pendiente Acumulado al momento del movimiento (Col O de Excel)
     const intPendAcum = intAnt + interesMora;
 
-    // 5 & 6. Imputación de pagos: primero a interés, luego a capital (Cols P & Q de Excel)
+    // 5 & 6. Imputación de pagos: primero a interés devengado a la fecha, luego a capital (Cols P & Q de Excel)
     let pagoAInteres = 0;
     let pagoACapital = 0;
     let fechaFacturaOrigen = null;
@@ -210,7 +198,18 @@ export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA, fechaCa
     }
 
     // 8. Interes Pendiente Final (Col T de Excel)
-    const intPendFinal = intPendAcum - pagoAInteres;
+    let intPendFinal = intPendAcum - pagoAInteres;
+
+    // Si es el último movimiento y fechaCalculo es posterior, proyectar el interés acumulado hasta hoy
+    let diasProyectadosHoy = 0;
+    let interesProyectadoHoy = 0;
+    if (isUltimo && fechaCalculo) {
+      diasProyectadosHoy = Math.max(0, getDaysDiff(m.fecha, fechaCalculo));
+      if (diasProyectadosHoy > 0 && saldoCapital > 0) {
+        interesProyectadoHoy = saldoCapital * tasaDiaria * diasProyectadosHoy;
+        intPendFinal += interesProyectadoHoy;
+      }
+    }
 
     // 9. Saldo Final (Col U de Excel)
     const saldoFinal = saldoCapital + intPendFinal;
@@ -384,8 +383,12 @@ export function imputarCobroFIFO(movimientosPendientes, montoPago, tnaPct = DEFA
 
     const capitalPend = Math.max(0, Number(mov.importe) - Number(mov.pago_aplicado_capital || 0));
     const diasMora = calcularDiasMora(mov.periodo || mov.fecha, fechaCalculo);
-    const interesCalculado = calcularInteresMora(capitalPend, diasMora, tnaPct);
-    const interesPend = Math.max(0, interesCalculado - Number(mov.pago_aplicado_interes || 0));
+    const interesCalculado = (tnaPct > 0) ? calcularInteresMora(capitalPend, diasMora, tnaPct) : 0;
+    const interesPend = (tnaPct <= 0)
+      ? 0
+      : (mov.interes_pend_final !== undefined && Number(mov.interes_pend_final) > 0)
+        ? Math.max(0, Number(mov.interes_pend_final))
+        : Math.max(0, interesCalculado - Number(mov.pago_aplicado_interes || 0));
     const totalMovimiento = capitalPend + interesPend;
 
     if (totalMovimiento <= 0) continue;
@@ -541,7 +544,11 @@ export function obtenerMesesDeudaGrupo({
       if (cumpleFiltro && montoImpago > 0.5) {
         const fechaVencStr = formatFechaVencimiento(per || f.fecha, DIA_TOPE_PAGO);
         const diasMora = calcularDiasMora(per || f.fecha, fechaCalculo, DIA_TOPE_PAGO);
-        const interes = (diasMora > 0 && tna > 0) ? calcularInteresMora(montoImpago, diasMora, tna) : 0;
+        const interes = (tna <= 0) 
+          ? 0 
+          : (f.interes_pend_final !== undefined && Number(f.interes_pend_final) > 0)
+            ? Number(f.interes_pend_final)
+            : (diasMora > 0 ? calcularInteresMora(montoImpago, diasMora, tna) : 0);
 
         deudaList.push({
           periodo: per || 'S/P',
