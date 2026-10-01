@@ -743,9 +743,17 @@ export default function Campanas() {
       }
 
       const targetUrl = n8nBotWebhookUrl || 'http://34.176.65.52:5678/webhook/actualizar-bot-respuestas';
-      
-      const response = await fetch(targetUrl, {
+      const proxyUrl = 'https://zwncyaviinmfzvminytv.supabase.co/functions/v1/n8n-proxy';
+
+      // En entornos HTTPS (Vercel / producción), enrutar mediante el proxy seguro de Supabase
+      // para evitar bloqueos del navegador por contenido mixto (HTTP en HTTPS) o firewall corporativo
+      const isHttp = targetUrl.startsWith('http://');
+      const fetchUrl = isHttp ? proxyUrl : targetUrl;
+      const fetchHeaders = isHttp ? { 'x-target-url': targetUrl } : {};
+
+      const response = await fetch(fetchUrl, {
         method: 'POST',
+        headers: fetchHeaders,
         body: formData,
       });
 

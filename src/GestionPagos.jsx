@@ -19,8 +19,15 @@ import useDebounce from './hooks/useDebounce';
 import BatchModal from './components/GestionPagos/BatchModal';
 import AuditLineRow from './components/GestionPagos/AuditLineRow';
 import DescuentoModal from './components/CargaManual/DescuentoModal';
+import ResumenDiferenciasModal from './components/GestionPagos/ResumenDiferenciasModal';
 import { exportAuditoriaLineasXLSX } from './utils/exportFacturacion';
-import { crearTicketVencimientoBonificacion, getOpenVencimientoTickets } from './services/ticketService';
+import { fetchResumenDiferencias } from './services/resumenDiferenciasService';
+import { 
+  crearTicketVencimientoBonificacion, 
+  getOpenVencimientoTickets,
+  crearTicketSeguimientoDescuentoMutual,
+  getOpenMutualDiscountTickets
+} from './services/ticketService';
 import { useToast } from './components/ui/ToastProvider';
 import { useConfirm } from './components/ui/ConfirmProvider';
 import useBodyScrollLock from './hooks/useBodyScrollLock';
@@ -39,15 +46,24 @@ export default function GestionPagos() {
   const [error, setError] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [missingLines, setMissingLines] = useState([]);
-  const [showMissing, setShowMissing] = useState(false);
+  const [resumenDiferencias, setResumenDiferencias] = useState(null);
+  const [isResumenModalOpen, setIsResumenModalOpen] = useState(false);
+  const [resumenInitialTab, setResumenInitialTab] = useState('faltantes');
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebounce(searchTerm, 300);
   const [openTickets, setOpenTickets] = useState(new Set());
+  const [openMutualTickets, setOpenMutualTickets] = useState(new Set());
+
+  const operadoraNombre = useMemo(() => {
+    const p = proveedores.find(pr => String(pr.proveedor_id) === String(selectedProveedor));
+    return p?.nombre_proveedor || p?.nombre || (selectedProveedor === '1' ? 'Claro' : selectedProveedor === '2' ? 'Movistar' : selectedProveedor === '3' ? 'Personal' : 'Operadora');
+  }, [proveedores, selectedProveedor]);
 
   useEffect(() => {
     if (lineasData && lineasData.length > 0) {
       const lineas = lineasData.map(l => l.numero_linea);
       getOpenVencimientoTickets(lineas).then(setOpenTickets);
+      getOpenMutualDiscountTickets().then(res => setOpenMutualTickets(res.lineasSet));
     }
   }, [lineasData]);
 
@@ -252,6 +268,8 @@ export default function GestionPagos() {
       linea: d.numero_linea,
       socioNombre: d.lineas?.socios?.nombre_completo,
       socioId: d.lineas?.socios?.socio_id,
+      numeroGrupo: d.lineas?.numero_grupo,
+      nroSocio: d.lineas?.socios?.nro_socio,
       planOficial: d.lineas?.planes_abonos?.nombre_plan,
       abono: abonoBaseFull,
       consumoId: d.consumo_id,
@@ -263,7 +281,22 @@ export default function GestionPagos() {
     setIsDescuentoModalOpen(true);
   };
 
-  const handleApplyDescuentoGestionPagos = async ({ linea, socioId, tipo, valor, esPorcentaje, esDuradero, cuotas, descripcion, consumoId, action }) => {
+  const handleApplyDescuentoGestionPagos = async ({ 
+    linea, 
+    socioId, 
+    socioNombre,
+    numeroGrupo,
+    nroSocio,
+    tipo, 
+    valor, 
+    esPorcentaje, 
+    esDuradero, 
+    cuotas, 
+    descripcion, 
+    consumoId, 
+    action,
+    crearTicketSeguimiento 
+  }) => {
     try {
       if (action === 'DELETE') {
         await supabase.from('adicionales').delete().eq('numero_linea', linea);
@@ -283,6 +316,7 @@ export default function GestionPagos() {
       if (isNaN(numValor) || numValor <= 0) return;
 
       const isDesc = tipo === 'DESCUENTO';  // true = descuento, false = cargo
+      const numCuotas = esDuradero ? (Number(cuotas) || 12) : 1;
 
       // Limpiar siempre el estado previo de la línea
       await supabase.from('adicionales').delete().eq('numero_linea', linea);
@@ -297,7 +331,6 @@ export default function GestionPagos() {
         // Se guarda en 'adicionales' independientemente de si es puntual o duradero.
         // El auditEngine lo aplica como multiplicador sobre el subtotal.
         const tipoAdicional = isDesc ? 'DESCUENTO' : 'CARGO_PCT';
-        const numCuotas = esDuradero ? (Number(cuotas) || 12) : 1;
 
         const { error: errAdicional } = await supabase.from('adicionales').insert({
           socio_id: socioId || null,
@@ -335,7 +368,6 @@ export default function GestionPagos() {
         if (esDuradero) {
           // Duradero: guardar en adicionales (CARGO o DESCUENTO_FIJO)
           const tipoAdicional = isDesc ? 'DESCUENTO_FIJO' : 'CARGO';
-          const numCuotas = Number(cuotas) || 12;
 
           const { error: errAdicional } = await supabase.from('adicionales').insert({
             socio_id: socioId || null,
@@ -361,6 +393,29 @@ export default function GestionPagos() {
             if (errConsumo) throw errConsumo;
           }
           addToast(`${isDesc ? 'Descuento' : 'Cargo'} fijo de $${numValor} aplicado para este período`, 'success');
+        }
+      }
+
+      // Si se solicitó crear ticket de seguimiento (solo para descuentos de más de 1 período)
+      if (crearTicketSeguimiento && isDesc && esDuradero && (numCuotas > 1)) {
+        try {
+          const resTicket = await crearTicketSeguimientoDescuentoMutual({
+            linea,
+            socioNombre,
+            numeroGrupo,
+            nroSocio,
+            socioId,
+            valor: numValor,
+            ctaNumero: 1,
+            totalCuotas: numCuotas,
+            descripcion: descripcion || `Descuento ${numValor}%`
+          });
+          if (resTicket?.success) {
+            setOpenMutualTickets(prev => new Set([...prev, String(linea).replace(/\D/g, '')]));
+            addToast(`Ticket de seguimiento creado en Tareas para la línea ${linea}`, 'info');
+          }
+        } catch (tErr) {
+          console.warn('Error al generar ticket de seguimiento automático:', tErr);
         }
       }
 
@@ -503,6 +558,23 @@ export default function GestionPagos() {
         
         if (result.lineasData.length === 0) {
           setError(`Sin datos para ${periodo}.`);
+          setMissingLines([]);
+          setResumenDiferencias(null);
+        } else {
+          // Cargar comparativa de diferencias con el mes anterior
+          fetchResumenDiferencias({
+            periodo,
+            proveedorId: providerId,
+            currentLinesData: result.lineasData,
+            currentTarifaAunar: result.defaultTarifaAunar
+          }).then(resumen => {
+            if (resumen && currentFetchId === fetchLineasRef.current) {
+              setResumenDiferencias(resumen);
+              setMissingLines(resumen.lineasFaltantes || []);
+            }
+          }).catch(err => {
+            console.error("Error al calcular resumen de diferencias:", err);
+          });
         }
       }
     } catch (err) {
@@ -614,6 +686,49 @@ export default function GestionPagos() {
     }
   }, [proveedores, selectedProveedor, addToast]);
 
+  const handleCreateMutualTicket = useCallback(async (ad, d) => {
+    try {
+      const remaining = Math.max(0, (ad.total_cuotas || 1) - (ad.cta_numero || 1));
+      const [pYear, pMonth] = (d.periodo || '').split('-').map(Number);
+      const baseMonth = (pMonth && !isNaN(pMonth)) ? pMonth - 1 : new Date().getMonth();
+      const baseYear = (pYear && !isNaN(pYear)) ? pYear : new Date().getFullYear();
+      const endMonth = (baseMonth + remaining) % 12;
+      const endYear = baseYear + Math.floor((baseMonth + remaining) / 12);
+      const shortMonths = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+      const endStr = `${shortMonths[endMonth]} ${endYear}`;
+
+      const res = await crearTicketSeguimientoDescuentoMutual({
+        linea: d.numero_linea,
+        socioNombre: d.lineas?.socios?.nombre_completo,
+        numeroGrupo: d.lineas?.numero_grupo,
+        nroSocio: d.lineas?.socios?.nro_socio,
+        socioId: d.lineas?.socios?.socio_id,
+        valor: ad.valor,
+        ctaNumero: ad.cta_numero,
+        totalCuotas: ad.total_cuotas,
+        descripcion: ad.descripcion,
+        finEstimado: endStr
+      });
+
+      if (!res.success && res.alreadyExists) {
+        addToast(res.message, 'warning');
+        setOpenMutualTickets(prev => new Set([...prev, String(d.numero_linea).replace(/\D/g, '')]));
+        return;
+      }
+
+      if (!res.success && res.isSinglePeriod) {
+        addToast(res.message, 'warning');
+        return;
+      }
+
+      addToast(res.message, 'success');
+      setOpenMutualTickets(prev => new Set([...prev, String(d.numero_linea).replace(/\D/g, '')]));
+    } catch (err) {
+      console.error("Error creating mutual ticket:", err);
+      addToast("Error al crear ticket de Mutual: " + err.message, 'error');
+    }
+  }, [addToast]);
+
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   
@@ -627,7 +742,7 @@ export default function GestionPagos() {
   async function handleGenerarLiquidaciones() {
     const isConfirmed = await confirm({
       title: 'Generar Liquidación',
-      message: '¿Generar liquidaciones para este periodo y proveedor?'
+      message: '¿Confirmar auditoría y generar las liquidaciones para este período y operadora?'
     });
     if (!isConfirmed) return;
     setIsSaving(true);
@@ -636,6 +751,26 @@ export default function GestionPagos() {
       addToast(`Se generaron ${result.count} liquidaciones correctamente.`, 'success');
       setGlobalDiscount(0);
       setGlobalDiscountType('$');
+
+      // Calcular y abrir el resumen de diferencias de liquidación inmediatamente
+      try {
+        const diffResumen = await fetchResumenDiferencias({
+          periodo: selectedPeriodo,
+          proveedorId: parseInt(selectedProveedor, 10),
+          currentLinesData: lineasData,
+          currentTarifaAunar: globalTarifaAunar
+        });
+        if (diffResumen) {
+          setResumenDiferencias(diffResumen);
+          setMissingLines(diffResumen.lineasFaltantes || []);
+        }
+      } catch (diffErr) {
+        console.error("Error al obtener resumen de diferencias tras liquidar:", diffErr);
+      }
+
+      setResumenInitialTab('faltantes');
+      setIsResumenModalOpen(true);
+
       fetchLineas();
     } catch (e) {
       addToast('Error: ' + e.message, 'error');
@@ -881,8 +1016,12 @@ export default function GestionPagos() {
 
         <div 
           className="glass-panel" 
-          onClick={() => totals.faltantes > 0 && setShowMissing(true)}
-          style={{ padding: '24px 28px', borderRadius: '20px', cursor: totals.faltantes > 0 ? 'pointer' : 'default', border: totals.faltantes > 0 ? '1px solid rgba(245,158,11,0.3)' : undefined, transition: 'border-color 0.2s' }}
+          onClick={() => {
+            setResumenInitialTab('faltantes');
+            setIsResumenModalOpen(true);
+          }}
+          style={{ padding: '24px 28px', borderRadius: '20px', cursor: 'pointer', border: totals.faltantes > 0 ? '1px solid rgba(245,158,11,0.3)' : undefined, transition: 'all 0.2s' }}
+          title="Ver detalle de líneas faltantes y diferencias con el mes anterior"
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', letterSpacing: '0.08em' }}>FALTANTES</span>
@@ -893,7 +1032,7 @@ export default function GestionPagos() {
       </div>
 
       {/* DESC. LOTE + Botón principal */}
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '28px', alignItems: 'stretch' }}>
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '28px', alignItems: 'stretch', flexWrap: 'wrap' }}>
         <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0 20px', borderRadius: '16px', minWidth: '220px' }}>
           <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>DESC. LOTE</span>
           <input 
@@ -913,24 +1052,79 @@ export default function GestionPagos() {
         </div>
 
         {!isPeriodoLiquidado ? (
-          <button 
-            disabled={isSaving || lineasData.length === 0}
-            onClick={handleGenerarLiquidaciones}
-            className="btn-primary"
-            style={{ flex: 1, padding: '16px 24px', borderRadius: '16px', border: 'none', background: 'var(--accent)', color: 'white', fontWeight: 800, fontSize: '14px', cursor: lineasData.length === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', opacity: lineasData.length === 0 ? 0.5 : 1, boxShadow: '0 4px 20px rgba(16,185,129,0.15)', transition: 'transform 0.15s, box-shadow 0.15s' }}
-          >
-            {isSaving ? <Loader2 className="animate-spin" size={20} /> : <Save size={20} />}
-            GENERAR LIQUIDACIONES
-          </button>
+          <div style={{ display: 'flex', gap: '12px', flex: 1, flexWrap: 'wrap' }}>
+            <button 
+              disabled={isSaving || lineasData.length === 0}
+              onClick={handleGenerarLiquidaciones}
+              className="btn-primary"
+              style={{ flex: 2, minWidth: '240px', padding: '16px 24px', borderRadius: '16px', border: 'none', background: 'var(--accent)', color: 'white', fontWeight: 800, fontSize: '14px', cursor: lineasData.length === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', opacity: lineasData.length === 0 ? 0.5 : 1, boxShadow: '0 4px 20px rgba(16,185,129,0.15)', transition: 'transform 0.15s, box-shadow 0.15s' }}
+            >
+              {isSaving ? <Loader2 className="animate-spin" size={20} /> : <Save size={20} />}
+              CONFIRMAR Y GENERAR LIQUIDACIÓN
+            </button>
+            {lineasData.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setResumenInitialTab('faltantes');
+                  setIsResumenModalOpen(true);
+                }}
+                className="air-btn"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  padding: '16px 20px',
+                  borderRadius: '16px',
+                  background: 'var(--surface-light)',
+                  border: '1px solid var(--border-light)',
+                  color: 'var(--text-primary)',
+                  fontWeight: 800,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap'
+                }}
+                title="Ver diferencias con el mes anterior antes de liquidar"
+              >
+                <TrendingUp size={16} /> Previsualizar Diferencias
+              </button>
+            )}
+          </div>
         ) : (
-          <div style={{ display: 'flex', gap: '12px', flex: 1 }}>
+          <div style={{ display: 'flex', gap: '12px', flex: 1, flexWrap: 'wrap' }}>
             <div className="glass-panel" style={{ padding: '16px 24px', borderRadius: '16px', border: '1px solid rgba(16,185,129,0.2)', background: 'rgba(16,185,129,0.05)', color: '#10b981', fontWeight: 800, fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', whiteSpace: 'nowrap' }}>
               <ShieldCheck size={20} /> LIQUIDADO
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                setResumenInitialTab('faltantes');
+                setIsResumenModalOpen(true);
+              }}
+              className="air-btn"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                padding: '16px 20px',
+                borderRadius: '16px',
+                background: 'rgba(99, 102, 241, 0.1)',
+                border: '1px solid rgba(99, 102, 241, 0.3)',
+                color: 'var(--accent)',
+                fontWeight: 800,
+                fontSize: '14px',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              <TrendingUp size={18} /> RESUMEN DE DIFERENCIAS
+            </button>
             <Link 
               to={`/facturacion?tab=socios&periodo=${selectedPeriodo}&proveedor=${selectedProveedor}`}
               className="btn-primary"
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', background: '#10b981', color: 'white', border: 'none', padding: '16px 24px', borderRadius: '16px', fontSize: '14px', fontWeight: 800, textDecoration: 'none', flex: 2, boxShadow: '0 4px 16px rgba(16,185,129,0.15)' }}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', background: '#10b981', color: 'white', border: 'none', padding: '16px 24px', borderRadius: '16px', fontSize: '14px', fontWeight: 800, textDecoration: 'none', flex: 2, minWidth: '220px', boxShadow: '0 4px 16px rgba(16,185,129,0.15)' }}
             >
               <DollarSign size={18} /> VER LIQUIDACIONES Y PAGOS
             </Link>
@@ -1393,6 +1587,91 @@ export default function GestionPagos() {
           </div>
         </div>
 
+        {/* Barra interactiva de % de Bonificaciones */}
+        {bonifGroups.length > 0 && (
+          <div style={{
+            padding: '12px 24px',
+            borderBottom: '1px solid var(--border-light)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            flexWrap: 'wrap',
+            background: 'rgba(168, 85, 247, 0.03)'
+          }}>
+            <span style={{ fontSize: '11px', fontWeight: 800, color: '#a855f7', textTransform: 'uppercase', letterSpacing: '0.05em', marginRight: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span>🎁</span> Bonificaciones:
+            </span>
+            {bonifGroups.map(({ pct, count }) => (
+              <button
+                key={pct}
+                type="button"
+                onClick={() => {
+                  if (filterBonifPct === pct) {
+                    setFilterBonifPct(null);
+                    setFilterBonificacion(false);
+                  } else {
+                    setFilterBonifPct(pct);
+                    setFilterBonificacion(true);
+                    setFilterAumentos(false);
+                    setFilterMeses(null);
+                    setShowMesesDropdown(false);
+                    setShowBonifDropdown(false);
+                  }
+                }}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: '10px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  border: filterBonifPct === pct ? '1px solid #9333ea' : '1px solid var(--border-light)',
+                  background: filterBonifPct === pct ? 'rgba(168, 85, 247, 0.15)' : 'var(--surface)',
+                  color: filterBonifPct === pct ? '#9333ea' : 'var(--text-primary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.15s ease'
+                }}
+                title={`Filtrar líneas con bonificación del ${pct}% (${count} líneas)`}
+              >
+                <span>{pct}%</span>
+                <span style={{
+                  fontSize: '10px',
+                  fontWeight: 800,
+                  padding: '2px 6px',
+                  borderRadius: '100px',
+                  background: filterBonifPct === pct ? '#9333ea' : 'var(--border-light)',
+                  color: filterBonifPct === pct ? 'white' : 'var(--text-secondary)'
+                }}>
+                  {count} líneas
+                </span>
+              </button>
+            ))}
+            {filterBonifPct !== null && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterBonifPct(null);
+                  setFilterBonificacion(false);
+                }}
+                style={{
+                  padding: '4px 8px',
+                  borderRadius: '8px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--text-secondary)',
+                  textDecoration: 'underline'
+                }}
+              >
+                Mostrar todas ({lineasData.length})
+              </button>
+            )}
+          </div>
+        )}
+
         {loading ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '24px' }}>
             {[1, 2, 3, 4, 5, 6].map(i => (
@@ -1459,6 +1738,8 @@ export default function GestionPagos() {
                       onOpenDescuento={handleOpenDescuento}
                       onCreateTicket={handleCreateTicket}
                       openTickets={openTickets}
+                      onCreateMutualTicket={handleCreateMutualTicket}
+                      openMutualTickets={openMutualTickets}
                     />
                   ))}
                   {sortedData.length === 0 && (
@@ -1608,6 +1889,15 @@ export default function GestionPagos() {
           onApply={handleApplyDescuentoGestionPagos}
         />
       )}
+
+      {/* Modal de Resumen de Diferencias de Liquidación */}
+      <ResumenDiferenciasModal
+        isOpen={isResumenModalOpen}
+        onClose={() => setIsResumenModalOpen(false)}
+        resumen={resumenDiferencias}
+        operadoraName={operadoraNombre}
+        initialTab={resumenInitialTab}
+      />
     </div>
   );
 }

@@ -9,6 +9,7 @@ export default function DescuentoModal({ isOpen, onClose, row, onApply }) {
   const [descripcion, setDescripcion] = useState('');
   const [esDuradero, setEsDuradero] = useState(true);
   const [cuotas, setCuotas] = useState(12);
+  const [crearTicketSeguimiento, setCrearTicketSeguimiento] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -40,6 +41,7 @@ export default function DescuentoModal({ isOpen, onClose, row, onApply }) {
       setDescripcion(ad?.descripcion || (otrosCargos !== 0 ? 'Ajuste operadora' : ''));
       setEsDuradero(ad ? (ad.total_cuotas > 1) : false);
       setCuotas(ad?.total_cuotas || 12);
+      setCrearTicketSeguimiento(true);
     }
   }, [row, isOpen]);
 
@@ -77,15 +79,20 @@ export default function DescuentoModal({ isOpen, onClose, row, onApply }) {
     if (!valor || isNaN(Number(valor)) || Number(valor) <= 0) return;
     setIsSubmitting(true);
     try {
+      const numCuotas = esDuradero ? Number(cuotas) : 1;
       await onApply({
         linea: row.numero_linea || row.linea,
         socioId: row.socioId || row.lineas?.socio_id,
+        socioNombre: row.socioNombre || row.lineas?.socios?.nombre_completo,
+        numeroGrupo: row.numeroGrupo || row.lineas?.numero_grupo,
+        nroSocio: row.nroSocio || row.lineas?.socios?.nro_socio,
         consumoId: row.consumo_id || row.consumoId,
         tipo: tipoAjuste,           // siempre 'DESCUENTO' | 'CARGO'
         valor: Number(valor),
         esPorcentaje,
         esDuradero,
-        cuotas: esDuradero ? Number(cuotas) : 1,
+        cuotas: numCuotas,
+        crearTicketSeguimiento: isDescuento && esDuradero && (numCuotas > 1) && Boolean(crearTicketSeguimiento),
         descripcion: descripcion || `${isDescuento ? 'Descuento' : 'Cargo'} ${valor}${esPorcentaje ? '%' : '$'}`
       });
       onClose();
@@ -292,23 +299,50 @@ export default function DescuentoModal({ isOpen, onClose, row, onApply }) {
             </label>
 
             {esDuradero && (
-              <div style={{ marginLeft: '24px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Cantidad de meses / cuotas:</span>
-                <input
-                  type="number"
-                  min="2"
-                  max="60"
-                  value={cuotas}
-                  onChange={(e) => setCuotas(e.target.value)}
-                  style={{
-                    width: '70px',
-                    padding: '6px 10px',
-                    borderRadius: '6px',
-                    border: '1px solid var(--border-light)',
-                    fontSize: '13px',
-                    fontWeight: 800
-                  }}
-                />
+              <div style={{ marginLeft: '24px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Cantidad de meses / cuotas:</span>
+                  <input
+                    type="number"
+                    min="2"
+                    max="60"
+                    value={cuotas}
+                    onChange={(e) => setCuotas(e.target.value)}
+                    style={{
+                      width: '70px',
+                      padding: '6px 10px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-light)',
+                      fontSize: '13px',
+                      fontWeight: 800
+                    }}
+                  />
+                </div>
+
+                {isDescuento && Number(cuotas) > 1 && (
+                  <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    color: '#166534',
+                    background: 'rgba(22, 163, 74, 0.08)',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(22, 163, 74, 0.25)',
+                    marginTop: '2px'
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={crearTicketSeguimiento}
+                      onChange={(e) => setCrearTicketSeguimiento(e.target.checked)}
+                      style={{ accentColor: '#16a34a', width: '15px', height: '15px', cursor: 'pointer' }}
+                    />
+                    <span>Crear ticket de seguimiento en Tareas para este descuento</span>
+                  </label>
+                )}
               </div>
             )}
           </div>

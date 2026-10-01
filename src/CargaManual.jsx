@@ -13,7 +13,11 @@ import { procesarClaro, procesarMovistar, procesarPersonal } from './utils/provi
 import { verificarTextoCruzado } from './utils/validators';
 import { calculateInvoiceTotals, auditLineItem, consolidateFixedServices } from './utils/auditEngine';
 import { saveFacturacion } from './services/facturacionService';
-import { crearTicketVencimientoBonificacion, getOpenVencimientoTickets } from './services/ticketService';
+import { 
+  crearTicketVencimientoBonificacion, 
+  getOpenVencimientoTickets,
+  crearTicketSeguimientoDescuentoMutual
+} from './services/ticketService';
 import Modal from './components/Modal';
 import { PaginatedEditableGrid as EditableGrid, arePlansEquivalent } from './components/PaginatedEditableGrid';
 import Step3SuccessScreen from './components/CargaManual/Step3SuccessScreen';
@@ -937,10 +941,24 @@ export default function CargaManual() {
     }
   };
 
-  const handleApplyDescuento = useCallback(async ({ linea, socioId, tipo, valor, esPorcentaje, esDuradero, cuotas, descripcion }) => {
+  const handleApplyDescuento = useCallback(async ({ 
+    linea, 
+    socioId, 
+    socioNombre,
+    numeroGrupo,
+    nroSocio,
+    tipo, 
+    valor, 
+    esPorcentaje, 
+    esDuradero, 
+    cuotas, 
+    descripcion,
+    crearTicketSeguimiento 
+  }) => {
     try {
       const numValor = Number(valor);
       if (isNaN(numValor) || numValor <= 0) return;
+      const numCuotas = Number(cuotas) || 12;
 
       if (esDuradero) {
         // 1. Guardar en la tabla 'adicionales' en Supabase para que figure en Descuentos y Cargos
@@ -953,7 +971,7 @@ export default function CargaManual() {
             descripcion: descripcion || `Descuento ${numValor}${esPorcentaje ? '%' : '$'}`,
             valor: numValor,
             cta_numero: 1,
-            total_cuotas: Number(cuotas) || 12,
+            total_cuotas: numCuotas,
             activo: true,
             periodo_inicio: periodo
           });
@@ -968,7 +986,27 @@ export default function CargaManual() {
             .eq('numero_linea', linea);
         }
 
-        addToast(`Descuento duradero (${cuotas} meses) registrado correctamente en Descuentos y Cargos`, 'success');
+        addToast(`Descuento duradero (${numCuotas} meses) registrado correctamente en Descuentos y Cargos`, 'success');
+
+        // 3. Crear ticket de seguimiento en Tareas si fue seleccionado (solo para descuentos > 1 período)
+        if (crearTicketSeguimiento && (tipo === 'DESCUENTO' || !tipo) && numCuotas > 1) {
+          try {
+            await crearTicketSeguimientoDescuentoMutual({
+              linea,
+              socioNombre,
+              numeroGrupo,
+              nroSocio,
+              socioId,
+              valor: numValor,
+              ctaNumero: 1,
+              totalCuotas: numCuotas,
+              descripcion: descripcion || `Descuento ${numValor}${esPorcentaje ? '%' : '$'}`
+            });
+            addToast(`Ticket de seguimiento creado en Tareas para la línea ${linea}`, 'info');
+          } catch (tErr) {
+            console.warn('Error al generar ticket en CargaManual:', tErr);
+          }
+        }
       } else {
         addToast(`Descuento de ${esPorcentaje ? numValor + '%' : '$' + numValor} aplicado para el período actual`, 'success');
       }
@@ -1039,17 +1077,17 @@ export default function CargaManual() {
     const expiringLines = fileData.filter(f => {
       const clean = String(f.linea).replace(/\D/g, '');
       const mRest = f.descuentoMesesRestantes;
-      return mRest !== null && mRest !== undefined && mRest <= 2 && !openTickets.has(clean);
+      return mRest !== null && mRest !== undefined && mRest <= 1 && !openTickets.has(clean);
     });
 
     if (expiringLines.length === 0) {
-      addToast("No hay líneas por vencer pendientes de ticket.", 'info');
+      addToast("No hay líneas por vencer (≤ 1 mes restante) pendientes de ticket.", 'info');
       return;
     }
 
     const isConfirmed = await confirm({
       title: 'Crear Tickets de Vencimiento de Bonificación',
-      message: `Se crearán tickets en Tareas para ${expiringLines.length} línea(s) cuya bonificación vence en los próximos 2 meses.\n\n¿Deseas continuar?`,
+      message: `Se crearán tickets en Tareas para ${expiringLines.length} línea(s) cuya bonificación vence en este ciclo o le queda 1 mes de promoción.\n\n¿Deseas continuar?`,
       confirmText: 'Crear Tickets'
     });
     if (!isConfirmed) return;
@@ -1662,7 +1700,7 @@ export default function CargaManual() {
           {(() => {
             const expiringLines = (fileData || []).filter(f => {
               const m = f.descuentoMesesRestantes;
-              return m !== null && m !== undefined && m <= 2;
+              return m !== null && m !== undefined && m <= 1;
             });
             if (expiringLines.length === 0) return null;
             const pendingTicketsCount = expiringLines.filter(f => !openTickets.has(String(f.linea).replace(/\D/g, ''))).length;
@@ -1697,7 +1735,7 @@ export default function CargaManual() {
                       )}
                     </div>
                     <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                      Estas líneas tienen descuentos que vencen en este ciclo o en los próximos 2 meses. Podés generar los tickets para gestionar la renovación ante {selectedProvider ? selectedProvider.toUpperCase() : 'la operadora'}.
+                      Estas líneas tienen descuentos que vencen en este ciclo o les queda 1 mes de promoción. Podés generar los tickets para gestionar la renovación ante {selectedProvider ? selectedProvider.toUpperCase() : 'la operadora'}.
                     </div>
                   </div>
                 </div>

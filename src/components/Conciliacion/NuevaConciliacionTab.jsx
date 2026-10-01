@@ -512,14 +512,14 @@ export default function NuevaConciliacionTab({
                   matchedLiquidationIds: d.liquidacion_id ? [d.liquidacion_id] : [],
                   selectedLines: [],
                   estado: d.decision === 'AUTO_APLICAR' ? 'CONCILIADO' : 'PENDIENTE',
-                  isDbDuplicate: d.decision === 'AUTO_APLICAR',
-                  isAlreadyPaidMatch: d.decision === 'AUTO_APLICAR',
+                  isDbDuplicate: false,
+                  isAlreadyPaidMatch: false,
                   movimiento_id: null,
                   dbLiquidationInfo: null,
                   warningMsg: d.decision === 'SUGERIR_REVISION' ? d.observaciones : '',
                   isDuplicateCpbte: false,
                   errorMsg: '',
-                  reconciledInSession: d.decision === 'AUTO_APLICAR'
+                  reconciledInSession: false
                 };
               });
             }

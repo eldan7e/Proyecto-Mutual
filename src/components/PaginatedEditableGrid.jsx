@@ -495,29 +495,6 @@ const GridRow = React.memo(function GridRow({ row, selectedProvider, dbLines, al
           >
             <Tag size={12} /> Descuento
           </button>
-          {onCreateTicket && hasVigencia && !hasOpenTicket && (
-            <button
-              onClick={() => onCreateTicket(row)}
-              title="Crear ticket VENCIMIENTO BONIFICACION en Tareas"
-              className="air-btn"
-              style={{
-                fontSize: '10px',
-                padding: '3px 8px',
-                borderRadius: '6px',
-                background: 'rgba(239, 68, 68, 0.08)',
-                color: '#dc2626',
-                border: '1px solid rgba(239, 68, 68, 0.25)',
-                fontWeight: 700,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '3px',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap'
-              }}
-            >
-              <Ticket size={11} /> Ticket Vto.
-            </button>
-          )}
         </div>
       </td>
     </tr>

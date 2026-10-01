@@ -1,7 +1,19 @@
 import EditableAbonoCell from './EditableAbonoCell';
 import { Plus, Tag, Ticket, Check } from 'lucide-react';
 
-export default function AuditLineRow({ d, isPeriodoLiquidado, adicionalesData, onEditBonif, onSaveAbono, onSaveExcedente, onOpenDescuento, onCreateTicket, openTickets }) {
+export default function AuditLineRow({ 
+  d, 
+  isPeriodoLiquidado, 
+  adicionalesData, 
+  onEditBonif, 
+  onSaveAbono, 
+  onSaveExcedente, 
+  onOpenDescuento, 
+  onCreateTicket, 
+  openTickets,
+  onCreateMutualTicket,
+  openMutualTickets
+}) {
   return (
     <tr className={d.error ? 'bg-red-50' : ''}>
       <td style={{ padding: '8px 12px' }}>
@@ -281,9 +293,58 @@ export default function AuditLineRow({ d, isPeriodoLiquidado, adicionalesData, o
                 const endYear = baseYear + Math.floor((baseMonth + remaining) / 12);
                 const shortMonths = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
                 const endStr = `${shortMonths[endMonth]} ${endYear}`;
+                const cleanLineaNum = String(d.numero_linea || '').replace(/\D/g, '');
+                const hasMutualTicket = openMutualTickets ? openMutualTickets.has(cleanLineaNum) : false;
+
                 return (
-                  <div key={ad.id} style={{ fontSize: '9px', color: isDesc ? '#16a34a' : '#c2410c', fontWeight: 700 }}>
-                    MES {ad.cta_numero} DE {ad.total_cuotas} (Fin: {endStr})
+                  <div key={ad.id} style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', marginTop: '2px' }}>
+                    <span style={{ fontSize: '9px', color: isDesc ? '#16a34a' : '#c2410c', fontWeight: 700 }}>
+                      MES {ad.cta_numero} DE {ad.total_cuotas} (Fin: {endStr})
+                    </span>
+                    {isDesc && (
+                      hasMutualTicket ? (
+                        <span 
+                          style={{
+                            fontSize: '8.5px',
+                            background: 'rgba(16, 185, 129, 0.12)',
+                            color: '#059669',
+                            padding: '1px 5px',
+                            borderRadius: '4px',
+                            fontWeight: 700,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '2px'
+                          }}
+                          title="Ticket de seguimiento para este descuento de la Mutual ya creado"
+                        >
+                          <Check size={9} /> Ticket Mutual
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (onCreateMutualTicket) onCreateMutualTicket(ad, d);
+                          }}
+                          style={{
+                            fontSize: '8.5px',
+                            background: remaining <= 1 ? '#fef2f2' : 'rgba(37, 99, 235, 0.08)',
+                            color: remaining <= 1 ? '#dc2626' : '#2563eb',
+                            border: remaining <= 1 ? '1px solid #fca5a5' : '1px solid rgba(37, 99, 235, 0.25)',
+                            padding: '1px 5px',
+                            borderRadius: '4px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '2px'
+                          }}
+                          title="Crear ticket en Tareas para seguimiento del descuento de la Mutual"
+                        >
+                          <Ticket size={9} /> + Ticket Mutual
+                        </button>
+                      )
+                    )}
                   </div>
                 );
               })}

@@ -1,11 +1,17 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { supabase } from './supabaseClient';
 import { 
   Tag, Search, AlertCircle, CheckCircle2, TrendingDown, 
   Smartphone, Plus, Edit2, Trash2, X, Filter, Calendar, 
-  Loader2, RefreshCw, ShieldCheck, UserCheck, CreditCard
+  Loader2, RefreshCw, ShieldCheck, UserCheck, CreditCard,
+  Ticket, Check
 } from 'lucide-react';
 import Modal from './components/Modal';
+import { 
+  crearTicketSeguimientoDescuentoMutual, 
+  getOpenMutualDiscountTickets 
+} from './services/ticketService';
+import { useToast } from './components/ui/ToastProvider';
 
 const TIPOS = { DESCUENTO: 'DESCUENTO', CARGO: 'CARGO', CARGO_PCT: 'CARGO_PCT' };
 
@@ -64,6 +70,12 @@ const EMPTY_FORM = {
 };
 
 export default function Descuentos() {
+  const toastCtx = useToast?.();
+  const addToast = useCallback((msg, type = 'info') => {
+    if (toastCtx?.addToast) toastCtx.addToast(msg, type);
+    else alert(msg);
+  }, [toastCtx]);
+
   const [rawAdicionales, setRawAdicionales] = useState([]);
   const [error, setError] = useState(null);
   const [socios, setSocios] = useState([]);
@@ -80,6 +92,10 @@ export default function Descuentos() {
   const [sortCol, setSortCol] = useState('restantes');
   const [sortDir, setSortDir] = useState('asc');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [openTickets, setOpenTickets] = useState(new Set());
+  const [openTicketList, setOpenTicketList] = useState([]);
+  const [creandoTicketId, setCreandoTicketId] = useState(null);
+  const [crearTicketEnModal, setCrearTicketEnModal] = useState(true);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -128,6 +144,15 @@ export default function Descuentos() {
         setRawAdicionales(fallback || []);
       } else {
         setRawAdicionales(data || []);
+      }
+
+      // Fetch open follow-up tickets for mutual discounts
+      try {
+        const { lineasSet, rawTickets } = await getOpenMutualDiscountTickets();
+        setOpenTickets(lineasSet);
+        setOpenTicketList(rawTickets);
+      } catch (tErr) {
+        console.warn("Error fetching mutual discount tickets:", tErr);
       }
     } catch (err) {
       console.error("Error Crítico:", err);
@@ -267,6 +292,7 @@ export default function Descuentos() {
   function openNew() {
     setForm(EMPTY_FORM);
     setEditId(null);
+    setCrearTicketEnModal(true);
     fetchSocios();
     setLineasBySocio([]);
     setIsModalOpen(true);
@@ -285,9 +311,81 @@ export default function Descuentos() {
       periodo_inicio: startStr,
     });
     setEditId(a.id);
+    setCrearTicketEnModal(false);
     fetchSocios();
     if (a.socios?.socio_id) fetchLineas(a.socios.socio_id);
     setIsModalOpen(true);
+  }
+
+  const hasActiveTicket = useCallback((a) => {
+    if (!a) return false;
+    const cleanLinea = a.numero_linea ? String(a.numero_linea).replace(/\D/g, '') : null;
+    if (cleanLinea && openTickets.has(cleanLinea)) return true;
+
+    const socioData = a.socios || a.lineas?.socios;
+    const grp = a.lineas?.numero_grupo;
+    const socioName = socioData?.nombre_completo;
+
+    return openTicketList.some(t => {
+      const title = t.title || '';
+      if (cleanLinea && t.numero_linea === cleanLinea) return true;
+      if (grp && title.includes(`Grupo ${grp}`)) return true;
+      if (socioName && title.includes(socioName)) return true;
+      return false;
+    });
+  }, [openTickets, openTicketList]);
+
+  async function handleCreateTicket(a) {
+    if (!a || (a.total_cuotas || 1) <= 1) {
+      addToast('Los descuentos de 1 solo período son excepcionales y no requieren ticket de seguimiento.', 'warning');
+      return;
+    }
+
+    setCreandoTicketId(a.id);
+    try {
+      const socioData = a.socios || a.lineas?.socios;
+      const startStr = a.created_at ? a.created_at.substring(0, 7) : null;
+      const est = getEstimatedEndDate(a.cta_numero, a.total_cuotas, startStr);
+
+      const res = await crearTicketSeguimientoDescuentoMutual({
+        linea: a.lineas?.numero_linea || a.numero_linea,
+        socioNombre: socioData?.nombre_completo,
+        numeroGrupo: a.lineas?.numero_grupo,
+        nroSocio: socioData?.nro_socio,
+        socioId: socioData?.socio_id || a.socio_id,
+        valor: a.valor,
+        ctaNumero: a.cta_numero,
+        totalCuotas: a.total_cuotas,
+        descripcion: a.descripcion,
+        finEstimado: est.formatted
+      });
+
+      if (!res.success && res.alreadyExists) {
+        addToast(res.message, 'warning');
+        if (a.numero_linea) {
+          setOpenTickets(prev => new Set([...prev, String(a.numero_linea).replace(/\D/g, '')]));
+        }
+        return;
+      }
+
+      if (!res.success && res.isSinglePeriod) {
+        addToast(res.message, 'warning');
+        return;
+      }
+
+      addToast(res.message, 'success');
+      if (a.numero_linea) {
+        setOpenTickets(prev => new Set([...prev, String(a.numero_linea).replace(/\D/g, '')]));
+      }
+      if (res.data) {
+        setOpenTicketList(prev => [...prev, res.data]);
+      }
+    } catch (err) {
+      console.error('Error creating ticket from Descuentos:', err);
+      addToast('Error al crear ticket: ' + err.message, 'error');
+    } finally {
+      setCreandoTicketId(null);
+    }
   }
 
   async function handleDelete(a) {
@@ -331,6 +429,31 @@ export default function Descuentos() {
       alert('Error al guardar: ' + error.message);
     } else {
       setIsModalOpen(false);
+
+      // Auto-creación de ticket de seguimiento en Tareas si aplica
+      if (!editId && form.tipo === 'DESCUENTO' && parseInt(form.total_cuotas, 10) > 1 && crearTicketEnModal) {
+        try {
+          const socioObj = socios.find(s => String(s.socio_id) === String(form.socio_id));
+          const lineaObj = lineasBySocio.find(l => String(l.numero_linea) === String(form.numero_linea));
+          const est = getEstimatedEndDate(form.cta_numero, form.total_cuotas, form.periodo_inicio);
+          await crearTicketSeguimientoDescuentoMutual({
+            linea: form.numero_linea || null,
+            socioNombre: socioObj?.nombre_completo,
+            numeroGrupo: lineaObj?.numero_grupo,
+            nroSocio: socioObj?.nro_socio,
+            socioId: form.socio_id,
+            valor: form.valor,
+            ctaNumero: form.cta_numero,
+            totalCuotas: form.total_cuotas,
+            descripcion: form.descripcion,
+            finEstimado: est.formatted
+          });
+          addToast('Descuento y Ticket de seguimiento creados exitosamente', 'success');
+        } catch (tErr) {
+          console.warn('Error al crear ticket en guardado de descuento:', tErr);
+        }
+      }
+
       fetchAll();
     }
   }
@@ -566,7 +689,57 @@ export default function Descuentos() {
                       </div>
                     </td>
                     <td style={{ paddingRight: '24px' }}>
-                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                        {isD && (a.total_cuotas || 0) > 1 && (
+                          hasActiveTicket(a) ? (
+                            <span 
+                              style={{ 
+                                display: 'inline-flex', 
+                                alignItems: 'center', 
+                                gap: '4px', 
+                                padding: '4px 10px', 
+                                borderRadius: '8px', 
+                                background: 'rgba(16, 185, 129, 0.12)', 
+                                color: '#059669', 
+                                fontSize: '11px', 
+                                fontWeight: 800,
+                                border: '1px solid rgba(16, 185, 129, 0.3)'
+                              }}
+                              title="Ticket de seguimiento activo en Tareas"
+                            >
+                              <Check size={13} /> En Seguimiento
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              className="air-btn"
+                              disabled={creandoTicketId === a.id}
+                              onClick={() => handleCreateTicket(a)}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                padding: '5px 10px',
+                                borderRadius: '8px',
+                                fontSize: '11px',
+                                fontWeight: 800,
+                                background: rest <= 2 ? '#fef2f2' : 'rgba(37, 99, 235, 0.08)',
+                                color: rest <= 2 ? '#dc2626' : '#2563eb',
+                                border: rest <= 2 ? '1px solid #fca5a5' : '1px solid rgba(37, 99, 235, 0.25)',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease'
+                              }}
+                              title="Crear ticket en Tareas para seguimiento y revisión del socio/grupo"
+                            >
+                              {creandoTicketId === a.id ? (
+                                <Loader2 size={12} className="animate-spin" />
+                              ) : (
+                                <Ticket size={12} />
+                              )}
+                              <span>+ Ticket</span>
+                            </button>
+                          )
+                        )}
                         <button className="icon-button-edit" onClick={() => openEdit(a)}><Edit2 size={16} /></button>
                         <button className="icon-button-delete" onClick={() => handleDelete(a)}><Trash2 size={16} /></button>
                       </div>
@@ -708,6 +881,35 @@ export default function Descuentos() {
                 </div>
               );
             })()}
+
+            {form.tipo === 'DESCUENTO' && parseInt(form.total_cuotas || 0, 10) > 1 && !editId && (
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                cursor: 'pointer',
+                padding: '14px 18px',
+                background: 'rgba(37, 99, 235, 0.05)',
+                border: '1px solid rgba(37, 99, 235, 0.25)',
+                borderRadius: '16px',
+                marginTop: '4px'
+              }}>
+                <input
+                  type="checkbox"
+                  checked={crearTicketEnModal}
+                  onChange={(e) => setCrearTicketEnModal(e.target.checked)}
+                  style={{ width: '18px', height: '18px', accentColor: 'var(--accent)', cursor: 'pointer' }}
+                />
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                    Crear ticket de seguimiento en Tareas para este descuento
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    Permite evaluar periódicamente la situación del socio/grupo y decidir su continuidad en el próximo ciclo.
+                  </div>
+                </div>
+              </label>
+            )}
           </div>
 
           <button type="submit" className="air-btn air-btn-primary" style={{ width: '100%', padding: '16px', borderRadius: '16px', justifyContent: 'center' }} disabled={saving}>
