@@ -15,6 +15,46 @@ import { useToast } from './components/ui/ToastProvider';
 import Modal from './components/Modal';
 import DOMPurify from 'dompurify';
 import * as XLSX from 'xlsx';
+
+// Helpers para normalización y detección inteligente del período mensual
+const getDefaultPeriodo = () => {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 1);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${mm}-${yyyy}`;
+};
+
+const normalizePeriodo = (p) => {
+  if (!p) return '';
+  const s = String(p).trim().replace(/[_\/]/g, '-');
+  const m1 = s.match(/^(\d{2})-(\d{4})$/);
+  if (m1) return `${m1[1]}-${m1[2]}`;
+  const m2 = s.match(/^(\d{4})-(\d{2})$/);
+  if (m2) return `${m2[2]}-${m2[1]}`;
+  return s;
+};
+
+const detectPeriodoFromText = (text) => {
+  if (!text) return null;
+  const mNum = text.match(/\(?(\d{2})[-_](\d{4})\)?/);
+  if (mNum) return `${mNum[1]}-${mNum[2]}`;
+  const mNumRev = text.match(/\(?(\d{4})[-_](\d{2})\)?/);
+  if (mNumRev) return `${mNumRev[2]}-${mNumRev[1]}`;
+
+  const meses = {
+    enero: '01', feb: '02', febrero: '02', mar: '03', marzo: '03',
+    abr: '04', abril: '04', may: '05', mayo: '05', jun: '06', junio: '06',
+    jul: '07', julio: '07', ago: '08', agosto: '08', sep: '09', set: '09', septiembre: '09', setiembre: '09',
+    oct: '10', octubre: '10', nov: '11', noviembre: '11', dic: '12', diciembre: '12'
+  };
+  const mText = text.toLowerCase().match(/(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre|ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)\D*(\d{4})/);
+  if (mText && meses[mText[1]]) {
+    return `${meses[mText[1]]}-${mText[2]}`;
+  }
+  return null;
+};
+
 export default function Campanas() {
   const { addToast } = useToast();
   
@@ -143,23 +183,21 @@ export default function Campanas() {
   // Campaña desde Excel (TODOS)
   const [excelFile, setExcelFile] = useState(null);
   const [excelRawRows, setExcelRawRows] = useState([]);
-  const [excelMode, setExcelMode] = useState('lineas_email'); // 'lineas_email' | 'lineas_individual' | 'grupo_email'
+  const [excelMode, setExcelMode] = useState('grupo_email'); // 'grupo_email' | 'lineas_individual'
   const [excelSearch, setExcelSearch] = useState('');
   const [excelEmpresa, setExcelEmpresa] = useState('ALL');
-  const [excelPeriodo, setExcelPeriodo] = useState('08-2026');
+  const [excelPeriodo, setExcelPeriodo] = useState(getDefaultPeriodo);
   const [isExcelDragOver, setIsExcelDragOver] = useState(false);
   const [excelStats, setExcelStats] = useState({ totalLineas: 0, totalFacturado: 0, empresas: {} });
 
   // Memoria y selección aislada por modo para no mezclar líneas con grupos
   const [modeSelections, setModeSelections] = useState({
-    lineas_individual: null,
-    lineas_email: null,
-    grupo_email: null
+    grupo_email: null,
+    lineas_individual: null
   });
   const [modeFilters, setModeFilters] = useState({
-    lineas_individual: null,
-    lineas_email: null,
-    grupo_email: null
+    grupo_email: null,
+    lineas_individual: null
   });
 
   const editorRef = useRef(null);
@@ -212,15 +250,16 @@ export default function Campanas() {
     }
   };
 
-  // Consultar notificaciones recientes en campanas_logs (últimos 35 días para cubrir cambio de mes y períodos)
+  // Consultar notificaciones recientes en campanas_logs filtrando por período y modalidad
   // targetMode: 'lineas_email' | 'grupo_email' | null
-  const fetchNotificacionesRecientes = async (targetMode = null) => {
+  // targetPeriodo: string (ej: '09-2026') | null
+  const fetchNotificacionesRecientes = async (targetMode = null, targetPeriodo = null) => {
     try {
-      const hace35Dias = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000);
+      const hace60Dias = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
       const { data: logs, error } = await supabase
         .from('campanas_logs')
-        .select('id, destinatario_email, destinatario_nombre, asunto, created_at, estado, modo_envio, grupo, nombre_campana, cuerpo_html')
-        .gte('created_at', hace35Dias.toISOString())
+        .select('id, destinatario_email, destinatario_nombre, asunto, created_at, estado, modo_envio, grupo, nombre_campana, cuerpo_html, periodo')
+        .gte('created_at', hace60Dias.toISOString())
         .neq('estado', 'error')
         .order('created_at', { ascending: false })
         .range(0, 49999);
@@ -230,17 +269,38 @@ export default function Campanas() {
       const notifMap = new Map();
       const notifGroupSet = new Set();
       const notifLineSet = new Set();
+      const normTarget = normalizePeriodo(targetPeriodo);
 
       (logs || []).forEach(l => {
-        // Filtrar según targetMode para desacoplar campañas grupales de individuales
-        if (targetMode === 'lineas_email' || targetMode === 'lineas_individual') {
-          // Un envío grupal NUNCA cuenta como notificación de línea individual
-          if (l.modo_envio === 'grupo_email') return;
-          if (l.destinatario_nombre && /^grupo\s+\d+/i.test(l.destinatario_nombre)) return;
-          if (l.nombre_campana && /grupal/i.test(l.nombre_campana)) return;
-          if (l.modo_envio && l.modo_envio !== 'lineas_email' && l.modo_envio !== 'lineas_individual') return;
-        } else if (targetMode === 'grupo_email') {
-          // Un envío individual NUNCA cuenta como notificación para el grupo
+        // 1. Filtrado por PERÍODO:
+        // Si hay un targetPeriodo especificado (ej. '09-2026'), solo consideramos notificaciones correspondientes a este período.
+        // Los envíos de meses anteriores (ej. '08-2026') NO deben marcar como notificado en un período nuevo.
+        if (normTarget) {
+          let logPeriodo = l.periodo;
+          if (!logPeriodo && l.cuerpo_html) {
+            const m = l.cuerpo_html.match(/per[íi]odo:\s*([0-9]{2}[-_/][0-9]{4})/i) ||
+                      l.cuerpo_html.match(/per[íi]odo\s*#?([0-9]{2}[-_/][0-9]{4})/i);
+            if (m) logPeriodo = m[1];
+          }
+          if (!logPeriodo && l.nombre_campana) {
+            const m = l.nombre_campana.match(/([0-9]{2}[-_/][0-9]{4})/);
+            if (m) logPeriodo = m[1];
+          }
+
+          const normLog = normalizePeriodo(logPeriodo);
+          if (normLog) {
+            // Si el log pertenece a otro período diferente al buscado, se ignora por completo
+            if (normLog !== normTarget) return;
+          } else {
+            // Si el log no tiene período identificable y tiene más de 2 días de antigüedad, no es de este período
+            const diasAntiguedad = (Date.now() - new Date(l.created_at).getTime()) / (1000 * 60 * 60 * 24);
+            if (diasAntiguedad > 2) return;
+          }
+        }
+
+        // 2. Filtrar según targetMode:
+        // En Modo Grupo: Un envío individual nunca cuenta como notificación del grupo
+        if (targetMode === 'grupo_email') {
           if (l.modo_envio === 'lineas_email' || l.modo_envio === 'lineas_individual') return;
           if (l.nombre_campana && /individual/i.test(l.nombre_campana)) return;
         }
@@ -275,7 +335,7 @@ export default function Campanas() {
       return { notifMap, notifGroupSet, notifLineSet };
     } catch (err) {
       console.warn('Error al consultar notificaciones recientes:', err);
-      return { notifMap: new Map(), notifGroupSet: new Set() };
+      return { notifMap: new Map(), notifGroupSet: new Set(), notifLineSet: new Set() };
     }
   };
 
@@ -407,12 +467,16 @@ export default function Campanas() {
 
         const currentLogs = data || [];
 
-        // Asegurar que cada log emitido por n8n quede clasificado con su modo_envio
-        if (activeCampaign.mode) {
-          const unassignedIds = currentLogs.filter(l => !l.modo_envio).map(l => l.id);
+        // Asegurar que cada log emitido por n8n quede clasificado con su modo_envio y periodo
+        const updatePayload = {};
+        if (activeCampaign.mode) updatePayload.modo_envio = activeCampaign.mode;
+        if (activeCampaign.periodo) updatePayload.periodo = activeCampaign.periodo;
+
+        if (Object.keys(updatePayload).length > 0) {
+          const unassignedIds = currentLogs.filter(l => !l.modo_envio || !l.periodo).map(l => l.id);
           if (unassignedIds.length > 0) {
             supabase.from('campanas_logs')
-              .update({ modo_envio: activeCampaign.mode })
+              .update(updatePayload)
               .in('id', unassignedIds)
               .then(() => {});
           }
@@ -438,11 +502,14 @@ export default function Campanas() {
 
         if (isDone) {
           addToast(`¡Campaña "${activeCampaign.name}" finalizada! ${successCount} enviados${errorCount > 0 ? `, ${errorCount} con error` : ''}.`, successCount > 0 ? 'success' : 'error');
-          if (activeCampaign.mode) {
+          const finalUpdate = {};
+          if (activeCampaign.mode) finalUpdate.modo_envio = activeCampaign.mode;
+          if (activeCampaign.periodo) finalUpdate.periodo = activeCampaign.periodo;
+          if (Object.keys(finalUpdate).length > 0) {
             await supabase.from('campanas_logs')
-              .update({ modo_envio: activeCampaign.mode })
+              .update(finalUpdate)
               .eq('nombre_campana', activeCampaign.name)
-              .is('modo_envio', null);
+              .or('modo_envio.is.null,periodo.is.null');
           }
           fetchLogs();
           fetchEnviosHoy();
@@ -1000,317 +1067,227 @@ export default function Campanas() {
       return;
     }
 
-    // 1. Resolver el email representativo de cada grupo por "mayor repetición"
-    // y descartando correos comodín institucionales (ej: aunarmutual@yahoo.com.ar) si existen emails personales en el grupo
-    const groupEmailFreq = new Map(); // grupoKey -> Map(email -> count)
-    const groupTitularCandidates = new Map(); // grupoKey -> Array<{ nombre, email, rawEmail }>
-
     const isMutualPlaceholder = (em) => {
       const lower = String(em || '').toLowerCase().trim();
       return lower.includes('aunarmutual') || lower.endsWith('@aunar.org.ar') || lower.includes('aunar@');
     };
-
-    rawRows.forEach(r => {
-      const gKey = r['GRUPO'] != null ? String(r['GRUPO']).trim() : '';
-      if (!gKey) return;
-
-      const emailGpo = String(r['EMAIL GRUPO'] || '').trim();
-      const emailIndiv = String(r['EMAIL INDIVIDUAL'] || '').trim();
-      const cand = (emailGpo || emailIndiv).toLowerCase();
-      const rawCand = emailGpo || emailIndiv;
-      const nombre = String(r['APELLIDO, NOMBRE'] || '').trim();
-
-      if (cand && cand.includes('@')) {
-        if (!groupEmailFreq.has(gKey)) {
-          groupEmailFreq.set(gKey, new Map());
-          groupTitularCandidates.set(gKey, []);
-        }
-        const freqMap = groupEmailFreq.get(gKey);
-        freqMap.set(cand, (freqMap.get(cand) || 0) + 1);
-
-        groupTitularCandidates.get(gKey).push({
-          nombre,
-          email: cand,
-          rawEmail: rawCand
-        });
-      }
-    });
-
-    const groupResolved = new Map(); // grupoKey -> { email, nombreTitular, representantes }
-    groupEmailFreq.forEach((freqMap, gKey) => {
-      const candidates = Array.from(freqMap.entries()).map(([email, count]) => ({
-        email,
-        count,
-        isPlaceholder: isMutualPlaceholder(email)
-      }));
-
-      // Prioridad: 1) Si no es placeholder de la mutual gana; 2) Mayor cantidad de repeticiones en el grupo
-      candidates.sort((a, b) => {
-        if (a.isPlaceholder !== b.isPlaceholder) {
-          return a.isPlaceholder ? 1 : -1;
-        }
-        return b.count - a.count;
-      });
-
-      const winningEmail = candidates[0]?.email || '';
-      const pool = groupTitularCandidates.get(gKey) || [];
-      const matchingRows = pool.filter(r => r.email === winningEmail);
-      const candidatesForName = matchingRows.length > 0 ? matchingRows : pool;
-
-      // Buscar el titular principal (preferir nombres sin sufijos como '(hijo)', '(mujer)', '(esposa)')
-      let bestNombre = candidatesForName[0]?.nombre || '';
-      for (const item of candidatesForName) {
-        const n = item.nombre.toLowerCase();
-        if (!n.includes('(') && !n.includes(')')) {
-          bestNombre = item.nombre;
-          break;
-        }
-      }
-
-      const originalEmail = pool.find(r => r.email === winningEmail)?.rawEmail || winningEmail;
-
-      // Opción A: Construir lista de todos los representantes válidos para este grupo
-      const nonPlaceholderCandidates = candidates.filter(c => !c.isPlaceholder);
-      const effectiveCandidates = nonPlaceholderCandidates.length > 0 ? nonPlaceholderCandidates : candidates;
-      
-      const representantes = effectiveCandidates.map(c => {
-        const rowMatch = pool.find(r => r.email === c.email);
-        let cNombre = rowMatch?.nombre || bestNombre;
-        // Si hay una fila sin paréntesis para este candidato, preferirla
-        const candRows = pool.filter(r => r.email === c.email);
-        for (const cr of candRows) {
-          if (!cr.nombre.includes('(') && !cr.nombre.includes(')')) {
-            cNombre = cr.nombre;
-            break;
-          }
-        }
-        return {
-          email: rowMatch?.rawEmail || c.email,
-          nombre: cNombre
-        };
-      });
-
-      groupResolved.set(gKey, {
-        email: originalEmail,
-        nombreTitular: bestNombre,
-        representantes
-      });
-    });
 
     let filtered = rawRows;
     if (empresa && empresa !== 'ALL') {
       filtered = filtered.filter(r => String(r['EMPRESA'] || '').trim().toUpperCase() === empresa);
     }
 
-    const normalizedRows = filtered.map(r => {
-      const tarifaAunar = Number(r['T. AUNAR $'] || 0);
-      const excedentes = Number(r['EXCED. $ INCL.'] || 0);
-      const abonoBase = Math.max(0, tarifaAunar - excedentes);
-      const numLinea = r['NUMERO'] != null ? String(r['NUMERO']).trim() : '';
-      const emailIndiv = String(r['EMAIL INDIVIDUAL'] || '').trim();
-      const rawEmailGpo = String(r['EMAIL GRUPO'] || '').trim();
-      const grupo = r['GRUPO'] != null ? String(r['GRUPO']).trim() : '';
+    let resultItems = [];
 
-      // El email del grupo es el resuelto por mayoría de repeticiones
-      const resolvedGpo = grupo ? groupResolved.get(grupo) : null;
-      const emailGpo = resolvedGpo?.email || rawEmailGpo;
+    if (mode === 'grupo_email') {
+      // ══════════════════════════════════════════════════════════════
+      // 1. ENVÍO POR GRUPO (EMAIL GRUPO)
+      // Toma los responsables de grupo registrados en la columna EMAIL GRUPO
+      // Agrupa todas las líneas de cada grupo y calcula totales y detalles
+      // ══════════════════════════════════════════════════════════════
+      const groupEmailFreq = new Map(); // grupoKey -> Map(email -> count)
+      const groupTitularCandidates = new Map(); // grupoKey -> Array<{ nombre, email, rawEmail }>
+      const groupRows = new Map(); // grupoKey -> Array<row>
 
-      // En campañas individuales (lineas_individual y lineas_email), el email DEBE ser estricta y exclusivamente el EMAIL INDIVIDUAL.
-      // ¡NUNCA caer en EMAIL GRUPO para campañas individuales!
-      let emailFinal = '';
-      if (mode === 'lineas_individual' || mode === 'lineas_email') {
-        if (emailIndiv && emailIndiv.includes('@') && !isMutualPlaceholder(emailIndiv)) {
-          emailFinal = emailIndiv;
-        }
-      } else {
-        // Modo por Grupo (Representantes)
-        emailFinal = emailGpo || rawEmailGpo;
-      }
+      filtered.forEach(r => {
+        const gKey = r['GRUPO'] != null ? String(r['GRUPO']).trim() : '';
+        if (!gKey) return;
 
-      const nombre = String(r['APELLIDO, NOMBRE'] || '').trim();
-      const rawGb = String(r['GB INTERNET'] || '').trim();
-      const rawAbono = String(r['ABONO NOMBRE'] || '').trim();
-      const plan = formatGbsPlan(rawAbono, rawGb);
-      const prov = String(r['EMPRESA'] || '').trim().toUpperCase();
-      const fpago = String(r['FPAGO'] || '').trim();
-      const cbu = String(r['CBU'] || '').trim();
+        const emailGpo = String(r['EMAIL GRUPO'] || '').trim();
+        const nombre = String(r['APELLIDO, NOMBRE'] || '').trim();
 
-      return {
-        empresa: prov,
-        grupo,
-        nombre,
-        nombreTitular: resolvedGpo?.nombreTitular || nombre,
-        numero: numLinea,
-        plan,
-        gb: rawGb,
-        abonoBase,
-        excedentes,
-        tarifaAunar,
-        emailIndiv,
-        emailGpo,
-        emailFinal,
-        fpago,
-        cbu
-      };
-    }).filter(r => r.emailFinal && r.numero);
+        if (!groupRows.has(gKey)) groupRows.set(gKey, []);
+        groupRows.get(gKey).push(r);
 
-    let resultItems;
+        if (emailGpo && emailGpo.includes('@')) {
+          const cand = emailGpo.toLowerCase();
+          if (!groupEmailFreq.has(gKey)) {
+            groupEmailFreq.set(gKey, new Map());
+            groupTitularCandidates.set(gKey, []);
+          }
+          const freqMap = groupEmailFreq.get(gKey);
+          freqMap.set(cand, (freqMap.get(cand) || 0) + 1);
 
-    if (mode === 'lineas_individual') {
-      // MODO LÍNEA INDIVIDUAL (1 a 1): Cada línea física con su propio correo individual independiente
-      resultItems = normalizedRows.map((r, idx) => ({
-        id: `excel_linea_${r.numero}_${idx}`,
-        nombre: r.nombre || 'Socio',
-        nombre_socio: r.nombre || 'Socio',
-        email: r.emailFinal,
-        grupo: r.grupo || 'Sin Grupo',
-        lineas: r.numero,
-        lineasSet: new Set([r.numero]),
-        monto_cuota_cel: r.abonoBase.toFixed(2),
-        total_cuotas: 1,
-        monto_adeudado_num: r.tarifaAunar,
-        monto_adeudado: r.tarifaAunar.toFixed(2),
-        dias_mora: '0',
-        periodo: periodoVal || excelPeriodo,
-        fpago: r.fpago,
-        cbu: r.cbu,
-        dni: '',
-        cuit: '',
-        display_detalle: `${r.nombre} (Línea: ${r.numero})`,
-        detalle_lineas: [{
-          numero_linea: r.numero,
-          nombre_plan: r.plan,
-          gb: r.gb,
-          proveedor: r.empresa,
-          costo_abono_real: r.abonoBase,
-          excedentes: r.excedentes,
-          total_linea: r.tarifaAunar,
-          nombre_socio: r.nombre
-        }]
-      }));
-    } else if (mode === 'lineas_email') {
-      const emailMap = new Map();
-      normalizedRows.forEach(r => {
-        const key = r.emailFinal.toLowerCase();
-        if (!emailMap.has(key)) {
-          emailMap.set(key, {
-            id: `excel_mail_${key}`,
-            nombre: r.nombre || r.nombreTitular || 'Socio',
-            nombre_socio: r.nombre || r.nombreTitular || 'Socio',
-            email: r.emailFinal,
-            grupo: r.grupo || 'Sin Grupo',
-            lineasSet: new Set(),
-            monto_cuota_cel: 0,
-            total_cuotas: 0,
-            monto_adeudado_num: 0,
-            dias_mora: '0',
-            periodo: periodoVal || excelPeriodo,
-            fpago: r.fpago,
-            cbu: r.cbu,
-            dni: '',
-            cuit: '',
-            detalle_lineas: []
+          groupTitularCandidates.get(gKey).push({
+            nombre,
+            email: cand,
+            rawEmail: emailGpo
           });
         }
+      });
 
-        const target = emailMap.get(key);
+      resultItems = [];
+      groupEmailFreq.forEach((freqMap, gKey) => {
+        const candidates = Array.from(freqMap.entries()).map(([email, count]) => ({
+          email,
+          count,
+          isPlaceholder: isMutualPlaceholder(email)
+        }));
 
-        // Si el titular guardado no coincide con el usuario del email pero esta fila sí, actualizar titular
-        const emailUser = key.split('@')[0].replace(/[^a-z0-9]/gi, '');
-        if (target.nombre && r.nombre && emailUser.length >= 3) {
-          const curNorm = target.nombre.toLowerCase().replace(/[^a-z0-9]/gi, '');
-          const rowNorm = r.nombre.toLowerCase().replace(/[^a-z0-9]/gi, '');
-          if (!curNorm.includes(emailUser) && rowNorm.includes(emailUser)) {
-            target.nombre = r.nombre;
-            target.nombre_socio = r.nombre;
+        // Prioridad: 1) no es correo comodín; 2) mayor frecuencia dentro del grupo
+        candidates.sort((a, b) => {
+          if (a.isPlaceholder !== b.isPlaceholder) {
+            return a.isPlaceholder ? 1 : -1;
+          }
+          return b.count - a.count;
+        });
+
+        const winningEmail = candidates[0]?.email || '';
+        if (!winningEmail) return;
+
+        const pool = groupTitularCandidates.get(gKey) || [];
+        const matchingRows = pool.filter(r => r.email === winningEmail);
+        const candidatesForName = matchingRows.length > 0 ? matchingRows : pool;
+
+        let bestNombre = candidatesForName[0]?.nombre || '';
+        for (const item of candidatesForName) {
+          const n = item.nombre.toLowerCase();
+          if (!n.includes('(') && !n.includes(')')) {
+            bestNombre = item.nombre;
+            break;
           }
         }
 
-        target.lineasSet.add(r.numero);
-        target.monto_adeudado_num += r.tarifaAunar;
-        target.monto_cuota_cel += r.abonoBase;
-        if (!target.fpago && r.fpago) target.fpago = r.fpago;
-        if (!target.cbu && r.cbu) target.cbu = r.cbu;
+        const originalEmail = pool.find(r => r.email === winningEmail)?.rawEmail || winningEmail;
 
-        target.detalle_lineas.push({
-          numero_linea: r.numero,
-          nombre_plan: r.plan,
-          gb: r.gb,
-          proveedor: r.empresa,
-          costo_abono_real: r.abonoBase,
-          excedentes: r.excedentes,
-          total_linea: r.tarifaAunar,
-          nombre_socio: r.nombre
+        const nonPlaceholderCandidates = candidates.filter(c => !c.isPlaceholder);
+        const effectiveCandidates = nonPlaceholderCandidates.length > 0 ? nonPlaceholderCandidates : candidates;
+
+        const representantes = effectiveCandidates.map(c => {
+          const rowMatch = pool.find(r => r.email === c.email);
+          let cNombre = rowMatch?.nombre || bestNombre;
+          const candRows = pool.filter(r => r.email === c.email);
+          for (const cr of candRows) {
+            if (!cr.nombre.includes('(') && !cr.nombre.includes(')')) {
+              cNombre = cr.nombre;
+              break;
+            }
+          }
+          return {
+            email: rowMatch?.rawEmail || c.email,
+            nombre: cNombre
+          };
+        });
+
+        const allEmailsStr = representantes.map(rep => rep.email).join(', ');
+        const rows = groupRows.get(gKey) || [];
+
+        const lineasSet = new Set();
+        let totalTarifa = 0;
+        let totalAbono = 0;
+        let repFpago = '';
+        let repCbu = '';
+        const detalleLineas = [];
+
+        rows.forEach(r => {
+          const num = r['NUMERO'] != null ? String(r['NUMERO']).trim() : '';
+          const tarifa = Number(r['T. AUNAR $'] || 0);
+          const exc = Number(r['EXCED. $ INCL.'] || 0);
+          const base = Math.max(0, tarifa - exc);
+          const nom = String(r['APELLIDO, NOMBRE'] || '').trim();
+          const gb = String(r['GB INTERNET'] || '').trim();
+          const abonoNom = String(r['ABONO NOMBRE'] || '').trim();
+          const planStr = formatGbsPlan(abonoNom, gb);
+          const provStr = String(r['EMPRESA'] || '').trim().toUpperCase();
+
+          if (num) lineasSet.add(num);
+          totalTarifa += tarifa;
+          totalAbono += base;
+          if (!repFpago && r['FPAGO']) repFpago = String(r['FPAGO']).trim();
+          if (!repCbu && r['CBU']) repCbu = String(r['CBU']).trim();
+
+          detalleLineas.push({
+            numero_linea: num,
+            nombre_plan: planStr,
+            gb,
+            proveedor: provStr,
+            costo_abono_real: base,
+            excedentes: exc,
+            total_linea: tarifa,
+            nombre_socio: nom
+          });
+        });
+
+        resultItems.push({
+          id: `excel_gpo_${gKey}`,
+          nombre: `Grupo ${gKey} - ${bestNombre}`,
+          nombre_socio: bestNombre,
+          email: allEmailsStr || originalEmail,
+          representantes,
+          emailsList: representantes.map(rep => rep.email),
+          grupo: gKey,
+          lineas: Array.from(lineasSet).join(', '),
+          lineasSet,
+          monto_cuota_cel: totalAbono.toFixed(2),
+          total_cuotas: lineasSet.size,
+          monto_adeudado_num: totalTarifa,
+          monto_adeudado: totalTarifa.toFixed(2),
+          dias_mora: '0',
+          periodo: periodoVal || excelPeriodo || getDefaultPeriodo(),
+          fpago: repFpago,
+          cbu: repCbu,
+          dni: '',
+          cuit: '',
+          display_detalle: `Grupo ${gKey} - ${bestNombre} (${lineasSet.size} ${lineasSet.size === 1 ? 'línea' : 'líneas'})`,
+          detalle_lineas: detalleLineas
         });
       });
-
-      resultItems = Array.from(emailMap.values()).map(item => ({
-        ...item,
-        lineas: Array.from(item.lineasSet).join(', '),
-        total_cuotas: item.lineasSet.size,
-        monto_adeudado: item.monto_adeudado_num.toFixed(2),
-        monto_cuota_cel: item.monto_cuota_cel.toFixed(2),
-        display_detalle: `${item.nombre} (${item.lineasSet.size} ${item.lineasSet.size === 1 ? 'línea' : 'líneas'})`
-      }));
     } else {
-      // Modo Grupo
-      const groupMap = new Map();
-      normalizedRows.forEach(r => {
-        const key = r.grupo || r.emailGpo || r.emailFinal;
-        if (!groupMap.has(key)) {
-          const repNombre = r.nombreTitular || r.nombre;
-          const resolvedData = r.grupo ? groupResolved.get(r.grupo) : null;
-          const repList = resolvedData?.representantes && resolvedData.representantes.length > 0
-            ? resolvedData.representantes
-            : (r.emailFinal ? [{ email: r.emailFinal, nombre: repNombre }] : []);
-          const allEmailsStr = repList.map(rep => rep.email).join(', ');
-
-          groupMap.set(key, {
-            id: `excel_gpo_${key}`,
-            nombre: r.grupo ? `Grupo ${r.grupo} - ${repNombre}` : repNombre,
-            nombre_socio: repNombre,
-            email: allEmailsStr || r.emailGpo || r.emailFinal,
-            representantes: repList,
-            emailsList: repList.map(rep => rep.email),
-            grupo: r.grupo,
-            lineasSet: new Set(),
-            monto_cuota_cel: 0,
-            total_cuotas: 0,
-            monto_adeudado_num: 0,
-            dias_mora: '0',
-            periodo: periodoVal || excelPeriodo,
-            fpago: r.fpago,
-            cbu: r.cbu,
-            dni: '',
-            cuit: '',
-            detalle_lineas: []
-          });
+      // ══════════════════════════════════════════════════════════════
+      // 2. ENVÍO INDIVIDUAL POR LÍNEA (EMAIL INDIVIDUAL)
+      // Muestra cada línea física desglosada y toma exclusivamente el correo de EMAIL INDIVIDUAL
+      // ══════════════════════════════════════════════════════════════
+      resultItems = [];
+      filtered.forEach((r, idx) => {
+        const numLinea = r['NUMERO'] != null ? String(r['NUMERO']).trim() : '';
+        const emailIndiv = String(r['EMAIL INDIVIDUAL'] || '').trim();
+        if (!numLinea || !emailIndiv || !emailIndiv.includes('@') || isMutualPlaceholder(emailIndiv)) {
+          return;
         }
 
-        const target = groupMap.get(key);
-        target.lineasSet.add(r.numero);
-        target.monto_adeudado_num += r.tarifaAunar;
-        target.monto_cuota_cel += r.abonoBase;
+        const tarifaAunar = Number(r['T. AUNAR $'] || 0);
+        const excedentes = Number(r['EXCED. $ INCL.'] || 0);
+        const abonoBase = Math.max(0, tarifaAunar - excedentes);
+        const nombre = String(r['APELLIDO, NOMBRE'] || '').trim();
+        const rawGb = String(r['GB INTERNET'] || '').trim();
+        const rawAbono = String(r['ABONO NOMBRE'] || '').trim();
+        const plan = formatGbsPlan(rawAbono, rawGb);
+        const prov = String(r['EMPRESA'] || '').trim().toUpperCase();
+        const fpago = String(r['FPAGO'] || '').trim();
+        const cbu = String(r['CBU'] || '').trim();
+        const grupo = r['GRUPO'] != null ? String(r['GRUPO']).trim() : '';
 
-        target.detalle_lineas.push({
-          numero_linea: r.numero,
-          nombre_plan: r.plan,
-          gb: r.gb,
-          proveedor: r.empresa,
-          costo_abono_real: r.abonoBase,
-          excedentes: r.excedentes,
-          total_linea: r.tarifaAunar,
-          nombre_socio: r.nombre
+        resultItems.push({
+          id: `excel_linea_${numLinea}_${idx}`,
+          nombre: nombre || 'Socio',
+          nombre_socio: nombre || 'Socio',
+          email: emailIndiv,
+          grupo: grupo || 'Sin Grupo',
+          lineas: numLinea,
+          lineasSet: new Set([numLinea]),
+          monto_cuota_cel: abonoBase.toFixed(2),
+          total_cuotas: 1,
+          monto_adeudado_num: tarifaAunar,
+          monto_adeudado: tarifaAunar.toFixed(2),
+          dias_mora: '0',
+          periodo: periodoVal || excelPeriodo || getDefaultPeriodo(),
+          fpago,
+          cbu,
+          dni: '',
+          cuit: '',
+          display_detalle: `${nombre} (Línea: ${numLinea})`,
+          detalle_lineas: [{
+            numero_linea: numLinea,
+            nombre_plan: plan,
+            gb: rawGb,
+            proveedor: prov,
+            costo_abono_real: abonoBase,
+            excedentes,
+            total_linea: tarifaAunar,
+            nombre_socio: nombre
+          }]
         });
       });
-
-      resultItems = Array.from(groupMap.values()).map(item => ({
-        ...item,
-        lineas: Array.from(item.lineasSet).join(', '),
-        monto_adeudado: item.monto_adeudado_num.toFixed(2),
-        monto_cuota_cel: item.monto_cuota_cel.toFixed(2),
-        display_detalle: `${item.nombre} (${item.lineasSet.size} líneas)`
-      }));
     }
 
     if (searchStr && searchStr.trim()) {
@@ -1323,9 +1300,10 @@ export default function Campanas() {
       );
     }
 
-    // Enriquecer con estado de notificación en campanas_logs (últimos 35 días)
+    // Enriquecer con estado de notificación en campanas_logs filtrando por período y modalidad
     try {
-      const { notifMap, notifGroupSet, notifLineSet } = await fetchNotificacionesRecientes(mode);
+      const currentPeriodoVal = periodoVal || excelPeriodo || getDefaultPeriodo();
+      const { notifMap, notifGroupSet, notifLineSet } = await fetchNotificacionesRecientes(mode, currentPeriodoVal);
 
       resultItems.forEach(item => {
         let notif = null;
@@ -1335,7 +1313,12 @@ export default function Campanas() {
             notif = { estado: 'exito' };
           }
         } else if (mode === 'lineas_individual') {
-          if (notifLineSet && notifLineSet.has(item.lineas)) {
+          // Una línea se considera notificada si su correo ya recibió aviso en este período (grupal o individual)
+          // o si su número de línea físico ya fue notificado
+          const indivEm = (item.email || '').trim().toLowerCase();
+          if (indivEm && notifMap.has(indivEm)) {
+            notif = notifMap.get(indivEm);
+          } else if (notifLineSet && notifLineSet.has(item.lineas)) {
             notif = { estado: 'exito' };
           }
         } else {
@@ -1371,14 +1354,11 @@ export default function Campanas() {
     }
     setLoading(true);
     setExcelFile(file);
-    setModeSelections({ lineas_email: null, lineas_individual: null, grupo_email: null });
-    setModeFilters({ lineas_email: null, lineas_individual: null, grupo_email: null });
+    setModeSelections({ grupo_email: null, lineas_individual: null });
+    setModeFilters({ grupo_email: null, lineas_individual: null });
 
-    const nameMatch = file.name.match(/\(?(\d{2}[-_]\d{4})\)?/);
-    const detectado = nameMatch ? nameMatch[1].replace('_', '-') : excelPeriodo;
-    if (nameMatch) {
-      setExcelPeriodo(detectado);
-    }
+    const detectedPeriodo = detectPeriodoFromText(file.name) || excelPeriodo || getDefaultPeriodo();
+    setExcelPeriodo(detectedPeriodo);
 
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -1409,7 +1389,7 @@ export default function Campanas() {
           empresas: empCount
         });
 
-        await applyExcelRows(rawJson, excelMode, excelEmpresa, excelSearch, detectado);
+        await applyExcelRows(rawJson, excelMode, excelEmpresa, excelSearch, detectedPeriodo);
         addToast(`¡Planilla cargada! Se encontraron ${rawJson.length} líneas en '${sheetName}'.`, 'success');
       } catch (err) {
         console.error('Error al parsear Excel:', err);
@@ -1495,7 +1475,7 @@ export default function Campanas() {
           });
 
           // Cargar notificaciones recientes para marcar socios notificados
-          const { notifMap } = await fetchNotificacionesRecientes('lineas_email');
+          const { notifMap } = await fetchNotificacionesRecientes('lineas_email', ultimoPeriodo);
 
           mapped.forEach(item => {
             const lineasFactura = facturacionPorSocio[item.socio_id_num] || [];
@@ -1635,7 +1615,7 @@ export default function Campanas() {
         });
 
         // Cargar notificaciones recientes para marcar grupos notificados
-        const { notifMap, notifGroupSet } = await fetchNotificacionesRecientes('grupo_email');
+        const { notifMap, notifGroupSet } = await fetchNotificacionesRecientes('grupo_email', ultimoPeriodo);
 
         mapped.forEach(item => {
           const gLines = linesByGroup[item.grupo] || [];
@@ -1746,7 +1726,7 @@ export default function Campanas() {
           });
 
           // Cargar notificaciones recientes para marcar líneas notificadas
-          const { notifMap } = await fetchNotificacionesRecientes('lineas_email');
+          const { notifMap } = await fetchNotificacionesRecientes('lineas_email', ultimoPeriodo);
 
           mapped.forEach(item => {
             item.periodo = ultimoPeriodo;
@@ -1833,16 +1813,16 @@ export default function Campanas() {
     const selectedItems = items.filter(i => selectedIds.has(i.id));
 
     const isGrupo = (campaignType === 'excel' && excelMode === 'grupo_email') || (campaignType === 'personalizada' && personalizadaMode === 'grupal');
-    const currentSendingMode = isGrupo ? 'grupo_email' : 'lineas_email';
+    const currentSendingMode = isGrupo ? 'grupo_email' : 'lineas_individual';
 
     let recipients = [];
 
     if (isGrupo) {
-      // MODO GRUPAL:
-      // Cada item seleccionado es un GRUPO independiente. NUNCA se deben fusionar grupos diferentes entre sí,
-      // aunque compartan el mismo correo de representante.
-      // Si un grupo tiene múltiples representantes registrados (Opción A, ej: Grupo 603), 
-      // se despacha un correo del grupo a CADA representante de dicho grupo.
+      // ══════════════════════════════════════════════════════════════
+      // 1. ENVÍO POR GRUPO (EMAIL GRUPO)
+      // Cada item seleccionado es un GRUPO independiente.
+      // Despacha un correo al titular/representante del grupo con el detalle de todas sus líneas.
+      // ══════════════════════════════════════════════════════════════
       const processedGroups = new Set();
 
       selectedItems.forEach(item => {
@@ -1882,11 +1862,36 @@ export default function Campanas() {
             total_cuotas: item.total_cuotas || 0,
             monto_adeudado: item.monto_adeudado || '0.00',
             dias_mora: item.dias_mora || '0',
-            periodo: item.periodo || excelPeriodo || '08-2026',
+            periodo: item.periodo || excelPeriodo || getDefaultPeriodo(),
             detalle_lineas: item.detalle_lineas || []
           });
         });
       });
+    } else if (campaignType === 'excel' && excelMode === 'lineas_individual') {
+      // ══════════════════════════════════════════════════════════════
+      // 2. ENVÍO INDIVIDUAL POR LÍNEA (EMAIL INDIVIDUAL)
+      // Cada línea física seleccionada se despacha a la dirección indicada en EMAIL INDIVIDUAL
+      // ══════════════════════════════════════════════════════════════
+      recipients = selectedItems.map(item => ({
+        socio_id: item.id,
+        nombre_completo: item.nombre_socio || item.nombre,
+        nombre_socio: item.nombre_socio || item.nombre,
+        nombre: item.nombre,
+        email: (item.email || '').trim(),
+        dni: item.dni || '',
+        cuit: item.cuit || '',
+        fpago: item.fpago || '',
+        cbu: item.cbu || '',
+        grupo: item.grupo || 'Sin Grupo',
+        modo_envio: currentSendingMode,
+        lineas: item.lineas || 'Sin Línea',
+        monto_cuota_cel: item.monto_cuota_cel || '0.00',
+        total_cuotas: 1,
+        monto_adeudado: item.monto_adeudado || '0.00',
+        dias_mora: item.dias_mora || '0',
+        periodo: item.periodo || excelPeriodo || getDefaultPeriodo(),
+        detalle_lineas: item.detalle_lineas || []
+      }));
     } else {
       // MODO LÍNEAS (CONSOLIDADO POR EMAIL):
       // Si varias líneas comparten el mismo correo individual, se consolidan automáticamente en 1 solo correo.
@@ -1976,7 +1981,7 @@ export default function Campanas() {
         total_cuotas: g.lineasSet.size || g.total_cuotas || 1,
         monto_adeudado: g.monto_adeudado_num.toFixed(2),
         dias_mora: g.dias_mora,
-        periodo: g.periodo || excelPeriodo || '08-2026',
+        periodo: g.periodo || excelPeriodo || getDefaultPeriodo(),
         detalle_lineas: g.detalle_lineas || []
       }));
     }
@@ -2043,10 +2048,12 @@ export default function Campanas() {
       const totalConsolidados = resData.total_destinatarios_consolidados || preparedRecipients.length;
 
       // 3. Iniciar pantalla de progreso en vivo
+      const effectiveCampPeriodo = recipients[0]?.periodo || excelPeriodo || getDefaultPeriodo();
       setActiveCampaign({
         name: campaignName.trim(),
         subject: subject.trim(),
         mode: currentSendingMode,
+        periodo: effectiveCampPeriodo,
         total: totalConsolidados,
         startTime: campaignStartTime,
         logs: [],
@@ -2079,7 +2086,7 @@ export default function Campanas() {
     let body = templateHtml;
     let subj = templateSubject;
 
-    const periodoStr = r.periodo || excelPeriodo || '08-2026';
+    const periodoStr = r.periodo || excelPeriodo || getDefaultPeriodo();
     const montoStr = Number(r.monto_adeudado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 });
     const abonoStr = Number(r.monto_cuota_cel || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 });
     const nombreStr = r.nombre_socio || r.nombre_completo || 'Socio';
@@ -2607,7 +2614,7 @@ export default function Campanas() {
   const isGrupoMode = (campaignType === 'excel' && excelMode === 'grupo_email') || 
     (campaignType === 'personalizada' && personalizadaMode === 'grupal');
   const isLineasIndividualMode = campaignType === 'excel' && excelMode === 'lineas_individual';
-  const effectiveEmailsToSend = isGrupoMode ? totalSelected : uniqueEmailsCount;
+  const effectiveEmailsToSend = isGrupoMode || isLineasIndividualMode ? totalSelected : uniqueEmailsCount;
 
   /* ─────────────────────── Inline Styles ─────────────────────── */
 
@@ -4855,7 +4862,7 @@ export default function Campanas() {
                           Cargá tu planilla mensual de cobros (.xlsx / .xls)
                         </h4>
                         <p style={{ margin: 0, fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-                          Arrastrá aquí <strong>"TODOS (08-2026) COBROS PERSONAL, MOVISTAR Y CLARO.xlsx"</strong> o hacé clic para buscarla.
+                          Arrastrá aquí <strong>"TODOS ({getDefaultPeriodo()}) COBROS PERSONAL, MOVISTAR Y CLARO.xlsx"</strong> o hacé clic para buscarla.
                         </p>
                       </div>
                     </div>
@@ -4887,9 +4894,32 @@ export default function Campanas() {
                               type="text"
                               value={excelPeriodo}
                               onChange={(e) => setExcelPeriodo(e.target.value)}
-                              placeholder="08-2026"
+                              onBlur={() => {
+                                if (excelRawRows && excelRawRows.length > 0) {
+                                  applyExcelRows(excelRawRows, excelMode, excelEmpresa, excelSearch, excelPeriodo);
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && excelRawRows && excelRawRows.length > 0) {
+                                  applyExcelRows(excelRawRows, excelMode, excelEmpresa, excelSearch, excelPeriodo);
+                                }
+                              }}
+                              placeholder={getDefaultPeriodo()}
                               style={{ ...S.input, width: '100px', padding: '4px 8px', fontSize: '12px', fontWeight: 700, textAlign: 'center' }}
                             />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (excelRawRows && excelRawRows.length > 0) {
+                                  applyExcelRows(excelRawRows, excelMode, excelEmpresa, excelSearch, excelPeriodo);
+                                  addToast(`Período ${excelPeriodo} aplicado y re-evaluado`, 'info');
+                                }
+                              }}
+                              style={{ ...S.btnSecondary, padding: '5px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                              title="Re-evaluar destinatarios para este período"
+                            >
+                              <RefreshCw size={12} />
+                            </button>
                           </div>
                           <button
                             type="button"
@@ -4907,7 +4937,9 @@ export default function Campanas() {
                           <div style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', marginTop: '2px' }}>{excelStats.totalLineas}</div>
                         </div>
                         <div style={{ background: 'rgba(255,255,255,0.7)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '12px 16px' }}>
-                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Destinatarios a Enviar</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>
+                            {excelMode === 'grupo_email' ? 'Grupos a Enviar' : 'Líneas a Enviar'}
+                          </div>
                           <div style={{ fontSize: '20px', fontWeight: 900, color: '#059669', marginTop: '2px' }}>{items.length}</div>
                         </div>
                         <div style={{ background: 'rgba(255,255,255,0.7)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '12px 16px' }}>
@@ -4928,54 +4960,43 @@ export default function Campanas() {
                         <div style={{ display: 'inline-flex', background: 'rgba(0,0,0,0.05)', padding: '3px', borderRadius: '10px' }}>
                           <button
                             type="button"
-                            onClick={() => handleSwitchExcelMode('lineas_email')}
-                            style={{
-                              border: 'none',
-                              padding: '6px 14px',
-                              borderRadius: '8px',
-                              fontSize: '12px',
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                              background: excelMode === 'lineas_email' ? '#059669' : 'transparent',
-                              color: excelMode === 'lineas_email' ? '#ffffff' : 'var(--text-primary)',
-                              transition: 'all 0.2s'
-                            }}
-                          >
-                            👤 Consolidado por Email (Recomendado)
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleSwitchExcelMode('lineas_individual')}
-                            style={{
-                              border: 'none',
-                              padding: '6px 14px',
-                              borderRadius: '8px',
-                              fontSize: '12px',
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                              background: excelMode === 'lineas_individual' ? '#059669' : 'transparent',
-                              color: excelMode === 'lineas_individual' ? '#ffffff' : 'var(--text-primary)',
-                              transition: 'all 0.2s'
-                            }}
-                          >
-                            📞 Vista por Línea (Desglosada)
-                          </button>
-                          <button
-                            type="button"
                             onClick={() => handleSwitchExcelMode('grupo_email')}
                             style={{
                               border: 'none',
-                              padding: '6px 14px',
+                              padding: '7px 16px',
                               borderRadius: '8px',
                               fontSize: '12px',
                               fontWeight: 700,
                               cursor: 'pointer',
                               background: excelMode === 'grupo_email' ? '#059669' : 'transparent',
                               color: excelMode === 'grupo_email' ? '#ffffff' : 'var(--text-primary)',
-                              transition: 'all 0.2s'
+                              transition: 'all 0.2s',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px'
                             }}
                           >
-                            👥 Por Grupo (Representantes)
+                            <Users size={14} /> 1. Envío por Grupo (EMAIL GRUPO)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSwitchExcelMode('lineas_individual')}
+                            style={{
+                              border: 'none',
+                              padding: '7px 16px',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              background: excelMode === 'lineas_individual' ? '#059669' : 'transparent',
+                              color: excelMode === 'lineas_individual' ? '#ffffff' : 'var(--text-primary)',
+                              transition: 'all 0.2s',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px'
+                            }}
+                          >
+                            <Smartphone size={14} /> 2. Envío Individual por Línea (EMAIL INDIVIDUAL)
                           </button>
                         </div>
 
@@ -5033,11 +5054,11 @@ export default function Campanas() {
                       </div>
 
                       <div style={{
-                        fontSize: '11.5px',
-                        color: excelMode === 'grupo_email' ? '#065f46' : '#065f46',
+                        fontSize: '12px',
+                        color: '#065f46',
                         background: 'rgba(16, 185, 129, 0.08)',
                         border: '1px solid rgba(16, 185, 129, 0.25)',
-                        padding: '7px 12px',
+                        padding: '8px 14px',
                         borderRadius: '9px',
                         display: 'flex',
                         alignItems: 'center',
@@ -5045,18 +5066,13 @@ export default function Campanas() {
                       }}>
                         {excelMode === 'grupo_email' ? (
                           <>
-                            <Users size={14} style={{ flexShrink: 0 }} />
-                            <span><strong>Modo Por Grupo (Representantes):</strong> Notificación consolidada enviada al titular/representante de cada grupo con el detalle de todas sus líneas.</span>
-                          </>
-                        ) : excelMode === 'lineas_email' ? (
-                          <>
-                            <Smartphone size={14} style={{ flexShrink: 0 }} />
-                            <span><strong>Modo Consolidado por Email (Recomendado):</strong> Agrupa automáticamente las líneas individuales que comparten el mismo correo en 1 solo email. Cada socio recibe 1 único correo con la tabla detallada de todas sus líneas, planes y excedentes.</span>
+                            <Users size={15} style={{ flexShrink: 0 }} />
+                            <span><strong>1. Envío por Grupo (EMAIL GRUPO):</strong> Envía a los titulares y responsables de grupo registrados en la columna <code>EMAIL GRUPO</code>, consolidando todas las líneas del grupo y el total facturado.</span>
                           </>
                         ) : (
                           <>
-                            <Smartphone size={14} style={{ flexShrink: 0 }} />
-                            <span><strong>Vista por Línea (Desglosada):</strong> Muestra cada línea física en una fila separada. Al despachar, las líneas que compartan correo se unifican de forma segura en un solo envío.</span>
+                            <Smartphone size={15} style={{ flexShrink: 0 }} />
+                            <span><strong>2. Envío Individual por Línea (EMAIL INDIVIDUAL):</strong> Envía a cada línea telefónica tomando exclusivamente los correos de la columna <code>EMAIL INDIVIDUAL</code> con el detalle individual de su abono y consumos.</span>
                           </>
                         )}
                       </div>
@@ -5170,12 +5186,12 @@ export default function Campanas() {
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                   <span style={S.badge}>{totalSelected} seleccionados</span>
-                  {totalSelected > 0 && campaignType === 'excel' && excelMode === 'lineas_email' && (
+                  {totalSelected > 0 && campaignType === 'excel' && (
                     <span style={{
                       fontSize: '12px',
-                      color: '#059669',
-                      background: 'rgba(16, 185, 129, 0.12)',
-                      border: '1px solid rgba(16, 185, 129, 0.3)',
+                      color: excelMode === 'grupo_email' ? '#059669' : '#2563eb',
+                      background: excelMode === 'grupo_email' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(37, 99, 235, 0.10)',
+                      border: excelMode === 'grupo_email' ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(37, 99, 235, 0.25)',
                       padding: '4px 12px',
                       borderRadius: '16px',
                       fontWeight: 700,
@@ -5183,23 +5199,10 @@ export default function Campanas() {
                       alignItems: 'center',
                       gap: '5px'
                     }}>
-                      👤 Consolidado: <strong>{totalSelected} {totalSelected === 1 ? 'correo único' : 'correos únicos'}</strong> ({selectedTotalLines} {selectedTotalLines === 1 ? 'línea' : 'líneas'} cubiertas)
-                    </span>
-                  )}
-                  {totalSelected > 0 && isLineasIndividualMode && (
-                    <span style={{
-                      fontSize: '12px',
-                      color: '#2563eb',
-                      background: 'rgba(37, 99, 235, 0.10)',
-                      border: '1px solid rgba(37, 99, 235, 0.25)',
-                      padding: '4px 12px',
-                      borderRadius: '16px',
-                      fontWeight: 700,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px'
-                    }}>
-                      ⚡ {totalSelected} líneas seleccionadas → se enviarán en <strong>{uniqueEmailsCount} {uniqueEmailsCount === 1 ? 'correo consolidado' : 'correos consolidados'}</strong>
+                      {excelMode === 'grupo_email' 
+                        ? `👥 ${totalSelected} ${totalSelected === 1 ? 'grupo seleccionado' : 'grupos seleccionados'} (${selectedTotalLines} líneas cubiertas)`
+                        : `📱 ${totalSelected} ${totalSelected === 1 ? 'línea individual seleccionada' : 'líneas individuales seleccionadas'}`
+                      }
                     </span>
                   )}
 
@@ -5492,7 +5495,7 @@ export default function Campanas() {
                   disabled={totalSelected === 0}
                   style={{ ...S.btnPrimary, opacity: totalSelected === 0 ? 0.5 : 1, cursor: totalSelected === 0 ? 'not-allowed' : 'pointer' }}
                 >
-                  Configurar Mensaje ({isGrupoMode ? `${totalSelected} grupos` : (campaignType === 'excel' && excelMode === 'lineas_email' ? `${totalSelected} correos (${selectedTotalLines} líneas)` : `${effectiveEmailsToSend} correos (${totalSelected} líneas)`)}) <ChevronRight size={16} />
+                  Configurar Mensaje ({isGrupoMode ? `${totalSelected} grupos` : `${totalSelected} líneas`}) <ChevronRight size={16} />
                 </button>
               </div>
             </>
