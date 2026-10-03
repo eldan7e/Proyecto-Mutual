@@ -9,7 +9,7 @@ import {
   Bot, MessageSquare, UploadCloud, FileSpreadsheet, Sparkles, Database,
   CheckCircle, AlertTriangle, Calendar, Play, Building2, HelpCircle,
   Copy, Smartphone, ChevronUp, Bookmark, Trash2, PlusCircle,
-  Minimize2, Maximize2, ExternalLink
+  Minimize2, Maximize2, ExternalLink, UserCheck
 } from 'lucide-react';
 import { useToast } from './components/ui/ToastProvider';
 import Modal from './components/Modal';
