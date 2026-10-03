@@ -299,8 +299,14 @@ export default function Campanas() {
         }
 
         // 2. Filtrar según targetMode:
-        // En Modo Grupo: Un envío individual nunca cuenta como notificación del grupo
-        if (targetMode === 'grupo_email') {
+        // En Modo Individual: Un envío grupal NUNCA cuenta como notificación para el socio individual
+        if (targetMode === 'lineas_email' || targetMode === 'lineas_individual') {
+          if (l.modo_envio === 'grupo_email') return;
+          if (l.destinatario_nombre && /^grupo\s+\d+/i.test(l.destinatario_nombre)) return;
+          if (l.nombre_campana && /grupal/i.test(l.nombre_campana)) return;
+          if (l.modo_envio && l.modo_envio !== 'lineas_email' && l.modo_envio !== 'lineas_individual') return;
+        } else if (targetMode === 'grupo_email') {
+          // En Modo Grupo: Un envío individual nunca cuenta como notificación del grupo
           if (l.modo_envio === 'lineas_email' || l.modo_envio === 'lineas_individual') return;
           if (l.nombre_campana && /individual/i.test(l.nombre_campana)) return;
         }
@@ -5332,7 +5338,7 @@ export default function Campanas() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <CheckCircle2 size={16} style={{ color: '#059669', flexShrink: 0 }} />
                     <span>
-                      Mostrando únicamente <strong>{countPendientes} destinatarios sin enviar</strong>. Se omitieron automáticamente <strong>{countNotificados} ya notificados</strong> previamente.
+                      Mostrando únicamente <strong>{countPendientes} destinatarios sin enviar</strong>. Se omitieron automáticamente <strong>{countNotificados} ya notificados</strong> previamente en este período ({campaignType === 'excel' ? excelPeriodo : 'actual'}).
                     </span>
                   </div>
                   <button
