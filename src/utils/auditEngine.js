@@ -89,21 +89,17 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       // ============================================================
       
       // Calcular abono base según fórmula BONI: precio_oficial × 0.10
-      // Para líneas regulares: BONI!E ≈ costo_abono_real (Claro cobra 10% al corporativo)
-      // EXCEPCIÓN CRÍTICA: Para planes fijos, internet o consolidados (A100E, 3MC26, CTF14, TFT26, Internet + Tel Fijo),
-      // Claro NO cobra el 10% del precio de lista. El abono base es el costo real facturado por la operadora (costoAbonoReal).
+      // En Claro, para todos los planes con precio de lista oficial (incluyendo combos de internet y fija como 3MC26 y M3C03),
+      // el abono base corporativo es el 10% del precio oficial de lista.
       const pName = ((lineInfo?.plan || '') + ' ' + (dbInfo?.nombre_plan || '') + ' ' + (consumo.plan || '')).toUpperCase();
-      const esPlanFijoOInternet = isInternet || pName.includes('A100E') || pName.includes('3MC26') || pName.includes('CTF14') || pName.includes('TFT26') || pName.includes('CONSOLIDADO') || pName.includes('FIJO');
 
       const precioOficialClaro = Number(consumo.precio_lista_factura || consumo.precio_lista_audit || lineInfo?.planes_abonos?.precio || dbInfo?.precio || 0);
       let abonoBaseClaro = costoAbonoReal;
 
-      if (!esPlanFijoOInternet) {
-        if (precioOficialClaro > 0) {
-          abonoBaseClaro = precioOficialClaro * 0.10;
-        } else if (costoAbonoReal > 0) {
-          abonoBaseClaro = costoAbonoReal;
-        }
+      if (precioOficialClaro > 0) {
+        abonoBaseClaro = precioOficialClaro * 0.10;
+      } else if (costoAbonoReal > 0) {
+        abonoBaseClaro = costoAbonoReal;
       }
       
       let extraChargesClaro = (isInternet ? 0 : excedentes) + otrosCargosOp;
@@ -115,16 +111,16 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       
       const getClaroPlanMargin = (planStr) => {
         const p = (planStr || '').trim().toUpperCase();
-        if (p.includes('CC10R') || p.includes('CC20R') || p.includes('PC70R')) return 85;
+        if (p.includes('CC10R') || p.includes('CC20R') || p.includes('PC70R') || p.includes('3MC26') || p.includes('M3C03')) return 85;
         if (p.includes('CC11R') || p.includes('CC21R') || p.includes('CC01R') || p.includes('PC72R') || p.includes('PC82R') || p.includes('PC92R')) return 96;
-        if (p.includes('CC12R') || p.includes('CC22R') || p.includes('PC53R') || p.includes('PC73R') || p.includes('PC83R') || p.includes('PC93R') || p.includes('A066C') || p.includes('A060C') || p.includes('3MC26') || p.includes('A100E')) return 100;
+        if (p.includes('CC12R') || p.includes('CC22R') || p.includes('PC53R') || p.includes('PC73R') || p.includes('PC83R') || p.includes('PC93R') || p.includes('A066C') || p.includes('A060C') || p.includes('A100E')) return 100;
         if (p.includes('CC13R') || p.includes('CC23R') || p.includes('CC13C') || p.includes('PC54R') || p.includes('PC74R') || p.includes('PC84R') || p.includes('PC94R')) return 105;
         if (p.includes('CC14R') || p.includes('CC24R') || p.includes('CC04R') || p.includes('PC55R') || p.includes('PC75R') || p.includes('PC95C') || p.includes('PC95R') || p.includes('PC76R') || p.includes('PC96C') || p.includes('PC96R')) return 107;
         return 107;
       };
 
       let Z_val = 1.07;
-      let rawMargin = esPlanFijoOInternet ? 100 : getClaroPlanMargin(pName);
+      let rawMargin = getClaroPlanMargin(pName);
       if (consumo.mutual_margen_aplicado !== undefined && consumo.mutual_margen_aplicado !== null && Number(consumo.mutual_margen_aplicado) > 0) {
         rawMargin = Number(consumo.mutual_margen_aplicado);
       } else if (dbInfo && dbInfo.mutual_margen_pct !== undefined && dbInfo.mutual_margen_pct !== null && Number(dbInfo.mutual_margen_pct) > 0) {
@@ -347,6 +343,7 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
     return {
       ...consumo,
       lineas: lineInfo,
+      _config: config,
       calculado: {
         baseAb: _finalBaseAb,
         cAdmin: Math.round(gastosAdmin * 100) / 100,
@@ -738,15 +735,23 @@ export function consolidateFixedServices(resultados, selectedProvider) {
 
         // Recalcular métricas de auditoría para la línea fija con el nuevo abono neto consolidado
         if (fija.calculado) {
+          const precioListaConsolidado = fija.precio_lista_factura || matchInternet.precio_lista_factura || fija.precio_lista_audit || matchInternet.precio_lista_audit || (fija.plan === 'M3C03' ? 62740.80 : fija.plan === '3MC26' ? 61902.03 : 0);
           const consumoUpdated = {
             ...fija,
             costo_abono_real: combinedCostoAbono,
-            total_linea: combinedCostoAbono
+            total_linea: combinedCostoAbono,
+            precio_lista_factura: precioListaConsolidado,
+            precio_lista_audit: precioListaConsolidado
           };
           const recalculated = calculateAuditLine(
             consumoUpdated,
             fija.lineas || fija,
-            { providerId: 1, period: fija.periodo, tarifaAunar: fija.calculado?.tarifaAunar }
+            {
+              providerId: 1,
+              period: fija.periodo,
+              tarifaAunar: fija.calculado?.tarifaAunar,
+              adicionales: fija._config?.adicionales || fija.adicionales || []
+            }
           );
           fija.calculado = recalculated.calculado;
           fija.baseAb = recalculated.calculado.baseAb;
