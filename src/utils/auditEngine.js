@@ -669,14 +669,14 @@ export function consolidateFixedServices(resultados, selectedProvider) {
     const l = getLine(r);
     if (!l || (l.length < 10 && !l.startsWith('221')) || l.startsWith('000')) return false;
     const p = getPlan(r);
-    return p.includes('CTF14') || p.includes('TFT26') || p.includes('A100E') || p.includes('3MC26') || p.includes('CTF') || p.includes('TFT') || p.includes('FIJO');
+    return p.includes('CTF14') || p.includes('TFT26') || p.includes('A100E') || p.includes('M3C03') || p.includes('3MC26') || p.includes('CTF') || p.includes('TFT') || p.includes('FIJO');
   });
 
   if (cuentasInternet.length > 0 && lineasFijas.length > 0) {
     lineasFijas.forEach((fija, idx) => {
       const pFija = getPlan(fija);
       const fijaLine = getLine(fija);
-      const esCTF14 = pFija.includes('CTF14') || pFija.includes('A100E');
+      const esCTF14 = pFija.includes('CTF14') || pFija.includes('A100E') || pFija.includes('M3C03');
       const esTFT26 = pFija.includes('TFT26') || pFija.includes('3MC26');
 
       const sIdFija = getSocioId(fija);
@@ -688,7 +688,7 @@ export function consolidateFixedServices(resultados, selectedProvider) {
         (sIdFija && getSocioId(c) && sIdFija === getSocioId(c)) ||
         (gNumFija && getGrupoNum(c) && gNumFija === getGrupoNum(c)) ||
         (sNombreFija && getSocioNombre(c) && sNombreFija !== 'Socio no identificado' && sNombreFija.trim().toLowerCase() === getSocioNombre(c).trim().toLowerCase()) ||
-        (esCTF14 && (getPlan(c).includes('A100E') || getLine(c).includes('2982898'))) ||
+        (esCTF14 && (getPlan(c).includes('A100E') || getPlan(c).includes('M3C03') || getLine(c).includes('2982898'))) ||
         (esTFT26 && (getPlan(c).includes('3MC26') || getLine(c).includes('3409596')))
       )) || cuentasInternet.find(c => !c.isMerged) || cuentasInternet[idx];
 
@@ -705,7 +705,7 @@ export function consolidateFixedServices(resultados, selectedProvider) {
         }
 
         if (esCTF14) {
-          fija.plan = 'A100E';
+          fija.plan = getPlan(matchInternet).includes('M3C03') ? 'M3C03' : 'A100E';
         } else if (esTFT26) {
           fija.plan = '3MC26';
         } else {
