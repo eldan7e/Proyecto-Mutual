@@ -1,239 +1,725 @@
-import { useEffect, useState, useMemo } from 'react';
-import { 
-  Search, Edit2, Trash2, Plus, Users, Smartphone, 
-  Mail, Hash, TrendingUp, ShieldCheck, UserCheck, Loader2, RefreshCw, Eye
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import {
+  Search, Edit2, Trash2, Plus, Users, Smartphone,
+  Mail, Hash, ShieldCheck, UserCheck, Loader2, RefreshCw,
+  Eye, X, UserPlus, Crown, UserMinus, FileText, Phone, ChevronDown, ChevronUp
 } from 'lucide-react';
 import Modal from './components/Modal';
-import { fetchGrupos as loadGrupos, insertGrupo, updateGrupo, deleteGrupo, setGrupoTitular } from './services/gruposService';
+import {
+  fetchGrupos as loadGrupos,
+  insertGrupo,
+  updateGrupo,
+  deleteGrupo,
+  setGrupoTitular,
+  addIntegranteToGrupo,
+  removeIntegranteFromGrupo,
+  searchSocios,
+  fetchLiquidacionesGrupo,
+} from './services/gruposService';
 import useDebounce from './hooks/useDebounce';
-import { supabase } from './supabaseClient';
+import { useToast } from './components/ui/ToastProvider';
+import { useConfirm } from './components/ui/ConfirmProvider';
 
+/* ─────────────────────────────────────────────
+   Sub-componente: Buscador de socios con autocomplete
+   ───────────────────────────────────────────── */
+function SocioBuscador({ onSelect, placeholder = 'Buscar socio por nombre, DNI o Nro...', excludeIds = [] }) {
+  const [q, setQ] = useState('');
+  const debouncedQ = useDebounce(q, 300);
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef(null);
+
+  useEffect(() => {
+    if (debouncedQ.trim().length < 2) { setResults([]); setOpen(false); return; }
+    setLoading(true);
+    searchSocios(debouncedQ).then((data) => {
+      setResults(data.filter(s => !excludeIds.includes(s.socio_id)));
+      setOpen(true);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, [debouncedQ]);
+
+  // Cerrar al hacer click afuera
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  function handleSelect(socio) {
+    setQ('');
+    setResults([]);
+    setOpen(false);
+    onSelect(socio);
+  }
+
+  return (
+    <div ref={wrapperRef} style={{ position: 'relative' }}>
+      <div style={{ position: 'relative' }}>
+        <input
+          type="text"
+          className="premium-input"
+          style={{ width: '100%', padding: '10px 40px 10px 12px', fontSize: '13px', borderRadius: '10px', boxSizing: 'border-box' }}
+          placeholder={placeholder}
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+        {loading
+          ? <Loader2 size={15} className="animate-spin" style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--accent)' }} />
+          : <Search size={15} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)', pointerEvents: 'none' }} />
+        }
+      </div>
+
+      {open && results.length > 0 && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
+          background: 'var(--modal-bg, #fff)', border: '1px solid var(--border-light)',
+          borderRadius: '12px', boxShadow: '0 12px 32px rgba(0,0,0,0.18)',
+          zIndex: 9999, maxHeight: '240px', overflowY: 'auto'
+        }}>
+          {results.map((s) => (
+            <div
+              key={s.socio_id}
+              onClick={() => handleSelect(s)}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--accent-light)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border-light)', transition: 'background 0.12s' }}
+            >
+              <div style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text-primary)' }}>{s.nombre_completo}</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', fontWeight: 600 }}>
+                Nro {s.nro_socio || '—'} · DNI {s.dni || '—'}
+                {s.email && ` · ${s.email}`}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {open && results.length === 0 && q.trim().length >= 2 && !loading && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
+          background: 'var(--modal-bg, #fff)', border: '1px solid var(--border-light)',
+          borderRadius: '12px', padding: '14px 16px', zIndex: 9999,
+          fontSize: '13px', color: 'var(--text-secondary)', fontStyle: 'italic'
+        }}>
+          No se encontraron socios
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   Sub-componente: Modal Expediente del Grupo (con tabs)
+   ───────────────────────────────────────────── */
+function ExpedienteModal({ grupo, onClose, onRefresh }) {
+  const { addToast } = useToast();
+  const confirm = useConfirm();
+  const [tab, setTab] = useState('integrantes');
+  const [saving, setSaving] = useState(false);
+
+  // Historial de liquidaciones
+  const [liquidaciones, setLiquidaciones] = useState([]);
+  const [loadingLiq, setLoadingLiq] = useState(false);
+
+  // Estado local de integrantes (para actualización inmediata en UI)
+  const [integrantes, setIntegrantes] = useState(grupo?.integrantes || []);
+
+  useEffect(() => {
+    setIntegrantes(grupo?.integrantes || []);
+  }, [grupo]);
+
+  useEffect(() => {
+    if (tab === 'historial' && grupo) {
+      setLoadingLiq(true);
+      fetchLiquidacionesGrupo(grupo.numero_grupo)
+        .then(setLiquidaciones)
+        .catch(() => addToast('Error al cargar historial', 'error'))
+        .finally(() => setLoadingLiq(false));
+    }
+  }, [tab, grupo]);
+
+  async function handleSetTitular(socio) {
+    const ok = await confirm({
+      title: 'Cambiar titular',
+      message: `¿Establecer a ${socio.nombre_completo} como titular del grupo #${grupo.numero_grupo}?`,
+      confirmText: 'Sí, establecer',
+    });
+    if (!ok) return;
+    setSaving(true);
+    try {
+      await setGrupoTitular(grupo.numero_grupo, socio.socio_id);
+      setIntegrantes(prev => prev.map(i => ({
+        ...i,
+        es_titular: i.socio_id === socio.socio_id
+      })).sort((a, b) => {
+        if (a.es_titular && !b.es_titular) return -1;
+        if (!a.es_titular && b.es_titular) return 1;
+        return (a.nombre_completo || '').localeCompare(b.nombre_completo || '');
+      }));
+      addToast(`${socio.nombre_completo} es ahora el titular del grupo`, 'success');
+      onRefresh();
+    } catch (err) {
+      addToast('Error al cambiar titular: ' + err.message, 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleAddFromSearch(socio) {
+    setSaving(true);
+    try {
+      await addIntegranteToGrupo(grupo.numero_grupo, socio.socio_id);
+      setIntegrantes(prev => [...prev, { ...socio, es_titular: false }].sort((a, b) => {
+        if (a.es_titular && !b.es_titular) return -1;
+        if (!a.es_titular && b.es_titular) return 1;
+        return (a.nombre_completo || '').localeCompare(b.nombre_completo || '');
+      }));
+      addToast(`${socio.nombre_completo} agregado al grupo`, 'success');
+      onRefresh();
+    } catch (err) {
+      addToast(err.message, 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRemoveIntegrante(integrante) {
+    if (integrante.es_titular) {
+      addToast('No podés quitar al titular. Asigná otro titular primero.', 'warning');
+      return;
+    }
+    const ok = await confirm({
+      title: 'Quitar integrante',
+      message: `¿Quitar a ${integrante.nombre_completo} del grupo #${grupo.numero_grupo}?`,
+      confirmText: 'Sí, quitar',
+      isDanger: true,
+    });
+    if (!ok) return;
+    setSaving(true);
+    try {
+      await removeIntegranteFromGrupo(grupo.numero_grupo, integrante.socio_id, integrante.es_titular);
+      setIntegrantes(prev => prev.filter(i => i.socio_id !== integrante.socio_id));
+      addToast(`${integrante.nombre_completo} quitado del grupo`, 'success');
+      onRefresh();
+    } catch (err) {
+      addToast(err.message, 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const tabs = [
+    { id: 'integrantes', label: 'Integrantes', icon: <Users size={14} /> },
+    { id: 'lineas', label: 'Líneas', icon: <Phone size={14} /> },
+    { id: 'historial', label: 'Historial', icon: <FileText size={14} /> },
+  ];
+
+  if (!grupo) return null;
+
+  const excludedIds = integrantes.map(i => i.socio_id);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+      {/* Header info del grupo */}
+      <div style={{
+        background: 'var(--accent-light)', borderRadius: '16px', padding: '16px 20px',
+        marginBottom: '20px', display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{
+            background: 'var(--accent)', color: 'white', padding: '4px 12px',
+            borderRadius: '8px', fontSize: '13px', fontWeight: 900
+          }}>
+            <Hash size={12} style={{ display: 'inline', marginRight: '3px' }} />{grupo.numero_grupo}
+          </span>
+          <span style={{ fontWeight: 800, fontSize: '15px', color: 'var(--text-primary)' }}>
+            {grupo.alias_grupo || 'Sin Alias'}
+          </span>
+        </div>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+          <Stat icon={<Users size={13} />} label="Integrantes" value={integrantes.length} />
+          <Stat icon={<Phone size={13} />} label="Líneas" value={grupo.total_lineas} color="#3b82f6" />
+          {grupo.email_facturacion && (
+            <Stat icon={<Mail size={13} />} label="Email" value={grupo.email_facturacion} small />
+          )}
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', borderBottom: '1px solid var(--border-light)', paddingBottom: '0' }}>
+        {tabs.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              padding: '10px 16px', fontSize: '13px', fontWeight: 700,
+              border: 'none', borderRadius: '10px 10px 0 0', cursor: 'pointer',
+              background: tab === t.id ? 'var(--accent)' : 'transparent',
+              color: tab === t.id ? 'white' : 'var(--text-secondary)',
+              transition: 'all 0.15s',
+              borderBottom: tab === t.id ? '2px solid var(--accent)' : '2px solid transparent',
+              marginBottom: '-1px',
+            }}
+          >
+            {t.icon} {t.label}
+            {t.id === 'integrantes' && (
+              <span style={{
+                background: tab === t.id ? 'rgba(255,255,255,0.25)' : 'var(--accent-light)',
+                color: tab === t.id ? 'white' : 'var(--accent)',
+                fontSize: '10px', fontWeight: 900, padding: '1px 6px', borderRadius: '100px'
+              }}>{integrantes.length}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab: Integrantes */}
+      {tab === 'integrantes' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Lista de integrantes */}
+          {integrantes.length === 0 ? (
+            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '13px', fontStyle: 'italic' }}>
+              Este grupo no tiene integrantes aún. Usá el buscador para agregar socios.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {integrantes.map((int) => (
+                <div key={int.socio_id} style={{
+                  display: 'flex', alignItems: 'center', gap: '12px',
+                  padding: '12px 16px', background: 'var(--bg-app)',
+                  borderRadius: '12px', border: int.es_titular ? '1.5px solid var(--accent)' : '1px solid var(--border-light)',
+                  transition: 'border-color 0.15s'
+                }}>
+                  {/* Avatar inicial */}
+                  <div style={{
+                    width: '36px', height: '36px', borderRadius: '50%', flexShrink: 0,
+                    background: int.es_titular ? 'var(--accent)' : 'rgba(0,0,0,0.06)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: int.es_titular ? 'white' : 'var(--text-secondary)',
+                    fontSize: '14px', fontWeight: 800
+                  }}>
+                    {int.es_titular ? <Crown size={16} /> : (int.nombre_completo?.[0] || '?')}
+                  </div>
+
+                  {/* Info */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 800, fontSize: '14px', color: 'var(--text-primary)' }}>
+                        {int.nombre_completo}
+                      </span>
+                      {int.es_titular && (
+                        <span style={{
+                          fontSize: '9px', background: 'var(--accent)', color: 'white',
+                          padding: '2px 8px', borderRadius: '100px', fontWeight: 900, textTransform: 'uppercase'
+                        }}>TITULAR</span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, marginTop: '2px' }}>
+                      Nro {int.nro_socio || '—'} · DNI {int.dni || '—'}
+                      {int.email && ` · ${int.email}`}
+                    </div>
+                  </div>
+
+                  {/* Acciones */}
+                  <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                    {!int.es_titular && (
+                      <button
+                        onClick={() => handleSetTitular(int)}
+                        disabled={saving}
+                        title="Hacer titular"
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '4px',
+                          padding: '6px 10px', fontSize: '11px', fontWeight: 800,
+                          background: 'var(--accent-light)', color: 'var(--accent)',
+                          border: '1px solid var(--accent)', borderRadius: '8px',
+                          cursor: saving ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap'
+                        }}
+                      >
+                        <Crown size={12} /> Titular
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleRemoveIntegrante(int)}
+                      disabled={saving}
+                      title={int.es_titular ? 'No se puede quitar al titular' : 'Quitar del grupo'}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        width: '32px', height: '32px', borderRadius: '8px',
+                        background: 'rgba(239,68,68,0.08)', color: '#ef4444',
+                        border: '1px solid rgba(239,68,68,0.2)',
+                        cursor: (saving || int.es_titular) ? 'not-allowed' : 'pointer',
+                        opacity: (saving || int.es_titular) ? 0.4 : 1,
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      <UserMinus size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Buscador para agregar */}
+          <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '16px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <UserPlus size={13} /> Agregar integrante al grupo
+            </div>
+            <SocioBuscador
+              onSelect={handleAddFromSearch}
+              excludeIds={excludedIds}
+              placeholder="Buscar socio por nombre, DNI o Nro de socio..."
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Tab: Líneas */}
+      {tab === 'lineas' && (
+        <div>
+          {grupo.lineasDetalle.length === 0 ? (
+            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '13px', fontStyle: 'italic' }}>
+              No hay líneas asignadas a este grupo.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+              {grupo.lineasDetalle.map((l, i) => (
+                <div key={i} style={{
+                  padding: '12px 18px', background: 'var(--bg-app)',
+                  border: '1px solid var(--border-light)', borderRadius: '14px',
+                  minWidth: '140px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                    <Smartphone size={13} color="#3b82f6" />
+                    <span style={{ fontWeight: 900, color: 'var(--text-primary)', fontSize: '14px' }}>{l.numero_linea}</span>
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700 }}>
+                    {l.proveedores?.nombre || '—'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab: Historial */}
+      {tab === 'historial' && (
+        <div>
+          {loadingLiq ? (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '32px' }}>
+              <Loader2 className="animate-spin" size={24} style={{ color: 'var(--accent)' }} />
+            </div>
+          ) : liquidaciones.length === 0 ? (
+            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '13px', fontStyle: 'italic' }}>
+              No hay registros de liquidación para este grupo.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {liquidaciones.map((liq, idx) => {
+                const payments = liq.movimientos_bancarios || [];
+                // Corrección del desfasaje: el abono se registra en el periodo siguiente
+                const liqSiguiente = idx > 0 ? liquidaciones[idx - 1] : null;
+                const montoAbonadoReal = liqSiguiente ? Number(liqSiguiente.monto_abonado) : Number(liq.monto_abonado);
+                const facturado = Number(liq.monto_total_facturado);
+                const estadoPago = (montoAbonadoReal >= (facturado - 5.0)) ? 'ABONADO' : (montoAbonadoReal > 5.0 ? 'PARCIAL' : 'PENDIENTE');
+                const estadoColor = estadoPago === 'ABONADO' ? 'var(--accent)' : estadoPago === 'PARCIAL' ? '#f59e0b' : '#ef4444';
+
+                return (
+                  <div key={liq.liquidacion_id} style={{
+                    padding: '14px 16px', background: 'var(--bg-app)',
+                    borderRadius: '12px', border: '1px solid var(--border-light)'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '13px' }}>
+                        {liq.periodo} · {liq.proveedores?.nombre}
+                      </span>
+                      <span style={{
+                        fontSize: '9px', background: estadoColor, color: 'white',
+                        padding: '3px 8px', borderRadius: '100px', fontWeight: 900
+                      }}>{estadoPago}</span>
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                      <span>Facturado: <strong>${facturado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong></span>
+                      <span>Abonado: <strong>${montoAbonadoReal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong></span>
+                    </div>
+                    {payments.length > 0 && (
+                      <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed var(--border-light)' }}>
+                        <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: 800, marginBottom: '6px' }}>
+                          Pagos conciliados:
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          {payments.map((p) => (
+                            <div key={p.movimiento_id} style={{ fontSize: '11px', display: 'flex', justifyContent: 'space-between', color: 'var(--text-primary)' }}>
+                              <span>📅 {p.fecha_movimiento} · {p.socios?.nombre_completo || 'Socio'} ({p.banco})</span>
+                              <span style={{ fontWeight: 800, color: 'var(--accent)' }}>
+                                +${parseFloat(p.monto).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   Stat chip inline
+   ───────────────────────────────────────────── */
+function Stat({ icon, label, value, color, small }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: small ? '11px' : '12px', color: color || 'var(--text-secondary)', fontWeight: 700 }}>
+      <span style={{ color: color || 'var(--accent)' }}>{icon}</span>
+      <span>{label}: <strong style={{ color: 'var(--text-primary)' }}>{value}</strong></span>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   Sub-componente: Formulario Crear/Editar Grupo
+   ───────────────────────────────────────────── */
+function GrupoForm({ grupo, onSubmit, loading }) {
+  return (
+    <form key={grupo?.numero_grupo || 'new'} onSubmit={onSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div className="glass-panel-sub" style={{ padding: '20px', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+
+        <div>
+          <label className="form-label">Número de Grupo *</label>
+          <input
+            className="premium-input"
+            style={{ width: '100%', padding: '11px 14px', boxSizing: 'border-box' }}
+            type="number"
+            name="numero_grupo"
+            defaultValue={grupo?.numero_grupo}
+            disabled={!!grupo}
+            required
+            placeholder="Ej: 42"
+          />
+          {!!grupo && (
+            <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 600 }}>
+              El número de grupo no se puede modificar.
+            </p>
+          )}
+        </div>
+
+        <div>
+          <label className="form-label">Alias del Grupo</label>
+          <input
+            className="premium-input"
+            style={{ width: '100%', padding: '11px 14px', boxSizing: 'border-box' }}
+            name="alias_grupo"
+            defaultValue={grupo?.alias_grupo}
+            placeholder="Ej: Grupo Familiar García"
+          />
+        </div>
+
+        <div>
+          <label className="form-label">Email de Facturación</label>
+          <input
+            className="premium-input"
+            style={{ width: '100%', padding: '11px 14px', boxSizing: 'border-box' }}
+            type="email"
+            name="email_facturacion"
+            defaultValue={grupo?.email_facturacion}
+            placeholder="facturacion@ejemplo.com"
+          />
+        </div>
+
+        <div>
+          <label className="form-label">Emails adicionales <span style={{ fontWeight: 500, opacity: 0.7 }}>(separados por coma)</span></label>
+          <textarea
+            className="premium-input"
+            style={{ width: '100%', padding: '11px 14px', height: '80px', resize: 'vertical', boxSizing: 'border-box' }}
+            name="emails_integrantes"
+            defaultValue={grupo?.emails_integrantes}
+            placeholder="otro@email.com, extra@email.com"
+          />
+        </div>
+      </div>
+
+      <button
+        type="submit"
+        className="action-button"
+        style={{ width: '100%', padding: '14px', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+        disabled={loading}
+      >
+        {loading
+          ? <><Loader2 size={16} className="animate-spin" /> Guardando...</>
+          : <><ShieldCheck size={16} /> {grupo ? 'Guardar Cambios' : 'Crear Grupo'}</>
+        }
+      </button>
+    </form>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   Componente principal: Grupos
+   ───────────────────────────────────────────── */
 export default function Grupos() {
+  const { addToast } = useToast();
+  const confirm = useConfirm();
+
   const [grupos, setGrupos] = useState([]);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [currentGrupo, setCurrentGrupo] = useState(null);
   const [loading, setLoading] = useState(false);
   const [proveedores, setProveedores] = useState([]);
   const [selectedProvider, setSelectedProvider] = useState('');
-  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
-  const [detailGrupo, setDetailGrupo] = useState(null);
 
-  // Estados de paginación de la tabla rápida
+  // Modal edición/creación
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [currentGrupo, setCurrentGrupo] = useState(null);
+  const [savingForm, setSavingForm] = useState(false);
+
+  // Modal expediente
+  const [expedienteGrupo, setExpedienteGrupo] = useState(null);
+
+  // Paginación
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize] = useState(50);
+  const PAGE_SIZE = 50;
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [debouncedSearch, selectedProvider]);
+  useEffect(() => { setCurrentPage(1); }, [debouncedSearch, selectedProvider]);
 
-  const totalPages = Math.ceil(grupos.length / pageSize) || 1;
+  const totalPages = Math.max(1, Math.ceil(grupos.length / PAGE_SIZE));
   const paginatedGrupos = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return grupos.slice(start, start + pageSize);
-  }, [grupos, currentPage, pageSize]);
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return grupos.slice(start, start + PAGE_SIZE);
+  }, [grupos, currentPage]);
 
-  // States for liquidation and payment history of the selected group
-  const [liquidacionesHistory, setLiquidacionesHistory] = useState([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+  const kpis = useMemo(() => ({
+    totalGrupos: grupos.length,
+    totalLineas: grupos.reduce((acc, g) => acc + g.total_lineas, 0),
+    sinTitular: grupos.filter(g => !g.titular).length,
+  }), [grupos]);
 
-  useEffect(() => {
-    if (isDetailModalOpen && detailGrupo) {
-      loadHistory(detailGrupo.numero_grupo);
-    } else {
-      setLiquidacionesHistory([]);
-    }
-  }, [isDetailModalOpen, detailGrupo]);
-
-  async function loadHistory(numeroGrupo) {
-    setLoadingHistory(true);
-    try {
-      const { data, error } = await supabase
-        .from('liquidaciones_grupos')
-        .select(`
-          liquidacion_id,
-          periodo,
-          monto_total_facturado,
-          monto_abonado,
-          estado_pago,
-          proveedores(nombre),
-          movimientos_bancarios(
-            movimiento_id,
-            fecha_movimiento,
-            monto,
-            banco,
-            socios(nombre_completo)
-          )
-        `)
-        .eq('numero_grupo', numeroGrupo)
-        .order('periodo', { ascending: false });
-
-      if (error) throw error;
-      setLiquidacionesHistory(data || []);
-    } catch (err) {
-      console.error('Error al cargar historial de liquidaciones:', err);
-    } finally {
-      setLoadingHistory(false);
-    }
-  }
-
-  // States for search and autocompletion of partners to assign as titular
-  const [socioSearch, setSocioSearch] = useState('');
-  const [socioSuggestions, setSocioSuggestions] = useState([]);
-  const [searchingSocios, setSearchingSocios] = useState(false);
-
-  useEffect(() => {
-    if (socioSearch.trim().length < 2) {
-      setSocioSuggestions([]);
-      return;
-    }
-    const search = async () => {
-      setSearchingSocios(true);
-      try {
-        const { data, error } = await supabase
-          .from('socios')
-          .select('socio_id, nombre_completo, nro_socio')
-          .or(`nombre_completo.ilike.%${socioSearch}%,dni.ilike.%${socioSearch}%`)
-          .limit(5);
-        if (!error && data) {
-          setSocioSuggestions(data);
-        }
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setSearchingSocios(false);
-      }
-    };
-    const timer = setTimeout(search, 300);
-    return () => clearTimeout(timer);
-  }, [socioSearch]);
-
-  useEffect(() => {
-    fetchData();
-  }, [debouncedSearch, selectedProvider]);
-
-  async function fetchData() {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const { grupos: processedGrupos, proveedores: provData } = await loadGrupos({ search: debouncedSearch, selectedProvider });
-      setGrupos(processedGrupos);
+      const { grupos: data, proveedores: provData } = await loadGrupos({
+        search: debouncedSearch,
+        selectedProvider
+      });
+      setGrupos(data);
       setProveedores(provData);
-      return processedGrupos;
+      return data;
     } catch (err) {
-      console.error('Error fetching grupos:', err);
+      addToast('Error al cargar grupos: ' + err.message, 'error');
     } finally {
       setLoading(false);
     }
-  }
+  }, [debouncedSearch, selectedProvider]);
 
-  async function handleSetTitular(socioId) {
-    try {
-      setLoading(true);
-      await setGrupoTitular(detailGrupo.numero_grupo, socioId);
-      const freshGrupos = await fetchData();
-      if (freshGrupos) {
-        const updated = freshGrupos.find(g => g.numero_grupo === detailGrupo.numero_grupo);
-        if (updated) {
-          setDetailGrupo(updated);
-        }
-      }
-      setSocioSearch('');
-      setSocioSuggestions([]);
-    } catch (err) {
-      alert("Error al establecer titular: " + err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setLoading(true);
+    setSavingForm(true);
     const formData = new FormData(e.target);
     const grupoData = Object.fromEntries(formData);
 
     try {
       if (currentGrupo) {
         await updateGrupo(currentGrupo.numero_grupo, grupoData);
+        addToast(`Grupo #${currentGrupo.numero_grupo} actualizado`, 'success');
       } else {
         await insertGrupo(grupoData);
+        addToast(`Grupo #${grupoData.numero_grupo} creado exitosamente`, 'success');
       }
       setIsModalOpen(false);
       setCurrentGrupo(null);
       fetchData();
     } catch (error) {
-      alert(error.message);
+      addToast('Error: ' + error.message, 'error');
     } finally {
-      setLoading(false);
+      setSavingForm(false);
     }
   }
 
-  async function handleDelete(id) {
-    if (window.confirm('¿Estás seguro de eliminar este grupo? Todos los vínculos se perderán.')) {
-      try {
-        await deleteGrupo(id);
-        fetchData();
-      } catch (error) {
-        alert(error.message);
-      }
+  async function handleDelete(grupo) {
+    const ok = await confirm({
+      title: `Eliminar Grupo #${grupo.numero_grupo}`,
+      message: `¿Estás seguro? Se perderán todos los vínculos de este grupo. Esta acción no se puede deshacer.`,
+      confirmText: 'Eliminar',
+      isDanger: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteGrupo(grupo.numero_grupo);
+      addToast(`Grupo #${grupo.numero_grupo} eliminado`, 'success');
+      fetchData();
+    } catch (error) {
+      addToast('Error al eliminar: ' + error.message, 'error');
     }
   }
 
-  const kpis = {
-    totalGrupos: grupos.length,
-    totalLineas: grupos.reduce((acc, g) => acc + g.total_lineas, 0),
-    sinTitular: grupos.filter(g => g.titular === 'Sin Titular').length
-  };
+  function openExpediente(g) {
+    setExpedienteGrupo(g);
+  }
+
+  function closeExpediente() {
+    setExpedienteGrupo(null);
+  }
+
+  // Cuando se actualiza algo en el expediente, refresca la lista y actualiza el grupo en el modal
+  async function handleExpedienteRefresh() {
+    const freshData = await fetchData();
+    if (freshData && expedienteGrupo) {
+      const updated = freshData.find(g => g.numero_grupo === expedienteGrupo.numero_grupo);
+      if (updated) setExpedienteGrupo(updated);
+    }
+  }
 
   return (
     <div className="animate-fade">
-      
-      {/* Dashboard Summary */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginBottom: '32px' }}>
-        <div className="glass-panel" style={{ padding: '24px', borderRadius: '24px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)' }}>TOTAL GRUPOS</span>
-            <Users size={16} color="var(--accent)" />
-          </div>
-          <div style={{ fontSize: '28px', fontWeight: 900 }}>{kpis.totalGrupos}</div>
-          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Unidades de facturación</div>
-        </div>
 
-        <div className="glass-panel" style={{ padding: '24px', borderRadius: '24px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)' }}>LÍNEAS VINCULADAS</span>
-            <Smartphone size={16} color="#3b82f6" />
-          </div>
-          <div style={{ fontSize: '28px', fontWeight: 900 }}>{kpis.totalLineas}</div>
-          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Total de equipos en flota</div>
-        </div>
-
-        <div className="glass-panel" style={{ padding: '24px', borderRadius: '24px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)' }}>SIN TITULAR</span>
-            <ShieldCheck size={16} color="#ef4444" />
-          </div>
-          <div style={{ fontSize: '28px', fontWeight: 900, color: kpis.sinTitular > 0 ? '#ef4444' : 'inherit' }}>{kpis.sinTitular}</div>
-          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Requieren asignación</div>
-        </div>
+      {/* KPI Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '28px' }}>
+        <KpiCard icon={<Users size={16} color="var(--accent)" />} label="TOTAL GRUPOS" value={kpis.totalGrupos} sublabel="Unidades de facturación" />
+        <KpiCard icon={<Smartphone size={16} color="#3b82f6" />} label="LÍNEAS VINCULADAS" value={kpis.totalLineas} sublabel="Total de equipos en flota" />
+        <KpiCard
+          icon={<ShieldCheck size={16} color={kpis.sinTitular > 0 ? '#ef4444' : 'var(--accent)'} />}
+          label="SIN TITULAR"
+          value={kpis.sinTitular}
+          sublabel="Requieren asignación"
+          valueColor={kpis.sinTitular > 0 ? '#ef4444' : undefined}
+        />
       </div>
 
-      {/* Filters Bar */}
-      <div className="glass-panel" style={{ padding: '20px', borderRadius: '24px', marginBottom: '24px', display: 'flex', gap: '16px', alignItems: 'center' }}>
-        <div className="search-bar" style={{ flex: 1 }}>
-          <Search size={18} />
+      {/* Barra de filtros */}
+      <div className="glass-panel" style={{ padding: '16px 20px', borderRadius: '20px', marginBottom: '20px', display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="search-bar" style={{ flex: 1, minWidth: '200px' }}>
+          <Search size={16} />
           <input
             type="text"
             placeholder="Buscar por número de grupo o alias..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={{ background: 'none', border: 'none', outline: 'none', width: '100%' }}
+            style={{ background: 'none', border: 'none', outline: 'none', width: '100%', fontSize: '13px' }}
           />
+          {search && (
+            <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', padding: '2px' }}>
+              <X size={14} />
+            </button>
+          )}
         </div>
-        <select 
-          className="premium-input" 
-          style={{ width: '220px', padding: '10px 16px' }}
+        <select
+          className="premium-input"
+          style={{ width: '200px', padding: '9px 14px', fontSize: '13px' }}
           value={selectedProvider}
           onChange={(e) => setSelectedProvider(e.target.value)}
         >
@@ -242,123 +728,141 @@ export default function Grupos() {
             <option key={p.proveedor_id} value={p.proveedor_id}>{p.nombre}</option>
           ))}
         </select>
-        <button onClick={fetchData} className="icon-button-edit" style={{ height: '42px', width: '42px', flexShrink: 0 }}>
-          <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+        <button onClick={fetchData} className="icon-button-edit" style={{ height: '40px', width: '40px', flexShrink: 0 }} title="Recargar">
+          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
-        <button 
+        <button
           onClick={() => { setCurrentGrupo(null); setIsModalOpen(true); }}
-          className="action-button" 
-          style={{ padding: '10px 18px', fontSize: '13px', borderRadius: '12px', height: '42px', display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}
+          className="action-button"
+          style={{ padding: '9px 16px', fontSize: '13px', borderRadius: '12px', height: '40px', display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}
         >
-          <Plus size={16} /> Nuevo Grupo
+          <Plus size={15} /> Nuevo Grupo
         </button>
       </div>
 
-      {/* Listado de Grupos en Tabla Rápida Paginada */}
+      {/* Tabla */}
       {loading ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '16px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '8px 0' }}>
           {[1, 2, 3, 4, 5].map(i => (
-            <div key={i} className="skeleton" style={{ height: '52px', width: '100%', borderRadius: '12px' }}></div>
+            <div key={i} className="skeleton" style={{ height: '56px', width: '100%', borderRadius: '12px' }} />
           ))}
         </div>
       ) : grupos.length === 0 ? (
-        <div className="glass-panel" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-          No se encontraron grupos que coincidan con la búsqueda.
+        <div className="glass-panel" style={{ padding: '48px', textAlign: 'center', borderRadius: '20px' }}>
+          <Users size={40} style={{ color: 'var(--text-secondary)', opacity: 0.3, marginBottom: '12px' }} />
+          <div style={{ color: 'var(--text-secondary)', fontSize: '15px', fontWeight: 600 }}>
+            {search || selectedProvider ? 'No hay grupos que coincidan con los filtros.' : 'No hay grupos registrados.'}
+          </div>
+          {!search && !selectedProvider && (
+            <button
+              onClick={() => { setCurrentGrupo(null); setIsModalOpen(true); }}
+              className="action-button"
+              style={{ marginTop: '16px', padding: '10px 20px', fontSize: '13px', borderRadius: '12px', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+            >
+              <Plus size={15} /> Crear el primer grupo
+            </button>
+          )}
         </div>
       ) : (
-        <div className="glass-panel" style={{ borderRadius: '24px', overflow: 'hidden' }}>
+        <div className="glass-panel" style={{ borderRadius: '20px', overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
             <table className="premium-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: 'rgba(0,0,0,0.02)', borderBottom: '1px solid var(--border-light)' }}>
-                  <th style={{ padding: '14px 20px', textAlign: 'left', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Grupo / Alias</th>
-                  <th style={{ padding: '14px 20px', textAlign: 'left', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Titular / Responsable</th>
-                  <th style={{ padding: '14px 20px', textAlign: 'center', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Integrantes</th>
-                  <th style={{ padding: '14px 20px', textAlign: 'center', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Líneas</th>
-                  <th style={{ padding: '14px 20px', textAlign: 'left', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Email Facturación</th>
-                  <th style={{ padding: '14px 20px', textAlign: 'right', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Acciones</th>
+                  {['Grupo / Alias', 'Titular / Responsable', 'Integrantes', 'Líneas', 'Email Facturación', 'Acciones'].map((h, i) => (
+                    <th key={h} style={{
+                      padding: '13px 18px', textAlign: i >= 2 && i <= 3 ? 'center' : i === 5 ? 'right' : 'left',
+                      fontSize: '10px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em'
+                    }}>{h}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {paginatedGrupos.map(g => (
-                  <tr 
-                    key={g.numero_grupo}
-                    style={{ borderBottom: '1px solid var(--border-light)', transition: 'background 0.15s ease' }}
-                    className="table-row-hover"
-                  >
-                    <td style={{ padding: '14px 20px' }}>
+                  <tr key={g.numero_grupo} className="table-row-hover" style={{ borderBottom: '1px solid var(--border-light)' }}>
+
+                    {/* Grupo / Alias */}
+                    <td style={{ padding: '13px 18px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ 
-                          background: 'var(--accent-light)', 
-                          color: 'var(--accent)', 
-                          padding: '4px 10px', 
-                          borderRadius: '8px', 
-                          fontSize: '11px', 
-                          fontWeight: 900,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px'
+                        <span style={{
+                          background: 'var(--accent-light)', color: 'var(--accent)',
+                          padding: '3px 9px', borderRadius: '7px', fontSize: '11px', fontWeight: 900,
+                          display: 'inline-flex', alignItems: 'center', gap: '3px', flexShrink: 0
                         }}>
-                          <Hash size={12} /> #{g.numero_grupo}
+                          <Hash size={11} /> {g.numero_grupo}
                         </span>
-                        <span style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '14px' }}>
-                          {g.alias_grupo || 'Sin Alias'}
+                        <span style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '13px' }}>
+                          {g.alias_grupo || <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic', fontWeight: 500 }}>Sin Alias</span>}
                         </span>
                       </div>
                     </td>
 
-                    <td style={{ padding: '14px 20px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: g.titular === 'Sin Titular' ? '#ef4444' : 'var(--text-primary)', fontWeight: 700, fontSize: '13px' }}>
-                        <UserCheck size={15} color={g.titular === 'Sin Titular' ? '#ef4444' : 'var(--accent)'} />
-                        {g.titular}
+                    {/* Titular */}
+                    <td style={{ padding: '13px 18px' }}>
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: '7px',
+                        color: !g.titular ? '#ef4444' : 'var(--text-primary)',
+                        fontSize: '13px', fontWeight: 700
+                      }}>
+                        <UserCheck size={14} color={!g.titular ? '#ef4444' : 'var(--accent)'} />
+                        {g.titular || (
+                          <span style={{ color: '#ef4444', fontStyle: 'italic', fontSize: '12px' }}>Sin Titular</span>
+                        )}
                       </div>
                     </td>
 
-                    <td style={{ padding: '14px 20px', textAlign: 'center' }}>
-                      <span style={{ background: 'rgba(0,0,0,0.04)', padding: '4px 10px', borderRadius: '10px', fontSize: '12px', fontWeight: 800 }}>
-                        {g.total_socios}
-                      </span>
+                    {/* Integrantes */}
+                    <td style={{ padding: '13px 18px', textAlign: 'center' }}>
+                      <span style={{
+                        background: 'rgba(0,0,0,0.05)', padding: '3px 10px',
+                        borderRadius: '8px', fontSize: '12px', fontWeight: 800
+                      }}>{g.total_socios}</span>
                     </td>
 
-                    <td style={{ padding: '14px 20px', textAlign: 'center' }}>
-                      <span style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '4px 10px', borderRadius: '10px', fontSize: '12px', fontWeight: 800 }}>
-                        {g.total_lineas}
-                      </span>
+                    {/* Líneas */}
+                    <td style={{ padding: '13px 18px', textAlign: 'center' }}>
+                      <span style={{
+                        background: 'rgba(16,185,129,0.1)', color: '#10b981',
+                        padding: '3px 10px', borderRadius: '8px', fontSize: '12px', fontWeight: 800
+                      }}>{g.total_lineas}</span>
                     </td>
 
-                    <td style={{ padding: '14px 20px' }}>
+                    {/* Email */}
+                    <td style={{ padding: '13px 18px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                        <Mail size={14} />
-                        <span>{g.email_facturacion || 'Sin Email'}</span>
+                        <Mail size={13} />
+                        <span>{g.email_facturacion || <span style={{ fontStyle: 'italic' }}>Sin Email</span>}</span>
                       </div>
                     </td>
 
-                    <td style={{ padding: '14px 20px', textAlign: 'right' }}>
-                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
-                        <button 
-                          onClick={() => { setDetailGrupo(g); setIsDetailModalOpen(true); }}
-                          className="air-btn"
-                          style={{ 
-                            background: 'var(--surface)', 
-                            border: '1px solid var(--border-light)', 
-                            color: 'var(--accent)', 
-                            padding: '6px 12px', 
-                            borderRadius: '10px', 
-                            fontSize: '12px', 
-                            fontWeight: 800,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            cursor: 'pointer'
+                    {/* Acciones */}
+                    <td style={{ padding: '13px 18px', textAlign: 'right' }}>
+                      <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                        <button
+                          onClick={() => openExpediente(g)}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '5px',
+                            padding: '6px 12px', fontSize: '12px', fontWeight: 800,
+                            background: 'var(--surface)', border: '1px solid var(--border-light)',
+                            color: 'var(--accent)', borderRadius: '9px', cursor: 'pointer',
+                            transition: 'all 0.15s'
                           }}
                         >
-                          <Eye size={14} /> Ver Expediente
+                          <Eye size={13} /> Ver
                         </button>
-                        <button onClick={() => { setCurrentGrupo(g); setIsModalOpen(true); }} className="icon-button-edit">
-                          <Edit2 size={15} />
+                        <button
+                          onClick={() => { setCurrentGrupo(g); setIsModalOpen(true); }}
+                          className="icon-button-edit"
+                          title="Editar grupo"
+                        >
+                          <Edit2 size={14} />
                         </button>
-                        <button onClick={() => handleDelete(g.numero_grupo)} className="icon-button-delete">
-                          <Trash2 size={15} />
+                        <button
+                          onClick={() => handleDelete(g)}
+                          className="icon-button-delete"
+                          title="Eliminar grupo"
+                        >
+                          <Trash2 size={14} />
                         </button>
                       </div>
                     </td>
@@ -368,252 +872,84 @@ export default function Grupos() {
             </table>
           </div>
 
-          {/* Pagination Controls */}
-          <div style={{ padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-light)', background: 'rgba(0,0,0,0.01)', flexWrap: 'wrap', gap: '12px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-              Mostrando {Math.min((currentPage - 1) * pageSize + 1, grupos.length)} - {Math.min(currentPage * pageSize, grupos.length)} de {grupos.length} grupos
-            </span>
-
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <button
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                className="air-btn"
-                style={{ opacity: currentPage === 1 ? 0.5 : 1, padding: '6px 12px', fontSize: '12px', fontWeight: 700, cursor: currentPage === 1 ? 'not-allowed' : 'pointer' }}
-              >
-                Anterior
-              </button>
-              <span style={{ fontSize: '12px', fontWeight: 800, padding: '0 8px' }}>
-                Página {currentPage} de {totalPages}
+          {/* Paginación */}
+          {totalPages > 1 && (
+            <div style={{
+              padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              borderTop: '1px solid var(--border-light)', background: 'rgba(0,0,0,0.01)', flexWrap: 'wrap', gap: '10px'
+            }}>
+              <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                Mostrando {Math.min((currentPage - 1) * PAGE_SIZE + 1, grupos.length)}–{Math.min(currentPage * PAGE_SIZE, grupos.length)} de {grupos.length}
               </span>
-              <button
-                disabled={currentPage >= totalPages}
-                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                className="air-btn"
-                style={{ opacity: currentPage >= totalPages ? 0.5 : 1, padding: '6px 12px', fontSize: '12px', fontWeight: 700, cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer' }}
-              >
-                Siguiente
-              </button>
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <button
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  className="air-btn"
+                  style={{ opacity: currentPage === 1 ? 0.4 : 1, padding: '6px 12px', fontSize: '12px', fontWeight: 700 }}
+                >
+                  Anterior
+                </button>
+                <span style={{ fontSize: '12px', fontWeight: 800, padding: '0 6px' }}>
+                  {currentPage} / {totalPages}
+                </span>
+                <button
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  className="air-btn"
+                  style={{ opacity: currentPage >= totalPages ? 0.4 : 1, padding: '6px 12px', fontSize: '12px', fontWeight: 700 }}
+                >
+                  Siguiente
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
-      {/* Modals modernized */}
-      <Modal 
-        isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
-        title={currentGrupo ? `Editar Grupo #${currentGrupo.numero_grupo}` : 'Nuevo Grupo'}
-      >
-        <form key={currentGrupo?.numero_grupo || 'new'} onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div className="glass-panel-sub" style={{ padding: '20px', borderRadius: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div>
-              <label className="form-label">Número de Grupo</label>
-              <input className="premium-input" style={{ width: '100%', padding: '12px' }} type="number" name="numero_grupo" defaultValue={currentGrupo?.numero_grupo} disabled={!!currentGrupo} required />
-            </div>
-            
-            <div>
-              <label className="form-label">Alias del Grupo</label>
-              <input className="premium-input" style={{ width: '100%', padding: '12px' }} name="alias_grupo" defaultValue={currentGrupo?.alias_grupo} placeholder="Ej: Grupo Familiar Rossi" />
-            </div>
-
-            <div>
-              <label className="form-label">Email de Facturación</label>
-              <input className="premium-input" style={{ width: '100%', padding: '12px' }} type="email" name="email_facturacion" defaultValue={currentGrupo?.email_facturacion} required />
-            </div>
-
-            <div>
-              <label className="form-label">Correos Adicionales (CSV)</label>
-              <textarea className="premium-input" style={{ width: '100%', padding: '12px', height: '100px', resize: 'none' }} name="emails_integrantes" defaultValue={currentGrupo?.emails_integrantes} />
-            </div>
-          </div>
-
-          <button type="submit" className="action-button" style={{ width: '100%', padding: '16px', borderRadius: '16px' }} disabled={loading}>
-            {loading ? <Loader2 className="animate-spin" /> : <ShieldCheck size={18} style={{ marginRight: '8px' }} />}
-            Confirmar Cambios
-          </button>
-        </form>
-      </Modal>
-
+      {/* Modal Crear/Editar */}
       <Modal
-        isOpen={isDetailModalOpen}
-        onClose={() => setIsDetailModalOpen(false)}
-        title={`Expediente Grupo #${detailGrupo?.numero_grupo}`}
+        isOpen={isModalOpen}
+        onClose={() => { setIsModalOpen(false); setCurrentGrupo(null); }}
+        title={currentGrupo ? `Editar Grupo #${currentGrupo.numero_grupo}` : 'Nuevo Grupo'}
+        maxWidth="480px"
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          <div className="glass-panel-sub" style={{ padding: '20px', borderRadius: '20px', position: 'relative', zIndex: 10, transform: 'none' }}>
-            <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 900, marginBottom: '16px' }}>Integrantes del Grupo</h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
-              {detailGrupo?.integrantes?.map((int, i) => (
-                <div key={i} style={{ padding: '14px', background: 'var(--bg-app)', borderRadius: '14px', border: '1px solid var(--border-light)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 800, color: 'var(--text-primary)' }}>{int.nombre_completo}</span>
-                    {int.es_titular ? (
-                      <span style={{ fontSize: '9px', background: 'var(--accent)', color: 'white', padding: '3px 8px', borderRadius: '100px', fontWeight: 900 }}>TITULAR</span>
-                    ) : (
-                      <button
-                        onClick={() => handleSetTitular(int.socio_id)}
-                        type="button"
-                        style={{ fontSize: '10px', padding: '4px 8px', height: 'auto', color: 'var(--accent)', background: 'transparent', border: '1px solid var(--border-light)', borderRadius: '8px', cursor: 'pointer', fontWeight: 800 }}
-                      >
-                        Hacer Responsable
-                      </button>
-                    )}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 600 }}>{int.email || 'Sin email'} • Socio #{int.nro_socio}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* Asignar Nuevo Titular Buscando en DB */}
-            <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '16px' }}>
-              <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>
-                Asignar Nuevo Responsable (Buscador DB)
-              </label>
-              <div style={{ position: 'relative', zIndex: 99 }}>
-                <input
-                  type="text"
-                  className="premium-input"
-                  style={{ width: '100%', padding: '10px 12px', fontSize: '13px', borderRadius: '10px' }}
-                  placeholder="Buscar socio por nombre o DNI..."
-                  value={socioSearch}
-                  onChange={(e) => setSocioSearch(e.target.value)}
-                />
-                {searchingSocios && (
-                  <Loader2 size={16} className="animate-spin" style={{ position: 'absolute', right: '12px', top: '12px', color: 'var(--text-secondary)' }} />
-                )}
-                
-                {socioSuggestions.length > 0 && (
-                  <div style={{
-                    position: 'absolute',
-                    top: '100%',
-                    left: 0,
-                    right: 0,
-                    background: 'var(--modal-bg, #ffffff)',
-                    border: '2px solid var(--accent)',
-                    borderRadius: '12px',
-                    boxShadow: '0 16px 40px rgba(0, 0, 0, 0.35)',
-                    zIndex: 99999,
-                    marginTop: '6px',
-                    maxHeight: '220px',
-                    overflowY: 'auto'
-                  }}>
-                    {socioSuggestions.map((s) => (
-                      <div
-                        key={s.socio_id}
-                        onClick={() => {
-                          if (window.confirm(`¿Establecer a ${s.nombre_completo} como el nuevo responsable de este grupo?`)) {
-                            handleSetTitular(s.socio_id);
-                          }
-                        }}
-                        style={{
-                          padding: '12px 16px',
-                          cursor: 'pointer',
-                          fontSize: '13px',
-                          borderBottom: '1px solid var(--border-light)',
-                          background: 'var(--modal-bg, #ffffff)',
-                          color: 'var(--text-primary)',
-                          transition: 'background 0.15s ease'
-                        }}
-                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--accent-light)'}
-                        onMouseLeave={(e) => e.currentTarget.style.background = 'var(--modal-bg, #ffffff)'}
-                      >
-                        <div style={{ fontWeight: 800, color: 'var(--text-primary)' }}>{s.nombre_completo}</div>
-                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', fontWeight: 600 }}>
-                          Socio #{s.nro_socio || s.socio_id}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-
-          {/* Historial de Liquidaciones y Pagos */}
-          <div className="glass-panel-sub" style={{ padding: '20px', borderRadius: '20px', position: 'relative', zIndex: 1, transform: 'none' }}>
-            <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 900, marginBottom: '16px' }}>Historial de Liquidaciones y Pagos</h4>
-            {loadingHistory ? (
-              <div style={{ display: 'flex', justifyContent: 'center', padding: '20px' }}>
-                <Loader2 className="animate-spin" size={24} style={{ color: 'var(--accent)' }} />
-              </div>
-            ) : liquidacionesHistory.length === 0 ? (
-              <div style={{ color: 'var(--text-secondary)', fontSize: '13px', fontStyle: 'italic', padding: '10px' }}>No hay registros de liquidación en el sistema</div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {liquidacionesHistory.map((liq, idx) => {
-                  const payments = liq.movimientos_bancarios || [];
-                  
-                  // CORRECCIÓN DEL DESFASAJE: 
-                  // El abono de esta factura se encuentra registrado en el periodo siguiente en la base de datos
-                  const liqSiguiente = idx > 0 ? liquidacionesHistory[idx - 1] : null;
-                  const montoAbonadoReal = liqSiguiente ? Number(liqSiguiente.monto_abonado) : Number(liq.monto_abonado);
-                  
-                  const facturado = Number(liq.monto_total_facturado);
-                  const diferencia = facturado - montoAbonadoReal;
-                  const estadoPagoReal = (montoAbonadoReal >= (facturado - 5.0)) ? 'ABONADO' : (montoAbonadoReal > 5.0 ? 'PARCIAL' : 'PENDIENTE');
-
-                  return (
-                    <div key={liq.liquidacion_id} style={{ padding: '14px', background: 'var(--bg-app)', borderRadius: '14px', border: '1px solid var(--border-light)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                        <span style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '13px' }}>
-                          {liq.periodo} • {liq.proveedores?.nombre}
-                        </span>
-                        <span style={{ 
-                          fontSize: '9px', 
-                          background: estadoPagoReal === 'ABONADO' ? 'var(--accent)' : estadoPagoReal === 'PARCIAL' ? '#f59e0b' : '#ef4444', 
-                          color: 'white', 
-                          padding: '3px 8px', 
-                          borderRadius: '100px', 
-                          fontWeight: 900 
-                        }}>
-                          {estadoPagoReal}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, display: 'flex', justifyContent: 'space-between' }}>
-                        <span>Facturado: ${facturado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                        <span>Abonado: ${montoAbonadoReal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                      </div>
-                      
-                      {payments.length > 0 && (
-                        <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed var(--border-light)' }}>
-                          <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: 800, marginBottom: '6px' }}>Pagos Conciliados:</div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                            {payments.map((p) => (
-                              <div key={p.movimiento_id} style={{ fontSize: '11px', display: 'flex', justifyContent: 'space-between', color: 'var(--text-primary)' }}>
-                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80%' }}>
-                                  📅 {p.fecha_movimiento} • Pagador: <strong>{p.socios?.nombre_completo || 'Socio'}</strong> ({p.banco})
-                                </span>
-                                <span style={{ fontWeight: 800, color: 'var(--accent)' }}>
-                                  +${parseFloat(p.monto).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className="glass-panel-sub" style={{ padding: '20px', borderRadius: '20px' }}>
-            <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: '#3b82f6', fontWeight: 900, marginBottom: '16px' }}>Líneas Vinculadas</h4>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-              {detailGrupo?.lineasDetalle.map((l, i) => (
-                <div key={i} style={{ padding: '10px 16px', background: 'var(--bg-app)', border: '1px solid var(--border-light)', borderRadius: '14px' }}>
-                  <div style={{ fontWeight: 900, color: 'var(--text-primary)', fontSize: '14px' }}>{l.numero_linea}</div>
-                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 800 }}>{l.proveedores?.nombre}</div>
-                </div>
-              ))}
-              {detailGrupo?.lineasDetalle.length === 0 && <div style={{ color: 'var(--text-secondary)', fontSize: '13px', fontStyle: 'italic', padding: '10px' }}>No hay líneas asignadas</div>}
-            </div>
-          </div>
-        </div>
+        <GrupoForm
+          grupo={currentGrupo}
+          onSubmit={handleSubmit}
+          loading={savingForm}
+        />
       </Modal>
+
+      {/* Modal Expediente */}
+      <Modal
+        isOpen={!!expedienteGrupo}
+        onClose={closeExpediente}
+        title={`Expediente · Grupo #${expedienteGrupo?.numero_grupo || ''}`}
+        maxWidth="640px"
+      >
+        <ExpedienteModal
+          grupo={expedienteGrupo}
+          onClose={closeExpediente}
+          onRefresh={handleExpedienteRefresh}
+        />
+      </Modal>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   KPI Card
+   ───────────────────────────────────────────── */
+function KpiCard({ icon, label, value, sublabel, valueColor }) {
+  return (
+    <div className="glass-panel" style={{ padding: '20px 24px', borderRadius: '20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+        <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</span>
+        {icon}
+      </div>
+      <div style={{ fontSize: '26px', fontWeight: 900, color: valueColor || 'var(--text-primary)' }}>{value}</div>
+      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 600 }}>{sublabel}</div>
     </div>
   );
 }
