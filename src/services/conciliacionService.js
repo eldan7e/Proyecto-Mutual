@@ -5,9 +5,41 @@ import { supabase } from '../supabaseClient';
  * @returns {Promise<Array<string>>} Lista de períodos ordenados descendente.
  */
 export const fetchPeriods = async () => {
+  // 1. Priorizar unique_periods_view que agrupa directamente todos los períodos únicos existentes
+  try {
+    const { data: viewData, error: viewErr } = await supabase
+      .from('unique_periods_view')
+      .select('periodo')
+      .order('periodo', { ascending: false });
+
+    if (!viewErr && viewData && viewData.length > 0) {
+      return viewData.map(d => d.periodo).filter(Boolean);
+    }
+  } catch (e) {
+    console.warn('Aviso al consultar unique_periods_view:', e);
+  }
+
+  // 2. Fallback a v_resumen_periodos
+  try {
+    const { data: vrData, error: vrErr } = await supabase
+      .from('v_resumen_periodos')
+      .select('periodo')
+      .order('periodo', { ascending: false });
+
+    if (!vrErr && vrData && vrData.length > 0) {
+      return vrData.map(d => d.periodo).filter(Boolean);
+    }
+  } catch (e) {
+    console.warn('Aviso al consultar v_resumen_periodos:', e);
+  }
+
+  // 3. Fallback a liquidaciones_grupos con orden descendente
   const { data, error } = await supabase
     .from('liquidaciones_grupos')
-    .select('periodo');
+    .select('periodo')
+    .order('periodo', { ascending: false })
+    .limit(3000);
+
   if (error) throw error;
   
   return [...new Set(data?.map(d => d.periodo))]
