@@ -78,11 +78,16 @@ export default function ComprobantePDFModal({ comprobante, onClose }) {
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(`https://www.afip.gob.ar/fe/qr/?p=${btoa(qrData)}`)}`;
 
   const handlePrint = () => {
+    const originalTitle = document.title;
+    document.title = `${comprobante.tipo || 'Comprobante'}_${puntoVenta}-${nroComprobante}`;
     window.print();
+    setTimeout(() => {
+      document.title = originalTitle;
+    }, 1000);
   };
 
   return (
-    <div style={{
+    <div className="afip-pdf-modal-overlay" style={{
       position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
       background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)',
       display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000,
@@ -90,10 +95,60 @@ export default function ComprobantePDFModal({ comprobante, onClose }) {
     }}>
       <style>{`
         @media print {
-          body * { visibility: hidden; }
-          #print-area, #print-area * { visibility: visible; }
-          #print-area { position: absolute; left: 0; top: 0; width: 100%; padding: 20px; }
-          .no-print { display: none !important; }
+          #root > *:not(.afip-pdf-modal-overlay),
+          header, nav, footer, .no-print, button {
+            display: none !important;
+            height: 0 !important;
+            overflow: hidden !important;
+          }
+          body::before, body::after {
+            display: none !important;
+          }
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+            width: 100% !important;
+            height: auto !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+          }
+          .afip-pdf-modal-overlay {
+            position: static !important;
+            display: block !important;
+            width: 100% !important;
+            height: auto !important;
+            background: transparent !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            overflow: visible !important;
+            inset: auto !important;
+          }
+          .afip-pdf-modal-overlay > div {
+            position: static !important;
+            max-width: 100% !important;
+            width: 100% !important;
+            height: auto !important;
+            max-height: none !important;
+            box-shadow: none !important;
+            border: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            overflow: visible !important;
+          }
+          #print-area {
+            position: static !important;
+            width: 100% !important;
+            margin: 0 auto !important;
+            padding: 10px !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+          @page {
+            size: A4 portrait;
+            margin: 10mm;
+          }
         }
       `}</style>
 

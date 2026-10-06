@@ -8,7 +8,7 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = '50
   if (!isOpen) return null;
 
   return createPortal(
-    <div style={{
+    <div className="modal-backdrop" style={{
       position: 'fixed',
       top: 0,
       left: 0,
@@ -38,7 +38,7 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = '50
         transition: 'none',
         overscrollBehavior: 'contain'
       }}>
-        <div style={{
+        <div className="modal-header" style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',

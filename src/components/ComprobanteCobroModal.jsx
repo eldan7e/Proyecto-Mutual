@@ -40,7 +40,12 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
   }, [medio_pago]);
 
   function handleImprimir() {
+    const originalTitle = document.title;
+    document.title = `${reciboNumero}_Grupo_${numero_grupo || 'Cobro'}`;
     window.print();
+    setTimeout(() => {
+      document.title = originalTitle;
+    }, 1000);
   }
 
   function handleEnviarWhatsApp() {
@@ -76,64 +81,124 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Comprobante Oficial de Cobro" maxWidth="720px">
       
-      {/* CSS para Garantizar Impresión Limpia de Página Completa A4 sin recortes */}
+      {/* CSS para Garantizar Impresión Limpia de 1 Sola Página A4 sin duplicaciones ni páginas en blanco */}
       <style>{`
         @media print {
-          /* Ocultar todo el sitio por defecto */
-          body * {
-            visibility: hidden !important;
+          /* 1. Ocultar completamente el árbol de la aplicación principal para no generar páginas extra */
+          #root,
+          body > *:not(.modal-backdrop),
+          header,
+          nav,
+          footer,
+          .no-print,
+          .modal-header,
+          .modal-close-btn,
+          button {
+            display: none !important;
+            height: 0 !important;
+            max-height: 0 !important;
+            overflow: hidden !important;
           }
 
-          /* Hacer visible solo el recibo y sus elementos */
-          #print-recibo-wrapper,
-          #print-recibo-wrapper * {
-            visibility: visible !important;
-          }
-
-          /* Resetear contenedores del Modal durante la impresión */
-          .modal-backdrop, .modal-container, .modal-content, #print-recibo-wrapper {
-            position: static !important;
-            background: #ffffff !important;
-            border: none !important;
-            box-shadow: none !important;
-            padding: 0 !important;
-            margin: 0 !important;
-            overflow: visible !important;
-            max-height: none !important;
-            height: auto !important;
-            width: 100% !important;
-            display: block !important;
-          }
-
-          /* Ocultar controles de UI que no van a papel */
-          .no-print, button, .modal-header, .modal-footer, [role="dialog"] > div:first-child {
+          body::before,
+          body::after {
             display: none !important;
           }
 
-          /* Posicionar el recibo ocupando la hoja A4 */
-          #print-recibo {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
+          /* 2. Resetear html y body para 1 sola hoja */
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+            width: 100% !important;
+            height: auto !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+
+          /* 3. Desactivar position fixed del modal backdrop para evitar repetición por cada página */
+          .modal-backdrop {
+            position: static !important;
+            display: block !important;
+            width: 100% !important;
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            background: #ffffff !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            overflow: visible !important;
+            inset: auto !important;
+            z-index: auto !important;
+          }
+
+          /* 4. Resetear el modal container */
+          .modal-container {
+            position: static !important;
+            display: block !important;
+            max-width: 100% !important;
+            width: 100% !important;
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            background: #ffffff !important;
+            box-shadow: none !important;
+            border: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            overflow: visible !important;
+            animation: none !important;
+            transform: none !important;
+          }
+
+          /* 5. Contenedor del recibo */
+          #print-recibo-wrapper {
+            position: static !important;
+            display: block !important;
             width: 100% !important;
             margin: 0 !important;
-            padding: 24px !important;
+            padding: 0 !important;
+            overflow: visible !important;
+          }
+
+          /* 6. El recibo: tamaño A4 exacto en 1 sola hoja, sin posición absolute */
+          #print-recibo {
+            position: static !important;
+            display: block !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 auto !important;
+            padding: 20px 24px !important;
             background: #ffffff !important;
             color: #000000 !important;
             border: 2px solid #10b981 !important;
-            border-radius: 12px !important;
+            border-radius: 14px !important;
             box-sizing: border-box !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
           }
 
-          /* Forzar colores de alto contraste en papel impreso */
-          #print-recibo h2, #print-recibo h3, #print-recibo h4, #print-recibo p, #print-recibo td, #print-recibo th, #print-recibo span, #print-recibo div {
+          /* 7. Colores y contrastes de alto contraste en papel */
+          #print-recibo h2, 
+          #print-recibo h3, 
+          #print-recibo h4, 
+          #print-recibo p, 
+          #print-recibo td, 
+          #print-recibo th, 
+          #print-recibo span, 
+          #print-recibo div {
             color: #000000 !important;
           }
           #print-recibo .print-text-accent {
-            color: #10b981 !important;
+            color: #059669 !important;
           }
           #print-recibo .print-text-danger {
-            color: #ef4444 !important;
+            color: #dc2626 !important;
           }
           #print-recibo .print-bg-card {
             background: #f8fafc !important;
@@ -145,7 +210,7 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
 
           @page {
             size: A4 portrait;
-            margin: 12mm;
+            margin: 10mm;
           }
         }
       `}</style>

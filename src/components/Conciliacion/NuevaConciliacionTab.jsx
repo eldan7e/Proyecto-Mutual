@@ -319,10 +319,9 @@ export default function NuevaConciliacionTab({
         }
       }
 
-      // D. Fallback acotado por grupo: ¡ESTRICTAMENTE filtrado por período para evitar traer movimientos de otros meses!
+      // D. Fallback exacto por grupo y período (usando columnas reales en DB, sin búsqueda difusa de texto):
       if (pagosBanco.length === 0 && groups.length > 0 && periods.length > 0) {
-        const groupStr = String(groups[0]);
-        const { data: mbByConcept } = await supabase
+        let qMb = supabase
           .from('movimientos_bancarios')
           .select(`
             movimiento_id,
@@ -340,13 +339,20 @@ export default function NuevaConciliacionTab({
             socios(nombre_completo, nro_socio)
           `)
           .in('periodo', periods)
-          .or(`concepto.ilike.%${groupStr}%,observaciones.ilike.%${groupStr}%`)
-          .order('fecha_movimiento', { ascending: false })
-          .limit(3);
+          .in('numero_grupo', groups);
 
-        if (mbByConcept && mbByConcept.length > 0) {
+        const targetSocioId = row.selectedSocioId || (liqs[0]?.socio_id);
+        if (targetSocioId) {
+          qMb = qMb.eq('socio_id', targetSocioId);
+        }
+
+        const { data: mbByGroup } = await qMb
+          .order('fecha_movimiento', { ascending: false })
+          .limit(5);
+
+        if (mbByGroup && mbByGroup.length > 0) {
           const existingIds = new Set(pagosBanco.map(p => p.movimiento_id));
-          mbByConcept.forEach(p => {
+          mbByGroup.forEach(p => {
             if (!existingIds.has(p.movimiento_id)) {
               pagosBanco.push(p);
             }
@@ -2712,8 +2718,6 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                                 checked={(row.selectedLiquidations || []).length === 0}
                                                 onChange={() => {
                                                   handleToggleLiquidation(row.id, '');
-                                                  // Optional: clear all
-                                                  row.selectedLiquidations?.forEach(id => handleToggleLiquidation(row.id, id));
                                                 }}
                                                 style={{ accentColor: 'var(--accent)', cursor: 'pointer' }}
                                               />
@@ -3060,9 +3064,6 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                     const pending = Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0);
                                     if (pending <= 2.00 || liq.estado_pago === 'ABONADO') isAlreadySaldada = true;
                                   }
-                                } else if (row.pendingList && row.pendingList.length > 0) {
-                                  const allSettled = row.pendingList.every(l => (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0) <= 2.00) || l.estado_pago === 'ABONADO');
-                                  if (allSettled) isAlreadySaldada = true;
                                 }
 
                                 const isAmountMatch = !isAlreadySaldada && row.netoReal > 0 && checkIsAmountMatch(row, periodConsumos);
@@ -3096,43 +3097,47 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                     </span>
                                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center' }}>
                                       {row.netoReal > 0 && (
-                                        isAlreadySaldada ? (
-                                          <button 
-                                            onClick={() => handleVerPagoConciliado(row)}
-                                            className="action-button"
-                                            style={{ 
-                                              padding: '6px 12px', 
-                                              fontSize: '12px', 
-                                              height: '32px', 
-                                              borderRadius: '8px', 
-                                              flexShrink: 0,
-                                              background: 'rgba(16, 185, 129, 0.12)',
-                                              color: '#10b981',
-                                              border: '1px solid rgba(16, 185, 129, 0.3)',
-                                              cursor: 'pointer'
-                                            }}
-                                            title="Liquidación ya saldada / pago ya impactó. Clic para ver el comprobante y detalle del pago"
-                                          >
-                                            <CheckCircle2 size={13} style={{ marginRight: '4px' }} />
-                                            Ver Pago
-                                          </button>
-                                        ) : (
-                                          <button 
-                                            onClick={() => conciliarFila(row.id, false, row.selectedLines)}
-                                            className="action-button"
-                                            style={{ 
-                                              padding: '6px 12px', 
-                                              fontSize: '12px', 
-                                              height: '32px', 
-                                              borderRadius: '8px', 
-                                              flexShrink: 0 
-                                            }}
-                                            disabled={!row.selectedSocioId && !isTaxOrFee}
-                                          >
-                                            <Save size={13} style={{ marginRight: '4px' }} />
-                                            Conciliar
-                                          </button>
-                                        )
+                                        <>
+                                          {isAlreadySaldada && (
+                                            <button 
+                                              onClick={() => handleVerPagoConciliado(row)}
+                                              className="action-button"
+                                              style={{ 
+                                                padding: '6px 12px',
+                                                fontSize: '12px',
+                                                height: '32px',
+                                                borderRadius: '8px',
+                                                flexShrink: 0,
+                                                background: 'rgba(16, 185, 129, 0.12)',
+                                                color: '#10b981',
+                                                border: '1px solid rgba(16, 185, 129, 0.3)',
+                                                cursor: 'pointer'
+                                              }}
+                                              title="Liquidación ya saldada / pago ya impactó. Clic para ver el comprobante y detalle del pago"
+                                            >
+                                              <CheckCircle2 size={13} style={{ marginRight: '4px' }} />
+                                              Ver Pago
+                                            </button>
+                                          )}
+                                          {(!row.isDbDuplicate && row.estado !== 'CONCILIADO') && (
+                                            <button 
+                                              onClick={() => conciliarFila(row.id, false, row.selectedLines)}
+                                              className="action-button"
+                                              style={{ 
+                                                padding: '6px 12px',
+                                                fontSize: '12px',
+                                                height: '32px',
+                                                borderRadius: '8px',
+                                                flexShrink: 0 
+                                              }}
+                                              disabled={!row.selectedSocioId && !isTaxOrFee}
+                                              title={isAlreadySaldada ? "Imputar este movimiento a Cuenta Corriente del socio aunque la liquidación figure saldada" : "Conciliar movimiento"}
+                                            >
+                                              <Save size={13} style={{ marginRight: '4px' }} />
+                                              {isAlreadySaldada ? 'Imputar Pago' : 'Conciliar'}
+                                            </button>
+                                          )}
+                                        </>
                                       )}
                                       {row.netoReal > 0 && (
                                         <button 

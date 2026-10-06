@@ -488,7 +488,7 @@ export default function ConciliacionBancaria() {
     return result;
   };
 
-  // Helper para buscar liquidación por defecto
+  // Helper para buscar liquidación por defecto (SOLO liquidaciones con deuda pendiente activa)
   const findDefaultLiquidation = (netoReal, pendingList, isManual = false) => {
     if (!pendingList || pendingList.length === 0) return { liqId: "", matchedIds: null };
     
@@ -497,8 +497,10 @@ export default function ConciliacionBancaria() {
       return { liqId: "", matchedIds: null };
     }
     
-    // 1. Buscar en deudas activas (monto pendiente > $2.00)
-    const activePendingList = filteredByPeriod.filter(l => (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)) > 2.00);
+    // 1. Filtrar ÚNICAMENTE deudas activas pendientes de pago (saldo pendiente > $2.00 y no ABONADO)
+    const activePendingList = filteredByPeriod.filter(l => 
+      l.estado_pago !== 'ABONADO' && (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)) > 2.00
+    );
     
     if (activePendingList.length > 0) {
       // Buscar coincidencia exacta de monto (tolerancia de redondeo de $2.00)
@@ -516,7 +518,7 @@ export default function ConciliacionBancaria() {
           return { liqId: 'SALDAR_TODO', matchedIds: activePendingList.map(l => l.liquidacion_id) };
         }
 
-        // Buscar combinaciones parciales de deudas que sumen netoReal (preferiendo combinaciones de tamaño menor)
+        // Buscar combinaciones parciales de deudas que sumen netoReal
         const n = activePendingList.length;
         for (let r = 2; r < n; r++) {
           const combos = getCombinations(activePendingList, r);
@@ -529,44 +531,14 @@ export default function ConciliacionBancaria() {
         }
       }
 
-      // Si es manual, priorizamos la deuda activa más antigua antes de buscar pagadas
-      if (isManual) {
+      // Si es manual o si hay una sola deuda activa, asignar la más antigua
+      if (isManual || activePendingList.length === 1) {
         return { liqId: String(activePendingList[0].liquidacion_id), matchedIds: null };
       }
     }
 
-    // 2. Buscar coincidencia exacta de monto facturado en TODAS las liquidaciones (incluyendo las pagadas/saldadas)
-    const exactPaidMatch = filteredByPeriod.find(liq => {
-      const totalBilled = Number(liq?.monto_total_facturado || 0);
-      return Math.abs(totalBilled - netoReal) < 2.00;
-    });
-    if (exactPaidMatch) return { liqId: String(exactPaidMatch.liquidacion_id), matchedIds: null };
-
-    // 2b. Buscar si la suma de múltiples liquidaciones pagadas coincide
-    if (filteredByPeriod.length > 1) {
-      const totalBilled = filteredByPeriod.reduce((sum, liq) => sum + Number(liq?.monto_total_facturado || 0), 0);
-      if (Math.abs(totalBilled - netoReal) < 150) {
-        return { liqId: 'SALDAR_TODO', matchedIds: filteredByPeriod.map(l => l.liquidacion_id) };
-      }
-      const n = filteredByPeriod.length;
-      for (let r = 2; r < n; r++) {
-        const combos = getCombinations(filteredByPeriod, r);
-        for (const combo of combos) {
-          const sum = combo.reduce((s, liq) => s + Number(liq.monto_total_facturado || 0), 0);
-          if (Math.abs(sum - netoReal) < 2.00) {
-            return { liqId: 'SALDAR_TODO', matchedIds: combo.map(l => l.liquidacion_id) };
-          }
-        }
-      }
-    }
-
-    // 3. Fallback por defecto si hay deudas activas (la más antigua)
-    if (activePendingList.length > 0) {
-      return { liqId: String(activePendingList[0].liquidacion_id), matchedIds: null };
-    }
-
-    // 4. Fallback si no hay deudas activas pero hay deudas pagadas (la más reciente)
-    return { liqId: String(filteredByPeriod[filteredByPeriod.length - 1].liquidacion_id), matchedIds: null };
+    // Si NO hay deudas pendientes en el período, NUNCA auto-asignar una deuda ya saldada:
+    return { liqId: "", matchedIds: null };
   };
 
   const openBreakdownModal = async (liqId, pendingRow = null) => {
@@ -953,6 +925,19 @@ export default function ConciliacionBancaria() {
   const handleToggleLiquidation = (rowId, liqId) => {
     setParsedMovements(prev => prev.map(m => {
       if (m.id !== rowId) return m;
+
+      // Si se pasa vacío, null o 'CLEAR': desmarcar todas las liquidaciones y líneas
+      if (!liqId || liqId === 'CLEAR') {
+        return {
+          ...m,
+          selectedLiquidations: [],
+          selectedLiquidationId: null,
+          selectedLines: [],
+          estado: m.isDbDuplicate ? 'CONCILIADO' : 'PENDIENTE',
+          isAlreadyPaidMatch: m.isDbDuplicate || false
+        };
+      }
+
       const currentList = m.selectedLiquidations || [];
       const isSelected = currentList.includes(String(liqId));
       let newList;
@@ -2015,8 +2000,8 @@ export default function ConciliacionBancaria() {
     try {
       setParsedMovements(prev => prev.map(m => m.id === rowId ? { ...m, estado: 'PROCESANDO' } : m));
 
-      // EVITAR DUPLICADOS DE COBRO: Verificar si la liquidación seleccionada YA está saldada
-      let isSelectedLiqAlreadyPaid = false;
+      // EVITAR SOBRE-FACTURACIÓN: Verificar si la liquidación seleccionada YA está saldada
+      let skipLiquidationUpdate = false;
       if (row.selectedLiquidations && row.selectedLiquidations.length > 0) {
         const allSelectedPaid = row.selectedLiquidations.every(liqId => {
           const liq = row.pendingList?.find(l => String(l.liquidacion_id) === String(liqId));
@@ -2024,21 +2009,13 @@ export default function ConciliacionBancaria() {
           const pending = Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0);
           return pending <= 2.00 || liq.estado_pago === 'ABONADO';
         });
-        if (allSelectedPaid) isSelectedLiqAlreadyPaid = true;
+        if (allSelectedPaid) skipLiquidationUpdate = true;
       } else if (row.selectedLiquidationId && row.selectedLiquidationId !== 'SALDAR_TODO') {
         const liq = row.pendingList?.find(l => String(l.liquidacion_id) === String(row.selectedLiquidationId));
         if (liq) {
           const pending = Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0);
-          if (pending <= 2.00 || liq.estado_pago === 'ABONADO') isSelectedLiqAlreadyPaid = true;
+          if (pending <= 2.00 || liq.estado_pago === 'ABONADO') skipLiquidationUpdate = true;
         }
-      }
-
-      if (isSelectedLiqAlreadyPaid) {
-        if (!isSilent) addToast("La liquidación seleccionada ya está saldada. No se generará un nuevo pago.", "warning");
-        setParsedMovements(prev => prev.map(m => m.id === rowId ? { 
-          ...m, estado: 'CONCILIADO', isAlreadyPaidMatch: true 
-        } : m));
-        return;
       }
 
       const bankDateISO = parseDateToISODate(row.fecha);
@@ -2235,8 +2212,8 @@ export default function ConciliacionBancaria() {
 
         let groupNum = null;
 
-        // If vinculated to bill, update liquidaciones_grupos
-        if (singleLiqId) {
+        // If vinculated to bill, update liquidaciones_grupos (solo si no estaba ya saldada)
+        if (singleLiqId && !skipLiquidationUpdate) {
           const liqObj = row.pendingList.find(l => String(l.liquidacion_id) === String(singleLiqId));
           if (liqObj) {
             groupNum = liqObj.numero_grupo;
@@ -2262,6 +2239,17 @@ export default function ConciliacionBancaria() {
 
             if (liqError) throw liqError;
           }
+        } else if (singleLiqId && skipLiquidationUpdate) {
+          const liqObj = row.pendingList.find(l => String(l.liquidacion_id) === String(singleLiqId));
+          if (liqObj) groupNum = liqObj.numero_grupo;
+        }
+
+        // Si no se vinculó a una liquidación o la liquidación ya estaba saldada, obtener el grupo a partir del socio asignado
+        if (!groupNum && row.selectedSocioId) {
+          const sObj = socios.find(s => s.socio_id === parseInt(row.selectedSocioId, 10));
+          groupNum = row.grupo 
+            ? parseInt(row.grupo, 10) 
+            : (sObj?.grupo_socio?.[0]?.numero_grupo || (row.suggestedSocio?.learnedGroup ? parseInt(row.suggestedSocio.learnedGroup, 10) : null));
         }
 
         // Registrar cobro en Cuenta Corriente unificada por grupo
@@ -2276,6 +2264,9 @@ export default function ConciliacionBancaria() {
               periodo: selectedPeriod || null,
               skipLiqUpdate: true
             });
+            if (skipLiquidationUpdate && !isSilent) {
+              addToast("Movimiento conciliado e imputado en Cuenta Corriente como saldo a favor del grupo.", "info");
+            }
           } catch (errCuenta) {
             console.warn("Aviso al registrar cobro en cuenta corriente:", errCuenta);
           }
