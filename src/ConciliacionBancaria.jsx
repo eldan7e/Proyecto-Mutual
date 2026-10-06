@@ -1787,7 +1787,7 @@ export default function ConciliacionBancaria() {
         socio_id: null,
         liquidacion_id: null,
         tipo_movimiento: 'DEBITO_AUTOMATICO',
-        periodo: selectedPeriod || '2026-02'
+        periodo: selectedPeriod || bankDateISO.substring(0, 7)
       };
       
       const indivMovs = [];
@@ -1826,7 +1826,7 @@ export default function ConciliacionBancaria() {
                 socio_id: parseInt(r.socioId, 10),
                 liquidacion_id: parseInt(liq.liquidacion_id, 10),
                 tipo_movimiento: 'TRANSFERENCIA_RECIBIDA',
-                periodo: liq.periodo || selectedPeriod || '2026-02'
+                periodo: liq.periodo || selectedPeriod || bankDateISO.substring(0, 7)
               });
               
               const liqId = parseInt(liq.liquidacion_id, 10);
@@ -1857,7 +1857,7 @@ export default function ConciliacionBancaria() {
             socio_id: parseInt(r.socioId, 10),
             liquidacion_id: singleLiqId ? parseInt(singleLiqId, 10) : null,
             tipo_movimiento: 'TRANSFERENCIA_RECIBIDA',
-            periodo: matchedLiq?.periodo || selectedPeriod || '2026-02'
+            periodo: matchedLiq?.periodo || selectedPeriod || bankDateISO.substring(0, 7)
           });
           
           if (singleLiqId) {
@@ -2022,14 +2022,14 @@ export default function ConciliacionBancaria() {
           const liq = row.pendingList?.find(l => String(l.liquidacion_id) === String(liqId));
           if (!liq) return false;
           const pending = Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0);
-          return pending <= 2.00;
+          return pending <= 2.00 || liq.estado_pago === 'ABONADO';
         });
         if (allSelectedPaid) isSelectedLiqAlreadyPaid = true;
       } else if (row.selectedLiquidationId && row.selectedLiquidationId !== 'SALDAR_TODO') {
         const liq = row.pendingList?.find(l => String(l.liquidacion_id) === String(row.selectedLiquidationId));
         if (liq) {
           const pending = Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0);
-          if (pending <= 2.00) isSelectedLiqAlreadyPaid = true;
+          if (pending <= 2.00 || liq.estado_pago === 'ABONADO') isSelectedLiqAlreadyPaid = true;
         }
       }
 
@@ -2104,7 +2104,7 @@ export default function ConciliacionBancaria() {
               socio_id: row.selectedSocioId ? parseInt(row.selectedSocioId, 10) : null,
               liquidacion_id: parseInt(liq.liquidacion_id, 10),
               tipo_movimiento: 'TRANSFERENCIA_RECIBIDA',
-              periodo: liq.periodo || selectedPeriod || '2026-02'
+              periodo: liq.periodo || selectedPeriod || bankDateISO.substring(0, 7)
             });
             
             const liqId = parseInt(liq.liquidacion_id, 10);
@@ -2124,7 +2124,7 @@ export default function ConciliacionBancaria() {
           liquidacion_id: null,
           tipo_movimiento: 'CONCILIACION_GRUPO_MASTER',
           comprobante: row.comprobante || null,
-          periodo: selectedPeriod || '2026-02'
+          periodo: selectedPeriod || bankDateISO.substring(0, 7)
         };
 
         // Insert master + individual splits together
@@ -2224,7 +2224,7 @@ export default function ConciliacionBancaria() {
             liquidacion_id: singleLiqId ? parseInt(singleLiqId, 10) : null,
             tipo_movimiento: row.tipo_movimiento,
             comprobante: row.comprobante || null,
-            periodo: matchedLiq?.periodo || selectedPeriod || '2026-02'
+            periodo: matchedLiq?.periodo || selectedPeriod || bankDateISO.substring(0, 7)
           })
           .select();
 

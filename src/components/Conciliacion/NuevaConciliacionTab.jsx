@@ -103,15 +103,23 @@ export default function NuevaConciliacionTab({
       targetLiqIds = row.selectedLiquidations.map(id => parseInt(id, 10)).filter(Boolean);
     } else if (row.selectedLiquidationId && row.selectedLiquidationId !== 'SALDAR_TODO') {
       targetLiqIds = [parseInt(row.selectedLiquidationId, 10)];
+    } else if (row.matchedLiquidationIds && row.matchedLiquidationIds.length > 0) {
+      targetLiqIds = row.matchedLiquidationIds.map(id => parseInt(id, 10)).filter(Boolean);
     } else if (row.pendingList && row.pendingList.length > 0) {
-      const saldadas = row.pendingList.filter(l => {
+      // Priorizar liquidaciones del período seleccionado
+      const liqsForPeriod = selectedPeriod 
+        ? row.pendingList.filter(l => l.periodo === selectedPeriod) 
+        : row.pendingList;
+      const targetList = liqsForPeriod.length > 0 ? liqsForPeriod : row.pendingList;
+
+      const saldadas = targetList.filter(l => {
         const p = Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0);
-        return p <= 2.00;
+        return p <= 2.00 || l.estado_pago === 'ABONADO';
       });
       if (saldadas.length > 0) {
         targetLiqIds = saldadas.map(l => l.liquidacion_id);
       } else {
-        targetLiqIds = [row.pendingList[0].liquidacion_id];
+        targetLiqIds = [targetList[0].liquidacion_id];
       }
     }
 
@@ -206,19 +214,47 @@ export default function NuevaConciliacionTab({
 
         if (!mcErr && mcData) {
           pagosCuenta = mcData.filter(m => {
+            // Match directo por liquidacion_id
             if (m.liquidacion_id && liqIds.includes(m.liquidacion_id)) return true;
+            // Match estricto por período
             if (m.periodo && periods.includes(m.periodo)) return true;
+            // Match por comprobante si el extracto bancario trae comprobante
+            if (row.comprobante && String(m.observaciones || '').includes(row.comprobante)) return true;
             return false;
           });
-
-          if (pagosCuenta.length === 0 && mcData.length > 0) {
-            pagosCuenta = mcData.slice(0, 3);
-          }
         }
       }
 
-      // 2. Buscar en movimientos_bancarios (Extractos)
+      // 2. Buscar en movimientos_bancarios (Extractos / Conciliación)
       let pagosBanco = [];
+
+      // A. Si la fila ya tiene un movimiento_id directo vinculado:
+      if (row.movimiento_id) {
+        const { data: directMb, error: directMbErr } = await supabase
+          .from('movimientos_bancarios')
+          .select(`
+            movimiento_id,
+            fecha_movimiento,
+            concepto,
+            monto,
+            banco,
+            comprobante,
+            observaciones,
+            tipo_movimiento,
+            created_at,
+            liquidacion_id,
+            periodo,
+            socio_id,
+            socios(nombre_completo, nro_socio)
+          `)
+          .eq('movimiento_id', row.movimiento_id);
+
+        if (!directMbErr && directMb) {
+          pagosBanco.push(...directMb);
+        }
+      }
+
+      // B. Buscar por liquidacion_id asociada
       if (liqIds.length > 0) {
         const { data: mbData, error: mbErr } = await supabase
           .from('movimientos_bancarios')
@@ -233,6 +269,7 @@ export default function NuevaConciliacionTab({
             tipo_movimiento,
             created_at,
             liquidacion_id,
+            periodo,
             socio_id,
             socios(nombre_completo, nro_socio)
           `)
@@ -240,11 +277,50 @@ export default function NuevaConciliacionTab({
           .order('fecha_movimiento', { ascending: false });
 
         if (!mbErr && mbData) {
-          pagosBanco = mbData;
+          const existingIds = new Set(pagosBanco.map(p => p.movimiento_id));
+          mbData.forEach(p => {
+            if (!existingIds.has(p.movimiento_id)) {
+              pagosBanco.push(p);
+            }
+          });
         }
       }
 
-      if (pagosBanco.length === 0 && groups.length > 0) {
+      // C. Buscar por número de comprobante exacto
+      if (pagosBanco.length === 0 && row.comprobante && String(row.comprobante).trim().length >= 3) {
+        const cleanCpbte = String(row.comprobante).trim();
+        const { data: cpbteMb } = await supabase
+          .from('movimientos_bancarios')
+          .select(`
+            movimiento_id,
+            fecha_movimiento,
+            concepto,
+            monto,
+            banco,
+            comprobante,
+            observaciones,
+            tipo_movimiento,
+            created_at,
+            liquidacion_id,
+            periodo,
+            socio_id,
+            socios(nombre_completo, nro_socio)
+          `)
+          .eq('comprobante', cleanCpbte)
+          .order('fecha_movimiento', { ascending: false });
+
+        if (cpbteMb && cpbteMb.length > 0) {
+          const existingIds = new Set(pagosBanco.map(p => p.movimiento_id));
+          cpbteMb.forEach(p => {
+            if (!existingIds.has(p.movimiento_id)) {
+              pagosBanco.push(p);
+            }
+          });
+        }
+      }
+
+      // D. Fallback acotado por grupo: ¡ESTRICTAMENTE filtrado por período para evitar traer movimientos de otros meses!
+      if (pagosBanco.length === 0 && groups.length > 0 && periods.length > 0) {
         const groupStr = String(groups[0]);
         const { data: mbByConcept } = await supabase
           .from('movimientos_bancarios')
@@ -259,15 +335,22 @@ export default function NuevaConciliacionTab({
             tipo_movimiento,
             created_at,
             liquidacion_id,
+            periodo,
             socio_id,
             socios(nombre_completo, nro_socio)
           `)
+          .in('periodo', periods)
           .or(`concepto.ilike.%${groupStr}%,observaciones.ilike.%${groupStr}%`)
           .order('fecha_movimiento', { ascending: false })
           .limit(3);
 
         if (mbByConcept && mbByConcept.length > 0) {
-          pagosBanco = mbByConcept;
+          const existingIds = new Set(pagosBanco.map(p => p.movimiento_id));
+          mbByConcept.forEach(p => {
+            if (!existingIds.has(p.movimiento_id)) {
+              pagosBanco.push(p);
+            }
+          });
         }
       }
 
@@ -1623,11 +1706,15 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                       onChange={e => setPeriodoImputacionExcel(e.target.value)}
                       style={{ fontSize: '12.5px', padding: '4px 8px', height: '32px', fontWeight: 800, border: 'none', background: 'transparent' }}
                     >
-                      {['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07'].map(p => (
-                        <option key={p} value={p}>
-                          Período {p} {p === '2026-01' ? '(Enero)' : p === '2026-02' ? '(Febrero)' : p === '2026-03' ? '(Marzo)' : p === '2026-04' ? '(Abril)' : p === '2026-05' ? '(Mayo)' : p === '2026-06' ? '(Junio)' : '(Julio)'}
-                        </option>
-                      ))}
+                      {['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11', '2026-12'].map(p => {
+                        const monthNames = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+                        const mNum = parseInt(p.split('-')[1], 10);
+                        return (
+                          <option key={p} value={p}>
+                            Período {p} ({monthNames[mNum]})
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
 

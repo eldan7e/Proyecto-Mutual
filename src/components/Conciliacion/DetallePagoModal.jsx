@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { 
   CheckCircle2, 
   AlertCircle, 
@@ -341,6 +341,9 @@ export default function DetallePagoModal({
                           )}
                           {pago.comprobante && (
                             <span><strong>Comprobante:</strong> {pago.comprobante}</span>
+                          )}
+                          {pago.periodo && (
+                            <span><strong>Período:</strong> {pago.periodo}</span>
                           )}
                           {pago.socios?.nombre_completo && (
                             <span><strong>Socio:</strong> {pago.socios.nombre_completo}</span>
