@@ -130,8 +130,12 @@ function ExpedienteModal({ grupo, onClose, onRefresh }) {
   // Estado local de integrantes (para actualización inmediata en UI)
   const [integrantes, setIntegrantes] = useState(grupo?.integrantes || []);
 
+  // Modo de cambiar responsable (busca fuera del grupo también)
+  const [cambiarResponsableMode, setCambiarResponsableMode] = useState(false);
+
   useEffect(() => {
     setIntegrantes(grupo?.integrantes || []);
+    setCambiarResponsableMode(false);
   }, [grupo]);
 
   useEffect(() => {
@@ -146,26 +150,32 @@ function ExpedienteModal({ grupo, onClose, onRefresh }) {
 
   async function handleSetTitular(socio) {
     const ok = await confirm({
-      title: 'Cambiar titular',
-      message: `¿Establecer a ${socio.nombre_completo} como titular del grupo #${grupo.numero_grupo}?`,
+      title: 'Cambiar responsable',
+      message: `¿Establecer a ${socio.nombre_completo} como responsable del grupo #${grupo.numero_grupo}?`,
       confirmText: 'Sí, establecer',
     });
     if (!ok) return;
     setSaving(true);
     try {
       await setGrupoTitular(grupo.numero_grupo, socio.socio_id);
-      setIntegrantes(prev => prev.map(i => ({
-        ...i,
-        es_titular: i.socio_id === socio.socio_id
-      })).sort((a, b) => {
-        if (a.es_titular && !b.es_titular) return -1;
-        if (!a.es_titular && b.es_titular) return 1;
-        return (a.nombre_completo || '').localeCompare(b.nombre_completo || '');
-      }));
-      addToast(`${socio.nombre_completo} es ahora el titular del grupo`, 'success');
+      // Si el nuevo titular no estaba en el grupo, lo agregamos al estado local
+      setIntegrantes(prev => {
+        const yaEsMiembro = prev.some(i => i.socio_id === socio.socio_id);
+        const base = yaEsMiembro ? prev : [...prev, { ...socio, es_titular: false }];
+        return base.map(i => ({
+          ...i,
+          es_titular: i.socio_id === socio.socio_id
+        })).sort((a, b) => {
+          if (a.es_titular && !b.es_titular) return -1;
+          if (!a.es_titular && b.es_titular) return 1;
+          return (a.nombre_completo || '').localeCompare(b.nombre_completo || '');
+        });
+      });
+      setCambiarResponsableMode(false);
+      addToast(`${socio.nombre_completo} es ahora el responsable del grupo`, 'success');
       onRefresh();
     } catch (err) {
-      addToast('Error al cambiar titular: ' + err.message, 'error');
+      addToast('Error al cambiar responsable: ' + err.message, 'error');
     } finally {
       setSaving(false);
     }
@@ -292,82 +302,140 @@ function ExpedienteModal({ grupo, onClose, onRefresh }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {integrantes.map((int) => (
                 <div key={int.socio_id} style={{
-                  display: 'flex', alignItems: 'center', gap: '12px',
-                  padding: '12px 16px', background: 'var(--bg-app)',
-                  borderRadius: '12px', border: int.es_titular ? '1.5px solid var(--accent)' : '1px solid var(--border-light)',
+                  padding: '14px 16px', background: 'var(--bg-app)',
+                  borderRadius: '14px',
+                  border: int.es_titular ? '1.5px solid var(--accent)' : '1px solid var(--border-light)',
                   transition: 'border-color 0.15s'
                 }}>
-                  {/* Avatar inicial */}
-                  <div style={{
-                    width: '36px', height: '36px', borderRadius: '50%', flexShrink: 0,
-                    background: int.es_titular ? 'var(--accent)' : 'rgba(0,0,0,0.06)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: int.es_titular ? 'white' : 'var(--text-secondary)',
-                    fontSize: '14px', fontWeight: 800
-                  }}>
-                    {int.es_titular ? <Crown size={16} /> : (int.nombre_completo?.[0] || '?')}
-                  </div>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                    {/* Avatar */}
+                    <div style={{
+                      width: '40px', height: '40px', borderRadius: '50%', flexShrink: 0,
+                      background: int.es_titular ? 'var(--accent)' : 'rgba(0,0,0,0.06)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: int.es_titular ? 'white' : 'var(--text-secondary)',
+                      fontSize: '15px', fontWeight: 800
+                    }}>
+                      {int.es_titular ? <Crown size={17} /> : (int.nombre_completo?.[0]?.toUpperCase() || '?')}
+                    </div>
 
-                  {/* Info */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                      <span style={{ fontWeight: 800, fontSize: '14px', color: 'var(--text-primary)' }}>
-                        {int.nombre_completo}
-                      </span>
-                      {int.es_titular && (
-                        <span style={{
-                          fontSize: '9px', background: 'var(--accent)', color: 'white',
-                          padding: '2px 8px', borderRadius: '100px', fontWeight: 900, textTransform: 'uppercase'
-                        }}>TITULAR</span>
+                    {/* Info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '5px' }}>
+                        <span style={{ fontWeight: 800, fontSize: '14px', color: 'var(--text-primary)' }}>
+                          {int.nombre_completo}
+                        </span>
+                        {int.es_titular && (
+                          <span style={{
+                            fontSize: '9px', background: 'var(--accent)', color: 'white',
+                            padding: '2px 8px', borderRadius: '100px', fontWeight: 900, textTransform: 'uppercase',
+                            letterSpacing: '0.04em'
+                          }}>RESPONSABLE</span>
+                        )}
+                      </div>
+                      {/* Datos del socio */}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                        {int.nro_socio && (
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <Hash size={10} /> Nro {int.nro_socio}
+                          </span>
+                        )}
+                        {int.dni && (
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                            DNI {int.dni}
+                          </span>
+                        )}
+                        {int.email && (
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px' }}>
+                            <Mail size={10} /> {int.email}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Acciones */}
+                    <div style={{ display: 'flex', gap: '6px', flexShrink: 0, alignItems: 'center' }}>
+                      {!int.es_titular && (
+                        <button
+                          onClick={() => handleSetTitular(int)}
+                          disabled={saving}
+                          title="Hacer responsable"
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '4px',
+                            padding: '6px 10px', fontSize: '11px', fontWeight: 800,
+                            background: 'var(--accent-light)', color: 'var(--accent)',
+                            border: '1px solid var(--accent)', borderRadius: '8px',
+                            cursor: saving ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap'
+                          }}
+                        >
+                          <Crown size={12} /> Responsable
+                        </button>
                       )}
-                    </div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, marginTop: '2px' }}>
-                      Nro {int.nro_socio || '—'} · DNI {int.dni || '—'}
-                      {int.email && ` · ${int.email}`}
-                    </div>
-                  </div>
-
-                  {/* Acciones */}
-                  <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-                    {!int.es_titular && (
                       <button
-                        onClick={() => handleSetTitular(int)}
+                        onClick={() => handleRemoveIntegrante(int)}
                         disabled={saving}
-                        title="Hacer titular"
+                        title={int.es_titular ? 'No se puede quitar al responsable' : 'Quitar del grupo'}
                         style={{
-                          display: 'flex', alignItems: 'center', gap: '4px',
-                          padding: '6px 10px', fontSize: '11px', fontWeight: 800,
-                          background: 'var(--accent-light)', color: 'var(--accent)',
-                          border: '1px solid var(--accent)', borderRadius: '8px',
-                          cursor: saving ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap'
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          width: '32px', height: '32px', borderRadius: '8px',
+                          background: 'rgba(239,68,68,0.08)', color: '#ef4444',
+                          border: '1px solid rgba(239,68,68,0.2)',
+                          cursor: (saving || int.es_titular) ? 'not-allowed' : 'pointer',
+                          opacity: (saving || int.es_titular) ? 0.35 : 1,
+                          transition: 'all 0.15s'
                         }}
                       >
-                        <Crown size={12} /> Titular
+                        <UserMinus size={14} />
                       </button>
-                    )}
-                    <button
-                      onClick={() => handleRemoveIntegrante(int)}
-                      disabled={saving}
-                      title={int.es_titular ? 'No se puede quitar al titular' : 'Quitar del grupo'}
-                      style={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        width: '32px', height: '32px', borderRadius: '8px',
-                        background: 'rgba(239,68,68,0.08)', color: '#ef4444',
-                        border: '1px solid rgba(239,68,68,0.2)',
-                        cursor: (saving || int.es_titular) ? 'not-allowed' : 'pointer',
-                        opacity: (saving || int.es_titular) ? 0.4 : 1,
-                        transition: 'all 0.15s'
-                      }}
-                    >
-                      <UserMinus size={14} />
-                    </button>
+                    </div>
                   </div>
+
+                  {/* Footer de la card del titular: botón cambiar responsable */}
+                  {int.es_titular && (
+                    <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed var(--border-light)', display: 'flex', justifyContent: 'flex-end' }}>
+                      <button
+                        onClick={() => setCambiarResponsableMode(v => !v)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '5px',
+                          padding: '5px 12px', fontSize: '11px', fontWeight: 700,
+                          background: cambiarResponsableMode ? 'var(--accent)' : 'transparent',
+                          color: cambiarResponsableMode ? 'white' : 'var(--text-secondary)',
+                          border: `1px solid ${cambiarResponsableMode ? 'var(--accent)' : 'var(--border-light)'}`,
+                          borderRadius: '8px', cursor: 'pointer', transition: 'all 0.15s'
+                        }}
+                      >
+                        <RefreshCw size={11} />
+                        {cambiarResponsableMode ? 'Cancelar cambio' : 'Cambiar responsable'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           )}
 
-          {/* Buscador para agregar */}
+          {/* Panel: Cambiar Responsable (busca cualquier socio, no solo del grupo) */}
+          {cambiarResponsableMode && (
+            <div style={{
+              padding: '16px', borderRadius: '14px',
+              background: 'rgba(55,157,116,0.06)',
+              border: '1.5px solid var(--accent)',
+            }}>
+              <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--accent)', textTransform: 'uppercase', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Crown size={13} /> Asignar nuevo responsable
+              </div>
+              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, marginBottom: '10px', lineHeight: 1.5 }}>
+                Buscá cualquier socio. Si no es integrante del grupo, se agregará automáticamente.
+              </p>
+              <SocioBuscador
+                onSelect={handleSetTitular}
+                excludeIds={[]}
+                placeholder="Buscar socio por nombre, DNI o Nro..."
+              />
+            </div>
+          )}
+
+          {/* Buscador para agregar integrante */}
           <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '16px' }}>
             <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <UserPlus size={13} /> Agregar integrante al grupo
@@ -378,6 +446,7 @@ function ExpedienteModal({ grupo, onClose, onRefresh }) {
               placeholder="Buscar socio por nombre, DNI o Nro de socio..."
             />
           </div>
+
         </div>
       )}
 
