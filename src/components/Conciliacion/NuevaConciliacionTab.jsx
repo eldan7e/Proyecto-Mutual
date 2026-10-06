@@ -1076,6 +1076,8 @@ export default function NuevaConciliacionTab({
       const pFecha = payment.fecha;
       const pConc = normalize(payment.concepto);
 
+      const hasValidCpbte = cpbte && cpbte !== '0' && cpbte !== '-' && cpbte.length >= 2;
+
       // 1. Check in cuenta corriente by group and comprobante/amount OR (group + date + amount)
       const ccMatch = existingCcMovs.some(c => {
         if (c.tipo && c.tipo !== 'PAGO') return false;
@@ -1084,7 +1086,7 @@ export default function NuevaConciliacionTab({
         if (Math.abs(cMonto - pMonto) > 0.05) return false;
 
         // If matching comprobante
-        if (cpbte && String(c.observaciones || '').includes(cpbte)) return true;
+        if (hasValidCpbte && String(c.observaciones || '').includes(cpbte)) return true;
         // If same date and exact amount for this group
         if (c.fecha === pFecha) return true;
         return false;
@@ -1098,7 +1100,7 @@ export default function NuevaConciliacionTab({
         if (Math.abs(mMonto - pMonto) > 0.05) return false;
         if (m.fecha_movimiento !== pFecha) return false;
 
-        if (cpbte && String(m.comprobante || m.concepto || '').includes(cpbte)) return true;
+        if (hasValidCpbte && String(m.comprobante || m.concepto || '').includes(cpbte)) return true;
         const mConc = normalize(m.concepto);
         if (pConc && (mConc === pConc || mConc.includes(pConc) || pConc.includes(mConc))) return true;
         return false;
