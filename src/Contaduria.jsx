@@ -590,34 +590,6 @@ export default function Contaduria() {
     return Math.round((entregado - montoTeoricoCobro) * 100) / 100;
   }, [efectivoEntregado, montoTeoricoCobro]);
 
-  // Detección de deudas pendientes en períodos anteriores al de la factura seleccionada
-  const deudasPreviasInfo = useMemo(() => {
-    if (!targetFactura || !movimientos || movimientos.length === 0) return null;
-    const targetPeriodo = targetFactura.periodo;
-    if (!targetPeriodo) return null;
-
-    // Movimientos tipo FACTURA con período anterior al seleccionado y saldo impago
-    const anteriores = movimientos.filter(m => 
-      m.tipo === 'FACTURA' && 
-      m.periodo && 
-      m.periodo < targetPeriodo && 
-      (Number(m.importe) - Number(m.pago_aplicado_capital || 0)) > 1
-    );
-
-    if (anteriores.length === 0) return null;
-
-    const periodos = [...new Set(anteriores.map(m => m.periodo))].sort();
-    const totalDeudaAnterior = anteriores.reduce((sum, m) => {
-      const pend = Math.max(0, Number(m.importe) - Number(m.pago_aplicado_capital || 0));
-      return sum + pend;
-    }, 0);
-
-    return {
-      periodos,
-      totalDeudaAnterior,
-      cantidadFacturas: anteriores.length
-    };
-  }, [targetFactura, movimientos]);
 
   // Abrir comprobante oficial de pago para una factura cancelada o abonada
   function handleAbrirComprobanteFactura(group) {
@@ -3997,57 +3969,6 @@ export default function Contaduria() {
             );
           })()}
 
-          {/* ALERTA DE DEUDA PREVIA DE PERÍODOS ANTERIORES */}
-          {targetFactura && deudasPreviasInfo && (
-            <div style={{
-              background: 'rgba(239, 68, 68, 0.08)',
-              border: '1px solid rgba(239, 68, 68, 0.25)',
-              padding: '12px 16px',
-              borderRadius: '12px',
-              fontSize: '12.5px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '8px'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <AlertCircle size={16} color="#ef4444" style={{ flexShrink: 0 }} />
-                <span style={{ fontWeight: 800, color: '#ef4444' }}>
-                  ⚠️ Atención: Este grupo tiene deuda pendiente de períodos anteriores
-                </span>
-              </div>
-              <div style={{ color: 'var(--text-primary)', fontSize: '12px', lineHeight: 1.4 }}>
-                Registra deuda impaga por un total de <strong>{formatMoney(deudasPreviasInfo.totalDeudaAnterior)}</strong> en los períodos: <strong>{deudasPreviasInfo.periodos.join(', ')}</strong>.
-              </div>
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginTop: '2px' }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTargetFactura(null);
-                    const s = String((ultimoMovGrupo?.saldo_final || 0).toFixed(2));
-                    setMontoCobro(s);
-                    setEfectivoEntregado(s);
-                    setObservacionesCobro(`Cobro Total Deuda Acumulada - Grupo #${selectedGrupo}`);
-                  }}
-                  className="air-btn"
-                  style={{
-                    background: '#ef4444',
-                    color: '#fff',
-                    border: 'none',
-                    padding: '6px 12px',
-                    borderRadius: '8px',
-                    fontSize: '11.5px',
-                    fontWeight: 800,
-                    cursor: 'pointer'
-                  }}
-                >
-                  Cambiar a Cobro de Deuda Total
-                </button>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                  (Aplica imputación FIFO desde la deuda más antigua)
-                </span>
-              </div>
-            </div>
-          )}
 
           {/* FORMA DE PAGO Y FECHA */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
