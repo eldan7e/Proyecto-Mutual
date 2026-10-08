@@ -854,9 +854,8 @@ export default function Contaduria() {
         remanenteSaldoAFavor: resultadoFifoFresco?.remanenteSaldoAFavor || 0,
         monto_factura: targetFactura?.monto_total_facturado || val,
         efectivo_entregado: medioPago === 'EFECTIVO EN MUT' && efectivoEntregado ? parseFloat(efectivoEntregado) : undefined,
-        saldo_favor_cambio: (medioPago === 'EFECTIVO EN MUT' && diferenciaCambio > 0) ? diferenciaCambio : 0,
-        bonificacion_redondeo: (medioPago === 'EFECTIVO EN MUT' && diferenciaCambio < 0 && Math.abs(diferenciaCambio) <= 100) ? Math.abs(diferenciaCambio) : 0,
-        saldo_pendiente_cambio: (medioPago === 'EFECTIVO EN MUT' && diferenciaCambio < 0 && Math.abs(diferenciaCambio) > 100) ? Math.abs(diferenciaCambio) : 0,
+        saldo_favor_cambio: 0,
+        bonificacion_redondeo: 0,
         desgloses: (resultadoFifoFresco?.desgloses && resultadoFifoFresco.desgloses.length > 0) ? resultadoFifoFresco.desgloses : [{
           observaciones: targetFactura ? `Facturación Período ${targetFactura.periodo} (${targetFactura.proveedores?.nombre || 'MUTUAL'})` : `Cobro en cuenta corriente - ${medioPago}`,
           pagoAplicadoCapital: resultadoFifoFresco?.totalCapitalCancelado || val,

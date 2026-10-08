@@ -64,9 +64,6 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
     if (bonificacion_redondeo > 0) {
       text += `🔵 *Bonificación por redondeo en caja:* ${formatMoney(bonificacion_redondeo)} (Factura 100% cancelada)\n`;
     }
-    if (saldo_pendiente_cambio > 0) {
-      text += `🟡 *Saldo pendiente por falta de cambio:* -${formatMoney(saldo_pendiente_cambio)} (A regularizar en próxima factura)\n`;
-    }
     if (observaciones) text += `📝 *Ref / Obs:* ${observaciones}\n`;
     text += `\n*DETALLE DE IMPUTACIÓN DE CONCEPTOS:*\n`;
     desgloses.forEach(d => {
@@ -339,22 +336,6 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
             </div>
           )}
 
-          {saldo_pendiente_cambio > 0 && (
-            <div className="print-bg-card" style={{ background: 'rgba(245, 158, 11, 0.08)', border: '1.5px solid rgba(245, 158, 11, 0.35)', borderRadius: '12px', padding: '12px 16px', marginBottom: '18px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '13px', fontWeight: 900, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <AlertTriangle size={16} color="#f59e0b" /> Saldo Pendiente por Falta de Cambio
-                </span>
-                <span style={{ fontSize: '16px', fontWeight: 900, color: '#f59e0b' }}>
-                  -{formatMoney(saldo_pendiente_cambio)}
-                </span>
-              </div>
-              <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
-                {efectivo_entregado ? `Efectivo recibido a cuenta: ${formatMoney(efectivo_entregado)}. ` : ''}
-                El saldo remanente queda pendiente en la cuenta corriente del grupo para regularizarse en la próxima factura mensual.
-              </p>
-            </div>
-          )}
 
           {/* Tabla de Imputaciones FIFO */}
           <div style={{ marginBottom: '22px' }}>
