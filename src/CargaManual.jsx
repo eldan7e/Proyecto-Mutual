@@ -57,6 +57,7 @@ export default function CargaManual() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
   const [periodPrices, setPeriodPrices] = useState(new Map());
+  const [prevPeriodPrices, setPrevPeriodPrices] = useState(new Map());
   const [providerDiscounts, setProviderDiscounts] = useState({ claro: 90, movistar: 80, personal: 80, 1: 90, 2: 80, 3: 80 });
   
   const [isDbLinesLoading, setIsDbLinesLoading] = useState(true);
@@ -1229,14 +1230,19 @@ export default function CargaManual() {
       if (planId && prevPeriodPrices.has(planId) && prevPeriodPrices.get(planId) > 0) {
         prevListPrice = prevPeriodPrices.get(planId);
       } else {
-        if (avgPct !== 0 && currListPrice > 0) {
-          prevListPrice = Math.round(currListPrice / (1 + avgPct / 100));
-        }
+        prevListPrice = dbPlanInfo?.precio_oficial || dbPlanInfo?.precio || currListPrice || 0;
       }
+
+      // Variación real en precio de lista oficial vs variación en abono neto de factura
+      const listIncrease = (prevListPrice > 0 && currListPrice > 0)
+        ? ((currListPrice - prevListPrice) / prevListPrice) * 100
+        : 0;
 
       planIncreases.push({ 
         plan: planName, 
-        increase: avgPct,
+        increase: listIncrease !== 0 ? listIncrease : avgPct,
+        listIncrease,
+        abonoIncrease: avgPct,
         avgPrevAbono: avgPrev,
         avgCurrAbono: avgCurr,
         prevListPrice,
@@ -1849,20 +1855,20 @@ export default function CargaManual() {
                     const curPrecio = dbPlanInfo?.precio_oficial || 0;
                     const hasAbonoData = p.avgPrevAbono > 0 && p.avgCurrAbono > 0;
                     const diffAbono = p.avgCurrAbono - p.avgPrevAbono;
-                    const multiplier = 1 + (p.increase / 100);
-                    const sugPrecio = Math.round(curPrecio * multiplier);
+                    const isListChanged = p.prevListPrice > 0 && p.currListPrice > 0 && Math.abs(p.currListPrice - p.prevListPrice) > 1;
+                    const displayPct = isListChanged ? p.listIncrease : (p.abonoIncrease ?? p.increase ?? 0);
 
                     return (
                       <div key={idx} style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '8px', borderBottom: idx < confirmStats.planIncreases.length - 1 ? '1px solid var(--border-light)' : 'none' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>{p.plan}</div>
-                          <div style={{ fontSize: '13px', fontWeight: 900, color: Math.abs(p.increase) < 0.5 ? 'var(--text-secondary)' : p.increase > 0 ? '#ef4444' : '#10b981', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            {Math.abs(p.increase) < 0.5 ? (
-                              '0.0%'
-                            ) : p.increase > 0 ? (
-                              <><TrendingUp size={14} /> {p.increase.toFixed(1)}% AUMENTO</>
+                          <div style={{ fontSize: '13px', fontWeight: 900, color: Math.abs(displayPct) < 0.5 ? 'var(--text-secondary)' : displayPct > 0 ? '#ef4444' : '#10b981', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {Math.abs(displayPct) < 0.5 ? (
+                              '0.0% Sin cambios'
+                            ) : displayPct > 0 ? (
+                              <><TrendingUp size={14} /> {displayPct.toFixed(1)}% AUMENTO {isListChanged ? '(Lista)' : '(Costo Factura)'}</>
                             ) : (
-                              <><TrendingDown size={14} /> {Math.abs(p.increase).toFixed(1)}% BAJA</>
+                              <><TrendingDown size={14} /> {Math.abs(displayPct).toFixed(1)}% BAJA {isListChanged ? '(Lista)' : '(Costo Factura)'}</>
                             )}
                           </div>
                         </div>
@@ -1872,14 +1878,15 @@ export default function CargaManual() {
                           )}
                           {(p.prevListPrice > 0 || p.currListPrice > 0 || hasData) && (
                             <span>
-                              Precio Lista: {p.prevListPrice > 0 ? (
-                                <><span style={{ textDecoration: 'line-through' }}>${p.prevListPrice.toLocaleString('es-AR')}</span> ({confirmStats?.prevMonthLabel || 'Mes Ant.'}) → </>
-                              ) : ''}
-                              <span style={{ color: 'var(--accent)', fontWeight: 800 }}>${(p.currListPrice || curPrecio).toLocaleString('es-AR')}</span> ({confirmStats?.currMonthLabel || 'Actual'})
-                              {p.prevListPrice > 0 && p.currListPrice > 0 && (
-                                <span style={{ color: p.currListPrice >= p.prevListPrice ? '#ef4444' : '#10b981', marginLeft: '4px' }}>
-                                  ({p.currListPrice >= p.prevListPrice ? '+' : '-'}${Math.abs(p.currListPrice - p.prevListPrice).toLocaleString('es-AR')})
-                                </span>
+                              Precio Lista: {isListChanged ? (
+                                <>
+                                  <span style={{ textDecoration: 'line-through' }}>${p.prevListPrice.toLocaleString('es-AR')}</span> ({confirmStats?.prevMonthLabel || 'Mes Ant.'}) → <span style={{ color: 'var(--accent)', fontWeight: 800 }}>${(p.currListPrice || curPrecio).toLocaleString('es-AR')}</span> ({confirmStats?.currMonthLabel || 'Actual'})
+                                  <span style={{ color: p.currListPrice >= p.prevListPrice ? '#ef4444' : '#10b981', marginLeft: '4px' }}>
+                                    ({p.currListPrice >= p.prevListPrice ? '+' : '-'}${Math.abs(p.currListPrice - p.prevListPrice).toLocaleString('es-AR')})
+                                  </span>
+                                </>
+                              ) : (
+                                <><span style={{ color: 'var(--accent)', fontWeight: 800 }}>${(p.currListPrice || p.prevListPrice || curPrecio).toLocaleString('es-AR')}</span> ({confirmStats?.currMonthLabel || 'Actual'} - Sin variación de lista)</>
                               )}
                             </span>
                           )}

@@ -1,4 +1,5 @@
 import { supabase } from '../supabaseClient';
+import { registrarAuditoria } from '../utils/auditLogger';
 
 /* ─────────────────────────────────────────────
    Grupos — full CRUD + proveedores lookup
@@ -20,7 +21,7 @@ export async function fetchGrupos({ search, selectedProvider } = {}) {
     .select(`
       *,
       grupo_socio(socio_id, es_titular, socios(nombre_completo, email, nro_socio, dni)),
-      lineas(numero_linea, proveedor_id, proveedores!lineas_proveedor_id_fkey(nombre))
+      lineas(numero_linea, proveedor_id, estado, planes_abonos(nombre_plan), proveedores!lineas_proveedor_id_fkey(nombre))
     `)
     .order('numero_grupo');
 
@@ -276,3 +277,54 @@ export async function fetchLiquidacionesGrupo(numeroGrupo) {
   if (error) throw error;
   return data || [];
 }
+
+/**
+ * Actualiza el estado de una línea individual perteneciente a un grupo ('ACTIVA', 'SUSPENDIDA', 'BAJA').
+ * Registra auditoría automática.
+ *
+ * @param {string} numeroLinea
+ * @param {string} nuevoEstado
+ * @param {number} [numeroGrupo]
+ */
+export async function updateLineaEstadoGrupo(numeroLinea, nuevoEstado, numeroGrupo = null) {
+  const cleanTel = String(numeroLinea).replace(/\D/g, '');
+  const { error } = await supabase
+    .from('lineas')
+    .update({ estado: nuevoEstado })
+    .eq('numero_linea', cleanTel);
+
+  if (error) throw error;
+
+  await registrarAuditoria({
+    tipo_evento: 'CAMBIO_ESTADO_LINEA',
+    descripcion: `Línea ${cleanTel} cambió a estado ${String(nuevoEstado).toUpperCase()}${numeroGrupo ? ` en Grupo #${numeroGrupo}` : ''}`,
+    numero_linea: cleanTel,
+    numero_grupo: numeroGrupo || null
+  });
+}
+
+/**
+ * Actualiza en lote el estado de todas las líneas de un grupo ('ACTIVA' o 'SUSPENDIDA').
+ * Registra auditoría automática.
+ *
+ * @param {number} numeroGrupo
+ * @param {string} nuevoEstado
+ */
+export async function updateTodasLineasGrupoEstado(numeroGrupo, nuevoEstado) {
+  const { data, error } = await supabase
+    .from('lineas')
+    .update({ estado: nuevoEstado })
+    .eq('numero_grupo', numeroGrupo)
+    .select('numero_linea');
+
+  if (error) throw error;
+
+  await registrarAuditoria({
+    tipo_evento: 'CAMBIO_ESTADO_GRUPO_LINEAS',
+    descripcion: `Se cambiaron a estado ${String(nuevoEstado).toUpperCase()} todas las líneas (${data?.length || 0}) del Grupo #${numeroGrupo}`,
+    numero_grupo: numeroGrupo
+  });
+
+  return data;
+}
+

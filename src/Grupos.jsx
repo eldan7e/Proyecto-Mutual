@@ -2,7 +2,8 @@ import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import {
   Search, Edit2, Trash2, Plus, Users, Smartphone,
   Mail, Hash, ShieldCheck, UserCheck, Loader2, RefreshCw,
-  Eye, X, UserPlus, Crown, UserMinus, FileText, Phone, ChevronDown, ChevronUp
+  Eye, X, UserPlus, Crown, UserMinus, FileText, Phone, ChevronDown, ChevronUp,
+  PauseCircle, PlayCircle
 } from 'lucide-react';
 import Modal from './components/Modal';
 import {
@@ -15,6 +16,8 @@ import {
   removeIntegranteFromGrupo,
   searchSocios,
   fetchLiquidacionesGrupo,
+  updateLineaEstadoGrupo,
+  updateTodasLineasGrupoEstado,
 } from './services/gruposService';
 import useDebounce from './hooks/useDebounce';
 import { useToast } from './components/ui/ToastProvider';
@@ -130,13 +133,90 @@ function ExpedienteModal({ grupo, onClose, onRefresh }) {
   // Estado local de integrantes (para actualización inmediata en UI)
   const [integrantes, setIntegrantes] = useState(grupo?.integrantes || []);
 
+  // Estado local de líneas (para actualización inmediata en UI)
+  const [lineas, setLineas] = useState(grupo?.lineasDetalle || []);
+  const [loadingLineAction, setLoadingLineAction] = useState(null);
+
   // Modo de cambiar responsable (busca fuera del grupo también)
   const [cambiarResponsableMode, setCambiarResponsableMode] = useState(false);
 
   useEffect(() => {
     setIntegrantes(grupo?.integrantes || []);
+    setLineas(grupo?.lineasDetalle || []);
     setCambiarResponsableMode(false);
   }, [grupo]);
+
+  const totalLineas = lineas.length;
+  const activasCount = lineas.filter(l => !String(l.estado || '').toUpperCase().includes('SUSPEND') && !String(l.estado || '').toUpperCase().includes('BAJA')).length;
+  const suspendidasCount = lineas.filter(l => String(l.estado || '').toUpperCase().includes('SUSPEND')).length;
+  const bajasCount = lineas.filter(l => String(l.estado || '').toUpperCase().includes('BAJA')).length;
+
+  async function handleToggleLineaEstado(linea) {
+    const isSuspended = String(linea.estado || '').toUpperCase().includes('SUSPEND');
+    const nuevoEstado = isSuspended ? 'ACTIVA' : 'SUSPENDIDA';
+    const accion = isSuspended ? 'reactivar' : 'suspender';
+
+    const ok = await confirm({
+      title: `${isSuspended ? 'Reactivar' : 'Suspender'} Línea`,
+      message: `¿Estás seguro de que deseas ${accion} la línea ${linea.numero_linea}?`,
+      confirmText: isSuspended ? 'Sí, reactivar' : 'Sí, suspender',
+      isDanger: !isSuspended,
+    });
+    if (!ok) return;
+
+    setLoadingLineAction(linea.numero_linea);
+    try {
+      await updateLineaEstadoGrupo(linea.numero_linea, nuevoEstado, grupo.numero_grupo);
+      setLineas(prev => prev.map(l => l.numero_linea === linea.numero_linea ? { ...l, estado: nuevoEstado } : l));
+      addToast(`Línea ${linea.numero_linea} ${isSuspended ? 'reactivada' : 'suspendida'} exitosamente`, 'success');
+      onRefresh();
+    } catch (err) {
+      addToast('Error al cambiar estado de la línea: ' + err.message, 'error');
+    } finally {
+      setLoadingLineAction(null);
+    }
+  }
+
+  async function handleBulkLineasEstado(nuevoEstado) {
+    const isSuspending = nuevoEstado === 'SUSPENDIDA';
+    const targetCount = isSuspending ? activasCount : suspendidasCount;
+
+    if (targetCount === 0) {
+      addToast(isSuspending ? 'No hay líneas activas para suspender.' : 'No hay líneas suspendidas para reactivar.', 'info');
+      return;
+    }
+
+    const accion = isSuspending ? 'suspender' : 'reactivar';
+    const ok = await confirm({
+      title: `${isSuspending ? 'Suspender' : 'Reactivar'} Todas las Líneas`,
+      message: `¿Estás seguro de que deseas ${accion} ${targetCount} línea(s) del Grupo #${grupo.numero_grupo}?`,
+      confirmText: isSuspending ? 'Sí, suspender todas' : 'Sí, reactivar todas',
+      isDanger: isSuspending,
+    });
+    if (!ok) return;
+
+    setLoadingLineAction(isSuspending ? 'bulk-suspend' : 'bulk-reactivate');
+    try {
+      await updateTodasLineasGrupoEstado(grupo.numero_grupo, nuevoEstado);
+      setLineas(prev => prev.map(l => {
+        const isSusp = String(l.estado || '').toUpperCase().includes('SUSPEND');
+        const isBaja = String(l.estado || '').toUpperCase().includes('BAJA');
+        if (isSuspending && !isSusp && !isBaja) {
+          return { ...l, estado: nuevoEstado };
+        }
+        if (!isSuspending && isSusp) {
+          return { ...l, estado: nuevoEstado };
+        }
+        return l;
+      }));
+      addToast(`Se ${isSuspending ? 'suspendieron' : 'reactivaron'} las líneas del grupo exitosamente`, 'success');
+      onRefresh();
+    } catch (err) {
+      addToast('Error al actualizar líneas: ' + err.message, 'error');
+    } finally {
+      setLoadingLineAction(null);
+    }
+  }
 
   useEffect(() => {
     if (tab === 'historial' && grupo) {
@@ -285,6 +365,13 @@ function ExpedienteModal({ grupo, onClose, onRefresh }) {
                 color: tab === t.id ? 'white' : 'var(--accent)',
                 fontSize: '10px', fontWeight: 900, padding: '1px 6px', borderRadius: '100px'
               }}>{integrantes.length}</span>
+            )}
+            {t.id === 'lineas' && (
+              <span style={{
+                background: tab === t.id ? 'rgba(255,255,255,0.25)' : (suspendidasCount > 0 ? 'rgba(245, 158, 11, 0.15)' : 'var(--accent-light)'),
+                color: tab === t.id ? 'white' : (suspendidasCount > 0 ? '#d97706' : 'var(--accent)'),
+                fontSize: '10px', fontWeight: 900, padding: '1px 6px', borderRadius: '100px'
+              }}>{lineas.length}</span>
             )}
           </button>
         ))}
@@ -452,29 +539,222 @@ function ExpedienteModal({ grupo, onClose, onRefresh }) {
 
       {/* Tab: Líneas */}
       {tab === 'lineas' && (
-        <div>
-          {grupo.lineasDetalle.length === 0 ? (
-            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '13px', fontStyle: 'italic' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {lineas.length === 0 ? (
+            <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '13px', fontStyle: 'italic' }}>
               No hay líneas asignadas a este grupo.
             </div>
           ) : (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-              {grupo.lineasDetalle.map((l, i) => (
-                <div key={i} style={{
-                  padding: '12px 18px', background: 'var(--bg-app)',
-                  border: '1px solid var(--border-light)', borderRadius: '14px',
-                  minWidth: '140px'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                    <Smartphone size={13} color="#3b82f6" />
-                    <span style={{ fontWeight: 900, color: 'var(--text-primary)', fontSize: '14px' }}>{l.numero_linea}</span>
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700 }}>
-                    {l.proveedores?.nombre || '—'}
-                  </div>
+            <>
+              {/* Barra de Acciones Globales y Resumen de Estados */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '12px',
+                padding: '12px 16px',
+                background: 'var(--bg-app)',
+                borderRadius: '14px',
+                border: '1px solid var(--border-light)'
+              }}>
+                {/* Resumen de estados */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                    {totalLineas} {totalLineas === 1 ? 'Línea' : 'Líneas'}
+                  </span>
+                  <span style={{
+                    fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '100px',
+                    background: 'rgba(16, 185, 129, 0.1)', color: '#059669', border: '1px solid rgba(16, 185, 129, 0.2)'
+                  }}>
+                    ● {activasCount} Activa{activasCount !== 1 ? 's' : ''}
+                  </span>
+                  {suspendidasCount > 0 && (
+                    <span style={{
+                      fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '100px',
+                      background: 'rgba(245, 158, 11, 0.1)', color: '#d97706', border: '1px solid rgba(245, 158, 11, 0.25)'
+                    }}>
+                      ⏸ {suspendidasCount} Suspendida{suspendidasCount !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                  {bajasCount > 0 && (
+                    <span style={{
+                      fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '100px',
+                      background: 'rgba(239, 68, 68, 0.1)', color: '#dc2626', border: '1px solid rgba(239, 68, 68, 0.2)'
+                    }}>
+                      🛑 {bajasCount} Baja{bajasCount !== 1 ? 's' : ''}
+                    </span>
+                  )}
                 </div>
-              ))}
-            </div>
+
+                {/* Botones de acción masiva */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  {/* Suspender Todas */}
+                  {activasCount > 0 && (
+                    <button
+                      onClick={() => handleBulkLineasEstado('SUSPENDIDA')}
+                      disabled={loadingLineAction !== null}
+                      title="Suspender todas las líneas activas de este grupo"
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '6px',
+                        padding: '6px 12px', fontSize: '11px', fontWeight: 800,
+                        background: 'rgba(239, 68, 68, 0.08)', color: '#dc2626',
+                        border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '8px',
+                        cursor: loadingLineAction !== null ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      {loadingLineAction === 'bulk-suspend' ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <PauseCircle size={13} />
+                      )}
+                      Suspender todas
+                    </button>
+                  )}
+
+                  {/* Reactivar Todas */}
+                  {suspendidasCount > 0 && (
+                    <button
+                      onClick={() => handleBulkLineasEstado('ACTIVA')}
+                      disabled={loadingLineAction !== null}
+                      title="Reactivar todas las líneas suspendidas de este grupo"
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '6px',
+                        padding: '6px 12px', fontSize: '11px', fontWeight: 800,
+                        background: 'rgba(16, 185, 129, 0.08)', color: '#059669',
+                        border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '8px',
+                        cursor: loadingLineAction !== null ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      {loadingLineAction === 'bulk-reactivate' ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <PlayCircle size={13} />
+                      )}
+                      Reactivar todas
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Grilla de Líneas */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                gap: '12px'
+              }}>
+                {lineas.map((l, i) => {
+                  const isSuspended = String(l.estado || '').toUpperCase().includes('SUSPEND');
+                  const isBaja = String(l.estado || '').toUpperCase().includes('BAJA');
+                  const isLoadingThis = loadingLineAction === l.numero_linea;
+
+                  return (
+                    <div
+                      key={l.numero_linea || i}
+                      style={{
+                        padding: '14px 16px',
+                        background: isSuspended ? 'rgba(245, 158, 11, 0.03)' : 'var(--bg-app)',
+                        border: isSuspended
+                          ? '1.5px solid rgba(245, 158, 11, 0.4)'
+                          : isBaja
+                          ? '1px solid rgba(239, 68, 68, 0.3)'
+                          : '1px solid var(--border-light)',
+                        borderRadius: '14px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '10px',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      {/* Cabecera de la card: teléfono y pill de estado */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <Smartphone size={15} color={isSuspended ? '#d97706' : '#3b82f6'} />
+                          <span style={{ fontWeight: 900, color: 'var(--text-primary)', fontSize: '14px', letterSpacing: '-0.01em' }}>
+                            {l.numero_linea}
+                          </span>
+                        </div>
+                        <span style={{
+                          fontSize: '10px',
+                          fontWeight: 800,
+                          padding: '2px 7px',
+                          borderRadius: '100px',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.04em',
+                          background: isSuspended
+                            ? 'rgba(245, 158, 11, 0.12)'
+                            : isBaja
+                            ? 'rgba(239, 68, 68, 0.12)'
+                            : 'rgba(16, 185, 129, 0.12)',
+                          color: isSuspended ? '#d97706' : isBaja ? '#dc2626' : '#059669',
+                          border: isSuspended
+                            ? '1px solid rgba(245, 158, 11, 0.3)'
+                            : isBaja
+                            ? '1px solid rgba(239, 68, 68, 0.25)'
+                            : '1px solid rgba(16, 185, 129, 0.25)'
+                        }}>
+                          {isSuspended ? '⏸ Suspendida' : isBaja ? '🛑 Baja' : '● Activa'}
+                        </span>
+                      </div>
+
+                      {/* Detalles del proveedor / plan */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                        <span style={{ fontWeight: 800, color: 'var(--text-primary)' }}>
+                          {l.proveedores?.nombre || 'Proveedor no especificado'}
+                        </span>
+                        {l.planes_abonos?.nombre_plan && (
+                          <span style={{ opacity: 0.85, fontSize: '11px' }}>
+                            {l.planes_abonos.nombre_plan}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Botón individual de acción: Suspender o Reactivar */}
+                      {!isBaja && (
+                        <div style={{ marginTop: 'auto', paddingTop: '6px', borderTop: '1px dashed var(--border-light)' }}>
+                          <button
+                            onClick={() => handleToggleLineaEstado(l)}
+                            disabled={loadingLineAction !== null}
+                            style={{
+                              width: '100%',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '6px',
+                              padding: '6px 10px',
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              borderRadius: '8px',
+                              cursor: loadingLineAction !== null ? 'not-allowed' : 'pointer',
+                              border: isSuspended
+                                ? '1px solid rgba(16, 185, 129, 0.4)'
+                                : '1px solid rgba(245, 158, 11, 0.35)',
+                              background: isSuspended
+                                ? 'rgba(16, 185, 129, 0.08)'
+                                : 'rgba(245, 158, 11, 0.08)',
+                              color: isSuspended ? '#059669' : '#d97706',
+                              transition: 'all 0.15s'
+                            }}
+                          >
+                            {isLoadingThis ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : isSuspended ? (
+                              <PlayCircle size={13} />
+                            ) : (
+                              <PauseCircle size={13} />
+                            )}
+                            {isSuspended ? 'Reactivar línea' : 'Suspender línea'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
         </div>
       )}
