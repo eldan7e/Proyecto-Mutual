@@ -10,6 +10,7 @@ import {
 import { supabase } from './supabaseClient';
 import Modal from './components/Modal';
 import ComprobanteCobroModal from './components/ComprobanteCobroModal';
+import BuscadorGrupoCombobox from './components/BuscadorGrupoCombobox';
 import { useToast } from './components/ui/ToastProvider';
 import { useConfirm } from './components/ui/ConfirmProvider';
 import { 
@@ -890,6 +891,11 @@ export default function Contaduria() {
   // Ejecutar Cobro
   async function handleConfirmarCobro(e) {
     e.preventDefault();
+
+    if (!selectedGrupo) {
+      addToast('Por favor seleccione un Grupo o Socio antes de registrar el cobro', 'warning');
+      return;
+    }
 
     const val = parseFloat(montoCobro);
     if (isNaN(val) || val <= 0) {
@@ -3903,28 +3909,34 @@ export default function Contaduria() {
       >
         <form onSubmit={handleConfirmarCobro} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           
-          {/* SELECTOR DE GRUPO / SOCIO */}
+          {/* BUSCADOR INTELIGENTE DE GRUPO / SOCIO TITULAR */}
           <div>
-            <label className="form-label">Seleccionar Grupo / Socio Titular</label>
-            <select 
-              value={selectedGrupo || ''} 
-              onChange={(e) => {
-                const gNum = Number(e.target.value);
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <label className="form-label" style={{ margin: 0, fontWeight: 800, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Search size={14} color="#10b981" /> Seleccionar Grupo / Socio Titular
+              </label>
+              {selectedGrupo && (
+                <span style={{ fontSize: '11px', color: '#059669', fontWeight: 700, background: 'rgba(16, 185, 129, 0.08)', padding: '2px 8px', borderRadius: '6px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                  Grupo #{selectedGrupo} seleccionado
+                </span>
+              )}
+            </div>
+            <BuscadorGrupoCombobox
+              grupos={gruposList}
+              value={selectedGrupo}
+              disabled={Boolean(targetFactura)}
+              onChange={(gNum) => {
                 setSelectedGrupo(gNum);
-                detectarMedioPagoGrupo(gNum);
-                loadNotasGrupo(gNum);
+                if (gNum) {
+                  detectarMedioPagoGrupo(gNum);
+                  loadNotasGrupo(gNum);
+                } else {
+                  setNotasGrupo('');
+                }
               }}
-              className="form-input"
-              style={{ fontWeight: 800 }}
               required
-            >
-              <option value="" disabled>-- Seleccione un Grupo o Socio --</option>
-              {gruposList.map(g => (
-                <option key={g.numero_grupo} value={g.numero_grupo}>
-                  Grupo #{g.numero_grupo} - {g.nombre}
-                </option>
-              ))}
-            </select>
+              placeholder="Buscar por N° grupo, nombre o apellido (ej: 104, Perez)..."
+            />
           </div>
 
           {/* TARJETA DE RESUMEN DE DEUDA DEL GRUPO */}
@@ -4352,23 +4364,18 @@ export default function Contaduria() {
       >
         <form onSubmit={handleConfirmarAjuste} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           
-          {/* SELECTOR DE GRUPO / SOCIO */}
+          {/* SELECTOR DE GRUPO / SOCIO CON BUSCADOR INTELIGENTE */}
           <div>
-            <label className="form-label">Seleccionar Grupo / Socio Titular</label>
-            <select 
-              value={selectedGrupo || ''} 
-              onChange={(e) => setSelectedGrupo(Number(e.target.value))}
-              className="form-input"
-              style={{ fontWeight: 800 }}
+            <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 800 }}>
+              <Search size={14} color="var(--accent)" /> Seleccionar Grupo / Socio Titular
+            </label>
+            <BuscadorGrupoCombobox
+              grupos={gruposList}
+              value={selectedGrupo}
+              onChange={(gNum) => setSelectedGrupo(gNum)}
               required
-            >
-              <option value="" disabled>-- Seleccione un Grupo o Socio --</option>
-              {gruposList.map(g => (
-                <option key={g.numero_grupo} value={g.numero_grupo}>
-                  Grupo #{g.numero_grupo} - {g.nombre}
-                </option>
-              ))}
-            </select>
+              placeholder="Buscar por N° grupo, nombre o apellido..."
+            />
           </div>
 
           <div>

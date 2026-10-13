@@ -267,7 +267,7 @@ export default function Layout({ session, theme, toggleTheme }) {
   ];
 
   const APP_CATEGORIES = [
-    { id: 'general', paths: ['/', '/tareas', '/log-diario', '/ingreso-diario'] },
+    { id: 'general', paths: ['/', '/tareas', '/log-diario'] },
     { id: 'mgmt', paths: ['/comunidad?tab=socios', '/comunidad?tab=grupos', '/comunidad?tab=planes', '/comunidad?tab=descuentos'] },
     { id: 'facturacion', paths: ['/facturacion', '/comprobantes-afip', '/gestion-pagos', '/carga-manual'] },
     { id: 'bancos', paths: ['/contaduria', '/conciliacion-bancaria', '/movimientos-bancarios'] },
@@ -278,7 +278,6 @@ export default function Layout({ session, theme, toggleTheme }) {
     '/': 'Dashboard Principal',
     '/tareas': 'Tablero de Tareas',
     '/log-diario': 'Log Diario',
-    '/ingreso-diario': 'Ingreso Diario',
     '/comunidad?tab=socios': 'Socios',
     '/comunidad?tab=grupos': 'Gestión de Grupos',
     '/comunidad?tab=planes': 'Planes y Costos',
@@ -340,7 +339,7 @@ export default function Layout({ session, theme, toggleTheme }) {
           {navItems.map((item, index) => {
             const currentFullPath = location.pathname + location.search;
             const isActive = item.path === '/' 
-              ? (location.pathname === '/' || ['/tareas', '/log-diario', '/ingreso-diario'].includes(location.pathname))
+              ? (location.pathname === '/' || ['/tareas', '/log-diario'].includes(location.pathname))
               : item.path === '/comunidad'
                 ? location.pathname === '/comunidad'
                 : item.path === '/facturacion'

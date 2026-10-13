@@ -35,7 +35,7 @@ const GestionPagos = safeLazy(() => import('./GestionPagos'));
 const Descuentos = safeLazy(() => import('./Descuentos'));
 const ConciliacionBancaria = safeLazy(() => import('./ConciliacionBancaria'));
 const MovimientosBancarios = safeLazy(() => import('./MovimientosBancarios'));
-const IngresoDiario = safeLazy(() => import('./IngresoDiario'));
+
 const Campanas = safeLazy(() => import('./Campanas'));
 const Tareas = safeLazy(() => import('./Tareas'));
 const LogDiario = safeLazy(() => import('./LogDiario'));
@@ -141,7 +141,7 @@ function App() {
                   <Route path="descuentos" element={<Navigate to="/comunidad?tab=descuentos" replace />} />
                   <Route path="conciliacion-bancaria" element={<ConciliacionBancaria />} />
                   <Route path="movimientos-bancarios" element={<MovimientosBancarios />} />
-                  <Route path="ingreso-diario" element={<IngresoDiario />} />
+                  <Route path="ingreso-diario" element={<Navigate to="/contaduria" replace />} />
                   <Route path="campanas" element={<Campanas />} />
                   <Route path="tareas" element={<Tareas />} />
                   <Route path="log-diario" element={<LogDiario />} />

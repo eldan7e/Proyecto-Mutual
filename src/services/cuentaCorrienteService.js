@@ -138,6 +138,25 @@ export async function fetchGruposUnicos() {
     }
   });
 
+  // Recopilar todos los nombres de socios y familiares vinculados al grupo para búsqueda inteligente
+  const sociosPorGrupo = {};
+  const agregarSocio = (g, n) => {
+    if (!g || !n || typeof n !== 'string' || !n.trim()) return;
+    const clean = n.trim();
+    if (clean.toUpperCase().startsWith('GRUPO ')) return;
+    if (!sociosPorGrupo[g]) sociosPorGrupo[g] = new Set();
+    sociosPorGrupo[g].add(clean);
+  };
+
+  (gsData || []).forEach(row => agregarSocio(row.numero_grupo, row.socios?.nombre_completo));
+  (lineasData || []).forEach(row => agregarSocio(row.numero_grupo, row.socios?.nombre_completo));
+  (mcData || []).forEach(row => agregarSocio(row.numero_grupo, row.nombre));
+
+  Object.values(mapa).forEach(item => {
+    const todos = Array.from(sociosPorGrupo[item.numero_grupo] || []);
+    item.socios_adicionales = todos.filter(n => n.toUpperCase() !== (item.nombre || '').toUpperCase());
+  });
+
   return Object.values(mapa).sort((a, b) => a.numero_grupo - b.numero_grupo);
 }
 
