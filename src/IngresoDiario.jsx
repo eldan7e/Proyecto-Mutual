@@ -551,15 +551,22 @@ export default function IngresoDiario() {
 
       // Comprobante
       const reciboNum = presencialRecibo || `REC-${presencialFecha.replace(/-/g, '')}-${activeSingleGrupo}`;
+      const lineasParaRecibo = subModoCobro === 'lineas' && selectedLineas.size > 0
+        ? lineasGrupo.filter(l => selectedLineas.has(l.numero_linea))
+        : lineasGrupo;
+
       setComprobanteData({
         reciboNumero: reciboNum,
         fecha: presencialFecha,
+        periodo: presencialPeriodo,
         numero_grupo: activeSingleGrupo,
+        numero_linea: lineasArr.length > 0 ? lineasArr.join(',') : null,
         nombre_titular: titularLabel,
         monto_cobrado: monto,
         medio_pago: 'EFECTIVO EN MUT',
         observaciones: obsFinal,
-        efectivo_entregado: monto
+        efectivo_entregado: monto,
+        lineas: lineasParaRecibo
       });
       setComprobanteModalOpen(true);
 
@@ -1682,10 +1689,12 @@ export default function IngresoDiario() {
                             setComprobanteData({
                               reciboNumero: `REC-${mov.id}`,
                               fecha: mov.fecha,
+                              periodo: mov.periodo,
                               numero_grupo: mov.numero_grupo,
+                              numero_linea: mov.numero_linea,
                               nombre_titular: mov.nombre,
                               monto_cobrado: Math.abs(parseFloat(mov.importe)),
-                              medio_pago: 'EFECTIVO EN MUT',
+                              medio_pago: mov.medio_pago || 'EFECTIVO EN MUT',
                               observaciones: mov.observaciones,
                               efectivo_entregado: Math.abs(parseFloat(mov.importe))
                             });

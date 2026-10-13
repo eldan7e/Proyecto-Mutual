@@ -596,6 +596,8 @@ export default function Contaduria() {
     if (!group) return;
     const titular = group.socio?.nombre_completo || group.items?.[0]?.socios?.nombre_completo || `Grupo ${group.numero_grupo}`;
     const montoCobrado = Number(group.monto_abonado || group.monto_total_facturado || 0);
+    const cacheKey = `${group.numero_grupo}_${group.periodo || 'ALL'}`;
+    const cachedLineas = expandedGrupoLineasCache[cacheKey] || [];
     const desgloses = (group.items || []).map(it => ({
       observaciones: `Facturación Período ${it.periodo} (${it.proveedores?.nombre || 'MUTUAL'})`,
       pagoAplicadoCapital: Number(it.monto_abonado || it.monto_total_facturado || 0),
@@ -605,12 +607,15 @@ export default function Contaduria() {
     setComprobanteData({
       reciboNumero: `REC-${group.periodo}-${group.numero_grupo}`,
       fecha: new Date().toISOString().slice(0, 10),
+      periodo: group.periodo,
       numero_grupo: group.numero_grupo,
       nombre_titular: titular,
       monto_cobrado: montoCobrado,
       medio_pago: 'EFECTIVO EN MUT',
       observaciones: `Comprobante Oficial de Pago - Liquidación Período ${group.periodo}`,
       monto_factura: Number(group.monto_total_facturado || montoCobrado),
+      efectivo_entregado: montoCobrado,
+      lineas: cachedLineas,
       desgloses: desgloses.length > 0 ? desgloses : [{
         observaciones: `Liquidación Período ${group.periodo}`,
         pagoAplicadoCapital: montoCobrado,
@@ -624,19 +629,30 @@ export default function Contaduria() {
   // Abrir comprobante oficial de pago para un movimiento del libro mayor
   function handleAbrirComprobanteMovimiento(m) {
     if (!m) return;
-    const titular = titularSeleccionadoInfo?.nombre || m.nombre || `Grupo ${selectedGrupo}`;
+    const gNum = selectedGrupo || m.numero_grupo;
+    const titular = titularSeleccionadoInfo?.nombre || m.nombre || `Grupo ${gNum}`;
     const monto = Math.abs(Number(m.importe || 0));
+    const per = m.periodo || (m.observaciones ? m.observaciones.match(/202\d-[01]\d/)?.[0] : null);
+    const cacheKey = `${gNum}_${per || 'ALL'}`;
+    const cachedLineas = expandedGrupoLineasCache[cacheKey] || [];
+    const lineasFiltradas = (m.numero_linea && cachedLineas.length > 0)
+      ? cachedLineas.filter(l => l.numero_linea === m.numero_linea)
+      : cachedLineas;
     
     setComprobanteData({
-      reciboNumero: `REC-${m.periodo || (m.fecha ? m.fecha.slice(0, 7) : '2026')}-${selectedGrupo}-${m.id}`,
+      reciboNumero: `REC-${per || (m.fecha ? m.fecha.slice(0, 7) : '2026')}-${gNum}-${m.id}`,
       fecha: m.fecha || new Date().toISOString().slice(0, 10),
-      numero_grupo: selectedGrupo,
+      periodo: per,
+      numero_grupo: gNum,
+      numero_linea: m.numero_linea,
       nombre_titular: titular,
       monto_cobrado: monto,
       medio_pago: m.medio_pago || 'EFECTIVO EN MUT',
       observaciones: m.observaciones || `Cobro acreditado e imputado en cuenta corriente`,
+      efectivo_entregado: monto,
+      lineas: lineasFiltradas,
       desgloses: [{
-        observaciones: m.observaciones || `Pago Período ${m.periodo || 'General'} (${m.empresa || 'MUTUAL'})`,
+        observaciones: m.observaciones || `Pago Período ${per || 'General'} (${m.empresa || 'MUTUAL'})`,
         pagoAplicadoCapital: (m.pago_aplicado_capital !== undefined && m.pago_aplicado_capital !== null) ? Number(m.pago_aplicado_capital) : monto,
         pagoAplicadoInteres: Number(m.pago_aplicado_interes || 0)
       }],
@@ -840,11 +856,20 @@ export default function Contaduria() {
       addToast(`Cobro de ${formatMoney(val)} registrado exitosamente.`, 'success');
 
       // 2. Preparar los datos del Comprobante / Recibo Oficial
+      const perRef = targetFactura?.periodo || null;
+      const cacheKey = `${selectedGrupo}_${perRef || 'ALL'}`;
+      const cachedLineas = expandedGrupoLineasCache[cacheKey] || [];
+      const lineasFiltradas = targetLinea && cachedLineas.length > 0
+        ? cachedLineas.filter(l => l.numero_linea === targetLinea)
+        : cachedLineas;
+
       const reciboNum = `REC-${targetFactura?.periodo || new Date().toISOString().slice(0, 7)}-${selectedGrupo}-${Math.floor(1000 + Math.random() * 9000)}`;
       setComprobanteData({
         reciboNumero: reciboNum,
         fecha: fechaCobro,
+        periodo: perRef,
         numero_grupo: selectedGrupo,
+        numero_linea: targetLinea || null,
         nombre_titular: titularInfo?.nombre || `Grupo ${selectedGrupo}`,
         monto_cobrado: val,
         medio_pago: medioPago,
@@ -853,9 +878,10 @@ export default function Contaduria() {
         capitalPagado: resultadoFifoFresco?.totalCapitalCancelado || val,
         remanenteSaldoAFavor: resultadoFifoFresco?.remanenteSaldoAFavor || 0,
         monto_factura: targetFactura?.monto_total_facturado || val,
-        efectivo_entregado: medioPago === 'EFECTIVO EN MUT' && efectivoEntregado ? parseFloat(efectivoEntregado) : undefined,
+        efectivo_entregado: (medioPago.includes('EFECT') || medioPago === 'EFECTIVO EN MUT') ? (efectivoEntregado ? parseFloat(efectivoEntregado) : val) : undefined,
         saldo_favor_cambio: 0,
         bonificacion_redondeo: 0,
+        lineas: lineasFiltradas,
         desgloses: (resultadoFifoFresco?.desgloses && resultadoFifoFresco.desgloses.length > 0) ? resultadoFifoFresco.desgloses : [{
           observaciones: targetFactura ? `Facturación Período ${targetFactura.periodo} (${targetFactura.proveedores?.nombre || 'MUTUAL'})` : `Cobro en cuenta corriente - ${medioPago}`,
           pagoAplicadoCapital: resultadoFifoFresco?.totalCapitalCancelado || val,
@@ -865,10 +891,10 @@ export default function Contaduria() {
 
       // 3. Limpiar cache de lineas del grupo para forzar recarga en vivo de pagos
       const gNumRef = selectedGrupo;
-      const perRef = targetFactura?.periodo || 'ALL';
+      const perCacheKey = perRef || 'ALL';
       setExpandedGrupoLineasCache(prev => {
         const next = { ...prev };
-        delete next[`${gNumRef}_${perRef}`];
+        delete next[`${gNumRef}_${perCacheKey}`];
         return next;
       });
 
