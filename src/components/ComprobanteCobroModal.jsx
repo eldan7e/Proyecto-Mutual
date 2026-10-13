@@ -20,6 +20,61 @@ function normalizeMedioPago(val) {
   return val;
 }
 
+/**
+ * Extrae únicamente los gigabytes o megabytes contratados del plan (ej: "30 GB", "10 GB", "15 GB").
+ */
+export function extraerGbsPlan(nombrePlan, gbIncluidos) {
+  // 1. Si viene gb_incluidos explícito
+  if (gbIncluidos !== undefined && gbIncluidos !== null && String(gbIncluidos).trim() !== '') {
+    const cleanGb = String(gbIncluidos).trim().replace(',', '.');
+    const num = parseFloat(cleanGb);
+    if (!isNaN(num) && num > 0) {
+      if (num < 1) return `${Math.round(num * 1024)} MB`;
+      return num % 1 === 0 ? `${num} GB` : `${num.toFixed(1)} GB`;
+    }
+  }
+
+  // 2. Diccionario de planes conocidos de mutual (por códigos oficiales como CC24R, CC23R, etc.)
+  const DICCIONARIO_GB_PLANES = {
+    '3MC26': '300 MB',
+    'M3C03': '300 MB',
+    'PLAN INTERNET 300 MB': '300 MB',
+    'CC10R': '2 GB',
+    'CC20R': '2 GB',
+    'CC11R': '4 GB',
+    'CC21R': '4 GB',
+    'CC12R': '7 GB',
+    'CC22R': '7 GB',
+    'CC13R': '10 GB',
+    'CC13C': '10 GB',
+    'CC23R': '10 GB',
+    'CC14R': '20 GB',
+    'CC24R': '30 GB',
+    'CC25R': '50 GB',
+    'CFT14 - LÍNEA FIJA': 'Línea Fija',
+    'TFT26 - LÍNEA FIJA': 'Línea Fija',
+    'CFT14': 'Línea Fija',
+    'TFT26': 'Línea Fija'
+  };
+
+  const code = String(nombrePlan || '').trim().toUpperCase();
+  if (DICCIONARIO_GB_PLANES[code]) {
+    return DICCIONARIO_GB_PLANES[code];
+  }
+
+  // 3. Extracción por Regex si el nombre contiene "X GB" o "X MB" o "X,X GB"
+  if (nombrePlan && typeof nombrePlan === 'string') {
+    const match = nombrePlan.match(/(\d+(?:[,\.]\d+)?)\s*(GB|MB)/i);
+    if (match) {
+      const val = parseFloat(match[1].replace(',', '.'));
+      const unit = match[2].toUpperCase();
+      return `${val} ${unit}`;
+    }
+  }
+
+  return nombrePlan || '-';
+}
+
 export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
   if (!cobroData) return null;
 
@@ -43,6 +98,7 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
   } = cobroData;
 
   const [currentMedioPago, setCurrentMedioPago] = useState(() => normalizeMedioPago(medio_pago));
+  const [planesGbMap, setPlanesGbMap] = useState({});
   const [lineasCargadas, setLineasCargadas] = useState(() => {
     if (cobroData.lineas && Array.isArray(cobroData.lineas) && cobroData.lineas.length > 0) {
       return cobroData.lineas;
@@ -50,6 +106,29 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
     return [];
   });
   const [loadingLineas, setLoadingLineas] = useState(false);
+
+  // Cargar mapa global de planes_abonos para resolución inmediata de GB
+  useEffect(() => {
+    async function loadPlanesMap() {
+      try {
+        const { data } = await supabase
+          .from('planes_abonos')
+          .select('nombre_plan, gb_incluidos');
+        if (data) {
+          const map = {};
+          data.forEach(p => {
+            if (p.nombre_plan) {
+              map[p.nombre_plan.trim().toUpperCase()] = p.gb_incluidos;
+            }
+          });
+          setPlanesGbMap(map);
+        }
+      } catch (e) {
+        console.error('Error al cargar mapa de planes:', e);
+      }
+    }
+    loadPlanesMap();
+  }, []);
 
   useEffect(() => {
     setCurrentMedioPago(normalizeMedioPago(medio_pago));
@@ -95,7 +174,7 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
 
       const { data: rawLineas } = await supabase
         .from('lineas')
-        .select('numero_linea, proveedor_id, proveedores:proveedor_id(nombre), socio_id, socios:socio_id(nombre_completo), planes_abonos:plan_id(nombre_plan, precio), estado')
+        .select('numero_linea, proveedor_id, proveedores:proveedor_id(nombre), socio_id, socios:socio_id(nombre_completo), planes_abonos:plan_id(nombre_plan, precio, gb_incluidos), estado')
         .or(orConds.join(','));
 
       let activas = (rawLineas || []).filter(l => (l.estado || 'ACTIVA').toUpperCase() !== 'BAJA');
@@ -129,11 +208,14 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
       const enriched = activas.map(l => {
         const b = billingMap[l.numero_linea];
         const rawVal = b ? parseFloat(b.total_linea) : (parseFloat(l.planes_abonos?.precio) || 0);
+        const nomPlan = b?.nombre_plan || l.planes_abonos?.nombre_plan || 'Plan Estándar';
+        const gbRaw = l.planes_abonos?.gb_incluidos || planesGbMap[String(nomPlan).trim().toUpperCase()];
         return {
           numero_linea: l.numero_linea,
           socio_nombre: b?.nombre_completo || l.socios?.nombre_completo || nombre_titular || 'Titular',
           proveedor_nombre: b?.proveedor || l.proveedores?.nombre || 'MUTUAL',
-          nombre_plan: b?.nombre_plan || l.planes_abonos?.nombre_plan || 'Plan Estándar',
+          nombre_plan: nomPlan,
+          gb_incluidos: gbRaw,
           total_linea: Math.round(rawVal * 100) / 100
         };
       });
@@ -170,7 +252,8 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
     if (lineasCargadas.length > 0) {
       text += `\n*📱 LÍNEAS ABONADAS (${lineasCargadas.length}):*\n`;
       lineasCargadas.forEach(l => {
-        text += `• ${l.numero_linea} (${l.socio_nombre || 'Socio'}) — ${l.nombre_plan || ''} ${l.proveedor_nombre ? `(${l.proveedor_nombre})` : ''}: ${formatMoney(l.total_linea || 0)}\n`;
+        const gb = extraerGbsPlan(l.nombre_plan, l.gb_incluidos || l.gb || planesGbMap[String(l.nombre_plan || '').trim().toUpperCase()]);
+        text += `• ${l.numero_linea} (${l.socio_nombre || 'Socio'}) — ${gb}: ${formatMoney(l.total_linea || 0)}\n`;
       });
     }
     if (saldo_favor_cambio > 0) {
@@ -205,7 +288,8 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
     monto_cobrado,
     efectivo_entregado: isCash ? (efectivo_entregado || monto_cobrado) : undefined,
     saldo_favor_cambio,
-    bonificacion_redondeo
+    bonificacion_redondeo,
+    planesGbMap
   };
 
   return (
@@ -473,7 +557,8 @@ function ReciboCard({
   monto_cobrado,
   efectivo_entregado,
   saldo_favor_cambio,
-  bonificacion_redondeo
+  bonificacion_redondeo,
+  planesGbMap = {}
 }) {
   const isOriginal = tipo === 'ORIGINAL';
   const badgeColor = isOriginal ? '#059669' : '#2563eb';
@@ -607,37 +692,57 @@ function ReciboCard({
               )}
             </div>
 
-            {/* Si son 5 o menos líneas: tabla estándar compacta */}
-            {lineas.length <= 5 ? (
+            {/* Tabla continua de líneas abonadas con indicador exclusivo de GB del plan */}
+            {lineas.length <= 12 ? (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9px' }}>
                 <thead>
-                  <tr className="print-table-header" style={{ background: 'rgba(0,0,0,0.04)', borderBottom: '1px solid var(--border-light, #cbd5e1)' }}>
-                    <th style={{ padding: '2.5px 5px', textAlign: 'left', fontWeight: 800 }}>Línea</th>
-                    <th style={{ padding: '2.5px 5px', textAlign: 'left', fontWeight: 800 }}>Socio / Asignado</th>
-                    <th style={{ padding: '2.5px 5px', textAlign: 'left', fontWeight: 800 }}>Plan / Operadora</th>
-                    <th style={{ padding: '2.5px 5px', textAlign: 'right', fontWeight: 800 }}>Importe</th>
+                  <tr className="print-table-header" style={{ background: 'rgba(0,0,0,0.04)', borderBottom: '1.5px solid var(--border-light, #cbd5e1)' }}>
+                    <th style={{ padding: '2.5px 5px', textAlign: 'left', fontWeight: 800, width: '25%' }}>Línea</th>
+                    <th style={{ padding: '2.5px 5px', textAlign: 'left', fontWeight: 800, width: '40%' }}>Socio / Asignado</th>
+                    <th style={{ padding: '2.5px 5px', textAlign: 'center', fontWeight: 800, width: '15%' }}>Plan (GB)</th>
+                    <th style={{ padding: '2.5px 5px', textAlign: 'right', fontWeight: 800, width: '20%' }}>Importe</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {lineas.map((l, idx) => (
-                    <tr key={idx} style={{ borderBottom: '1px solid var(--border-light, #e2e8f0)' }}>
-                      <td style={{ padding: '2px 5px', fontWeight: 800, fontFamily: 'monospace', fontSize: '9.5px' }}>{l.numero_linea}</td>
-                      <td style={{ padding: '2px 5px', color: 'var(--text-primary, #334155)' }}>{l.socio_nombre || 'Titular'}</td>
-                      <td style={{ padding: '2px 5px', color: 'var(--text-secondary, #64748b)' }}>{l.nombre_plan || ''} {l.proveedor_nombre ? `(${l.proveedor_nombre})` : ''}</td>
-                      <td style={{ padding: '2px 5px', textAlign: 'right', fontWeight: 800 }}>{formatMoney(l.total_linea || 0)}</td>
-                    </tr>
-                  ))}
+                  {lineas.map((l, idx) => {
+                    const gbPlan = extraerGbsPlan(l.nombre_plan, l.gb_incluidos || l.gb || planesGbMap[String(l.nombre_plan || '').trim().toUpperCase()]);
+                    return (
+                      <tr key={idx} style={{ borderBottom: '1px solid var(--border-light, #e2e8f0)' }}>
+                        <td style={{ padding: '2px 5px', fontWeight: 800, fontFamily: 'monospace', fontSize: '9.5px' }}>{l.numero_linea}</td>
+                        <td style={{ padding: '2px 5px', color: 'var(--text-primary, #334155)', fontWeight: 600 }}>{l.socio_nombre || 'Titular'}</td>
+                        <td style={{ padding: '2px 5px', textAlign: 'center', fontWeight: 800, color: '#059669' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            background: 'rgba(16, 185, 129, 0.08)',
+                            border: '1px solid rgba(16, 185, 129, 0.25)',
+                            fontSize: '8.5px',
+                            whiteSpace: 'nowrap'
+                          }}>
+                            {gbPlan}
+                          </span>
+                        </td>
+                        <td style={{ padding: '2px 5px', textAlign: 'right', fontWeight: 800 }}>{formatMoney(l.total_linea || 0)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             ) : (
-              /* Si son más de 5 líneas: cuadrícula de 2 columnas ultra compacta */
+              /* Si son más de 12 líneas: cuadrícula de 2 columnas ultra compacta también mostrando el GB */
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 8px', fontSize: '8.5px', background: 'rgba(0,0,0,0.02)', padding: '3px', borderRadius: '5px' }}>
-                {lineas.map((l, idx) => (
-                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0', padding: '1px 2px' }}>
-                    <span style={{ fontWeight: 800 }}>{l.numero_linea} <span style={{ fontWeight: 400, color: '#64748b' }}>({l.socio_nombre?.split(',')[0] || 'Socio'})</span></span>
-                    <span style={{ fontWeight: 800 }}>{formatMoney(l.total_linea || 0)}</span>
-                  </div>
-                ))}
+                {lineas.map((l, idx) => {
+                  const gbPlan = extraerGbsPlan(l.nombre_plan, l.gb_incluidos || l.gb || planesGbMap[String(l.nombre_plan || '').trim().toUpperCase()]);
+                  return (
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0', padding: '1px 2px' }}>
+                      <span style={{ fontWeight: 800 }}>
+                        {l.numero_linea} <span style={{ fontWeight: 700, color: '#059669' }}>[{gbPlan}]</span> <span style={{ fontWeight: 400, color: '#64748b' }}>({l.socio_nombre?.split(',')[0] || 'Socio'})</span>
+                      </span>
+                      <span style={{ fontWeight: 800 }}>{formatMoney(l.total_linea || 0)}</span>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

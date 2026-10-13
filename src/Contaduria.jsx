@@ -384,7 +384,7 @@ export default function Contaduria() {
 
       const { data: rawLineas, error } = await supabase
         .from('lineas')
-        .select('*, proveedores:proveedor_id(nombre), socios:socio_id(nombre_completo), planes_abonos:plan_id(nombre_plan, precio)')
+        .select('*, proveedores:proveedor_id(nombre), socios:socio_id(nombre_completo), planes_abonos:plan_id(nombre_plan, precio, gb_incluidos)')
         .or(orConds.join(','));
 
       if (error) throw error;
@@ -1526,7 +1526,7 @@ export default function Contaduria() {
 
         const { data: rawLineas } = await supabase
           .from('lineas')
-          .select('numero_linea, proveedor_id, proveedores:proveedor_id(nombre), socio_id, socios:socio_id(nombre_completo), planes_abonos:plan_id(nombre_plan, precio), estado')
+          .select('numero_linea, proveedor_id, proveedores:proveedor_id(nombre), socio_id, socios:socio_id(nombre_completo), planes_abonos:plan_id(nombre_plan, precio, gb_incluidos), estado')
           .or(orConds.join(','));
 
         const activas = (rawLineas || []).filter(l => (l.estado || 'ACTIVA').toUpperCase() !== 'BAJA');
@@ -1574,6 +1574,7 @@ export default function Contaduria() {
             socio_nombre: b?.nombre_completo || l.socios?.nombre_completo || 'Sin socio asignado',
             proveedor_nombre: l.proveedores?.nombre || 'MUTUAL',
             nombre_plan: b?.nombre_plan || l.planes_abonos?.nombre_plan || 'Plan Estándar',
+            gb_incluidos: l.planes_abonos?.gb_incluidos,
             total_linea: rawLineVal,
             costo_abono_real: b ? parseFloat(b.costo_abono_real) : (parseFloat(l.planes_abonos?.precio) || 0),
             excedentes: b ? parseFloat(b.excedentes) : 0,
