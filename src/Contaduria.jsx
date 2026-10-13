@@ -90,6 +90,7 @@ export default function Contaduria() {
   const [targetLinea, setTargetLinea] = useState(null); // Si se cobra una línea móvil en particular
   const [montoCobro, setMontoCobro] = useState('');
   const [medioPago, setMedioPago] = useState('EFECTIVO EN MUT');
+  const [medioPagoDetectado, setMedioPagoDetectado] = useState(null);
   const [observacionesCobro, setObservacionesCobro] = useState('');
   const [fechaCobro, setFechaCobro] = useState(getTodayISO());
   const [procesandoCobro, setProcesandoCobro] = useState(false);
@@ -515,6 +516,77 @@ export default function Contaduria() {
     }
   }
 
+  // Detección inteligente del medio de pago habitual de un grupo (Credicoop, Nación o Efectivo)
+  async function detectarMedioPagoGrupo(gNum) {
+    if (!gNum) {
+      setMedioPagoDetectado(null);
+      return;
+    }
+    try {
+      // 1. Revisar si el grupo está asociado a un banco en conciliacion_historica
+      const { data: concilData } = await supabase
+        .from('conciliacion_historica')
+        .select('banco')
+        .eq('numero_grupo', gNum)
+        .limit(1);
+
+      if (concilData && concilData.length > 0 && concilData[0].banco) {
+        const b = concilData[0].banco.toUpperCase();
+        if (b.includes('CREDICOOP')) {
+          setMedioPago('TRANSFERENCIA A CREDICOOP');
+          setMedioPagoDetectado('Banco Credicoop (Asociado en Conciliación)');
+          return;
+        }
+        if (b.includes('NACION') || b.includes('NACIÓN')) {
+          setMedioPago('TRANSFERENCIA A NACION');
+          setMedioPagoDetectado('Banco Nación (Asociado en Conciliación)');
+          return;
+        }
+      }
+
+      // 2. Revisar historial de pagos del grupo en movimientos_cuenta
+      const { data: ultimosPagos } = await supabase
+        .from('movimientos_cuenta')
+        .select('medio_pago')
+        .eq('numero_grupo', gNum)
+        .eq('tipo', 'PAGO')
+        .order('id', { ascending: false })
+        .limit(10);
+
+      if (ultimosPagos && ultimosPagos.length > 0) {
+        const counts = {};
+        ultimosPagos.forEach(p => {
+          if (!p.medio_pago) return;
+          const u = p.medio_pago.toUpperCase();
+          let m = 'EFECTIVO EN MUT';
+          if (u.includes('CREDICOOP')) m = 'TRANSFERENCIA A CREDICOOP';
+          else if (u.includes('NACION') || u.includes('NACIÓN')) m = 'TRANSFERENCIA A NACION';
+          else if (u.includes('EFECT') || u.includes('MUT') || u.includes('CAJA')) m = 'EFECTIVO EN MUT';
+          else if (u.includes('PAGO_DIRECTO') || u.includes('DIRECTO')) m = 'TRANSFERENCIA A CREDICOOP';
+          counts[m] = (counts[m] || 0) + 1;
+        });
+
+        let mayor = 'EFECTIVO EN MUT';
+        let maxCount = 0;
+        Object.entries(counts).forEach(([m, count]) => {
+          if (count > maxCount) {
+            maxCount = count;
+            mayor = m;
+          }
+        });
+
+        setMedioPago(mayor);
+        const labelMayor = mayor === 'EFECTIVO EN MUT' ? 'Efectivo en Sede' : (mayor.includes('CREDICOOP') ? 'Banco Credicoop' : 'Banco Nación');
+        setMedioPagoDetectado(`${labelMayor} (Medio habitual del grupo)`);
+      } else {
+        setMedioPago('EFECTIVO EN MUT');
+        setMedioPagoDetectado(null);
+      }
+    } catch (err) {
+      console.error('Error detectando medio habitual:', err);
+    }
+  }
+
   // Abrir Cobro para Factura Específica o Libre
   function handleOpenCobroModal(target = null, grupoNum = null) {
     const gNum = grupoNum || target?.numero_grupo || null;
@@ -546,10 +618,9 @@ export default function Contaduria() {
     }
 
     setManejoCambio('saldo_favor');
-    setMedioPago('EFECTIVO EN MUT');
-
     setFechaCobro(getTodayISO());
     setCobroModalOpen(true);
+    detectarMedioPagoGrupo(gNum);
   }
 
   // Abrir Cobro para una Línea Específica dentro de un grupo/liquidación
@@ -567,9 +638,9 @@ export default function Contaduria() {
     setEfectivoEntregado(strMonto);
     setObservacionesCobro(`Cobro Línea ${linea.numero_linea} (${linea.socio_nombre}) - Período ${targetLiq?.periodo || ''} (${linea.proveedor_nombre})`);
     setManejoCambio('saldo_favor');
-    setMedioPago('EFECTIVO EN MUT');
     setFechaCobro(getTodayISO());
     setCobroModalOpen(true);
+    detectarMedioPagoGrupo(gNum);
   }
 
   // Cálculos dinámicos de importe adeudado y diferencia de cambio
@@ -832,7 +903,14 @@ export default function Contaduria() {
     try {
       let obsFinal = observacionesCobro.trim();
       if (!obsFinal) {
-        obsFinal = `Cobro registrado en Contaduría - ${medioPago}`;
+        obsFinal = targetFactura
+          ? `Cobro Facturación Período ${targetFactura.periodo} (${targetFactura.proveedores?.nombre || 'MUTUAL'}) - ${medioPago}`
+          : `Cobro registrado en Contaduría - ${medioPago}`;
+      } else {
+        const u = obsFinal.toUpperCase();
+        if (!u.includes('EFECTIVO') && !u.includes('CREDICOOP') && !u.includes('NACION')) {
+          obsFinal = `${obsFinal} [${medioPago}]`;
+        }
       }
 
       // Re-calcular FIFO de forma sincrónica con el valor exacto enviado para evitar race conditions
@@ -3833,6 +3911,8 @@ export default function Contaduria() {
               onChange={(e) => {
                 const gNum = Number(e.target.value);
                 setSelectedGrupo(gNum);
+                detectarMedioPagoGrupo(gNum);
+                loadNotasGrupo(gNum);
               }}
               className="form-input"
               style={{ fontWeight: 800 }}
@@ -3995,33 +4075,98 @@ export default function Contaduria() {
           })()}
 
 
-          {/* FORMA DE PAGO Y FECHA */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-            <div>
-              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <CreditCard size={14} color="#10b981" /> Medio de Pago
+          {/* FORMA DE PAGO INTERACTIVA Y FECHA */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <label className="form-label" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 800 }}>
+                <CreditCard size={14} color="#10b981" /> Forma / Medio de Pago Acreditado
               </label>
-              <select
-                value={medioPago}
-                onChange={(e) => setMedioPago(e.target.value)}
-                className="form-input"
-                style={{ fontWeight: 800 }}
+              {medioPagoDetectado && (
+                <span style={{ fontSize: '11px', color: '#059669', background: '#ecfdf5', padding: '2px 8px', borderRadius: '6px', fontWeight: 700, border: '1px solid #a7f3d0' }}>
+                  ✓ {medioPagoDetectado}
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setMedioPago('EFECTIVO EN MUT')}
+                style={{
+                  padding: '9px 6px',
+                  borderRadius: '10px',
+                  cursor: 'pointer',
+                  fontSize: '11.5px',
+                  fontWeight: 800,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '4px',
+                  border: medioPago === 'EFECTIVO EN MUT' ? '2px solid #10b981' : '1px solid var(--border-light, #cbd5e1)',
+                  background: medioPago === 'EFECTIVO EN MUT' ? 'rgba(16, 185, 129, 0.12)' : 'var(--surface, #ffffff)',
+                  color: medioPago === 'EFECTIVO EN MUT' ? '#059669' : 'var(--text-primary)'
+                }}
               >
-                <option value="EFECTIVO EN MUT">💵 EFECTIVO EN MUT</option>
-                <option value="TRANSFERENCIA A NACION">🏛️ TRANSFERENCIA A NACION</option>
-                <option value="TRANSFERENCIA A CREDICOOP">🏦 TRANSFERENCIA A CREDICOOP</option>
-              </select>
+                <span style={{ fontSize: '16px' }}>💵</span>
+                <span>Efectivo en Sede</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setMedioPago('TRANSFERENCIA A CREDICOOP')}
+                style={{
+                  padding: '9px 6px',
+                  borderRadius: '10px',
+                  cursor: 'pointer',
+                  fontSize: '11.5px',
+                  fontWeight: 800,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '4px',
+                  border: medioPago === 'TRANSFERENCIA A CREDICOOP' ? '2px solid #3b82f6' : '1px solid var(--border-light, #cbd5e1)',
+                  background: medioPago === 'TRANSFERENCIA A CREDICOOP' ? 'rgba(59, 130, 246, 0.12)' : 'var(--surface, #ffffff)',
+                  color: medioPago === 'TRANSFERENCIA A CREDICOOP' ? '#2563eb' : 'var(--text-primary)'
+                }}
+              >
+                <span style={{ fontSize: '16px' }}>🏦</span>
+                <span>Transf. Credicoop</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setMedioPago('TRANSFERENCIA A NACION')}
+                style={{
+                  padding: '9px 6px',
+                  borderRadius: '10px',
+                  cursor: 'pointer',
+                  fontSize: '11.5px',
+                  fontWeight: 800,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '4px',
+                  border: medioPago === 'TRANSFERENCIA A NACION' ? '2px solid #8b5cf6' : '1px solid var(--border-light, #cbd5e1)',
+                  background: medioPago === 'TRANSFERENCIA A NACION' ? 'rgba(139, 92, 246, 0.12)' : 'var(--surface, #ffffff)',
+                  color: medioPago === 'TRANSFERENCIA A NACION' ? '#7c3aed' : 'var(--text-primary)'
+                }}
+              >
+                <span style={{ fontSize: '16px' }}>🏛️</span>
+                <span>Transf. Nación</span>
+              </button>
             </div>
-            <div>
-              <label className="form-label">Fecha del Pago</label>
-              <input
-                type="date"
-                value={fechaCobro}
-                onChange={(e) => setFechaCobro(e.target.value)}
-                className="form-input"
-                required
-              />
-            </div>
+          </div>
+
+          {/* FECHA DEL PAGO */}
+          <div>
+            <label className="form-label">Fecha del Pago / Acreditación</label>
+            <input
+              type="date"
+              value={fechaCobro}
+              onChange={(e) => setFechaCobro(e.target.value)}
+              className="form-input"
+              required
+            />
           </div>
 
           {/* IMPORTE */}
