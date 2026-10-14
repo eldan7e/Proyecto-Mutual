@@ -270,7 +270,7 @@ export default function Layout({ session, theme, toggleTheme }) {
     { id: 'general', paths: ['/', '/tareas', '/log-diario'] },
     { id: 'mgmt', paths: ['/comunidad?tab=socios', '/comunidad?tab=grupos', '/comunidad?tab=planes', '/comunidad?tab=descuentos'] },
     { id: 'facturacion', paths: ['/facturacion', '/comprobantes-afip', '/gestion-pagos', '/carga-manual'] },
-    { id: 'bancos', paths: ['/contaduria', '/conciliacion-bancaria', '/movimientos-bancarios'] },
+    { id: 'bancos', paths: ['/contaduria', '/caja-efectivo', '/conciliacion-bancaria', '/movimientos-bancarios'] },
     { id: 'comunicacion', paths: ['/campanas'] },
   ];
 
@@ -285,6 +285,7 @@ export default function Layout({ session, theme, toggleTheme }) {
     '/comunidad': 'Socios',
     '/socios': 'Socios',
     '/contaduria': 'Gestión de Contaduría',
+    '/caja-efectivo': 'Caja Efectivo',
     '/facturacion': 'Centro de Cobranzas',
     '/comprobantes-afip': 'Comprobantes y AFIP',
     '/gestion-pagos': 'Auditoría',
@@ -344,8 +345,8 @@ export default function Layout({ session, theme, toggleTheme }) {
                 ? location.pathname === '/comunidad'
                 : item.path === '/facturacion'
                   ? ['/facturacion', '/comprobantes-afip', '/gestion-pagos', '/descuentos', '/carga-manual'].includes(location.pathname)
-                  : item.path === '/cuenta-corriente'
-                    ? ['/conciliacion-bancaria', '/cuenta-corriente', '/informe-saldos', '/movimientos-bancarios'].includes(location.pathname)
+                  : (item.path === '/contaduria' || item.path === '/cuenta-corriente')
+                    ? ['/contaduria', '/caja-efectivo', '/conciliacion-bancaria', '/cuenta-corriente', '/informe-saldos', '/movimientos-bancarios'].includes(location.pathname)
                     : item.path.includes('?') 
                       ? currentFullPath === item.path 
                       : location.pathname === item.path;

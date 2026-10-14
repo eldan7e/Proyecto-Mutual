@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useSearchParams, Link } from 'react-router-dom';
 import { 
   Calculator, Search, DollarSign, TrendingUp, 
   Loader2, RefreshCw, Plus, CheckCircle2, ChevronDown, ChevronUp, 
@@ -30,11 +31,14 @@ import {
 export default function Contaduria() {
   const { addToast } = useToast();
   const confirm = useConfirm();
+  const [searchParams] = useSearchParams();
+  const urlTab = searchParams.get('tab');
+  const urlGrupo = searchParams.get('grupo');
 
   const getTodayISO = () => new Date().toISOString().slice(0, 10);
 
   // --- ESTADOS PRINCIPALES XUBIO ---
-  const [activeTab, setActiveTab] = useState('facturas'); // 'facturas' | 'saldos' | 'extracto' | 'lineas'
+  const [activeTab, setActiveTab] = useState(urlTab || 'facturas'); // 'facturas' | 'saldos' | 'extracto' | 'lineas'
   const [estadoFilter, setEstadoFilter] = useState('TODAS'); // 'TODAS' | 'IMPAGAS' | 'PARCIALES' | 'COBRADAS'
   const [operadoraFilter, setOperadoraFilter] = useState('TODAS'); // 'TODAS' | 'CLARO' | 'MOVISTAR' | 'PERSONAL'
   const [expandedGruposFacturas, setExpandedGruposFacturas] = useState(new Set());
@@ -44,7 +48,7 @@ export default function Contaduria() {
 
   // Listas de Datos
   const [gruposList, setGruposList] = useState([]);
-  const [selectedGrupo, setSelectedGrupo] = useState(null);
+  const [selectedGrupo, setSelectedGrupo] = useState(urlGrupo ? parseInt(urlGrupo, 10) : null);
   const [movimientos, setMovimientos] = useState([]);
   const [liquidacionesAll, setLiquidacionesAll] = useState([]);
   const [liquidacionesGrupo, setLiquidacionesGrupo] = useState([]);
@@ -54,6 +58,17 @@ export default function Contaduria() {
   const [extractoPeriodoFilter, setExtractoPeriodoFilter] = useState('TODOS');
   const [exportExtractoMenuOpen, setExportExtractoMenuOpen] = useState(false);
   const exportExtractoRef = useRef(null);
+
+  // Auto-seleccionar grupo si viene por URL
+  useEffect(() => {
+    if (urlGrupo && gruposList.length > 0) {
+      const gNum = parseInt(urlGrupo, 10);
+      if (!isNaN(gNum)) {
+        setSelectedGrupo(gNum);
+        fetchMovimientosGrupo(gNum);
+      }
+    }
+  }, [urlGrupo, gruposList]);
 
   // Cerrar menú de opciones de exportación al hacer click fuera
   useEffect(() => {
@@ -712,6 +727,7 @@ export default function Contaduria() {
       : cachedLineas;
     
     setComprobanteData({
+      movimientoId: m.id,
       reciboNumero: `REC-${per || (m.fecha ? m.fecha.slice(0, 7) : '2026')}-${gNum}-${m.id}`,
       fecha: m.fecha || new Date().toISOString().slice(0, 10),
       periodo: per,
@@ -731,6 +747,30 @@ export default function Contaduria() {
       saldo_restante: Number(m.saldo_final || 0)
     });
     setComprobanteModalOpen(true);
+  }
+
+  // Callback cuando se actualiza el comprobante (ej: cambio de medio de pago)
+  function handleComprobanteUpdated(updated) {
+    if (!updated || !updated.movimientoId) return;
+    setMovimientos(prev => prev.map(m => {
+      if (m.id === updated.movimientoId) {
+        return {
+          ...m,
+          medio_pago: updated.medio_pago,
+          observaciones: updated.observaciones || m.observaciones
+        };
+      }
+      return m;
+    }));
+    setComprobanteData(prev => prev ? {
+      ...prev,
+      medio_pago: updated.medio_pago,
+      observaciones: updated.observaciones || prev.observaciones
+    } : prev);
+    if (selectedGrupo) {
+      fetchMovimientosGrupo(selectedGrupo);
+    }
+    addToast(`Medio de pago actualizado a ${updated.medio_pago}`, 'success');
   }
 
   // Función pura para obtener las facturas pendientes a imputar según target o deuda total
@@ -949,6 +989,7 @@ export default function Contaduria() {
 
       const reciboNum = `REC-${targetFactura?.periodo || new Date().toISOString().slice(0, 7)}-${selectedGrupo}-${Math.floor(1000 + Math.random() * 9000)}`;
       setComprobanteData({
+        movimientoId: nuevoMov?.id,
         reciboNumero: reciboNum,
         fecha: fechaCobro,
         periodo: perRef,
@@ -3576,18 +3617,44 @@ export default function Contaduria() {
                             <div style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.empresa || 'GENERAL'}>{m.empresa || 'GENERAL'}</div>
                             <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.observaciones || ''}>{m.observaciones || ''}</div>
                             {isPago && m.medio_pago && (
-                              <div style={{ marginTop: '3px', display: 'flex', gap: '4px', alignItems: 'center' }}>
-                                <span style={{
-                                  fontSize: '10px',
-                                  fontWeight: 800,
-                                  padding: '1px 6px',
-                                  borderRadius: '4px',
-                                  background: m.medio_pago.includes('EFECTIVO') ? 'rgba(16, 185, 129, 0.12)' : 'rgba(59, 130, 246, 0.12)',
-                                  color: m.medio_pago.includes('EFECTIVO') ? '#059669' : '#2563eb',
-                                  border: `1px solid ${m.medio_pago.includes('EFECTIVO') ? 'rgba(16, 185, 129, 0.3)' : 'rgba(59, 130, 246, 0.3)'}`
-                                }}>
+                              <div style={{ marginTop: '3px', display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                <span 
+                                  onClick={() => handleAbrirComprobanteMovimiento(m)}
+                                  title="Clic para ver recibo o editar forma de pago"
+                                  style={{
+                                    fontSize: '10px',
+                                    fontWeight: 800,
+                                    padding: '1px 6px',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    background: m.medio_pago.includes('EFECTIVO') ? 'rgba(16, 185, 129, 0.12)' : 'rgba(59, 130, 246, 0.12)',
+                                    color: m.medio_pago.includes('EFECTIVO') ? '#059669' : '#2563eb',
+                                    border: `1px solid ${m.medio_pago.includes('EFECTIVO') ? 'rgba(16, 185, 129, 0.3)' : 'rgba(59, 130, 246, 0.3)'}`
+                                  }}
+                                >
                                   {m.medio_pago.includes('EFECTIVO') ? '💵' : '🏦'} {m.medio_pago}
                                 </span>
+                                {m.medio_pago.includes('EFECTIVO') && (
+                                  <Link
+                                    to={`/caja-efectivo?fecha=${m.fecha}`}
+                                    title={`Ver arqueo y verificación de caja del día ${formatFecha(m.fecha)}`}
+                                    style={{
+                                      fontSize: '9.5px',
+                                      fontWeight: 800,
+                                      padding: '1px 5px',
+                                      borderRadius: '4px',
+                                      textDecoration: 'none',
+                                      background: 'rgba(16, 185, 129, 0.08)',
+                                      color: '#059669',
+                                      border: '1px solid rgba(16, 185, 129, 0.25)',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '3px'
+                                    }}
+                                  >
+                                    <Banknote size={10} /> Caja
+                                  </Link>
+                                )}
                               </div>
                             )}
                             {isPago && m.pago_aplicado_interes > 0 && (
@@ -4756,6 +4823,7 @@ export default function Contaduria() {
         isOpen={comprobanteModalOpen}
         onClose={() => setComprobanteModalOpen(false)}
         cobroData={comprobanteData}
+        onComprobanteUpdated={handleComprobanteUpdated}
       />
 
     </div>

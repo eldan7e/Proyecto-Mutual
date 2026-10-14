@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 
 export default function PeriodSummaryCards({ periodSummary, selectedPeriod }) {
   if (!selectedPeriod) return null;
@@ -57,6 +58,37 @@ export default function PeriodSummaryCards({ periodSummary, selectedPeriod }) {
         </span>
         <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: 0 }}>
           Facturación restante por cobrar
+        </p>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        <span style={{ fontSize: '11px', fontWeight: '800', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          Arqueo de Efectivo
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Link
+            to="/caja-efectivo"
+            style={{
+              textDecoration: 'none',
+              fontSize: '13px',
+              fontWeight: 800,
+              color: '#059669',
+              background: 'rgba(16, 185, 129, 0.1)',
+              border: '1px solid rgba(16, 185, 129, 0.25)',
+              padding: '6px 14px',
+              borderRadius: '10px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              marginTop: '4px',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            💵 Verificación Caja ↗
+          </Link>
+        </div>
+        <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: 0 }}>
+          Control diario de caja física
         </p>
       </div>
     </div>

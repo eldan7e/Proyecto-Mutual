@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { supabase } from './supabaseClient';
 import { Calendar, Loader2, FileText } from 'lucide-react';
 import { parsearMovimientos } from './utils/bankParser';
@@ -3567,6 +3568,28 @@ export default function ConciliacionBancaria() {
         >
           <FileText size={16} /> Movimientos Conciliados ({dbBankMovements.length})
         </button>
+
+        <Link
+          to="/caja-efectivo"
+          className="nav-pill hover-lift"
+          style={{
+            marginLeft: 'auto',
+            textDecoration: 'none',
+            border: '1px solid rgba(16, 185, 129, 0.3)',
+            background: 'rgba(16, 185, 129, 0.08)',
+            color: '#10b981',
+            padding: '10px 18px',
+            fontWeight: 700,
+            borderRadius: '10px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '14px',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          <span>💵</span> Ir a Caja Efectivo
+        </Link>
       </div>
 
       {/* Contenidos de Pestañas */}

@@ -75,7 +75,7 @@ export function extraerGbsPlan(nombrePlan, gbIncluidos) {
   return nombrePlan || '-';
 }
 
-export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
+export default function ComprobanteCobroModal({ isOpen, onClose, cobroData, onComprobanteUpdated }) {
   if (!cobroData) return null;
 
   const {
@@ -98,6 +98,61 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
   } = cobroData;
 
   const [currentMedioPago, setCurrentMedioPago] = useState(() => normalizeMedioPago(medio_pago));
+  const [guardandoMedio, setGuardandoMedio] = useState(false);
+  const [guardadoOk, setGuardadoOk] = useState(false);
+
+  async function handleCambiarMedioPago(nuevoMedio) {
+    setCurrentMedioPago(nuevoMedio);
+    const mId = cobroData.movimientoId || cobroData.movimiento_id || cobroData.id;
+    if (!mId) return;
+
+    try {
+      setGuardandoMedio(true);
+      // 1. Obtener observación actual
+      const { data: movActual, error: fetchErr } = await supabase
+        .from('movimientos_cuenta')
+        .select('id, observaciones')
+        .eq('id', mId)
+        .maybeSingle();
+
+      if (fetchErr) throw fetchErr;
+
+      let obsActualizada = movActual?.observaciones || observaciones || '';
+      if (obsActualizada) {
+        obsActualizada = obsActualizada
+          .replace(/\[(EFECTIVO EN MUT|EFECTIVO|TRANSFERENCIA A CREDICOOP|CREDICOOP|TRANSFERENCIA A NACION|BANCO NACION|NACION)\]/gi, `[${nuevoMedio}]`)
+          .replace(/ - (EFECTIVO EN MUT|EFECTIVO|TRANSFERENCIA A CREDICOOP|CREDICOOP|TRANSFERENCIA A NACION|BANCO NACION|NACION)/gi, ` - ${nuevoMedio}`);
+      }
+
+      const { error: updErr } = await supabase
+        .from('movimientos_cuenta')
+        .update({
+          medio_pago: nuevoMedio,
+          observaciones: obsActualizada
+        })
+        .eq('id', mId);
+
+      if (updErr) throw updErr;
+
+      cobroData.medio_pago = nuevoMedio;
+      cobroData.observaciones = obsActualizada;
+
+      setGuardadoOk(true);
+      setTimeout(() => setGuardadoOk(false), 3500);
+
+      if (onComprobanteUpdated) {
+        onComprobanteUpdated({
+          movimientoId: mId,
+          medio_pago: nuevoMedio,
+          observaciones: obsActualizada
+        });
+      }
+    } catch (err) {
+      console.error('Error al actualizar medio de pago:', err);
+    } finally {
+      setGuardandoMedio(false);
+    }
+  }
   const [planesGbMap, setPlanesGbMap] = useState({});
   const [lineasCargadas, setLineasCargadas] = useState(() => {
     if (cobroData.lineas && Array.isArray(cobroData.lineas) && cobroData.lineas.length > 0) {
@@ -447,12 +502,13 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
 
       {/* Barra superior Interactiva (Solo en Pantalla, Oculta al Imprimir) */}
       <div className="no-print" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', background: 'rgba(255,255,255,0.03)', padding: '10px 14px', borderRadius: '12px', border: '1px solid var(--border-light)', flexWrap: 'wrap', gap: '10px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           <CreditCard size={15} color="#10b981" />
           <span style={{ fontSize: '12.5px', fontWeight: 800 }}>Forma de Pago:</span>
           <select 
             value={currentMedioPago} 
-            onChange={(e) => setCurrentMedioPago(e.target.value)}
+            onChange={(e) => handleCambiarMedioPago(e.target.value)}
+            disabled={guardandoMedio}
             className="form-input"
             style={{ padding: '3px 8px', height: '32px', fontSize: '11.5px', fontWeight: 800, width: 'auto', background: 'var(--surface)' }}
           >
@@ -460,6 +516,14 @@ export default function ComprobanteCobroModal({ isOpen, onClose, cobroData }) {
             <option value="TRANSFERENCIA A NACION">TRANSFERENCIA A NACION</option>
             <option value="TRANSFERENCIA A CREDICOOP">TRANSFERENCIA A CREDICOOP</option>
           </select>
+          {guardandoMedio && (
+            <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)', fontStyle: 'italic' }}>Guardando cambio...</span>
+          )}
+          {guardadoOk && (
+            <span style={{ fontSize: '11.5px', color: '#10b981', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+              <CheckCircle2 size={13} color="#10b981" /> ¡Guardado en cuenta corriente!
+            </span>
+          )}
         </div>
         <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '5px' }}>
           <Scissors size={12} color="#10b981" /> Formato A4 con Original y Duplicado para cortar

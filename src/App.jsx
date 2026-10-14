@@ -41,6 +41,7 @@ const Tareas = safeLazy(() => import('./Tareas'));
 const LogDiario = safeLazy(() => import('./LogDiario'));
 const Contaduria = safeLazy(() => import('./Contaduria'));
 const ComprobantesAFIP = safeLazy(() => import('./ComprobantesAFIP'));
+const CajaEfectivo = safeLazy(() => import('./CajaEfectivo'));
 
 // Global hooks initializer
 function GlobalHooksInitializer() {
@@ -140,6 +141,7 @@ function App() {
                   <Route path="gestion-pagos" element={<GestionPagos />} />
                   <Route path="descuentos" element={<Navigate to="/comunidad?tab=descuentos" replace />} />
                   <Route path="conciliacion-bancaria" element={<ConciliacionBancaria />} />
+                  <Route path="caja-efectivo" element={<CajaEfectivo />} />
                   <Route path="movimientos-bancarios" element={<MovimientosBancarios />} />
                   <Route path="ingreso-diario" element={<Navigate to="/contaduria" replace />} />
                   <Route path="campanas" element={<Campanas />} />

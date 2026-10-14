@@ -1,1656 +1,1155 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { supabase } from './supabaseClient';
 import { 
-  Search, RefreshCw, AlertCircle, Trash2, Plus, Calendar, DollarSign, 
-  TrendingUp, TrendingDown, Landmark, CheckCircle, HelpCircle, User, Loader2
+  Search, RefreshCw, AlertCircle, Plus, Calendar, DollarSign, 
+  TrendingUp, Landmark, CheckCircle2, User, Loader2, Printer, 
+  FileSpreadsheet, Filter, ArrowUpDown, ChevronDown, Check, Coins, CreditCard
 } from 'lucide-react';
 import Modal from './components/Modal';
 import { useToast } from './components/ui/ToastProvider';
 import { useConfirm } from './components/ui/ConfirmProvider';
-import DesgloseGrupoModal from './components/Conciliacion/DesgloseGrupoModal';
-import { formatUTCDate as formatISODateToAR } from './utils/formatters';
+import ComprobanteCobroModal from './components/ComprobanteCobroModal';
+import { formatMoney, formatFecha } from './utils/cuentaCorrienteEngine';
+import { fetchGruposUnicos, registrarCobroCuenta } from './services/cuentaCorrienteService';
+import * as XLSX from 'xlsx';
 
-// Helper to translate tipo_movimiento to Spanish user-friendly text
-const getTipoMovimientoLabel = (tipo) => {
-  switch(tipo) {
-    case 'IMPUESTO': return 'Impuesto';
-    case 'COMISION': return 'Comisión';
-    case 'SUSCRIPCION': return 'Suscripción';
-    case 'PAGO_VEP': return 'Pago VEP';
-    case 'PAGO_ARCA': return 'Pago ARCA';
-    case 'PAGO_SERVICIO': return 'Pago Servicio';
-    case 'TRANSFERENCIA_RECIBIDA': return 'Transf. Recibida';
-    case 'TRANSFERENCIA_ENVIADA': return 'Transf. Enviada';
-    case 'PAGO_EFECTIVO': return 'Pago Efectivo';
-    case 'PAGO_DIRECTO': return 'Pago Directo';
-    case 'PAGO_PABLO': return 'Pago a Pablo';
-    case 'OTRO_INGRESO': return 'Otro Ingreso';
-    case 'OTRO_EGRESO': return 'Otro Egreso';
-    default: return 'Otro';
-  }
-};
-
-// Helper to render type badge
-const renderTipoMovimientoBadge = (tipo) => {
-  let label = 'Otro';
-  let bgColor = 'rgba(107, 114, 128, 0.08)';
-  let color = '#6b7280';
+// Helper para calcular rangos de fecha de semana (Lunes a Domingo)
+function getWeekRangeDates(offsetWeeks = 0) {
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const day = d.getDay(); // 0 is Sun, 1 is Mon, ..., 6 is Sat
+  const diffToMonday = (day === 0 ? -6 : 1 - day) + (offsetWeeks * 7);
   
-  switch(tipo) {
-    case 'IMPUESTO':
-      label = 'Impuesto';
-      bgColor = 'rgba(249, 115, 22, 0.1)';
-      color = '#f97316';
-      break;
-    case 'COMISION':
-      label = 'Comisión';
-      bgColor = 'rgba(234, 179, 8, 0.1)';
-      color = '#eab308';
-      break;
-    case 'SUSCRIPCION':
-      label = 'Suscripción';
-      bgColor = 'rgba(168, 85, 247, 0.1)';
-      color = '#a855f7';
-      break;
-    case 'PAGO_VEP':
-      label = 'Pago VEP';
-      bgColor = 'rgba(239, 68, 68, 0.1)';
-      color = '#ef4444';
-      break;
-    case 'PAGO_ARCA':
-      label = 'Pago ARCA';
-      bgColor = 'rgba(99, 102, 241, 0.1)';
-      color = '#6366f1';
-      break;
-    case 'PAGO_SERVICIO':
-      label = 'Pago Servicio';
-      bgColor = 'rgba(14, 165, 233, 0.1)';
-      color = '#0ea5e9';
-      break;
-    case 'TRANSFERENCIA_RECIBIDA':
-      label = 'Transf. Recibida';
-      bgColor = 'rgba(16, 185, 129, 0.1)';
-      color = '#10b981';
-      break;
-    case 'TRANSFERENCIA_ENVIADA':
-      label = 'Transf. Enviada';
-      bgColor = 'rgba(239, 68, 68, 0.1)';
-      color = '#ef4444';
-      break;
-    case 'PAGO_EFECTIVO':
-      label = 'Pago Efectivo';
-      bgColor = 'rgba(16, 185, 129, 0.15)';
-      color = '#059669';
-      break;
-    case 'PAGO_DIRECTO':
-      label = 'Pago Directo';
-      bgColor = 'rgba(79, 70, 229, 0.15)';
-      color = '#4f46e5';
-      break;
-    case 'PAGO_PABLO':
-      label = 'Pago a Pablo';
-      bgColor = 'rgba(219, 39, 119, 0.15)';
-      color = '#db2777';
-      break;
-    case 'OTRO_INGRESO':
-      label = 'Otro Ingreso';
-      bgColor = 'rgba(16, 185, 129, 0.1)';
-      color = '#10b981';
-      break;
-    case 'OTRO_EGRESO':
-      label = 'Otro Egreso';
-      bgColor = 'rgba(239, 68, 68, 0.1)';
-      color = '#ef4444';
-      break;
-    default:
-      label = getTipoMovimientoLabel(tipo);
-  }
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + diffToMonday);
+  
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  
+  const toISO = (dt) => {
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const dayStr = String(dt.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dayStr}`;
+  };
 
-  return (
-    <span style={{ 
-      fontSize: '11px', fontWeight: 800, padding: '2px 8px', borderRadius: '8px',
-      background: bgColor, color: color, textTransform: 'uppercase', display: 'inline-block'
-    }}>
-      {label}
-    </span>
-  );
-};
+  const toLabel = (dt) => {
+    return dt.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+  };
+
+  return {
+    start: toISO(monday),
+    end: toISO(sunday),
+    label: `${toLabel(monday)} al ${toLabel(sunday)}`,
+    year: monday.getFullYear()
+  };
+}
 
 export default function MovimientosBancarios() {
   const { addToast } = useToast();
   const confirm = useConfirm();
 
-  const [periods, setPeriods] = useState([]);
-  const [selectedPeriod, setSelectedPeriod] = useState(() => localStorage.getItem('mb_selectedPeriod') || '');
-  const [historial, setHistorial] = useState([]);
-  const [loadingHistorial, setLoadingHistorial] = useState(false);
-  const [socios, setSocios] = useState([]);
-  const [searchHistorial, setSearchHistorial] = useState('');
-  const [filtroTipoHistorial, setFiltroTipoHistorial] = useState('TODOS');
-  const [filtroBancoHistorial, setFiltroBancoHistorial] = useState('TODOS');
-  const [filtroVinculacion, setFiltroVinculacion] = useState('TODOS');
-  const [currentPageHistorial, setCurrentPageHistorial] = useState(1);
-  const itemsPerPage = 50;
+  // Estados de datos
+  const [pagos, setPagos] = useState([]);
+  const [gruposList, setGruposList] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // Manual payment modal state
+  // Filtros de Rango Temporal (Por defecto: ESTA_SEMANA)
+  const [filtroRango, setFiltroRango] = useState('ESTA_SEMANA'); // 'ESTA_SEMANA' | 'SEMANA_ANTERIOR' | 'ESTE_MES' | 'TODOS' | 'CUSTOM'
+  const [customDesde, setCustomDesde] = useState('');
+  const [customHasta, setCustomHasta] = useState('');
+
+  // Filtros de Grupo (Alternar entre Todos los Grupos y Grupo Específico)
+  const [modoGrupo, setModoGrupo] = useState('TODOS'); // 'TODOS' | 'GRUPO'
+  const [selectedGrupo, setSelectedGrupo] = useState('');
+  const [searchGrupoTerm, setSearchGrupoTerm] = useState('');
+
+  // Filtro de Medio de Pago
+  const [filtroMedio, setFiltroMedio] = useState('TODOS'); // 'TODOS' | 'EFECTIVO' | 'CREDICOOP' | 'NACION' | 'DIRECTO'
+
+  // Búsqueda libre
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // Modal de Comprobante Oficial de Cobro
+  const [comprobanteModalOpen, setComprobanteModalOpen] = useState(false);
+  const [comprobanteData, setComprobanteData] = useState(null);
+
+  // Modal para Registrar Pago Manual
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [manualSaving, setManualSaving] = useState(false);
   const [manualForm, setManualForm] = useState({
-    fecha: new Date().toISOString().split('T')[0],
-    concepto: '',
+    numero_grupo: '',
+    nombre: '',
     monto: '',
-    tipoPago: 'PAGO_EFECTIVO', // PAGO_EFECTIVO, PAGO_DIRECTO, PAGO_PABLO, TRANSFERENCIA_RECIBIDA, OTRO_INGRESO
-    banco: 'EFECTIVO', // EFECTIVO, DIRECTO, PAGO_PABLO, CREDICOOP, NACION
-    selectedSocioLabel: '',
-    selectedSocioId: '',
-    selectedLiquidationId: '',
-    comprobante: '',
+    medio_pago: 'EFECTIVO EN MUT',
+    fecha: new Date().toISOString().split('T')[0],
+    periodo: '2026-09',
     observaciones: ''
   });
-  const [manualPendingList, setManualPendingList] = useState([]);
 
-  // Edit movement modal state
-  const [editModal, setEditModal] = useState({
-    isOpen: false,
-    saving: false,
-    movement: null,
-    selectedSocioLabel: '',
-    selectedSocioId: '',
-    selectedLiquidationId: '',
-    pendingList: []
-  });
-
-  // Breakdown modal state
-  const [breakdownModal, setBreakdownModal] = useState({
-    isOpen: false,
-    loading: false,
-    liquidacionId: null,
-    groupInfo: null,
-    members: [],
-    payments: [],
-    pendingRow: null
-  });
-
-  // Synchronize period list
-  const fetchPeriods = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('unique_periods_view')
-        .select('periodo');
-      if (error) throw error;
-      
-      const pList = data?.map(d => d.periodo).filter(Boolean) || [];
-      setPeriods(pList);
-      
-      if (pList.length > 0 && !selectedPeriod) {
-        // Query the latest period with actual bank movements to use as default
-        const { data: latestMovs, error: movsErr } = await supabase
-          .from('movimientos_bancarios')
-          .select('fecha_movimiento')
-          .order('fecha_movimiento', { ascending: false })
-          .limit(1);
-          
-        if (!movsErr && latestMovs && latestMovs.length > 0 && latestMovs[0].fecha_movimiento) {
-          const latestMovDate = latestMovs[0].fecha_movimiento; // e.g. "2026-02-27"
-          const latestMovPeriod = latestMovDate.substring(0, 7); // "2026-02"
-          
-          if (pList.includes(latestMovPeriod)) {
-            setSelectedPeriod(latestMovPeriod);
-            return;
-          }
-        }
-        setSelectedPeriod(pList[0]);
-      }
-    } catch (err) {
-      console.error("Error fetching unique periods:", err);
-    }
-  };
-
-  const fetchSocios = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('socios')
-        .select(`
-          socio_id,
-          nombre_completo,
-          nro_socio,
-          grupo_socio(numero_grupo)
-        `)
-        .order('nombre_completo');
-      if (error) throw error;
-      setSocios(data || []);
-    } catch (err) {
-      console.error("Error fetching active partners:", err);
-    }
-  };
-
-  const fetchHistorial = async () => {
-    setLoadingHistorial(true);
-    try {
-      let query = supabase
-        .from('movimientos_bancarios')
-        .select(`
-          movimiento_id,
-          fecha_movimiento,
-          concepto,
-          monto,
-          ingreso_bruto,
-          impuestos,
-          banco,
-          created_at,
-          socio_id,
-          liquidacion_id,
-          tipo_movimiento,
-          comprobante,
-          observaciones,
-          periodo,
-          socios(nombre_completo, nro_socio),
-          liquidaciones_grupos(periodo, numero_grupo, monto_total_facturado)
-        `)
-        .order('fecha_movimiento', { ascending: false });
-
-      const { data, error } = await query;
-      if (error) throw error;
-      setHistorial(data || []);
-    } catch (err) {
-      console.error("Error fetching movement history:", err);
-      addToast("Error al cargar el historial de movimientos", "error");
-    } finally {
-      setLoadingHistorial(false);
-    }
-  };
-
+  // Cargar grupos y pagos al inicio
   useEffect(() => {
-    fetchPeriods();
-    fetchSocios();
+    loadData();
   }, []);
 
-  useEffect(() => {
-    if (selectedPeriod) {
-      localStorage.setItem('mb_selectedPeriod', selectedPeriod);
-    }
-    fetchHistorial();
-  }, [selectedPeriod]);
-
-  // Reset page when filters change
-  useEffect(() => {
-    setCurrentPageHistorial(1);
-  }, [filtroTipoHistorial, filtroBancoHistorial, filtroVinculacion, searchHistorial]);
-
-  // Filter historial
-  const filteredHistorial = useMemo(() => {
-    // Exclude master markers if they exist
-    let result = historial.filter(h => h.tipo_movimiento !== 'CONCILIACION_GRUPO_MASTER');
-    
-    // Filter by selected period
-    if (selectedPeriod) {
-      result = result.filter(h => {
-        const movPeriod = h.liquidaciones_grupos?.periodo || h.periodo || (h.fecha_movimiento ? h.fecha_movimiento.substring(0, 7) : '');
-        return movPeriod === selectedPeriod;
-      });
-    }
-
-    if (searchHistorial) {
-      const term = searchHistorial.toLowerCase();
-      result = result.filter(h => {
-        const matchConcepto = h.concepto?.toLowerCase().includes(term);
-        const matchSocio = h.socios?.nombre_completo?.toLowerCase().includes(term);
-        const matchBanco = h.banco?.toLowerCase().includes(term);
-        const matchTipo = (h.tipo_movimiento || '').toLowerCase().includes(term) || getTipoMovimientoLabel(h.tipo_movimiento).toLowerCase().includes(term);
-        const amountStr = Math.abs(Number(h.monto || 0)).toString();
-        const matchMonto = amountStr.includes(term) || amountStr.replace('.', '').replace(',', '').includes(term);
-        
-        return matchConcepto || matchSocio || matchBanco || matchTipo || matchMonto;
-      });
-    }
-    if (filtroTipoHistorial !== 'TODOS') {
-      result = result.filter(h => h.tipo_movimiento === filtroTipoHistorial);
-    }
-    if (filtroBancoHistorial !== 'TODOS') {
-      result = result.filter(h => h.banco === filtroBancoHistorial);
-    }
-    if (filtroVinculacion === 'PENDIENTES') {
-      result = result.filter(h => !h.socio_id || !h.liquidacion_id);
-    } else if (filtroVinculacion === 'COMPLETOS') {
-      result = result.filter(h => h.socio_id && h.liquidacion_id);
-    }
-    return result;
-  }, [historial, selectedPeriod, searchHistorial, filtroTipoHistorial, filtroBancoHistorial, filtroVinculacion]);
-
-  const paginatedHistorial = useMemo(() => {
-    return filteredHistorial.slice(
-      (currentPageHistorial - 1) * itemsPerPage,
-      currentPageHistorial * itemsPerPage
-    );
-  }, [filteredHistorial, currentPageHistorial]);
-
-  const totalPagesHistorial = Math.ceil(filteredHistorial.length / itemsPerPage) || 1;
-
-  // Metric aggregates for the filtered/selected history
-  const metrics = useMemo(() => {
-    let ing = 0, egr = 0, conc = 0, imp = 0;
-    filteredHistorial.forEach(m => {
-      const val = Number(m.monto || 0);
-      if (val > 0) {
-        ing += val;
-        if (m.liquidacion_id) {
-          conc += val;
-        }
-      } else {
-        egr += Math.abs(val);
-        if (['IMPUESTO', 'COMISION'].includes(m.tipo_movimiento)) {
-          imp += Math.abs(val);
-        }
-      }
-    });
-    return {
-      totalIngresos: ing,
-      totalEgresos: egr,
-      totalConciliado: conc,
-      totalImpuestos: imp
-    };
-  }, [filteredHistorial]);
-
-  // Undo / Delete reconciliation movement
-  const handleDeshacerConciliacion = async (movement) => {
-    const accepted = await confirm({
-      title: "Eliminar / Deshacer Movimiento",
-      message: `¿Estás seguro de eliminar el movimiento por $${movement.monto}? Si estaba conciliado, se restablecerá la deuda original y se actualizará el estado de la factura.`,
-      isDanger: true,
-      confirmText: "Eliminar",
-      cancelText: "Cancelar"
-    });
-
-    if (!accepted) return;
-
+  async function loadData() {
+    setLoading(true);
     try {
-      setLoadingHistorial(true);
-      
-      // 1. If it was linked to a liquidation, reduce the paid amount
-      if (movement.liquidacion_id) {
-        const { data: liqData, error: liqFetchError } = await supabase
-          .from('liquidaciones_grupos')
-          .select('monto_abonado, monto_total_facturado, numero_grupo')
-          .eq('liquidacion_id', movement.liquidacion_id)
-          .single();
+      const [gruposData, { data: pagosCuenta, error: errCuenta }] = await Promise.all([
+        fetchGruposUnicos().catch(() => []),
+        supabase
+          .from('movimientos_cuenta')
+          .select(`
+            id,
+            fecha,
+            numero_grupo,
+            nombre,
+            importe,
+            tipo,
+            medio_pago,
+            observaciones,
+            periodo,
+            numero_linea,
+            pago_aplicado_capital,
+            pago_aplicado_interes,
+            created_at
+          `)
+          .eq('tipo', 'PAGO')
+          .order('fecha', { ascending: false })
+          .order('id', { ascending: false })
+      ]);
 
-        if (liqFetchError) throw liqFetchError;
+      if (errCuenta) throw errCuenta;
 
-        if (liqData) {
-          const newMontoAbonado = Math.max(0, Math.round((Number(liqData.monto_abonado || 0) - Number(movement.monto)) * 100) / 100);
-          const state = newMontoAbonado === 0 ? 'PENDIENTE' : 'PARCIAL';
+      // Normalizar estructura de pagos
+      const normalizedPagos = (pagosCuenta || []).map(p => ({
+        id: p.id,
+        fecha: p.fecha,
+        numero_grupo: p.numero_grupo,
+        nombre: p.nombre || `Grupo #${p.numero_grupo}`,
+        monto: Math.abs(Number(p.importe || 0)),
+        medio_pago: p.medio_pago || 'EFECTIVO EN MUT',
+        observaciones: p.observaciones || '',
+        periodo: p.periodo || '',
+        numero_linea: p.numero_linea,
+        pago_aplicado_capital: p.pago_aplicado_capital,
+        pago_aplicado_interes: p.pago_aplicado_interes,
+        created_at: p.created_at
+      }));
 
-          const { error: liqUpdError } = await supabase
-            .from('liquidaciones_grupos')
-            .update({
-              monto_abonado: newMontoAbonado,
-              estado_pago: state,
-              updated_at: new Date().toISOString()
-            })
-            .eq('liquidacion_id', movement.liquidacion_id);
+      setPagos(normalizedPagos);
+      setGruposList(gruposData || []);
 
-          if (liqUpdError) throw liqUpdError;
+      if (gruposData && gruposData.length > 0 && !selectedGrupo) {
+        setSelectedGrupo(String(gruposData[0].numero_grupo));
+      }
+    } catch (err) {
+      console.error('Error al cargar historial de movimientos:', err);
+      addToast('Error al cargar pagos: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
 
-          // Write audit log
-          await supabase
-            .from('audit_log')
-            .insert({
-              tipo_evento: 'REVERSION_CONCILIACION',
-              descripcion: `REVERTIDO: Se eliminó movimiento ID ${movement.movimiento_id} de Banco/Canal ${movement.banco} por $${movement.monto} y se restableció factura ID ${movement.liquidacion_id} a ${state}.`,
-              monto: movement.monto,
-              numero_grupo: liqData.numero_grupo,
-              usuario: 'dante@admin.com'
-            });
+  // Rangos calculados de semanas
+  const weekCurrent = useMemo(() => getWeekRangeDates(0), []);
+  const weekPrevious = useMemo(() => getWeekRangeDates(-1), []);
+
+  // Filtrado de pagos según rango temporal, grupo, medio de pago y búsqueda
+  const pagosFiltrados = useMemo(() => {
+    return pagos.filter(p => {
+      // 1. Filtro temporal
+      if (filtroRango === 'ESTA_SEMANA') {
+        if (!p.fecha || p.fecha < weekCurrent.start || p.fecha > weekCurrent.end) {
+          return false;
         }
-      } else {
-        // Simple audit log
-        await supabase
-          .from('audit_log')
-          .insert({
-            tipo_evento: 'ELIMINACION_MOVIMIENTO',
-            descripcion: `ELIMINADO: Se eliminó movimiento bancario manual/diario ID ${movement.movimiento_id} de Banco/Canal ${movement.banco} por $${movement.monto}.`,
-            monto: movement.monto,
-            usuario: 'dante@admin.com'
-          });
+      } else if (filtroRango === 'SEMANA_ANTERIOR') {
+        if (!p.fecha || p.fecha < weekPrevious.start || p.fecha > weekPrevious.end) {
+          return false;
+        }
+      } else if (filtroRango === 'ESTE_MES') {
+        const curMonthPrefix = weekCurrent.start.slice(0, 7); // '2026-10'
+        if (!p.fecha || !p.fecha.startsWith(curMonthPrefix)) {
+          return false;
+        }
+      } else if (filtroRango === 'CUSTOM') {
+        if (customDesde && p.fecha < customDesde) return false;
+        if (customHasta && p.fecha > customHasta) return false;
       }
 
-      // 3. Delete the movement
-      const { error: delError } = await supabase
-        .from('movimientos_bancarios')
-        .delete()
-        .eq('movimiento_id', movement.movimiento_id);
+      // 2. Filtro de Grupo (Alternar entre Todos los Grupos y Grupo Específico)
+      if (modoGrupo === 'GRUPO' && selectedGrupo) {
+        if (String(p.numero_grupo) !== String(selectedGrupo)) {
+          return false;
+        }
+      }
 
-      if (delError) throw delError;
+      // 3. Filtro por Medio de Pago
+      if (filtroMedio !== 'TODOS') {
+        const uMedio = String(p.medio_pago || '').toUpperCase();
+        if (filtroMedio === 'EFECTIVO' && !uMedio.includes('EFECT') && !uMedio.includes('MUT') && !uMedio.includes('CAJA')) {
+          return false;
+        }
+        if (filtroMedio === 'CREDICOOP' && !uMedio.includes('CREDICOOP')) {
+          return false;
+        }
+        if (filtroMedio === 'NACION' && !uMedio.includes('NACION') && !uMedio.includes('NACIÓN')) {
+          return false;
+        }
+        if (filtroMedio === 'DIRECTO' && !uMedio.includes('DIRECTO') && !uMedio.includes('PABLO')) {
+          return false;
+        }
+      }
 
-      addToast("Movimiento eliminado con éxito", "success");
-      fetchHistorial();
-    } catch (err) {
-      console.error(err);
-      addToast(`Error al deshacer movimiento: ${err.message}`, "error");
-    } finally {
-      setLoadingHistorial(false);
-    }
-  };
+      // 4. Búsqueda por texto libre
+      if (searchTerm.trim()) {
+        const term = searchTerm.toLowerCase();
+        const matchNombre = String(p.nombre || '').toLowerCase().includes(term);
+        const matchGrupo = String(p.numero_grupo || '').includes(term);
+        const matchObs = String(p.observaciones || '').toLowerCase().includes(term);
+        const matchMedio = String(p.medio_pago || '').toLowerCase().includes(term);
+        const matchMonto = String(p.monto || '').includes(term);
+        if (!matchNombre && !matchGrupo && !matchObs && !matchMedio && !matchMonto) {
+          return false;
+        }
+      }
 
-  // Mass reset for the period
-  const handleResetearPeriodo = async () => {
-    if (!selectedPeriod) {
-      addToast("Debe seleccionar un período para resetear", "warning");
+      return true;
+    });
+  }, [pagos, filtroRango, customDesde, customHasta, modoGrupo, selectedGrupo, filtroMedio, searchTerm, weekCurrent, weekPrevious]);
+
+  // Métricas / KPIs calculados en base a los pagos filtrados
+  const metricas = useMemo(() => {
+    let total = 0;
+    let efectivo = 0;
+    let credicoop = 0;
+    let nacion = 0;
+    let otros = 0;
+
+    pagosFiltrados.forEach(p => {
+      const m = Number(p.monto || 0);
+      total += m;
+      const u = String(p.medio_pago || '').toUpperCase();
+      if (u.includes('EFECT') || u.includes('MUT') || u.includes('CAJA')) {
+        efectivo += m;
+      } else if (u.includes('CREDICOOP')) {
+        credicoop += m;
+      } else if (u.includes('NACION') || u.includes('NACIÓN')) {
+        nacion += m;
+      } else {
+        otros += m;
+      }
+    });
+
+    return {
+      total,
+      efectivo,
+      credicoop,
+      nacion,
+      otros,
+      cantidad: pagosFiltrados.length
+    };
+  }, [pagosFiltrados]);
+
+  // Abrir comprobante oficial
+  function handleAbrirComprobante(pago) {
+    setComprobanteData({
+      movimientoId: pago.id,
+      reciboNumero: `REC-${pago.periodo || pago.fecha.slice(0, 7)}-${pago.numero_grupo}-${pago.id}`,
+      fecha: pago.fecha,
+      periodo: pago.periodo,
+      numero_grupo: pago.numero_grupo,
+      numero_linea: pago.numero_linea,
+      nombre_titular: pago.nombre,
+      monto_cobrado: pago.monto,
+      medio_pago: pago.medio_pago,
+      observaciones: pago.observaciones,
+      efectivo_entregado: pago.monto,
+      desgloses: [{
+        observaciones: pago.observaciones || `Cobro en cuenta corriente - Período ${pago.periodo || 'General'}`,
+        pagoAplicadoCapital: (pago.pago_aplicado_capital !== undefined && pago.pago_aplicado_capital !== null) ? Number(pago.pago_aplicado_capital) : pago.monto,
+        pagoAplicadoInteres: Number(pago.pago_aplicado_interes || 0)
+      }]
+    });
+    setComprobanteModalOpen(true);
+  }
+
+  // Callback cuando se actualiza el comprobante (ej: usuario cambia de Efectivo a Credicoop en el modal)
+  function handleComprobanteUpdated(updated) {
+    if (!updated || !updated.movimientoId) return;
+    setPagos(prev => prev.map(p => {
+      if (p.id === updated.movimientoId) {
+        return {
+          ...p,
+          medio_pago: updated.medio_pago,
+          observaciones: updated.observaciones || p.observaciones
+        };
+      }
+      return p;
+    }));
+    addToast(`Medio de pago actualizado a ${updated.medio_pago}`, 'success');
+  }
+
+  // Exportar a Excel
+  function handleExportarExcel() {
+    if (pagosFiltrados.length === 0) {
+      addToast('No hay pagos en la lista para exportar', 'info');
       return;
     }
-    const accepted = await confirm({
-      title: "Resetear Movimientos del Período",
-      message: `¿Estás seguro de que querés ELIMINAR TODOS los movimientos bancarios y conciliaciones correspondientes al período ${selectedPeriod}? Esta acción restablecerá todas las facturas de este período a pendiente. NO se puede deshacer.`,
-      isDanger: true,
-      confirmText: "Sí, Borrar Todo",
-      cancelText: "Cancelar"
-    });
 
-    if (!accepted) return;
+    const rows = pagosFiltrados.map(p => ({
+      'Fecha': formatFecha(p.fecha),
+      'Grupo': p.numero_grupo,
+      'Titular': p.nombre,
+      'Medio de Pago': p.medio_pago,
+      'Importe Pagado': p.monto,
+      'Período': p.periodo || '—',
+      'Observaciones': p.observaciones || ''
+    }));
 
-    try {
-      setLoadingHistorial(true);
-      
-      const { data: liqs, error: fetchErr } = await supabase
-        .from('liquidaciones_grupos')
-        .select('liquidacion_id')
-        .eq('periodo', selectedPeriod);
-      
-      if (fetchErr) throw fetchErr;
-      const liqIds = liqs?.map(l => l.liquidacion_id) || [];
-      
-      if (liqIds.length > 0) {
-        await supabase.from('movimientos_bancarios').delete().in('liquidacion_id', liqIds);
-      }
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Cobros');
+    
+    const labelRango = filtroRango === 'ESTA_SEMANA' ? `Semana_${weekCurrent.start}_a_${weekCurrent.end}` : 'Historial_Cobros';
+    XLSX.writeFile(wb, `Cobros_Mutual_${labelRango}.xlsx`);
+    addToast('Archivo Excel exportado exitosamente', 'success');
+  }
 
-      const startDate = `${selectedPeriod}-01`;
-      const [year, month] = selectedPeriod.split('-');
-      const daysInMonth = new Date(parseInt(year, 10), parseInt(month, 10), 0).getDate();
-      const endDate = `${selectedPeriod}-${String(daysInMonth).padStart(2, '0')}`;
-      
-      await supabase.from('movimientos_bancarios').delete().is('liquidacion_id', null).gte('fecha_movimiento', startDate).lte('fecha_movimiento', endDate);
-
-      if (liqIds.length > 0) {
-        await supabase.from('liquidaciones_grupos').update({
-          monto_abonado: 0,
-          estado_pago: 'PENDIENTE',
-          updated_at: new Date().toISOString()
-        }).in('liquidacion_id', liqIds);
-      }
-
-      await supabase.from('audit_log').insert({
-        tipo_evento: 'RESETEO_PERIODO',
-        descripcion: `RESETEO MASIVO: Se eliminaron todos los movimientos y conciliaciones del período ${selectedPeriod}.`,
-        monto: 0,
-        usuario: 'dante@admin.com'
-      });
-
-      addToast(`Todos los movimientos y conciliaciones del período ${selectedPeriod} fueron eliminados.`, "success");
-      fetchHistorial();
-    } catch (err) {
-      console.error(err);
-      addToast(`Error al resetear período: ${err.message}`, "error");
-    } finally {
-      setLoadingHistorial(false);
-    }
-  };
-
-  // Open breakdown details modal
-  const openBreakdownModal = async (liqId) => {
-    setBreakdownModal({
-      isOpen: true,
-      loading: true,
-      liquidacionId: liqId,
-      groupInfo: null,
-      members: [],
-      payments: [],
-      pendingRow: null
-    });
-
-    try {
-      // 1. Fetch group billing row info
-      const { data: liqObj, error: fetchLiqErr } = await supabase
-        .from('liquidaciones_grupos')
-        .select(`
-          liquidacion_id,
-          numero_grupo,
-          periodo,
-          monto_total_facturado,
-          monto_abonado,
-          estado_pago,
-          proveedor_id,
-          socio_id,
-          socios!socio_id(nombre_completo, nro_socio)
-        `)
-        .eq('liquidacion_id', liqId)
-        .single();
-      
-      if (fetchLiqErr) throw fetchLiqErr;
-
-      // 2. Fetch group members
-      const { data: membersList, error: fetchMembersErr } = await supabase
-        .from('grupo_socio')
-        .select(`
-          numero_grupo,
-          socio_id,
-          es_titular,
-          socios:socio_id(nombre_completo, nro_socio)
-        `)
-        .eq('numero_grupo', liqObj.numero_grupo);
-      
-      if (fetchMembersErr) throw fetchMembersErr;
-
-      // 3. Fetch consumos of the group for lines detail
-      const { data: linesData, error: linesErr } = await supabase
-        .from('consumos_mensuales')
-        .select(`
-          total_linea,
-          numero_linea,
-          proveedor_id,
-          lineas!inner (
-            socio_id,
-            numero_grupo,
-            socios:socios!lineas_socio_id_fkey (
-              nombre_completo,
-              nro_socio
-            )
-          )
-        `)
-        .eq('periodo', liqObj.periodo)
-        .eq('lineas.numero_grupo', liqObj.numero_grupo)
-        .eq('proveedor_id', liqObj.proveedor_id);
-
-      if (linesErr) throw linesErr;
-
-      // 4. Fetch movements registered for this specific group/liquidation
-      const { data: payList, error: payErr } = await supabase
-        .from('movimientos_bancarios')
-        .select(`
-          movimiento_id,
-          fecha_movimiento,
-          concepto,
-          monto,
-          banco,
-          tipo_movimiento
-        `)
-        .eq('liquidacion_id', liqId);
-      
-      if (payErr) throw payErr;
-
-      // Map lines to member objects
-      const finalMembers = (membersList || []).map(m => {
-        const memberLines = (linesData || []).filter(line => line.lineas?.socio_id === m.socio_id);
-        const totalLinesAmount = memberLines.reduce((sum, l) => sum + Number(l.total_linea || 0), 0);
-        return {
-          ...m,
-          totalAmount: totalLinesAmount,
-          lines: memberLines.map(l => ({ number: l.numero_linea, amount: l.total_linea }))
-        };
-      });
-
-      setBreakdownModal({
-        isOpen: true,
-        loading: false,
-        liquidacionId: liqId,
-        groupInfo: liqObj,
-        members: finalMembers,
-        payments: payList || [],
-        pendingRow: null
-      });
-    } catch (err) {
-      console.error("Error loading breakdown details:", err);
-      addToast("Error al cargar detalles de liquidación", "error");
-      setBreakdownModal(prev => ({ ...prev, isOpen: false }));
-    }
-  };
-
-  // Setup Edit Movement Modal
-  const openEditConciliacionModal = async (mov) => {
-    let sLabel = '';
-    let sId = mov.socio_id || '';
-    if (mov.socios) {
-      sLabel = `${mov.socios.nombre_completo} - Gpo: ${mov.liquidaciones_grupos?.numero_grupo || 'Sin Grupo'}`;
-    }
-
-    setEditModal({
-      isOpen: true,
-      saving: false,
-      movement: mov,
-      selectedSocioLabel: sLabel,
-      selectedSocioId: sId,
-      selectedLiquidationId: mov.liquidacion_id ? String(mov.liquidacion_id) : '',
-      pendingList: []
-    });
-
-    if (sId) {
-      await loadPendingListForEdit(sId, mov.liquidacion_id);
-    }
-  };
-
-  const loadPendingListForEdit = async (socioId, currentLiqId) => {
-    try {
-      // Get partner groups
-      const { data: gData } = await supabase
-        .from('grupo_socio')
-        .select('numero_grupo')
-        .eq('socio_id', socioId);
-      
-      const groupNums = gData?.map(g => g.numero_grupo) || [];
-      if (groupNums.length === 0) return;
-
-      const { data: liqData, error: liqError } = await supabase
-        .from('liquidaciones_grupos')
-        .select('*, proveedores:proveedor_id(nombre)')
-        .in('numero_grupo', groupNums);
-      
-      if (liqError) throw liqError;
-
-      // Filter: only PENDIENTE/PARCIAL or the currently edited liquidation ID
-      const filtered = (liqData || []).filter(l => 
-        l.estado_pago === 'PENDIENTE' || l.estado_pago === 'PARCIAL' || l.liquidacion_id === currentLiqId
-      );
-
-      setEditModal(prev => ({ ...prev, pendingList: filtered }));
-    } catch (err) {
-      console.error("Error loading pending list for edit:", err);
-    }
-  };
-
-  const handleEditSocioChange = async (val) => {
-    setEditModal(prev => ({ ...prev, selectedSocioLabel: val }));
-
-    const matched = socios.find(s => {
-      const gpoText = s.grupo_socio?.map(g => g.numero_grupo).join(', ') || 'Sin Grupo';
-      const label = `${s.nombre_completo} (Nº ${s.nro_socio || 'S/N'} - Gpos: ${gpoText})`;
-      return label.toLowerCase() === val.toLowerCase() || s.nombre_completo.toLowerCase() === val.toLowerCase();
-    });
-
-    if (matched) {
-      setEditModal(prev => ({ ...prev, selectedSocioId: matched.socio_id, selectedLiquidationId: '' }));
-      await loadPendingListForEdit(matched.socio_id, editModal.movement?.liquidacion_id);
-    } else {
-      setEditModal(prev => ({ ...prev, selectedSocioId: '', selectedLiquidationId: '', pendingList: [] }));
-    }
-  };
-
-  const handleSaveEditConciliacion = async () => {
-    const { movement, selectedSocioId, selectedLiquidationId } = editModal;
-    if (!movement) return;
-
-    setEditModal(prev => ({ ...prev, saving: true }));
-    try {
-      const oldLiqId = movement.liquidacion_id;
-      const newLiqId = selectedLiquidationId ? parseInt(selectedLiquidationId, 10) : null;
-      const amount = Number(movement.monto);
-
-      // 1. Revert Old Liquidation if changed
-      if (oldLiqId && oldLiqId !== newLiqId) {
-        const { data: oldLiq, error: getOldError } = await supabase
-          .from('liquidaciones_grupos')
-          .select('monto_abonado, monto_total_facturado')
-          .eq('liquidacion_id', oldLiqId)
-          .single();
-        if (getOldError) throw getOldError;
-
-        const newOldAbonado = Math.max(0, Math.round((Number(oldLiq.monto_abonado || 0) - amount) * 100) / 100);
-        const stateOld = newOldAbonado >= Number(oldLiq.monto_total_facturado) - 2.00 ? 'ABONADO' : (newOldAbonado > 0 ? 'PARCIAL' : 'PENDIENTE');
-
-        await supabase
-          .from('liquidaciones_grupos')
-          .update({
-            monto_abonado: newOldAbonado,
-            estado_pago: stateOld
-          })
-          .eq('liquidacion_id', oldLiqId);
-      }
-
-      // 2. Add to New Liquidation
-      if (newLiqId && oldLiqId !== newLiqId) {
-        const { data: newLiq, error: getNewError } = await supabase
-          .from('liquidaciones_grupos')
-          .select('monto_abonado, monto_total_facturado')
-          .eq('liquidacion_id', newLiqId)
-          .single();
-        if (getNewError) throw getNewError;
-
-        const newNewAbonado = Math.round((Number(newLiq.monto_abonado || 0) + amount) * 100) / 100;
-        const stateNew = newNewAbonado >= Number(newLiq.monto_total_facturado) - 2.00 ? 'ABONADO' : (newNewAbonado > 0 ? 'PARCIAL' : 'PENDIENTE');
-
-        await supabase
-          .from('liquidaciones_grupos')
-          .update({
-            monto_abonado: newNewAbonado,
-            estado_pago: stateNew
-          })
-          .eq('liquidacion_id', newLiqId);
-      }
-
-      // 3. Update the movement row
-      const { error: moveError } = await supabase
-        .from('movimientos_bancarios')
-        .update({
-          socio_id: selectedSocioId ? parseInt(selectedSocioId, 10) : null,
-          liquidacion_id: newLiqId
-        })
-        .eq('movimiento_id', movement.movimiento_id);
-      if (moveError) throw moveError;
-
-      addToast("Movimiento actualizado y conciliación reorganizada con éxito", "success");
-      setEditModal(prev => ({ ...prev, isOpen: false }));
-      fetchHistorial();
-    } catch (err) {
-      console.error(err);
-      addToast(`Error al guardar cambios: ${err.message}`, "error");
-    } finally {
-      setEditModal(prev => ({ ...prev, saving: false }));
-    }
-  };
-
-  // Manual payment actions
-  const handleManualSocioChange = async (val) => {
-    setManualForm(prev => ({ ...prev, selectedSocioLabel: val }));
-
-    const matched = socios.find(s => {
-      const gpoText = s.grupo_socio?.map(g => g.numero_grupo).join(', ') || 'Sin Grupo';
-      const label = `${s.nombre_completo} (Nº ${s.nro_socio || 'S/N'} - Gpos: ${gpoText})`;
-      return label.toLowerCase() === val.toLowerCase() || s.nombre_completo.toLowerCase() === val.toLowerCase();
-    });
-
-    if (matched) {
-      setManualForm(prev => ({ ...prev, selectedSocioId: matched.socio_id, selectedLiquidationId: '' }));
-      
-      // Load pending bills
-      try {
-        const groupNums = matched.grupo_socio?.map(g => g.numero_grupo) || [];
-        if (groupNums.length > 0) {
-          const { data: liqData } = await supabase
-            .from('liquidaciones_grupos')
-            .select('*, proveedores:proveedor_id(nombre)')
-            .in('numero_grupo', groupNums);
-          
-          const filtered = (liqData || []).filter(l => 
-            l.estado_pago === 'PENDIENTE' || l.estado_pago === 'PARCIAL'
-          );
-          setManualPendingList(filtered);
-          
-          // Suggest exact match if possible
-          if (manualForm.monto) {
-            const parsedMonto = parseFloat(manualForm.monto);
-            const exact = filtered.find(l => {
-              const pend = Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0);
-              return Math.abs(pend - parsedMonto) < 2.00;
-            });
-            if (exact) {
-              setManualForm(prev => ({ ...prev, selectedLiquidationId: String(exact.liquidacion_id) }));
-            }
-          }
-        }
-      } catch (err) {
-        console.error("Error loading pending list for manual payment:", err);
-      }
-    } else {
-      setManualForm(prev => ({ ...prev, selectedSocioId: '', selectedLiquidationId: '' }));
-      setManualPendingList([]);
-    }
-  };
-
-  // Handle saving new manual payment
-  const handleSaveManualPayment = async (e) => {
+  // Registrar Cobro Manual
+  async function handleGuardarPagoManual(e) {
     e.preventDefault();
-    if (!manualForm.concepto || !manualForm.monto) {
-      addToast("Por favor complete los campos obligatorios", "warning");
+    const gNum = Number(manualForm.numero_grupo);
+    const montoNum = parseFloat(manualForm.monto);
+
+    if (!gNum || isNaN(gNum)) {
+      addToast('Debe ingresar un número de grupo válido', 'error');
+      return;
+    }
+    if (!montoNum || isNaN(montoNum) || montoNum <= 0) {
+      addToast('Debe ingresar un importe mayor a cero', 'error');
       return;
     }
 
     setManualSaving(true);
     try {
-      const parsedMonto = parseFloat(manualForm.monto);
-      const isIncome = parsedMonto > 0;
-      
-      // Determine banco and tipo_movimiento based on type selected
-      let finalBanco = manualForm.banco;
-      let finalTipo = manualForm.tipoPago;
+      const gInfo = gruposList.find(g => g.numero_grupo === gNum);
+      const titularNombre = manualForm.nombre || gInfo?.nombre || gInfo?.titular || `Grupo ${gNum}`;
 
-      // Ensure defaults match selection
-      if (manualForm.tipoPago === 'PAGO_EFECTIVO') finalBanco = 'EFECTIVO';
-      else if (manualForm.tipoPago === 'PAGO_DIRECTO') finalBanco = 'DIRECTO';
-      else if (manualForm.tipoPago === 'PAGO_PABLO') finalBanco = 'PAGO_PABLO';
+      const nuevo = await registrarCobroCuenta({
+        numero_grupo: gNum,
+        nombre: titularNombre,
+        importe: montoNum,
+        medio_pago: manualForm.medio_pago,
+        observaciones: manualForm.observaciones || `Cobro registrado en Historial de Movimientos - [${manualForm.medio_pago}]`,
+        fecha: manualForm.fecha || new Date().toISOString().slice(0, 10),
+        periodo: manualForm.periodo || null
+      });
 
-      const sPeriod = manualForm.fecha.substring(0, 7);
-
-      // 1. If linking to liquidation, update liquidaciones_grupos first
-      let linkedLiqId = null;
-      if (manualForm.selectedLiquidationId) {
-        linkedLiqId = parseInt(manualForm.selectedLiquidationId, 10);
-        const targetLiq = manualPendingList.find(l => l.liquidacion_id === linkedLiqId);
-        
-        if (targetLiq) {
-          const newAbonado = Math.round((Number(targetLiq.monto_abonado || 0) + parsedMonto) * 100) / 100;
-          const isFullyPaid = newAbonado >= Number(targetLiq.monto_total_facturado) - 2.00;
-          const status = isFullyPaid ? 'ABONADO' : 'PARCIAL';
-
-          const { error: liqUpdError } = await supabase
-            .from('liquidaciones_grupos')
-            .update({
-              monto_abonado: newAbonado,
-              estado_pago: status,
-              updated_at: new Date().toISOString()
-            })
-            .eq('liquidacion_id', linkedLiqId);
-
-          if (liqUpdError) throw liqUpdError;
-        }
-      }
-
-      // 2. Insert into movimientos_bancarios
-      const { error: insertError } = await supabase
-        .from('movimientos_bancarios')
-        .insert({
-          fecha_movimiento: manualForm.fecha,
-          concepto: manualForm.concepto,
-          monto: parsedMonto,
-          banco: finalBanco,
-          tipo_movimiento: finalTipo,
-          socio_id: manualForm.selectedSocioId ? parseInt(manualForm.selectedSocioId, 10) : null,
-          liquidacion_id: linkedLiqId,
-          comprobante: manualForm.comprobante || null,
-          observaciones: manualForm.observaciones || null,
-          periodo: sPeriod,
-          origen: 'DIARIO'
-        });
-
-      if (insertError) throw insertError;
-
-      // 3. Write Audit Log
-      await supabase
-        .from('audit_log')
-        .insert({
-          tipo_evento: 'CONCILIACION_MANUAL',
-          descripcion: `MANUAL: Se computó movimiento manual por $${parsedMonto} (${getTipoMovimientoLabel(finalTipo)}) en ${finalBanco} - Socio: ${manualForm.selectedSocioLabel || 'N/A'}.`,
-          monto: parsedMonto,
-          usuario: 'dante@admin.com'
-        });
-
-      addToast("Pago manual computado y registrado con éxito", "success");
+      addToast(`Cobro de ${formatMoney(montoNum)} registrado con éxito para Grupo #${gNum}`, 'success');
       setIsManualModalOpen(false);
-      
-      // Reset form
       setManualForm({
-        fecha: new Date().toISOString().split('T')[0],
-        concepto: '',
+        numero_grupo: '',
+        nombre: '',
         monto: '',
-        tipoPago: 'PAGO_EFECTIVO',
-        banco: 'EFECTIVO',
-        selectedSocioLabel: '',
-        selectedSocioId: '',
-        selectedLiquidationId: '',
-        comprobante: '',
+        medio_pago: 'EFECTIVO EN MUT',
+        fecha: new Date().toISOString().split('T')[0],
+        periodo: '2026-09',
         observaciones: ''
       });
-      setManualPendingList([]);
 
-      fetchHistorial();
+      // Recargar lista
+      await loadData();
     } catch (err) {
-      console.error(err);
-      addToast(`Error al registrar pago manual: ${err.message}`, "error");
+      console.error('Error al registrar pago manual:', err);
+      addToast('Error al registrar cobro: ' + err.message, 'error');
     } finally {
       setManualSaving(false);
     }
-  };
+  }
 
-  // Adjust bank selection automatically when changing tipoPago in manual form
-  const handleManualTipoPagoChange = (typeVal) => {
-    let bankVal = 'EFECTIVO';
-    if (typeVal === 'PAGO_EFECTIVO') bankVal = 'EFECTIVO';
-    else if (typeVal === 'PAGO_DIRECTO') bankVal = 'DIRECTO';
-    else if (typeVal === 'PAGO_PABLO') bankVal = 'PAGO_PABLO';
-    else if (typeVal === 'TRANSFERENCIA_RECIBIDA') bankVal = 'CREDICOOP';
-    else bankVal = 'EFECTIVO';
-
-    setManualForm(prev => ({ ...prev, tipoPago: typeVal, banco: bankVal }));
-  };
+  // Información del grupo actualmente seleccionado en modo grupo
+  const grupoSeleccionadoInfo = useMemo(() => {
+    if (!selectedGrupo) return null;
+    return gruposList.find(g => String(g.numero_grupo) === String(selectedGrupo)) || null;
+  }, [gruposList, selectedGrupo]);
 
   return (
-    <div style={{ padding: '0 40px 40px 40px', maxWidth: '1600px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '32px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '10px 0 40px 0' }}>
       
-      {/* DATALIST PARA AUTOCOMPLETADO DE SOCIOS */}
-      <datalist id="global-socios-list">
-        {socios.map(s => {
-          const gpoText = s.grupo_socio?.map(g => g.numero_grupo).join(', ') || 'Sin Grupo';
-          return (
-            <option 
-              key={s.socio_id} 
-              value={`${s.nombre_completo} (Nº ${s.nro_socio || 'S/N'} - Gpos: ${gpoText})`} 
-            />
-          );
-        })}
-      </datalist>
-
-      {/* Header Panel */}
-      <div className="dashboard-header animate-fade" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '20px' }}>
+      {/* ENCABEZADO PRINCIPAL */}
+      <div className="dashboard-header animate-fade" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
         <div>
-          <h2 style={{ fontSize: '32px', fontWeight: 900, color: 'var(--text-primary)', letterSpacing: '-0.03em', margin: 0 }}>
-            Historial de Movimientos
-          </h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '15px', fontWeight: 500, marginTop: '4px', margin: 0 }}>
-            Módulo de visualización, auditoría y carga manual de pagos (efectivo, directo, Pablo y transferencias)
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <h2 style={{ fontSize: '28px', fontWeight: 900, color: 'var(--text-primary)', letterSpacing: '-0.03em', margin: 0 }}>
+              Historial de Movimientos
+            </h2>
+            <span style={{
+              background: 'rgba(16, 185, 129, 0.12)',
+              color: '#059669',
+              padding: '4px 10px',
+              borderRadius: '20px',
+              fontSize: '12px',
+              fontWeight: 800,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px'
+            }}>
+              <CheckCircle2 size={13} /> {pagosFiltrados.length} cobro{pagosFiltrados.length === 1 ? '' : 's'}
+            </span>
+          </div>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '13.5px', fontWeight: 500, marginTop: '4px', margin: 0 }}>
+            Visualización y control de cobros recaudados (semanal y por grupo con su medio de pago).
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-          {/* Period selector */}
-          <div style={{ 
-            background: 'var(--surface)', 
-            border: '1px solid var(--border-light)', 
-            borderRadius: '16px', 
-            padding: '6px 16px', 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '12px',
-            boxShadow: 'var(--shadow-soft)'
-          }}>
-            <Calendar size={18} style={{ color: 'var(--accent)' }} />
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Período Conciliado</span>
-              <select
-                value={selectedPeriod}
-                onChange={e => setSelectedPeriod(e.target.value)}
-                style={{ 
-                  background: 'none', border: 'none', color: 'var(--text-primary)', 
-                  fontWeight: 800, fontSize: '14px', outline: 'none', cursor: 'pointer', padding: 0 
-                }}
-              >
-                <option value="">Todos los Períodos</option>
-                {periods.map(p => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
-            </div>
-          </div>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button 
+            onClick={handleExportarExcel}
+            className="action-button" 
+            style={{ 
+              display: 'flex', alignItems: 'center', gap: '7px', padding: '10px 16px', 
+              borderRadius: '12px', fontWeight: 700, fontSize: '13px', background: 'var(--surface)',
+              border: '1px solid var(--border-light)', color: 'var(--text-primary)'
+            }}
+            title="Exportar listado visible a planilla Excel"
+          >
+            <FileSpreadsheet size={16} color="#10b981" />
+            Exportar Excel
+          </button>
+
+          <button 
+            onClick={loadData}
+            className="action-button" 
+            style={{ 
+              display: 'flex', alignItems: 'center', gap: '7px', padding: '10px 16px', 
+              borderRadius: '12px', fontWeight: 700, fontSize: '13px', background: 'var(--surface)',
+              border: '1px solid var(--border-light)', color: 'var(--text-primary)'
+            }}
+            disabled={loading}
+          >
+            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+            Actualizar
+          </button>
 
           <button 
             className="btn-primary" 
             onClick={() => setIsManualModalOpen(true)}
             style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '8px', 
-              padding: '12px 24px', 
-              borderRadius: '16px', 
-              fontWeight: 700,
-              boxShadow: '0 8px 16px rgba(16, 185, 129, 0.2)' 
+              display: 'flex', alignItems: 'center', gap: '7px', padding: '10px 18px', 
+              borderRadius: '12px', fontWeight: 800, fontSize: '13px',
+              boxShadow: '0 4px 12px rgba(16, 185, 129, 0.25)' 
             }}
           >
-            <Plus size={18} />
-            Registrar Pago Manual
+            <Plus size={16} />
+            Registrar Cobro
           </button>
         </div>
       </div>
 
-      {/* Grid of KPI Cards (Premium redisenio) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px' }} className="animate-fade">
-        {/* Card 1: Total Ingresos */}
-        <div className="premium-card hover-lift" style={{ 
-          background: 'linear-gradient(135deg, var(--surface) 0%, rgba(16, 185, 129, 0.02) 100%)', 
-          borderLeft: '5px solid #10b981' 
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              INGRESOS TOTALES (CRÉDITO)
-            </span>
-            <div style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '8px', borderRadius: '12px' }}>
-              <TrendingUp size={20} />
-            </div>
-          </div>
-          <h3 style={{ fontSize: '28px', fontWeight: 900, color: 'var(--text-primary)', margin: '12px 0 4px 0', letterSpacing: '-0.02em' }}>
-            ${metrics.totalIngresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-          </h3>
-          <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>
-            Suma de todos los ingresos del período
-          </p>
-        </div>
-
-        {/* Card 2: Total Conciliado */}
-        <div className="premium-card hover-lift" style={{ 
-          background: 'linear-gradient(135deg, var(--surface) 0%, rgba(59, 130, 246, 0.02) 100%)', 
-          borderLeft: '5px solid #3b82f6' 
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              IMPUTADOS / CONCILIADOS
-            </span>
-            <div style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', padding: '8px', borderRadius: '12px' }}>
-              <CheckCircle size={20} />
-            </div>
-          </div>
-          <h3 style={{ fontSize: '28px', fontWeight: 900, color: 'var(--text-primary)', margin: '12px 0 4px 0', letterSpacing: '-0.02em' }}>
-            ${metrics.totalConciliado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-          </h3>
-          <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>
-            Ingresos vinculados a facturas/socios ({Math.round(metrics.totalIngresos > 0 ? (metrics.totalConciliado / metrics.totalIngresos) * 100 : 0)}%)
-          </p>
-        </div>
-
-        {/* Card 3: Total Egresos */}
-        <div className="premium-card hover-lift" style={{ 
-          background: 'linear-gradient(135deg, var(--surface) 0%, rgba(239, 68, 68, 0.02) 100%)', 
-          borderLeft: '5px solid #ef4444' 
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              EGRESOS TOTALES (DÉBITO)
-            </span>
-            <div style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', padding: '8px', borderRadius: '12px' }}>
-              <TrendingDown size={20} />
-            </div>
-          </div>
-          <h3 style={{ fontSize: '28px', fontWeight: 900, color: 'var(--text-primary)', margin: '12px 0 4px 0', letterSpacing: '-0.02em' }}>
-            ${metrics.totalEgresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-          </h3>
-          <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>
-            Pagos, impuestos, suscripciones y comisiones
-          </p>
-        </div>
-
-        {/* Card 4: Gastos y Comisiones */}
-        <div className="premium-card hover-lift" style={{ 
-          background: 'linear-gradient(135deg, var(--surface) 0%, rgba(249, 115, 22, 0.02) 100%)', 
-          borderLeft: '5px solid #f97316' 
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              IMPUESTOS Y COMISIONES
-            </span>
-            <div style={{ background: 'rgba(249, 115, 22, 0.1)', color: '#f97316', padding: '8px', borderRadius: '12px' }}>
-              <Landmark size={20} />
-            </div>
-          </div>
-          <h3 style={{ fontSize: '28px', fontWeight: 900, color: 'var(--text-primary)', margin: '12px 0 4px 0', letterSpacing: '-0.02em' }}>
-            ${metrics.totalImpuestos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-          </h3>
-          <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>
-            Impuestos y comisiones del período
-          </p>
-        </div>
-      </div>
-
-      {/* Main Table Panel */}
-      <div className="glass-panel animate-fade" style={{ borderRadius: '24px', overflow: 'hidden' }}>
+      {/* BARRA DE FILTRO TEMPORAL Y ALTERNADOR DE GRUPOS */}
+      <div className="bento-card" style={{ padding: '18px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         
-        {/* Table Toolbar / Filters */}
-        <div style={{ padding: '24px 32px', borderBottom: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-            <div>
-              <h3 style={{ fontSize: '18px', fontWeight: 800, margin: 0 }}>
-                Listado de Movimientos Registrados
-              </h3>
-              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px', margin: 0 }}>
-                Buscá, auditá, editá o deshacé conciliaciones del período seleccionado.
-              </p>
-            </div>
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button 
-                onClick={handleResetearPeriodo}
-                className="action-button hover-lift"
-                style={{ background: 'rgba(239, 68, 68, 0.08)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.15)', padding: '10px 16px', display: 'flex', alignItems: 'center', fontWeight: 700, borderRadius: '12px' }}
-                disabled={loadingHistorial || !selectedPeriod}
-              >
-                <Trash2 size={16} style={{ marginRight: '8px' }} />
-                Resetear Período
-              </button>
-              <button 
-                onClick={fetchHistorial}
-                className="action-button"
-                style={{ background: 'rgba(0,0,0,0.02)', color: 'var(--text-primary)', border: '1px solid var(--border-light)', padding: '10px 16px', display: 'flex', alignItems: 'center', borderRadius: '12px' }}
-                disabled={loadingHistorial}
-              >
-                <RefreshCw size={16} className={loadingHistorial ? 'animate-spin' : ''} style={{ marginRight: '8px' }} />
-                Actualizar
-              </button>
-            </div>
+        {/* FILA 1: SELECTOR DE RANGO TEMPORAL */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Calendar size={14} color="var(--accent)" /> Período:
+            </span>
+
+            {/* Pill 1: Esta Semana (Por defecto) */}
+            <button
+              type="button"
+              onClick={() => setFiltroRango('ESTA_SEMANA')}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '10px',
+                fontSize: '12.5px',
+                fontWeight: 800,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                border: filtroRango === 'ESTA_SEMANA' ? '2px solid #10b981' : '1px solid var(--border-light)',
+                background: filtroRango === 'ESTA_SEMANA' ? 'rgba(16, 185, 129, 0.12)' : 'var(--surface)',
+                color: filtroRango === 'ESTA_SEMANA' ? '#059669' : 'var(--text-primary)'
+              }}
+            >
+              ⭐ Esta Semana ({weekCurrent.label})
+            </button>
+
+            {/* Pill 2: Semana Anterior */}
+            <button
+              type="button"
+              onClick={() => setFiltroRango('SEMANA_ANTERIOR')}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '10px',
+                fontSize: '12.5px',
+                fontWeight: 800,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                border: filtroRango === 'SEMANA_ANTERIOR' ? '2px solid #10b981' : '1px solid var(--border-light)',
+                background: filtroRango === 'SEMANA_ANTERIOR' ? 'rgba(16, 185, 129, 0.12)' : 'var(--surface)',
+                color: filtroRango === 'SEMANA_ANTERIOR' ? '#059669' : 'var(--text-primary)'
+              }}
+            >
+              Semana Anterior ({weekPrevious.label})
+            </button>
+
+            {/* Pill 3: Este Mes */}
+            <button
+              type="button"
+              onClick={() => setFiltroRango('ESTE_MES')}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '10px',
+                fontSize: '12.5px',
+                fontWeight: 800,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                border: filtroRango === 'ESTE_MES' ? '2px solid #10b981' : '1px solid var(--border-light)',
+                background: filtroRango === 'ESTE_MES' ? 'rgba(16, 185, 129, 0.12)' : 'var(--surface)',
+                color: filtroRango === 'ESTE_MES' ? '#059669' : 'var(--text-primary)'
+              }}
+            >
+              Este Mes (Octubre)
+            </button>
+
+            {/* Pill 4: Histórico Completo */}
+            <button
+              type="button"
+              onClick={() => setFiltroRango('TODOS')}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '10px',
+                fontSize: '12.5px',
+                fontWeight: 800,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                border: filtroRango === 'TODOS' ? '2px solid #10b981' : '1px solid var(--border-light)',
+                background: filtroRango === 'TODOS' ? 'rgba(16, 185, 129, 0.12)' : 'var(--surface)',
+                color: filtroRango === 'TODOS' ? '#059669' : 'var(--text-primary)'
+              }}
+            >
+              Histórico Completo
+            </button>
+
+            {/* Pill 5: Personalizado */}
+            <button
+              type="button"
+              onClick={() => setFiltroRango('CUSTOM')}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '10px',
+                fontSize: '12.5px',
+                fontWeight: 800,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                border: filtroRango === 'CUSTOM' ? '2px solid #10b981' : '1px solid var(--border-light)',
+                background: filtroRango === 'CUSTOM' ? 'rgba(16, 185, 129, 0.12)' : 'var(--surface)',
+                color: filtroRango === 'CUSTOM' ? '#059669' : 'var(--text-primary)'
+              }}
+            >
+              Rango Personalizado
+            </button>
           </div>
 
-          {/* Fila de Filtros y Búsqueda */}
-          <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap', background: 'rgba(0,0,0,0.01)', padding: '12px 16px', borderRadius: '16px', border: '1px solid var(--border-light)' }}>
-            <div className="search-bar" style={{ display: 'flex', alignItems: 'center', background: 'var(--surface)', padding: '8px 12px', borderRadius: '10px', border: '1px solid var(--border-light)', flex: 1, minWidth: '240px', margin: 0 }}>
-              <Search size={16} style={{ marginRight: '8px', color: 'var(--text-secondary)' }} />
-              <input
-                type="text"
-                placeholder="Buscar movimientos por concepto, socio, banco o monto..."
-                value={searchHistorial}
-                onChange={(e) => setSearchHistorial(e.target.value)}
-                style={{ background: 'none', border: 'none', outline: 'none', width: '100%', color: 'var(--text-primary)', fontSize: '13px' }}
+          {filtroRango === 'CUSTOM' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input 
+                type="date" 
+                value={customDesde} 
+                onChange={(e) => setCustomDesde(e.target.value)} 
+                className="premium-input"
+                style={{ padding: '4px 8px', fontSize: '12px', height: '32px' }}
+              />
+              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>hasta</span>
+              <input 
+                type="date" 
+                value={customHasta} 
+                onChange={(e) => setCustomHasta(e.target.value)} 
+                className="premium-input"
+                style={{ padding: '4px 8px', fontSize: '12px', height: '32px' }}
               />
             </div>
+          )}
+        </div>
 
-            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>Banco/Canal:</span>
-                <select
-                  className="premium-input"
-                  style={{ padding: '4px 10px', height: '34px', fontSize: '13px', width: '130px', borderRadius: '8px' }}
-                  value={filtroBancoHistorial}
-                  onChange={e => setFiltroBancoHistorial(e.target.value)}
-                >
-                  <option value="TODOS">Todos</option>
-                  <option value="CREDICOOP">Credicoop</option>
-                  <option value="NACION">Nación</option>
-                  <option value="EFECTIVO">Efectivo</option>
-                  <option value="DIRECTO">Pago Directo</option>
-                  <option value="PAGO_PABLO">Pago a Pablo</option>
-                </select>
-              </div>
+        {/* FILA 2: ALTERNADOR ENTRE TODOS LOS GRUPOS O GRUPO ESPECÍFICO */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px',
+          paddingTop: '12px',
+          borderTop: '1px solid var(--border-light)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <User size={14} color="var(--accent)" /> Visualización:
+            </span>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>Tipo:</span>
-                <select
-                  className="premium-input"
-                  style={{ padding: '4px 10px', height: '34px', fontSize: '13px', width: '170px', borderRadius: '8px' }}
-                  value={filtroTipoHistorial}
-                  onChange={e => setFiltroTipoHistorial(e.target.value)}
-                >
-                  <option value="TODOS">Todos los tipos</option>
-                  <option value="TRANSFERENCIA_RECIBIDA">Transf. Recibidas</option>
-                  <option value="PAGO_EFECTIVO">Pagos en Efectivo</option>
-                  <option value="PAGO_DIRECTO">Pagos Directos</option>
-                  <option value="PAGO_PABLO">Pagos a Pablo</option>
-                  <option value="TRANSFERENCIA_ENVIADA">Transf. Enviadas</option>
-                  <option value="IMPUESTO">Impuestos</option>
-                  <option value="COMISION">Comisiones</option>
-                  <option value="SUSCRIPCION">Suscripciones</option>
-                  <option value="PAGO_ARCA">Pagos ARCA</option>
-                  <option value="PAGO_VEP">Pagos VEP</option>
-                  <option value="PAGO_SERVICIO">Pagos de Servicios</option>
-                  <option value="OTRO_INGRESO">Otros Ingresos</option>
-                  <option value="OTRO_EGRESO">Otros Egresos</option>
-                </select>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>Estado:</span>
-                <select
-                  className="premium-input"
-                  style={{ padding: '4px 10px', height: '34px', fontSize: '13px', width: '140px', borderRadius: '8px' }}
-                  value={filtroVinculacion}
-                  onChange={e => setFiltroVinculacion(e.target.value)}
-                >
-                  <option value="TODOS">Todos</option>
-                  <option value="PENDIENTES">Sin Imputar</option>
-                  <option value="COMPLETOS">Imputados / Conciliados</option>
-                </select>
-              </div>
+            {/* Alternador Segmentado */}
+            <div style={{
+              display: 'inline-flex',
+              background: 'var(--surface-hover)',
+              padding: '3px',
+              borderRadius: '12px',
+              border: '1px solid var(--border-light)'
+            }}>
+              <button
+                type="button"
+                onClick={() => setModoGrupo('TODOS')}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '9px',
+                  fontSize: '12.5px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  border: 'none',
+                  background: modoGrupo === 'TODOS' ? 'var(--accent)' : 'transparent',
+                  color: modoGrupo === 'TODOS' ? '#ffffff' : 'var(--text-secondary)',
+                  boxShadow: modoGrupo === 'TODOS' ? '0 2px 6px rgba(16, 185, 129, 0.3)' : 'none',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                🌐 Todos los Grupos
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => setModoGrupo('GRUPO')}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '9px',
+                  fontSize: '12.5px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  border: 'none',
+                  background: modoGrupo === 'GRUPO' ? 'var(--accent)' : 'transparent',
+                  color: modoGrupo === 'GRUPO' ? '#ffffff' : 'var(--text-secondary)',
+                  boxShadow: modoGrupo === 'GRUPO' ? '0 2px 6px rgba(16, 185, 129, 0.3)' : 'none',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                👥 Por Grupo Específico
+              </button>
             </div>
+
+            {/* Selector de Grupo si está en modo GRUPO */}
+            {modoGrupo === 'GRUPO' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <select
+                  value={selectedGrupo}
+                  onChange={(e) => setSelectedGrupo(e.target.value)}
+                  className="premium-input"
+                  style={{
+                    padding: '6px 12px',
+                    height: '36px',
+                    fontSize: '12.5px',
+                    fontWeight: 800,
+                    minWidth: '260px',
+                    background: 'var(--surface)'
+                  }}
+                >
+                  {gruposList.map(g => (
+                    <option key={g.numero_grupo} value={String(g.numero_grupo)}>
+                      Grupo #{g.numero_grupo} — {g.titular || g.nombre || 'Socio'}
+                    </option>
+                  ))}
+                </select>
+
+                {grupoSeleccionadoInfo && (
+                  <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                    {grupoSeleccionadoInfo.total_lineas ? `(${grupoSeleccionadoInfo.total_lineas} línea${grupoSeleccionadoInfo.total_lineas === 1 ? '' : 's'})` : ''}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Filtro por Medio de Pago */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+              Medio:
+            </span>
+            <select
+              value={filtroMedio}
+              onChange={(e) => setFiltroMedio(e.target.value)}
+              className="premium-input"
+              style={{
+                padding: '4px 10px',
+                height: '34px',
+                fontSize: '12px',
+                fontWeight: 700,
+                width: 'auto',
+                background: 'var(--surface)'
+              }}
+            >
+              <option value="TODOS">Todos los medios</option>
+              <option value="EFECTIVO">💵 Solo Efectivo en Mutual</option>
+              <option value="CREDICOOP">🏦 Solo Banco Credicoop</option>
+              <option value="NACION">🏦 Solo Banco Nación</option>
+              <option value="DIRECTO">📱 Solo Pagos Directos</option>
+            </select>
           </div>
         </div>
 
-        {loadingHistorial ? (
-          <div style={{ padding: '100px', display: 'flex', justifyContent: 'center' }}>
-            <Loader2 className="animate-spin" size={40} style={{ color: 'var(--accent)' }} />
-          </div>
-        ) : filteredHistorial.length === 0 ? (
-          <div style={{ padding: '100px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-            <AlertCircle size={40} style={{ margin: '0 auto 16px', opacity: 0.5, color: 'var(--text-secondary)' }} />
-            <p style={{ fontWeight: 700, fontSize: '15px' }}>No se encontraron movimientos registrados</p>
-            <p style={{ fontSize: '13px', opacity: 0.7 }}>Pruebe cambiando los filtros o el período seleccionado.</p>
-          </div>
-        ) : (
-          <div className="premium-table-container">
-            <table className="premium-table" style={{ fontSize: '13px' }}>
-              <thead>
-                <tr>
-                  <th style={{ width: '130px', padding: '16px 24px' }}>Fecha / Banco</th>
-                  <th style={{ minWidth: '240px' }}>Detalle del Movimiento</th>
-                  <th style={{ width: '120px', textAlign: 'right' }}>Débito</th>
-                  <th style={{ width: '120px', textAlign: 'right' }}>Crédito</th>
-                  <th style={{ width: '280px' }}>Conciliado Con</th>
-                  <th style={{ width: '160px', textAlign: 'center' }}>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paginatedHistorial.map(mov => (
-                  <tr key={mov.movimiento_id} className="table-row-hover">
-                    {/* 1. Fecha / Banco */}
-                    <td style={{ padding: '16px 24px', fontWeight: 600 }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <span>{formatISODateToAR(mov.fecha_movimiento)}</span>
-                        <div>
-                          <span style={{ 
-                            fontSize: '10px', fontWeight: 800, padding: '2px 6px', borderRadius: '6px',
-                            background: mov.banco === 'NACION' ? 'rgba(59, 130, 246, 0.1)' : 
-                                        mov.banco === 'CREDICOOP' ? 'rgba(16, 185, 129, 0.1)' :
-                                        mov.banco === 'EFECTIVO' ? 'rgba(16, 185, 129, 0.15)' :
-                                        mov.banco === 'DIRECTO' ? 'rgba(79, 70, 229, 0.15)' : 'rgba(219, 39,  pink, 0.15)',
-                            color: mov.banco === 'NACION' ? '#3b82f6' : 
-                                   mov.banco === 'CREDICOOP' ? '#10b981' :
-                                   mov.banco === 'EFECTIVO' ? '#059669' :
-                                   mov.banco === 'DIRECTO' ? '#4f46e5' : '#db2777',
-                            display: 'inline-block'
-                          }}>
-                            {mov.banco}
-                          </span>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* 2. Detalle del Movimiento */}
-                    <td>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                          <span style={{ fontWeight: 700 }}>{mov.concepto}</span>
-                          {renderTipoMovimientoBadge(mov.tipo_movimiento)}
-                        </div>
-                        {mov.comprobante && (
-                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                            Comprobante: <span style={{ fontWeight: 600 }}>{mov.comprobante}</span>
-                          </div>
-                        )}
-                        {mov.observaciones && (
-                          <div style={{ fontSize: '11px', fontStyle: 'italic', color: 'var(--text-secondary)' }}>
-                            Obs: {mov.observaciones}
-                          </div>
-                        )}
-                      </div>
-                    </td>
-
-                    {/* 3. Débito */}
-                    <td style={{ textAlign: 'right' }}>
-                      {Number(mov.monto) < 0 ? (
-                        <span style={{ fontWeight: 900, color: '#ef4444' }}>
-                          -${Math.abs(Number(mov.monto)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                        </span>
-                      ) : (
-                        <span style={{ color: 'var(--text-secondary)', opacity: 0.2 }}>-</span>
-                      )}
-                    </td>
-
-                    {/* 4. Crédito */}
-                    <td style={{ textAlign: 'right' }}>
-                      {Number(mov.monto) > 0 ? (
-                        <span style={{ fontWeight: 900, color: '#10b981' }}>
-                          +${Number(mov.monto).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                        </span>
-                      ) : (
-                        <span style={{ color: 'var(--text-secondary)', opacity: 0.2 }}>-</span>
-                      )}
-                    </td>
-
-                    {/* 5. Conciliado Con */}
-                    <td>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        {mov.socios ? (
-                          <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <span style={{ fontWeight: 700 }}>{mov.socios.nombre_completo}</span>
-                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Nº Socio {mov.socios.nro_socio || 'Sin Nro'}</span>
-                          </div>
-                        ) : (['IMPUESTO', 'COMISION', 'SUSCRIPCION', 'PAGO_VEP', 'PAGO_SERVICIO', 'PAGO_ARCA'].includes(mov.tipo_movimiento)) ? (
-                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontStyle: 'italic', fontWeight: 600 }}>
-                            {mov.tipo_movimiento === 'IMPUESTO' ? 'Gasto Bancario General' :
-                             mov.tipo_movimiento === 'COMISION' ? 'Pago Comisión' :
-                             mov.tipo_movimiento === 'SUSCRIPCION' ? 'Suscripción General' :
-                             mov.tipo_movimiento === 'PAGO_VEP' ? 'Pago de VEP (AFIP)' :
-                             mov.tipo_movimiento === 'PAGO_ARCA' ? 'Pago de ARCA' :
-                             mov.tipo_movimiento === 'PAGO_SERVICIO' ? 'Pago de Servicio General' : 'Gasto General'}
-                          </span>
-                        ) : (
-                          <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>Sin socio asignado</span>
-                        )}
-
-                        {mov.liquidaciones_grupos ? (
-                          <div style={{ marginTop: '2px', display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
-                            <span style={{ 
-                              fontSize: '10px', fontWeight: 800, padding: '2px 6px', borderRadius: '6px',
-                              background: 'rgba(46, 125, 50, 0.08)', color: 'var(--accent)', display: 'inline-block'
-                            }}>
-                              Vinc: {mov.liquidaciones_grupos.periodo} - Gpo {mov.liquidaciones_grupos.numero_grupo}
-                            </span>
-                            {mov.liquidacion_id && (
-                              <button
-                                onClick={() => openBreakdownModal(mov.liquidacion_id)}
-                                style={{
-                                  background: 'none', border: 'none', color: 'var(--accent)',
-                                  fontSize: '11px', cursor: 'pointer', padding: 0, textDecoration: 'underline',
-                                  textAlign: 'left', fontWeight: 'bold'
-                                }}
-                              >
-                                Ver desglose del grupo
-                              </button>
-                            )}
-                          </div>
-                        ) : (
-                          !(['IMPUESTO', 'COMISION', 'SUSCRIPCION', 'PAGO_VEP', 'PAGO_SERVICIO', 'PAGO_ARCA'].includes(mov.tipo_movimiento)) && (
-                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Sin factura vinculada</span>
-                          )
-                        )}
-                      </div>
-                    </td>
-
-                    {/* 6. Acciones */}
-                    <td style={{ textAlign: 'center' }}>
-                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                        <button
-                          onClick={() => openEditConciliacionModal(mov)}
-                          className="action-button"
-                          style={{ 
-                            background: 'transparent', color: 'var(--accent)', border: '1px solid var(--border-light)',
-                            padding: '6px 12px', fontSize: '12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700
-                          }}
-                        >
-                          Editar
-                        </button>
-                        <button
-                          onClick={() => handleDeshacerConciliacion(mov)}
-                          className="action-button"
-                          style={{ 
-                            background: 'transparent', color: 'var(--danger)', border: '1px solid rgba(239, 68, 68, 0.15)',
-                            padding: '6px 12px', fontSize: '12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.05)'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                        >
-                          Eliminar
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Controles de Paginación para Historial */}
-        {totalPagesHistorial > 1 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 32px', borderTop: '1px solid var(--border-light)', background: 'var(--surface-light)' }}>
-            <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '600' }}>
-              Mostrando <span style={{ color: 'var(--text-primary)', fontWeight: 800 }}>{(currentPageHistorial - 1) * itemsPerPage + 1}</span> a <span style={{ color: 'var(--text-primary)', fontWeight: 800 }}>{Math.min(currentPageHistorial * itemsPerPage, filteredHistorial.length)}</span> de <span style={{ color: 'var(--text-primary)', fontWeight: 800 }}>{filteredHistorial.length}</span> movimientos
-            </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <button 
-                onClick={() => setCurrentPageHistorial(p => Math.max(1, p - 1))}
-                disabled={currentPageHistorial === 1}
-                className="pagination-btn-nav"
-                style={{ padding: '8px 16px', fontSize: '13px' }}
-              >
-                Anterior
-              </button>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px', fontWeight: '700' }}>
-                Página {currentPageHistorial} de {totalPagesHistorial}
-              </div>
-              <button 
-                onClick={() => setCurrentPageHistorial(p => Math.min(totalPagesHistorial, p + 1))}
-                disabled={currentPageHistorial === totalPagesHistorial}
-                className="pagination-btn-nav"
-                style={{ padding: '8px 16px', fontSize: '13px' }}
-              >
-                Siguiente
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* 1. Modal para Registrar Pago Manual */}
+      {/* TARJETAS KPI DE RESUMEN SEMANAL */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '16px' }} className="animate-fade">
+        {/* Card 1: Total Cobrado */}
+        <div className="premium-card hover-lift" style={{ 
+          background: 'linear-gradient(135deg, var(--surface) 0%, rgba(16, 185, 129, 0.04) 100%)', 
+          borderLeft: '5px solid #10b981',
+          padding: '16px 20px'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              {filtroRango === 'ESTA_SEMANA' ? 'COBRADO ESTA SEMANA' : 'TOTAL COBRADO'}
+            </span>
+            <div style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '6px', borderRadius: '10px' }}>
+              <TrendingUp size={18} />
+            </div>
+          </div>
+          <h3 style={{ fontSize: '24px', fontWeight: 900, color: '#10b981', margin: '8px 0 2px 0', letterSpacing: '-0.02em' }}>
+            {formatMoney(metricas.total)}
+          </h3>
+          <p style={{ margin: 0, fontSize: '11.5px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+            {metricas.cantidad} cobro{metricas.cantidad === 1 ? '' : 's'} registrado{metricas.cantidad === 1 ? '' : 's'}
+          </p>
+        </div>
+
+        {/* Card 2: Efectivo en Mutual */}
+        <Link 
+          to="/caja-efectivo"
+          className="premium-card hover-lift" 
+          style={{ 
+            background: 'var(--surface)', 
+            borderLeft: '5px solid #059669',
+            padding: '16px 20px',
+            textDecoration: 'none',
+            display: 'block'
+          }}
+          title="Ver Arqueo y Verificación de Caja Efectivo"
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              💵 EFECTIVO EN CAJA
+            </span>
+            <div style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#059669', padding: '6px', borderRadius: '10px' }}>
+              <Coins size={18} />
+            </div>
+          </div>
+          <h3 style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text-primary)', margin: '8px 0 2px 0' }}>
+            {formatMoney(metricas.efectivo)}
+          </h3>
+          <p style={{ margin: 0, fontSize: '11.5px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+            Cobrado en efectivo en sede · <span style={{ color: '#059669', fontWeight: 700 }}>Ver Caja ↗</span>
+          </p>
+        </Link>
+
+        {/* Card 3: Banco Credicoop */}
+        <div className="premium-card hover-lift" style={{ 
+          background: 'var(--surface)', 
+          borderLeft: '5px solid #3b82f6',
+          padding: '16px 20px'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              🏦 BANCO CREDICOOP
+            </span>
+            <div style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', padding: '6px', borderRadius: '10px' }}>
+              <Landmark size={18} />
+            </div>
+          </div>
+          <h3 style={{ fontSize: '22px', fontWeight: 900, color: '#2563eb', margin: '8px 0 2px 0' }}>
+            {formatMoney(metricas.credicoop)}
+          </h3>
+          <p style={{ margin: 0, fontSize: '11.5px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+            Transferencias a Credicoop
+          </p>
+        </div>
+
+        {/* Card 4: Banco Nación / Otros */}
+        <div className="premium-card hover-lift" style={{ 
+          background: 'var(--surface)', 
+          borderLeft: '5px solid #6366f1',
+          padding: '16px 20px'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              🏦 NACIÓN / DIRECTOS
+            </span>
+            <div style={{ background: 'rgba(99, 102, 241, 0.1)', color: '#6366f1', padding: '6px', borderRadius: '10px' }}>
+              <CreditCard size={18} />
+            </div>
+          </div>
+          <h3 style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text-primary)', margin: '8px 0 2px 0' }}>
+            {formatMoney(metricas.nacion + metricas.otros)}
+          </h3>
+          <p style={{ margin: 0, fontSize: '11.5px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+            Nación y otros canales
+          </p>
+        </div>
+      </div>
+
+      {/* PANEL PRINCIPAL: TABLA DE COBROS */}
+      <div className="bento-card" style={{ padding: '24px', overflow: 'hidden' }}>
+        
+        {/* Barra superior con buscador y contador */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0 }}>
+              {modoGrupo === 'GRUPO' 
+                ? `Cobros Registrados — Grupo #${selectedGrupo} (${grupoSeleccionadoInfo?.titular || grupoSeleccionadoInfo?.nombre || 'Socio'})`
+                : 'Listado Consolidado de Cobros Registrados'
+              }
+            </h3>
+            <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+              {filtroRango === 'ESTA_SEMANA' && `Mostrando pagos de la semana actual (${weekCurrent.label})`}
+              {filtroRango === 'SEMANA_ANTERIOR' && `Mostrando pagos de la semana anterior (${weekPrevious.label})`}
+              {filtroRango === 'ESTE_MES' && 'Mostrando pagos del mes en curso'}
+              {filtroRango === 'TODOS' && 'Mostrando histórico completo de cobros'}
+              {filtroRango === 'CUSTOM' && `Mostrando cobros entre ${customDesde || 'inicio'} y ${customHasta || 'hoy'}`}
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', background: 'var(--surface)', padding: '6px 12px', borderRadius: '10px', border: '1px solid var(--border-light)', minWidth: '280px' }}>
+            <Search size={15} style={{ marginRight: '8px', color: 'var(--text-secondary)' }} />
+            <input
+              type="text"
+              placeholder="Buscar por socio, grupo o concepto..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              style={{ background: 'none', border: 'none', outline: 'none', width: '100%', color: 'var(--text-primary)', fontSize: '12.5px' }}
+            />
+          </div>
+        </div>
+
+        {/* TABLA DE COBROS */}
+        <div className="table-responsive">
+          <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '12.5px' }}>
+            <thead>
+              <tr style={{ background: 'rgba(0,0,0,0.02)', textAlign: 'left' }}>
+                <th style={{ padding: '10px 12px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', borderRadius: '10px 0 0 10px' }}>FECHA</th>
+                <th style={{ padding: '10px 12px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>GRUPO / SOCIO</th>
+                <th style={{ padding: '10px 12px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>MEDIO DE PAGO</th>
+                <th style={{ padding: '10px 12px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>DETALLE / PERÍODO</th>
+                <th style={{ padding: '10px 12px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right' }}>MONTO COBRADO</th>
+                <th style={{ padding: '10px 12px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', borderRadius: '0 10px 10px 0' }}>COMPROBANTE</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan="6" style={{ textAlign: 'center', padding: '40px' }}>
+                    <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto', color: 'var(--accent)' }} />
+                    <span style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginTop: '8px', display: 'block' }}>Cargando pagos...</span>
+                  </td>
+                </tr>
+              ) : pagosFiltrados.length === 0 ? (
+                <tr>
+                  <td colSpan="6" style={{ textAlign: 'center', padding: '50px 20px', color: 'var(--text-secondary)' }}>
+                    <AlertCircle size={36} style={{ margin: '0 auto 10px', opacity: 0.4, color: 'var(--text-secondary)' }} />
+                    <p style={{ fontWeight: 800, fontSize: '14px', margin: 0 }}>
+                      No se encontraron cobros registrados para este filtro
+                    </p>
+                    <p style={{ fontSize: '12px', opacity: 0.8, marginTop: '4px', margin: 0 }}>
+                      {modoGrupo === 'GRUPO' 
+                        ? `El Grupo #${selectedGrupo} no registra pagos esta semana. Prueba cambiar a "Todos los Grupos" o ver "Histórico Completo".`
+                        : 'No hay cobros registrados en el rango de fechas seleccionado.'
+                      }
+                    </p>
+                    {filtroRango !== 'TODOS' && (
+                      <button
+                        onClick={() => setFiltroRango('TODOS')}
+                        className="air-btn"
+                        style={{ marginTop: '14px', padding: '6px 14px', fontSize: '12px', fontWeight: 800 }}
+                      >
+                        Ver Histórico Completo
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ) : (
+                pagosFiltrados.map((pago) => {
+                  const isEfectivo = String(pago.medio_pago || '').toUpperCase().includes('EFECT') || String(pago.medio_pago || '').toUpperCase().includes('MUT');
+                  const isCredicoop = String(pago.medio_pago || '').toUpperCase().includes('CREDICOOP');
+                  const isNacion = String(pago.medio_pago || '').toUpperCase().includes('NACION') || String(pago.medio_pago || '').toUpperCase().includes('NACIÓN');
+
+                  return (
+                    <tr key={pago.id} style={{ borderBottom: '1px solid var(--border-light)' }} className="table-row-hover">
+                      {/* 1. FECHA */}
+                      <td style={{ padding: '12px 12px', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                        <div>{formatFecha(pago.fecha)}</div>
+                        <span style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                          ID #{pago.id}
+                        </span>
+                      </td>
+
+                      {/* 2. GRUPO / SOCIO */}
+                      <td style={{ padding: '12px 12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{
+                            background: 'rgba(59, 130, 246, 0.1)',
+                            color: '#2563eb',
+                            fontWeight: 900,
+                            fontSize: '11px',
+                            padding: '2px 7px',
+                            borderRadius: '6px'
+                          }}>
+                            #{pago.numero_grupo}
+                          </span>
+                          <span style={{ fontWeight: 800, fontSize: '13px', color: 'var(--text-primary)' }}>
+                            {pago.nombre}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* 3. MEDIO DE PAGO (DESTACADO Y CLICABLE) */}
+                      <td style={{ padding: '12px 12px' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                          <span 
+                            onClick={() => handleAbrirComprobante(pago)}
+                            title="Clic para ver recibo o corregir medio de pago"
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              padding: '3px 8px',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              background: isEfectivo ? 'rgba(16, 185, 129, 0.12)' : isCredicoop ? 'rgba(59, 130, 246, 0.12)' : 'rgba(99, 102, 241, 0.12)',
+                              color: isEfectivo ? '#059669' : isCredicoop ? '#2563eb' : '#4f46e5',
+                              border: `1px solid ${isEfectivo ? 'rgba(16, 185, 129, 0.3)' : isCredicoop ? 'rgba(59, 130, 246, 0.3)' : 'rgba(99, 102, 241, 0.3)'}`
+                            }}
+                          >
+                            {isEfectivo ? '💵' : isCredicoop ? '🏦' : '📱'} {pago.medio_pago}
+                          </span>
+                          {isEfectivo && pago.fecha && (
+                            <Link
+                              to={`/caja-efectivo?fecha=${pago.fecha}`}
+                              title={`Ver arqueo de Caja Efectivo para el día ${pago.fecha}`}
+                              style={{
+                                fontSize: '10.5px',
+                                fontWeight: 800,
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                background: 'rgba(16, 185, 129, 0.15)',
+                                color: '#059669',
+                                textDecoration: 'none',
+                                display: 'inline-flex',
+                                alignItems: 'center'
+                              }}
+                            >
+                              Caja ↗
+                            </Link>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* 4. DETALLE / OBSERVACIONES / PERÍODO */}
+                      <td style={{ padding: '12px 12px', maxWidth: '320px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          {pago.periodo && (
+                            <span style={{ fontSize: '10.5px', fontWeight: 800, color: 'var(--text-secondary)', background: 'var(--surface-hover)', padding: '1px 5px', borderRadius: '4px' }}>
+                              {pago.periodo}
+                            </span>
+                          )}
+                          <span style={{ fontSize: '12px', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={pago.observaciones}>
+                            {pago.observaciones || 'Cobro registrado'}
+                          </span>
+                        </div>
+                        {pago.pago_aplicado_interes > 0 && (
+                          <div style={{ fontSize: '10px', color: '#059669', fontWeight: 700, marginTop: '2px' }}>
+                            ✓ Amortizó {formatMoney(pago.pago_aplicado_capital)} cap. + {formatMoney(pago.pago_aplicado_interes)} int.
+                          </div>
+                        )}
+                      </td>
+
+                      {/* 5. MONTO COBRADO */}
+                      <td style={{ padding: '12px 12px', textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                        <span style={{ fontWeight: 900, fontSize: '14.5px', color: '#10b981' }}>
+                          {formatMoney(pago.monto)}
+                        </span>
+                      </td>
+
+                      {/* 6. ACCIONES (COMPROBANTE / RECIBO) */}
+                      <td style={{ padding: '12px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleAbrirComprobante(pago)}
+                          className="air-btn"
+                          style={{
+                            padding: '5px 10px',
+                            fontSize: '11px',
+                            borderRadius: '8px',
+                            fontWeight: 800,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            background: 'rgba(16, 185, 129, 0.1)',
+                            color: '#10b981',
+                            border: '1px solid rgba(16, 185, 129, 0.25)'
+                          }}
+                          title="Ver o imprimir comprobante oficial de pago"
+                        >
+                          <Printer size={13} /> Recibo
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+
+      {/* MODAL COMPROBANTE OFICIAL DE COBRO */}
+      <ComprobanteCobroModal 
+        isOpen={comprobanteModalOpen}
+        onClose={() => setComprobanteModalOpen(false)}
+        cobroData={comprobanteData}
+        onComprobanteUpdated={handleComprobanteUpdated}
+      />
+
+      {/* MODAL PARA REGISTRAR COBRO MANUAL */}
       <Modal
         isOpen={isManualModalOpen}
         onClose={() => setIsManualModalOpen(false)}
-        title="Registrar Pago Manual / Extra-bancario"
-        maxWidth="500px"
+        title="Registrar Nuevo Cobro"
+        maxWidth="520px"
       >
-        <form onSubmit={handleSaveManualPayment} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <form onSubmit={handleGuardarPagoManual} style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '10px' }}>
           
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-            <div>
-              <label className="form-label">Canal / Medio de Pago *</label>
-              <select
-                className="form-input"
-                value={manualForm.tipoPago}
-                onChange={e => handleManualTipoPagoChange(e.target.value)}
-                required
-              >
-                <option value="PAGO_EFECTIVO">Efectivo</option>
-                <option value="PAGO_DIRECTO">Pago Directo / Transf. Directa</option>
-                <option value="PAGO_PABLO">Pago a Pablo</option>
-                <option value="TRANSFERENCIA_RECIBIDA">Banco (Transferencia)</option>
-                <option value="OTRO_INGRESO">Otro Ingreso</option>
-              </select>
-            </div>
-            <div>
-              <label className="form-label">Banco / Caja *</label>
-              <select
-                className="form-input"
-                value={manualForm.banco}
-                onChange={e => setManualForm(prev => ({ ...prev, banco: e.target.value }))}
-                required
-                disabled={['PAGO_EFECTIVO', 'PAGO_DIRECTO', 'PAGO_PABLO'].includes(manualForm.tipoPago)}
-              >
-                <option value="EFECTIVO">Caja de Efectivo</option>
-                <option value="DIRECTO">Pago Directo</option>
-                <option value="PAGO_PABLO">Caja Pablo</option>
-                <option value="CREDICOOP">Banco Credicoop</option>
-                <option value="NACION">Banco Nación</option>
-              </select>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-            <div>
-              <label className="form-label">Fecha del Pago *</label>
-              <input
-                type="date"
-                className="form-input"
-                value={manualForm.fecha}
-                onChange={e => setManualForm(prev => ({ ...prev, fecha: e.target.value }))}
-                required
-              />
-            </div>
-            <div>
-              <label className="form-label">Monto ($) *</label>
-              <input
-                type="number"
-                step="0.01"
-                placeholder="Ej: 15400"
-                className="form-input"
-                value={manualForm.monto}
-                onChange={e => setManualForm(prev => ({ ...prev, monto: e.target.value }))}
-                required
-              />
-            </div>
-          </div>
-
           <div>
-            <label className="form-label">Concepto / Detalle *</label>
-            <input
-              type="text"
-              placeholder="Ej: Pago de abono Julio - Efectivo"
-              className="form-input"
-              value={manualForm.concepto}
-              onChange={e => setManualForm(prev => ({ ...prev, concepto: e.target.value }))}
+            <label className="form-label">Número de Grupo</label>
+            <input 
+              type="number" 
               required
+              placeholder="Ej: 70140"
+              value={manualForm.numero_grupo} 
+              onChange={(e) => {
+                const gVal = e.target.value;
+                const match = gruposList.find(g => String(g.numero_grupo) === String(gVal));
+                setManualForm(prev => ({
+                  ...prev,
+                  numero_grupo: gVal,
+                  nombre: match ? (match.titular || match.nombre) : prev.nombre
+                }));
+              }}
+              className="form-input" 
             />
+            {manualForm.nombre && (
+              <span style={{ fontSize: '11.5px', color: '#10b981', fontWeight: 700, marginTop: '3px', display: 'block' }}>
+                ✓ {manualForm.nombre}
+              </span>
+            )}
           </div>
 
           <div>
-            <label className="form-label">Socio / Titular (Opcional)</label>
-            <input
-              type="text"
-              list="global-socios-list"
-              className="form-input"
-              value={manualForm.selectedSocioLabel}
-              onChange={e => handleManualSocioChange(e.target.value)}
-              placeholder="Escriba para buscar socio..."
+            <label className="form-label">Nombre del Titular / Socio</label>
+            <input 
+              type="text" 
+              placeholder="Nombre y apellido"
+              value={manualForm.nombre} 
+              onChange={(e) => setManualForm(prev => ({ ...prev, nombre: e.target.value }))}
+              className="form-input" 
             />
           </div>
 
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div>
+              <label className="form-label">Monto Cobrado ($)</label>
+              <input 
+                type="number" 
+                step="0.01"
+                required
+                placeholder="0.00"
+                value={manualForm.monto} 
+                onChange={(e) => setManualForm(prev => ({ ...prev, monto: e.target.value }))}
+                className="form-input" 
+                style={{ fontSize: '15px', fontWeight: 800 }}
+              />
+            </div>
+
+            <div>
+              <label className="form-label">Fecha de Cobro</label>
+              <input 
+                type="date" 
+                required
+                value={manualForm.fecha} 
+                onChange={(e) => setManualForm(prev => ({ ...prev, fecha: e.target.value }))}
+                className="form-input" 
+              />
+            </div>
+          </div>
+
           <div>
-            <label className="form-label">Vincular a Factura Pendiente</label>
-            <select
+            <label className="form-label">Medio de Pago</label>
+            <select 
+              value={manualForm.medio_pago} 
+              onChange={(e) => setManualForm(prev => ({ ...prev, medio_pago: e.target.value }))}
               className="form-input"
-              value={manualForm.selectedLiquidationId}
-              onChange={e => setManualForm(prev => ({ ...prev, selectedLiquidationId: e.target.value }))}
-              disabled={!manualForm.selectedSocioId}
+              style={{ fontWeight: 800 }}
             >
-              {!manualForm.selectedSocioId ? (
-                <option value="">Seleccione un socio para ver facturas</option>
-              ) : manualPendingList.length === 0 ? (
-                <option value="">El socio no tiene deudas pendientes en este periodo</option>
-              ) : (
-                <>
-                  <option value="">-- No vincular a deuda (reconciliar más tarde) --</option>
-                  {manualPendingList.map(liq => {
-                    const fact = Number(liq.monto_total_facturado || 0);
-                    const ab = Number(liq.monto_abonado || 0);
-                    const pend = fact - ab;
-                    return (
-                      <option key={liq.liquidacion_id} value={String(liq.liquidacion_id)}>
-                        Periodo: {liq.periodo} | {liq.proveedores?.nombre || 'S/D'} (Total: ${fact.toLocaleString('es-AR')} | Pend: ${pend.toLocaleString('es-AR')})
-                      </option>
-                    );
-                  })}
-                </>
-              )}
+              <option value="EFECTIVO EN MUT">💵 EFECTIVO EN MUT</option>
+              <option value="TRANSFERENCIA A CREDICOOP">🏦 TRANSFERENCIA A CREDICOOP</option>
+              <option value="TRANSFERENCIA A NACION">🏦 TRANSFERENCIA A NACION</option>
+              <option value="PAGO DIRECTO">📱 PAGO DIRECTO</option>
             </select>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-            <div>
-              <label className="form-label">Nro Comprobante (Opcional)</label>
-              <input
-                type="text"
-                placeholder="Ej: REC-00234"
-                className="form-input"
-                value={manualForm.comprobante}
-                onChange={e => setManualForm(prev => ({ ...prev, comprobante: e.target.value }))}
-              />
-            </div>
-            <div>
-              <label className="form-label">Observaciones (Opcional)</label>
-              <input
-                type="text"
-                placeholder="Cualquier aclaración adicional..."
-                className="form-input"
-                value={manualForm.observaciones}
-                onChange={e => setManualForm(prev => ({ ...prev, observaciones: e.target.value }))}
-              />
-            </div>
+          <div>
+            <label className="form-label">Período Imputado</label>
+            <input 
+              type="text" 
+              placeholder="Ej: 2026-09"
+              value={manualForm.periodo} 
+              onChange={(e) => setManualForm(prev => ({ ...prev, periodo: e.target.value }))}
+              className="form-input" 
+            />
           </div>
 
-          <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
-            <button
-              type="button"
-              className="action-button"
-              style={{ background: 'var(--surface)', border: '1px solid var(--border-light)', color: 'var(--text-secondary)', width: '40%' }}
+          <div>
+            <label className="form-label">Observaciones / Referencia</label>
+            <textarea 
+              rows="2"
+              placeholder="Detalle o referencia del cobro..."
+              value={manualForm.observaciones} 
+              onChange={(e) => setManualForm(prev => ({ ...prev, observaciones: e.target.value }))}
+              className="form-input" 
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+            <button 
+              type="button" 
               onClick={() => setIsManualModalOpen(false)}
+              className="action-button"
             >
               Cancelar
             </button>
-            <button
-              type="submit"
+            <button 
+              type="submit" 
               className="btn-primary"
-              style={{ width: '60%', justifyContent: 'center' }}
               disabled={manualSaving}
+              style={{ padding: '8px 20px', fontWeight: 800 }}
             >
-              {manualSaving ? <Loader2 className="animate-spin" size={16} /> : 'Registrar Pago'}
+              {manualSaving ? 'Guardando...' : 'Confirmar Cobro'}
             </button>
           </div>
+
         </form>
       </Modal>
 
-      {/* 2. Modal para Editar Conciliación / Movimiento */}
-      <Modal 
-        isOpen={editModal.isOpen} 
-        onClose={() => setEditModal(prev => ({ ...prev, isOpen: false }))} 
-        title={`Editar Conciliación - Movimiento #${editModal.movement?.movimiento_id || ''}`} 
-        maxWidth="450px"
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={{ padding: '12px', background: 'var(--surface)', borderRadius: '12px', border: '1px solid var(--border-light)', fontSize: '13px' }}>
-            <p style={{ margin: '0 0 6px 0', color: 'var(--text-secondary)', fontWeight: 600 }}>Detalle del Movimiento</p>
-            <p style={{ margin: '0 0 4px 0', fontWeight: 800 }}>{editModal.movement?.concepto}</p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '12px' }}>
-              <div>
-                <p style={{ margin: '0 0 2px 0', color: 'var(--text-secondary)', fontSize: '11px' }}>Banco / Caja</p>
-                <p style={{ margin: 0, fontWeight: 700 }}>{editModal.movement?.banco}</p>
-              </div>
-              <div>
-                <p style={{ margin: '0 0 2px 0', color: 'var(--text-secondary)', fontSize: '11px' }}>Monto</p>
-                <p style={{ margin: 0, fontWeight: 800, color: Number(editModal.movement?.monto) > 0 ? '#10b981' : '#ef4444' }}>
-                  ${Math.abs(Number(editModal.movement?.monto || 0)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <label className="form-label">Asignar Socio / Titular</label>
-            <input
-              type="text"
-              list="global-socios-list"
-              className="form-input"
-              value={editModal.selectedSocioLabel}
-              onChange={e => handleEditSocioChange(e.target.value)}
-              placeholder="Buscar socio por nombre..."
-              style={{ marginBottom: 0 }}
-            />
-          </div>
-
-          <div>
-            <label className="form-label">Saldar Factura Pendiente</label>
-            <select
-              className="form-input"
-              value={editModal.selectedLiquidationId}
-              onChange={e => setEditModal(prev => ({ ...prev, selectedLiquidationId: e.target.value }))}
-              style={{ marginBottom: 0 }}
-              disabled={!editModal.selectedSocioId}
-            >
-              {!editModal.selectedSocioId ? (
-                <option value="">Asigne un socio primero</option>
-              ) : editModal.pendingList.length === 0 ? (
-                <option value="">Ninguna deuda pendiente</option>
-              ) : (
-                <>
-                  <option value="">-- No saldar deuda --</option>
-                  {editModal.pendingList.map(liq => {
-                    const fact = Number(liq.monto_total_facturado || 0);
-                    const ab = Number(liq.monto_abonado || 0);
-                    const pend = fact - ab;
-                    return (
-                      <option key={liq.liquidacion_id} value={String(liq.liquidacion_id)}>
-                        Periodo: {liq.periodo} | {liq.proveedores?.nombre || 'S/D'} (Fact: ${fact.toLocaleString('es-AR', { maximumFractionDigits: 0 })} | Pend: ${pend.toLocaleString('es-AR', { maximumFractionDigits: 0 })})
-                      </option>
-                    );
-                  })}
-                </>
-              )}
-            </select>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '16px' }}>
-            <button 
-              onClick={() => setEditModal(prev => ({ ...prev, isOpen: false }))} 
-              className="action-button" 
-              style={{ background: 'var(--surface)', color: 'var(--text-secondary)', border: '1px solid var(--border-light)', width: '50%' }} 
-              disabled={editModal.saving}
-            >
-              Cancelar
-            </button>
-            <button 
-              onClick={handleSaveEditConciliacion} 
-              className="action-button" 
-              style={{ width: '50%', fontWeight: 700 }} 
-              disabled={editModal.saving || (!editModal.selectedSocioId && editModal.movement?.tipo_movimiento === 'TRANSFERENCIA_RECIBIDA')}
-            >
-              {editModal.saving ? <Loader2 className="animate-spin" size={16} /> : 'Guardar'}
-            </button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* 3. Modal para Ver Desglose de Grupo */}
-      <DesgloseGrupoModal
-        breakdownModal={breakdownModal}
-        setBreakdownModal={setBreakdownModal}
-        formatISODateToAR={formatISODateToAR}
-      />
     </div>
   );
 }
