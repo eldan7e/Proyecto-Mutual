@@ -261,12 +261,13 @@ export default function ConciliacionBancaria() {
   // Sincronización de períodos y resúmenes
   const [periodosList, setPeriodosList] = useState([]);
   const [selectedPeriod, setSelectedPeriod] = useState(() => {
-    return localStorage.getItem('cb_selectedPeriod') || '';
+    return localStorage.getItem('app_selected_period') || localStorage.getItem('cb_selectedPeriod') || '';
   });
 
   useEffect(() => {
     if (selectedPeriod) {
       localStorage.setItem('cb_selectedPeriod', selectedPeriod);
+      localStorage.setItem('app_selected_period', selectedPeriod);
     }
   }, [selectedPeriod]);
 
@@ -286,11 +287,14 @@ export default function ConciliacionBancaria() {
       const unique = await conciliacionService.fetchPeriods();
       setPeriodosList(unique);
       
+      const appPeriod = localStorage.getItem('app_selected_period');
       const savedPeriod = localStorage.getItem('cb_selectedPeriod');
-      if (savedPeriod && unique.includes(savedPeriod)) {
-        setSelectedPeriod(savedPeriod);
-      } else if (unique.length > 0) {
-        setSelectedPeriod(unique[0]);
+      const targetPeriod = (appPeriod && unique.includes(appPeriod))
+        ? appPeriod
+        : ((savedPeriod && unique.includes(savedPeriod)) ? savedPeriod : unique[0]);
+
+      if (targetPeriod) {
+        setSelectedPeriod(targetPeriod);
       }
     } catch (err) {
       console.error("Error fetching unique periods:", err);
@@ -1762,6 +1766,8 @@ export default function ConciliacionBancaria() {
       };
       const bankDateISO = bankRow.fecha ? parseDateToISODate(bankRow.fecha) : new Date().toISOString().slice(0, 10);
       
+      const activePeriod = selectedPeriod || (periodosList && periodosList[0]) || '2026-09';
+
       // 1. Prepare bulk movimientos_bancarios inserts
       const masterMov = {
         fecha_movimiento: bankDateISO,
@@ -1773,7 +1779,7 @@ export default function ConciliacionBancaria() {
         socio_id: null,
         liquidacion_id: null,
         tipo_movimiento: 'DEBITO_AUTOMATICO',
-        periodo: selectedPeriod || bankDateISO.substring(0, 7)
+        periodo: activePeriod
       };
       
       const indivMovs = [];
@@ -1812,7 +1818,7 @@ export default function ConciliacionBancaria() {
                 socio_id: parseInt(r.socioId, 10),
                 liquidacion_id: parseInt(liq.liquidacion_id, 10),
                 tipo_movimiento: 'TRANSFERENCIA_RECIBIDA',
-                periodo: liq.periodo || selectedPeriod || bankDateISO.substring(0, 7)
+                periodo: liq.periodo || activePeriod
               });
               
               const liqId = parseInt(liq.liquidacion_id, 10);
@@ -1843,7 +1849,7 @@ export default function ConciliacionBancaria() {
             socio_id: parseInt(r.socioId, 10),
             liquidacion_id: singleLiqId ? parseInt(singleLiqId, 10) : null,
             tipo_movimiento: 'TRANSFERENCIA_RECIBIDA',
-            periodo: matchedLiq?.periodo || selectedPeriod || bankDateISO.substring(0, 7)
+            periodo: matchedLiq?.periodo || activePeriod
           });
           
           if (singleLiqId) {
