@@ -2594,16 +2594,16 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                 let buttonText = "Seleccionar factura / líneas...";
                                 if (!row.selectedSocioId) {
                                   buttonText = "Asigne un socio primero";
-                                } else if (row.pendingList.length === 0) {
-                                  buttonText = "Ninguna deuda pendiente";
                                 } else if ((row.selectedLiquidations || []).length === 0) {
                                   if (row.pendingList && row.pendingList.length > 0 && row.pendingList.every(l => (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)) <= 2.00 || l.estado_pago === 'ABONADO')) {
                                     const liq = row.pendingList[0];
                                     const providerName = liq.proveedores?.nombre || 'S/P';
                                     buttonText = `${liq.periodo} - Gpo ${liq.numero_grupo} (${providerName}) (Ya saldado)`;
                                   } else {
-                                    buttonText = "-- No saldar deuda --";
+                                    buttonText = "-- Imputar a Cta Cte --";
                                   }
+                                } else if (row.pendingList.length === 0) {
+                                  buttonText = "-- Imputar a Cta Cte --";
                                 } else if ((row.selectedLiquidations || []).length > 1) {
                                   buttonText = `[MÚLTIPLES GRUPOS] ($${totalGroupPending.toLocaleString('es-AR', { minimumFractionDigits: 0 })})`;
                                 } else if (selectedLiq) {
@@ -2639,11 +2639,11 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                         type="button"
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          if (!row.selectedSocioId || row.pendingList.length === 0 || row.estado === 'PROCESANDO') return;
+                                          if (!row.selectedSocioId || row.estado === 'PROCESANDO') return;
                                           setOpenDropdownRowId(isDropdownOpen ? null : row.id);
                                         }}
                                         className="premium-input"
-                                        disabled={!row.selectedSocioId || row.pendingList.length === 0 || row.estado === 'PROCESANDO'}
+                                        disabled={!row.selectedSocioId || row.estado === 'PROCESANDO'}
                                         style={{
                                           width: '160px',
                                           minWidth: '160px',
@@ -2655,7 +2655,7 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                           background: 'rgba(255, 255, 255, 0.05)',
                                           border: '1px solid var(--border-light)',
                                           borderRadius: '8px',
-                                          cursor: (!row.selectedSocioId || row.pendingList.length === 0 || row.estado === 'PROCESANDO') ? 'not-allowed' : 'pointer',
+                                          cursor: (!row.selectedSocioId || row.estado === 'PROCESANDO') ? 'not-allowed' : 'pointer',
                                           display: 'flex',
                                           alignItems: 'center',
                                           justifyContent: 'space-between',
@@ -2666,7 +2666,7 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flex: 1 }}>
                                           {buttonText}
                                         </span>
-                                        {row.selectedSocioId && row.pendingList.length > 0 && (
+                                        {row.selectedSocioId && (
                                           <span style={{ fontSize: '9px', marginLeft: '6px', opacity: 0.7, flexShrink: 0 }}>▼</span>
                                         )}
                                       </button>
@@ -2753,8 +2753,14 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                                 }}
                                                 style={{ accentColor: 'var(--accent)', cursor: 'pointer' }}
                                               />
-                                              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>-- No saldar deuda --</span>
+                                              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>-- Imputar a Cuenta Corriente (amortizar deuda) --</span>
                                             </label>
+
+                                            {(!row.pendingList || row.pendingList.length === 0) && (
+                                              <div style={{ padding: '8px', fontSize: '11px', color: 'var(--text-secondary)', textAlign: 'center', fontStyle: 'italic', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px' }}>
+                                                Sin facturas pendientes registradas. El pago se imputará a la Cuenta Corriente del grupo amortizando su deuda general.
+                                              </div>
+                                            )}
 
                                             <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border-light)' }}>
                                               {addingGroupToRowId === row.id ? (

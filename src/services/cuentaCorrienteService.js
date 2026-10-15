@@ -377,7 +377,8 @@ export async function registrarCobroCuenta({
   periodo = null,
   imputaciones = [],
   numero_linea = null,
-  skipLiqUpdate = false
+  skipLiqUpdate = false,
+  amortizarHistorico = false
 }) {
   const monto = parseFloat(importe);
   if (isNaN(monto) || monto <= 0) throw new Error('El importe ingresado es inválido.');
@@ -484,9 +485,12 @@ export async function registrarCobroCuenta({
       .eq('numero_grupo', numero_grupo)
       .neq('estado_pago', 'ABONADO');
 
-    if (periodo) {
+    if (periodo && !amortizarHistorico) {
       // Imputar SOLO al período indicado
       query = query.eq('periodo', periodo);
+    } else if (periodo && amortizarHistorico) {
+      // Imputar a todas las deudas pendientes hasta el período inclusive (FIFO)
+      query = query.lte('periodo', periodo);
     }
 
     const { data: liqsPendientes } = await query.order('periodo', { ascending: true });

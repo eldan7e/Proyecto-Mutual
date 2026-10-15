@@ -440,7 +440,7 @@ export default function ConciliacionBancaria() {
     try {
       setLoadingHistorial(true);
       
-      const liqs = await conciliacionService.fetchPendingLiquidaciones(selectedPeriod);
+      const liqs = await conciliacionService.fetchLiquidacionesByPeriod(selectedPeriod);
       const liqIds = liqs.map(l => l.liquidacion_id);
       
       if (liqIds.length > 0) {
@@ -785,7 +785,7 @@ export default function ConciliacionBancaria() {
         }
 
         const pendingForSocio = targetSocio
-          ? pendingLiquidaciones.filter(liq => liq && socioGroups.includes(Number(liq.numero_grupo)) && (!selectedPeriod || liq.periodo === selectedPeriod))
+          ? pendingLiquidaciones.filter(liq => liq && socioGroups.includes(Number(liq.numero_grupo)) && (!selectedPeriod || liq.periodo <= selectedPeriod))
           : [];
 
         const { liqId: defaultLiqId, matchedIds, isAlreadySaldada: isLiqSaldada } = findDefaultLiquidation(m.netoReal, pendingForSocio, false, selectedPeriod);
@@ -935,7 +935,7 @@ export default function ConciliacionBancaria() {
         socioId = matchedSocio ? matchedSocio.socio_id : "";
         const socioGroups = matchedSocio ? (matchedSocio.grupo_socio?.map(g => Number(g.numero_grupo)) || []) : [];
         pendingForSocio = matchedSocio 
-          ? pendingLiquidaciones.filter(liq => liq && socioGroups.includes(Number(liq.numero_grupo)) && (!selectedPeriod || liq.periodo === selectedPeriod))
+          ? pendingLiquidaciones.filter(liq => liq && socioGroups.includes(Number(liq.numero_grupo)) && (!selectedPeriod || liq.periodo <= selectedPeriod))
           : [];
       }
       
@@ -1005,7 +1005,7 @@ export default function ConciliacionBancaria() {
         return (Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0)) <= 2.00 || liq.estado_pago === 'ABONADO';
       });
 
-      let nextEstado = newList.length > 0 ? 'CONCILIADO' : 'PENDIENTE';
+      let nextEstado = (m.isDbDuplicate || m.reconciledInSession || allSelectedPaid) ? 'CONCILIADO' : 'PENDIENTE';
       let isAlreadyPaidMatch = m.isDbDuplicate || allSelectedPaid || false;
       
       const nextSingleLiqId = newList.length === 1 
@@ -2328,9 +2328,12 @@ export default function ConciliacionBancaria() {
               medio_pago: row.banco || 'TRANSFERENCIA',
               observaciones: `Conciliación Bancaria - ${row.concepto}${row.comprobante ? ` (Cpbte: ${row.comprobante})` : ''}`,
               periodo: resolvedPeriod,
-              skipLiqUpdate: true
+              skipLiqUpdate: singleLiqId ? true : false,
+              amortizarHistorico: !singleLiqId
             });
-            if (skipLiquidationUpdate && !isSilent) {
+            if (!singleLiqId && !isSilent) {
+              addToast("Movimiento conciliado e imputado en Cuenta Corriente (amortizando deudas del grupo).", "success");
+            } else if (skipLiquidationUpdate && !isSilent) {
               addToast("Movimiento conciliado e imputado en Cuenta Corriente como saldo a favor del grupo.", "info");
             }
           } catch (errCuenta) {
@@ -3802,10 +3805,10 @@ export default function ConciliacionBancaria() {
               {!editConciliacionModal.selectedSocioId ? (
                 <option value="">Asigne un socio primero</option>
               ) : editConciliacionModal.pendingList.length === 0 ? (
-                <option value="">Ninguna deuda pendiente</option>
+                <option value="">Imputar a Cta Cte (Sin facturas impagas)</option>
               ) : (
                 <>
-                  <option value="">-- No saldar deuda --</option>
+                  <option value="">-- Imputar a Cuenta Corriente (amortizar deuda) --</option>
                   {editConciliacionModal.pendingList.map(liq => {
                     const fact = Number(liq.monto_total_facturado || 0);
                     const ab = Number(liq.monto_abonado || 0);
