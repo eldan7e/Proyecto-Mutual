@@ -503,7 +503,13 @@ export default function NuevaConciliacionTab({
     }
     if (filtroEstadoNueva !== 'TODOS') {
       filteredRows = filteredRows.filter(r => {
-        const isSaldada = r.isAlreadyPaidMatch || r.isDbDuplicate || r.isAlreadySaldada || r.estado === 'CONCILIADO';
+        let isSaldada = r.isAlreadyPaidMatch || r.isDbDuplicate || r.isAlreadySaldada || r.estado === 'CONCILIADO';
+        if (!isSaldada && r.selectedSocioId && Array.isArray(r.pendingList) && r.pendingList.length > 0) {
+          const pLiqs = selectedPeriod ? r.pendingList.filter(l => l.periodo === selectedPeriod) : r.pendingList;
+          if (pLiqs.length > 0 && pLiqs.every(l => (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)) <= 2.00 || l.estado_pago === 'ABONADO')) {
+            isSaldada = true;
+          }
+        }
         if (filtroEstadoNueva === 'PENDIENTE') {
           return r.estado === 'PENDIENTE' && !isSaldada;
         }
@@ -1531,14 +1537,18 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
 
   // Cantidad de sugeridos listos para conciliar
   const readyToReconcileCount = useMemo(() => {
-    return parsedMovements.filter(m => 
-      m.estado === 'PENDIENTE' && 
-      !m.isAlreadyPaidMatch &&
-      !m.isDbDuplicate &&
-      !m.isAlreadySaldada &&
-      checkIsAmountMatch(m, periodConsumos)
-    ).length;
-  }, [parsedMovements, periodConsumos]);
+    return parsedMovements.filter(m => {
+      if (m.estado !== 'PENDIENTE') return false;
+      if (m.isAlreadyPaidMatch || m.isDbDuplicate || m.isAlreadySaldada) return false;
+      if (m.selectedSocioId && Array.isArray(m.pendingList) && m.pendingList.length > 0) {
+        const pLiqs = selectedPeriod ? m.pendingList.filter(l => l.periodo === selectedPeriod) : m.pendingList;
+        if (pLiqs.length > 0 && pLiqs.every(l => (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)) <= 2.00 || l.estado_pago === 'ABONADO')) {
+          return false;
+        }
+      }
+      return checkIsAmountMatch(m, periodConsumos);
+    }).length;
+  }, [parsedMovements, periodConsumos, selectedPeriod]);
 
   // Group movements by selected or suggested socio ID to count transfers in this batch
   const socioTransfersInfo = useMemo(() => {
@@ -2587,7 +2597,13 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                 } else if (row.pendingList.length === 0) {
                                   buttonText = "Ninguna deuda pendiente";
                                 } else if ((row.selectedLiquidations || []).length === 0) {
-                                  buttonText = "-- No saldar deuda --";
+                                  if (row.pendingList && row.pendingList.length > 0 && row.pendingList.every(l => (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)) <= 2.00 || l.estado_pago === 'ABONADO')) {
+                                    const liq = row.pendingList[0];
+                                    const providerName = liq.proveedores?.nombre || 'S/P';
+                                    buttonText = `${liq.periodo} - Gpo ${liq.numero_grupo} (${providerName}) (Ya saldado)`;
+                                  } else {
+                                    buttonText = "-- No saldar deuda --";
+                                  }
                                 } else if ((row.selectedLiquidations || []).length > 1) {
                                   buttonText = `[MÚLTIPLES GRUPOS] ($${totalGroupPending.toLocaleString('es-AR', { minimumFractionDigits: 0 })})`;
                                 } else if (selectedLiq) {
@@ -3089,11 +3105,7 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                     const pending = Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0);
                                     return pending <= 2.00 || l.estado_pago === 'ABONADO';
                                   })) {
-                                    const sumAbonado = periodLiqs.reduce((s, l) => s + Number(l.monto_total_facturado || l.monto_abonado || 0), 0);
-                                    const hasMatchingAmount = periodLiqs.some(l => Math.abs(Number(l.monto_total_facturado || l.monto_abonado || 0) - row.netoReal) < 150) || Math.abs(sumAbonado - row.netoReal) < 150;
-                                    if (hasMatchingAmount) {
-                                      isAlreadySaldada = true;
-                                    }
+                                    isAlreadySaldada = true;
                                   }
                                 }
 
