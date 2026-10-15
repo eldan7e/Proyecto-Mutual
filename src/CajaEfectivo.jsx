@@ -48,13 +48,17 @@ export default function CajaEfectivo() {
   const initialFechaParam = searchParams.get('fecha');
   const initialTabParam = searchParams.get('tab');
 
-  const [activeTab, setActiveTab] = useState(initialTabParam || TAB_VERIFICACION);
+  const [activeTab, setActiveTab] = useState(initialTabParam || (initialFechaParam ? TAB_VERIFICACION : TAB_REGISTRO));
   const [loading, setLoading] = useState(false);
 
-  // Date filters - default from beginning of 2026 to today (or to include initialFechaParam)
-  const today = new Date().toISOString().slice(0, 10);
-  const startOfYear = new Date().getFullYear() + '-01-01';
-  const [fechaDesde, setFechaDesde] = useState(initialFechaParam && initialFechaParam < startOfYear ? initialFechaParam : startOfYear);
+  // Helper dates (local timezone): principio del mes en curso hasta el día de la fecha
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const startOfMonth = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
+
+  // Date filters - default from beginning of current month to today (or to include initialFechaParam)
+  const [fechaDesde, setFechaDesde] = useState(initialFechaParam && initialFechaParam < startOfMonth ? initialFechaParam : startOfMonth);
   const [fechaHasta, setFechaHasta] = useState(initialFechaParam && initialFechaParam > today ? initialFechaParam : today);
 
   // TAB 1: Registro Diario
@@ -400,6 +404,28 @@ export default function CajaEfectivo() {
             className="form-input"
             style={{ width: '150px', margin: 0, padding: '8px 10px', fontSize: '12px' }}
           />
+          {(fechaDesde !== startOfMonth || fechaHasta !== today) && (
+            <button
+              type="button"
+              onClick={() => {
+                setFechaDesde(startOfMonth);
+                setFechaHasta(today);
+              }}
+              style={{
+                background: 'transparent',
+                border: '1px solid var(--border-light)',
+                borderRadius: '8px',
+                padding: '6px 10px',
+                fontSize: '11px',
+                fontWeight: 600,
+                color: 'var(--accent)',
+                cursor: 'pointer'
+              }}
+              title="Restablecer al mes en curso hasta el día de la fecha"
+            >
+              Mes en curso
+            </button>
+          )}
         </div>
       </div>
 
