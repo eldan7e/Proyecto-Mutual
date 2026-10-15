@@ -264,8 +264,13 @@ export default function Contaduria() {
       }
       if (periodos && periodos.length > 0) {
         setPeriodosDisponiblesState(periodos);
+        const appPeriod = localStorage.getItem('app_selected_period');
+        const defaultP = (appPeriod && periodos.includes(appPeriod)) ? appPeriod : periodos[0];
         // Inicializar período de líneas con el más reciente disponible
-        setLineasPeriodoFiltro(prev => prev || periodos[0]);
+        setLineasPeriodoFiltro(prev => prev || defaultP);
+        try {
+          localStorage.setItem('app_selected_period', defaultP);
+        } catch (e) {}
       }
     } catch (err) {
       console.error('Error al cargar datos iniciales de contaduría:', err);

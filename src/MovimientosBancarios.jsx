@@ -12,6 +12,7 @@ import { useConfirm } from './components/ui/ConfirmProvider';
 import ComprobanteCobroModal from './components/ComprobanteCobroModal';
 import { formatMoney, formatFecha } from './utils/cuentaCorrienteEngine';
 import { fetchGruposUnicos, registrarCobroCuenta } from './services/cuentaCorrienteService';
+import { fetchPeriods } from './services/conciliacionService';
 import * as XLSX from 'xlsx';
 
 // Helper para calcular rangos de fecha de semana (Lunes a Domingo)
@@ -78,13 +79,14 @@ export default function MovimientosBancarios() {
   // Modal para Registrar Pago Manual
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [manualSaving, setManualSaving] = useState(false);
+  const [activeSystemPeriod, setActiveSystemPeriod] = useState(() => localStorage.getItem('app_selected_period') || '2026-09');
   const [manualForm, setManualForm] = useState({
     numero_grupo: '',
     nombre: '',
     monto: '',
     medio_pago: 'EFECTIVO EN MUT',
     fecha: new Date().toISOString().split('T')[0],
-    periodo: '2026-09',
+    periodo: localStorage.getItem('app_selected_period') || '2026-09',
     observaciones: ''
   });
 
@@ -96,7 +98,7 @@ export default function MovimientosBancarios() {
   async function loadData() {
     setLoading(true);
     try {
-      const [gruposData, { data: pagosCuenta, error: errCuenta }] = await Promise.all([
+      const [gruposData, { data: pagosCuenta, error: errCuenta }, periodosData] = await Promise.all([
         fetchGruposUnicos().catch(() => []),
         supabase
           .from('movimientos_cuenta')
@@ -117,10 +119,18 @@ export default function MovimientosBancarios() {
           `)
           .eq('tipo', 'PAGO')
           .order('fecha', { ascending: false })
-          .order('id', { ascending: false })
+          .order('id', { ascending: false }),
+        fetchPeriods().catch(() => [])
       ]);
 
       if (errCuenta) throw errCuenta;
+
+      const currentPeriod = (periodosData && periodosData[0]) || localStorage.getItem('app_selected_period') || '2026-09';
+      setActiveSystemPeriod(currentPeriod);
+      setManualForm(prev => ({ ...prev, periodo: prev.periodo || currentPeriod }));
+      try {
+        localStorage.setItem('app_selected_period', currentPeriod);
+      } catch (e) {}
 
       // Normalizar estructura de pagos
       const normalizedPagos = (pagosCuenta || []).map(p => ({
@@ -355,7 +365,7 @@ export default function MovimientosBancarios() {
         monto: '',
         medio_pago: 'EFECTIVO EN MUT',
         fecha: new Date().toISOString().split('T')[0],
-        periodo: '2026-09',
+        periodo: activeSystemPeriod || '2026-09',
         observaciones: ''
       });
 

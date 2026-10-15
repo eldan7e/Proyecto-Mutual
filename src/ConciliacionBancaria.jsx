@@ -493,13 +493,32 @@ export default function ConciliacionBancaria() {
     return result;
   };
 
-  // Helper para buscar liquidación por defecto (SOLO liquidaciones con deuda pendiente activa)
-  const findDefaultLiquidation = (netoReal, pendingList, isManual = false) => {
-    if (!pendingList || pendingList.length === 0) return { liqId: "", matchedIds: null };
+  // Helper para buscar liquidación por defecto (prioriza liquidaciones con deuda pendiente activa, y si ya están saldadas las identifica como tales)
+  const findDefaultLiquidation = (netoReal, pendingList, isManual = false, fallbackPeriod = null) => {
+    if (!pendingList || pendingList.length === 0) return { liqId: "", matchedIds: null, isAlreadySaldada: false };
     
-    const filteredByPeriod = pendingList.filter(l => l.periodo === selectedPeriod);
+    const targetPeriod = selectedPeriod || fallbackPeriod;
+    const filteredByPeriod = targetPeriod 
+      ? pendingList.filter(l => l.periodo === targetPeriod)
+      : pendingList;
+
     if (filteredByPeriod.length === 0) {
-      return { liqId: "", matchedIds: null };
+      // Si no hay liquidaciones para este período específico, pero hay en pendingList
+      const hasAnyUnpaid = pendingList.some(l => 
+        l.estado_pago !== 'ABONADO' && (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)) > 2.00
+      );
+      if (!hasAnyUnpaid && pendingList.length > 0) {
+        // Todas las liquidaciones del socio en el sistema ya están saldadas
+        const saldada = pendingList.find(l => {
+          const fact = Number(l?.monto_total_facturado || 0);
+          const abon = Number(l?.monto_abonado || 0);
+          return Math.abs(fact - netoReal) < 150 || Math.abs(abon - netoReal) < 150;
+        });
+        if (saldada) {
+          return { liqId: String(saldada.liquidacion_id), matchedIds: null, isAlreadySaldada: true };
+        }
+      }
+      return { liqId: "", matchedIds: null, isAlreadySaldada: false };
     }
     
     // 1. Filtrar ÚNICAMENTE deudas activas pendientes de pago (saldo pendiente > $2.00 y no ABONADO)
@@ -513,14 +532,14 @@ export default function ConciliacionBancaria() {
         const pendingAmount = Number(liq?.monto_total_facturado || 0) - Number(liq?.monto_abonado || 0);
         return Math.abs(pendingAmount - netoReal) < 2.00;
       });
-      if (exactMatch) return { liqId: String(exactMatch.liquidacion_id), matchedIds: null };
+      if (exactMatch) return { liqId: String(exactMatch.liquidacion_id), matchedIds: null, isAlreadySaldada: false };
       
       // Si hay múltiples deudas y la suma total es muy cercana al netoReal (tolerancia de $150),
       // sugerimos saldar el grupo completo de manera masiva
       if (activePendingList.length > 1) {
         const totalPending = activePendingList.reduce((sum, liq) => sum + (Number(liq?.monto_total_facturado || 0) - Number(liq?.monto_abonado || 0)), 0);
         if (Math.abs(totalPending - netoReal) < 150) {
-          return { liqId: 'SALDAR_TODO', matchedIds: activePendingList.map(l => l.liquidacion_id) };
+          return { liqId: 'SALDAR_TODO', matchedIds: activePendingList.map(l => l.liquidacion_id), isAlreadySaldada: false };
         }
 
         // Buscar combinaciones parciales de deudas que sumen netoReal
@@ -530,7 +549,7 @@ export default function ConciliacionBancaria() {
           for (const combo of combos) {
             const sum = combo.reduce((s, liq) => s + (Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0)), 0);
             if (Math.abs(sum - netoReal) < 2.00) {
-              return { liqId: 'SALDAR_TODO', matchedIds: combo.map(l => l.liquidacion_id) };
+              return { liqId: 'SALDAR_TODO', matchedIds: combo.map(l => l.liquidacion_id), isAlreadySaldada: false };
             }
           }
         }
@@ -538,12 +557,42 @@ export default function ConciliacionBancaria() {
 
       // Si es manual o si hay una sola deuda activa, asignar la más antigua
       if (isManual || activePendingList.length === 1) {
-        return { liqId: String(activePendingList[0].liquidacion_id), matchedIds: null };
+        return { liqId: String(activePendingList[0].liquidacion_id), matchedIds: null, isAlreadySaldada: false };
+      }
+      return { liqId: "", matchedIds: null, isAlreadySaldada: false };
+    }
+
+    // 2. Si NO hay deudas pendientes en el período porque ya están saldadas (saldo <= $2.00 o ABONADO):
+    // Verificamos si coincide con una liquidación individual ya saldada (± $150)
+    const saldadaMatch = filteredByPeriod.find(liq => {
+      const fact = Number(liq?.monto_total_facturado || 0);
+      const abon = Number(liq?.monto_abonado || 0);
+      return Math.abs(fact - netoReal) < 150 || Math.abs(abon - netoReal) < 150;
+    });
+
+    if (saldadaMatch) {
+      return { 
+        liqId: String(saldadaMatch.liquidacion_id), 
+        matchedIds: filteredByPeriod.length > 1 ? filteredByPeriod.map(l => l.liquidacion_id) : null,
+        isAlreadySaldada: true 
+      };
+    }
+
+    // Verificar si la suma de todas las liquidaciones saldadas del período coincide con netoReal
+    if (filteredByPeriod.length > 1) {
+      const totalSaldadas = filteredByPeriod.reduce((sum, liq) => sum + Number(liq?.monto_total_facturado || liq?.monto_abonado || 0), 0);
+      if (Math.abs(totalSaldadas - netoReal) < 150) {
+        return {
+          liqId: 'SALDAR_TODO',
+          matchedIds: filteredByPeriod.map(l => l.liquidacion_id),
+          isAlreadySaldada: true
+        };
       }
     }
 
-    // Si NO hay deudas pendientes en el período, NUNCA auto-asignar una deuda ya saldada:
-    return { liqId: "", matchedIds: null };
+    // Si el socio no tiene deudas pendientes pero transfirió un monto diferente (ej. pagó de más o es otro cobro):
+    // NO se auto-marca como saldado para permitir conciliarlo e imputarlo en Cuenta Corriente como saldo a favor
+    return { liqId: "", matchedIds: null, isAlreadySaldada: false };
   };
 
   const openBreakdownModal = async (liqId, pendingRow = null) => {
@@ -753,11 +802,19 @@ export default function ConciliacionBancaria() {
           ? pendingLiquidaciones.filter(liq => liq && socioGroups.includes(liq.numero_grupo) && liq.periodo === selectedPeriod)
           : [];
 
-        const { liqId: defaultLiqId, matchedIds } = findDefaultLiquidation(m.netoReal, pendingForSocio);
+        const { liqId: defaultLiqId, matchedIds, isAlreadySaldada: isLiqSaldada } = findDefaultLiquidation(m.netoReal, pendingForSocio, false, selectedPeriod);
         const defaultLines = calculateDefaultLines(targetSocio?.socio_id, defaultLiqId, m.netoReal, periodConsumos);
 
         let nextEstado = 'PENDIENTE';
         let isAlreadyPaidMatch = false;
+
+        if (m.isDbDuplicate || m.reconciledInSession) {
+          nextEstado = 'CONCILIADO';
+          isAlreadyPaidMatch = true;
+        } else if (isLiqSaldada || m.isAlreadyPaidMatch || m.estado === 'CONCILIADO') {
+          nextEstado = 'CONCILIADO';
+          isAlreadyPaidMatch = true;
+        }
 
         let selectedLiqs = m.selectedLiquidations || [];
         if (defaultLiqId === 'SALDAR_TODO' && matchedIds) {
@@ -772,6 +829,7 @@ export default function ConciliacionBancaria() {
           m.selectedLiquidationId !== defaultLiqId ||
           m.estado !== nextEstado ||
           m.isAlreadyPaidMatch !== isAlreadyPaidMatch ||
+          m.isAlreadySaldada !== isLiqSaldada ||
           JSON.stringify(m.selectedLiquidations || []) !== JSON.stringify(selectedLiqs) ||
           JSON.stringify(m.pendingList) !== JSON.stringify(pendingForSocio) ||
           JSON.stringify(m.selectedLines) !== JSON.stringify(defaultLines) ||
@@ -788,6 +846,7 @@ export default function ConciliacionBancaria() {
             selectedLines: defaultLines,
             estado: nextEstado,
             isAlreadyPaidMatch: isAlreadyPaidMatch,
+            isAlreadySaldada: isLiqSaldada,
             matchedLiquidationIds: matchedIds
           };
         }
@@ -894,11 +953,11 @@ export default function ConciliacionBancaria() {
           : [];
       }
       
-      const { liqId: defaultLiqId, matchedIds } = findDefaultLiquidation(m.netoReal, pendingForSocio, true);
+      const { liqId: defaultLiqId, matchedIds, isAlreadySaldada: isLiqSaldada } = findDefaultLiquidation(m.netoReal, pendingForSocio, true, selectedPeriod);
       
-      let nextEstado = m.estado;
+      let nextEstado = 'PENDIENTE';
       let isAlreadyPaidMatch = false;
-      if (m.isDbDuplicate) {
+      if (m.isDbDuplicate || isLiqSaldada) {
         nextEstado = 'CONCILIADO';
         isAlreadyPaidMatch = true;
       } else {
@@ -922,6 +981,7 @@ export default function ConciliacionBancaria() {
         selectedLiquidations: selectedLiqs,
         matchedLiquidationIds: matchedIds,
         isAlreadyPaidMatch: isAlreadyPaidMatch,
+        isAlreadySaldada: isLiqSaldada,
         estado: nextEstado
       };
     }));
@@ -939,7 +999,8 @@ export default function ConciliacionBancaria() {
           selectedLiquidationId: null,
           selectedLines: [],
           estado: m.isDbDuplicate ? 'CONCILIADO' : 'PENDIENTE',
-          isAlreadyPaidMatch: m.isDbDuplicate || false
+          isAlreadyPaidMatch: m.isDbDuplicate || false,
+          isAlreadySaldada: false
         };
       }
 
@@ -952,8 +1013,14 @@ export default function ConciliacionBancaria() {
         newList = [...currentList, String(liqId)];
       }
 
+      const allSelectedPaid = newList.length > 0 && newList.every(id => {
+        const liq = (m.pendingList || []).find(l => String(l.liquidacion_id) === String(id));
+        if (!liq) return false;
+        return (Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0)) <= 2.00 || liq.estado_pago === 'ABONADO';
+      });
+
       let nextEstado = newList.length > 0 ? 'CONCILIADO' : 'PENDIENTE';
-      let isAlreadyPaidMatch = m.isDbDuplicate || false;
+      let isAlreadyPaidMatch = m.isDbDuplicate || allSelectedPaid || false;
       
       const nextSingleLiqId = newList.length === 1 
         ? newList[0] 
@@ -964,7 +1031,8 @@ export default function ConciliacionBancaria() {
         selectedLiquidations: newList,
         selectedLiquidationId: nextSingleLiqId,
         estado: nextEstado,
-        isAlreadyPaidMatch
+        isAlreadyPaidMatch,
+        isAlreadySaldada: allSelectedPaid
       };
     }));
   };
@@ -2055,6 +2123,8 @@ export default function ConciliacionBancaria() {
         }
       }
 
+      const activePeriod = selectedPeriod || (periodosList && periodosList[0]) || '2026-09';
+
       if (row.selectedLiquidations && row.selectedLiquidations.length > 1) {
         // 1. Distribute payment amount (row.netoReal) across all selected liquidations
         let remaining = row.netoReal;
@@ -2088,7 +2158,7 @@ export default function ConciliacionBancaria() {
               socio_id: row.selectedSocioId ? parseInt(row.selectedSocioId, 10) : null,
               liquidacion_id: parseInt(liq.liquidacion_id, 10),
               tipo_movimiento: 'TRANSFERENCIA_RECIBIDA',
-              periodo: liq.periodo || selectedPeriod || bankDateISO.substring(0, 7)
+              periodo: liq.periodo || activePeriod
             });
             
             const liqId = parseInt(liq.liquidacion_id, 10);
@@ -2108,7 +2178,7 @@ export default function ConciliacionBancaria() {
           liquidacion_id: null,
           tipo_movimiento: 'CONCILIACION_GRUPO_MASTER',
           comprobante: row.comprobante || null,
-          periodo: selectedPeriod || bankDateISO.substring(0, 7)
+          periodo: activePeriod
         };
 
         // Insert master + individual splits together
@@ -2165,7 +2235,7 @@ export default function ConciliacionBancaria() {
               importe: Number(row.netoReal),
               medio_pago: row.banco || 'TRANSFERENCIA',
               observaciones: `Conciliación Bancaria - ${row.concepto}${row.comprobante ? ` (Cpbte: ${row.comprobante})` : ''}`,
-              periodo: selectedPeriod || null,
+              periodo: activePeriod,
               skipLiqUpdate: true
             });
           } catch (errCuenta) {
@@ -2195,6 +2265,9 @@ export default function ConciliacionBancaria() {
 
         const matchedLiq = row.pendingList?.find(l => String(l.liquidacion_id) === String(singleLiqId));
 
+        // El período asignado SIEMPRE coincide con Facturación y Contaduría
+        const resolvedPeriod = matchedLiq?.periodo || activePeriod;
+
         const { data: movData, error: movError } = await supabase
           .from('movimientos_bancarios')
           .insert({
@@ -2208,7 +2281,7 @@ export default function ConciliacionBancaria() {
             liquidacion_id: singleLiqId ? parseInt(singleLiqId, 10) : null,
             tipo_movimiento: row.tipo_movimiento,
             comprobante: row.comprobante || null,
-            periodo: matchedLiq?.periodo || selectedPeriod || bankDateISO.substring(0, 7)
+            periodo: resolvedPeriod
           })
           .select();
 
@@ -2268,7 +2341,7 @@ export default function ConciliacionBancaria() {
               importe: Number(row.netoReal),
               medio_pago: row.banco || 'TRANSFERENCIA',
               observaciones: `Conciliación Bancaria - ${row.concepto}${row.comprobante ? ` (Cpbte: ${row.comprobante})` : ''}`,
-              periodo: selectedPeriod || null,
+              periodo: resolvedPeriod,
               skipLiqUpdate: true
             });
             if (skipLiquidationUpdate && !isSilent) {
@@ -2700,7 +2773,12 @@ export default function ConciliacionBancaria() {
   const deshacerMatchLocal = (rowId) => {
     setParsedMovements(prev => prev.map(m => {
       if (m.id === rowId) {
-        return { ...m, estado: 'PENDIENTE' };
+        return { 
+          ...m, 
+          estado: 'PENDIENTE',
+          isAlreadySaldada: false,
+          isAlreadyPaidMatch: false
+        };
       }
       return m;
     }));
@@ -3194,9 +3272,9 @@ export default function ConciliacionBancaria() {
           ? pendingLiquidaciones.filter(liq => liq && socioGroups.includes(liq.numero_grupo) && (liq.periodo <= bankPeriod))
           : [];
         
-        const { liqId: calculatedLiqId, matchedIds } = matchedDbMov && matchedDbMov.liquidacion_id 
-          ? { liqId: String(matchedDbMov.liquidacion_id), matchedIds: null } 
-          : findDefaultLiquidation(m.netoReal, pendingForSocio);
+        const { liqId: calculatedLiqId, matchedIds, isAlreadySaldada: isLiqSaldada } = matchedDbMov && matchedDbMov.liquidacion_id 
+          ? { liqId: String(matchedDbMov.liquidacion_id), matchedIds: null, isAlreadySaldada: false } 
+          : findDefaultLiquidation(m.netoReal, pendingForSocio, false, bankPeriod);
         const activeLiqId = calculatedLiqId;
 
         let initialEstado = 'PENDIENTE';
@@ -3212,6 +3290,9 @@ export default function ConciliacionBancaria() {
           initialEstado = 'CONCILIADO';
           isAlreadyPaidMatch = true;
           multiLiqIndices.sort((a, b) => b - a).forEach(idx => existingMovsPool.splice(idx, 1));
+        } else if (isLiqSaldada) {
+          initialEstado = 'CONCILIADO';
+          isAlreadyPaidMatch = true;
         }
 
         // Comprobación extra para el número de comprobante (evitar duplicados)
@@ -3243,7 +3324,7 @@ export default function ConciliacionBancaria() {
         }
 
         const isActuallyDuplicate = matchIndex !== -1 || isCuentaMatch || isMultiLiqMatch || isDuplicateCpbte;
-        if (isActuallyDuplicate) {
+        if (isActuallyDuplicate || isLiqSaldada) {
           initialEstado = 'CONCILIADO';
           isAlreadyPaidMatch = true;
         }
@@ -3278,7 +3359,8 @@ export default function ConciliacionBancaria() {
           selectedLines: defaultLines,
           estado: initialEstado,
           isDbDuplicate: isActuallyDuplicate,
-          isAlreadyPaidMatch: isActuallyDuplicate || isAlreadyPaidMatch,
+          isAlreadyPaidMatch: isActuallyDuplicate || isAlreadyPaidMatch || isLiqSaldada,
+          isAlreadySaldada: isLiqSaldada,
           movimiento_id: matchedDbMov ? matchedDbMov.movimiento_id : null,
           dbLiquidationInfo: matchedDbMov ? matchedDbMov.liquidaciones_grupos : null,
           warningMsg: warningMsg,

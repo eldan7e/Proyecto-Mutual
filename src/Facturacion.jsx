@@ -122,6 +122,11 @@ export default function Facturacion() {
     }
     const periodParam = searchParams.get('periodo') || '';
     setSelectedPeriod(periodParam);
+    if (periodParam) {
+      try {
+        localStorage.setItem('app_selected_period', periodParam);
+      } catch (e) {}
+    }
     
     const provParam = searchParams.get('proveedor') || '';
     const provMap = { '1': 'CLARO', '2': 'MOVISTAR', '3': 'PERSONAL' };

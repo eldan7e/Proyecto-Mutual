@@ -502,7 +502,16 @@ export default function NuevaConciliacionTab({
       filteredRows = filteredRows.filter(r => r.banco === filtroBancoNueva);
     }
     if (filtroEstadoNueva !== 'TODOS') {
-      filteredRows = filteredRows.filter(r => r.estado === filtroEstadoNueva);
+      filteredRows = filteredRows.filter(r => {
+        const isSaldada = r.isAlreadyPaidMatch || r.isDbDuplicate || r.isAlreadySaldada || r.estado === 'CONCILIADO';
+        if (filtroEstadoNueva === 'PENDIENTE') {
+          return r.estado === 'PENDIENTE' && !isSaldada;
+        }
+        if (filtroEstadoNueva === 'CONCILIADO') {
+          return r.estado === 'CONCILIADO' || isSaldada;
+        }
+        return r.estado === filtroEstadoNueva;
+      });
     }
     if (searchNueva) {
       const term = searchNueva.toLowerCase();
@@ -1526,6 +1535,7 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
       m.estado === 'PENDIENTE' && 
       !m.isAlreadyPaidMatch &&
       !m.isDbDuplicate &&
+      !m.isAlreadySaldada &&
       checkIsAmountMatch(m, periodConsumos)
     ).length;
   }, [parsedMovements, periodConsumos]);
@@ -2595,7 +2605,11 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                     }, 0);
                                     buttonText = `${(row.selectedLines || []).length} líneas de Gpo ${selectedLiq.numero_grupo} ($${selectedSum.toLocaleString('es-AR', { minimumFractionDigits: 0 })})`;
                                   } else {
-                                    buttonText = `${selectedLiq.periodo} - Gpo ${selectedLiq.numero_grupo} (${providerName}) ($${pendingAmount.toLocaleString('es-AR', { minimumFractionDigits: 0 })})`;
+                                    const isPaid = pendingAmount <= 2.00 || selectedLiq.estado_pago === 'ABONADO';
+                                    const amountDisplay = isPaid 
+                                      ? '(Ya saldado)' 
+                                      : `($${pendingAmount.toLocaleString('es-AR', { minimumFractionDigits: 0 })})`;
+                                    buttonText = `${selectedLiq.periodo} - Gpo ${selectedLiq.numero_grupo} (${providerName}) ${amountDisplay}`;
                                   }
                                 }
 
@@ -2809,6 +2823,7 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                               if (!liq) return null;
                                               const isLiqSelected = (row.selectedLiquidations || []).includes(liq.liquidacion_id.toString());
                                               const pendingAmount = Number(liq?.monto_total_facturado || 0) - Number(liq?.monto_abonado || 0);
+                                              const isLiqPaid = pendingAmount <= 2.00 || liq.estado_pago === 'ABONADO';
                                               const providerName = liq.proveedores?.nombre || 'S/P';
                                               
                                               const socioLines = periodConsumos.filter(c => 
@@ -2850,7 +2865,7 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                                       </span>
                                                       <span 
                                                         onClick={(e) => {
-                                                          if (pendingAmount <= 0) {
+                                                          if (isLiqPaid) {
                                                             e.preventDefault();
                                                             e.stopPropagation();
                                                             handleVerPagoConciliado(row, liq.liquidacion_id);
@@ -2858,15 +2873,15 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                                         }}
                                                         style={{ 
                                                           fontWeight: 800, 
-                                                          color: pendingAmount <= 0 ? '#10b981' : 'var(--text-primary)', 
+                                                          color: isLiqPaid ? '#10b981' : 'var(--text-primary)', 
                                                           fontSize: '11px', 
                                                           marginLeft: '6px',
-                                                          cursor: pendingAmount <= 0 ? 'pointer' : 'default',
-                                                          textDecoration: pendingAmount <= 0 ? 'underline' : 'none'
+                                                          cursor: isLiqPaid ? 'pointer' : 'default',
+                                                          textDecoration: isLiqPaid ? 'underline' : 'none'
                                                         }}
-                                                        title={pendingAmount <= 0 ? "Clic para ver comprobante y movimiento del pago conciliado" : ""}
+                                                        title={isLiqPaid ? "Clic para ver comprobante y movimiento del pago conciliado" : ""}
                                                       >
-                                                        {pendingAmount <= 0 ? '(Ya saldado 👁️)' : `$${pendingAmount.toLocaleString('es-AR', { minimumFractionDigits: 0 })}`}
+                                                        {isLiqPaid ? '(Ya saldado 👁️)' : `$${pendingAmount.toLocaleString('es-AR', { minimumFractionDigits: 0 })}`}
                                                       </span>
                                                     </div>
                                                   </label>
@@ -2987,20 +3002,20 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                   display: 'flex', 
                                   flexDirection: 'column', 
                                   alignItems: 'center', 
-                                  color: row.reconciledInSession ? '#10b981' : 'var(--text-secondary)', 
+                                  color: row.reconciledInSession ? '#10b981' : (row.isAlreadySaldada ? '#10b981' : 'var(--text-secondary)'), 
                                   gap: '2px', 
                                   fontWeight: 700, 
                                   fontSize: '13px' 
                                 }}>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                     <CheckCircle2 size={16} />
-                                    {row.reconciledInSession ? 'Conciliado' : 'Ya Registrado'}
+                                    {row.reconciledInSession ? 'Conciliado' : (row.isAlreadySaldada ? 'Ya Saldado 👁️' : 'Ya Registrado')}
                                   </div>
                                   {row.reconciledInSession ? (
                                     <span style={{ fontSize: '10px', color: '#10b981', fontWeight: 500 }}>(Guardado en DB)</span>
                                   ) : (
-                                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 500 }}>
-                                      {row.isAlreadyPaidMatch || row.isDbDuplicate ? '(Pago ya impactó)' : '(Ignorado / Duplicado)'}
+                                    <span style={{ fontSize: '10px', color: row.isAlreadySaldada ? '#10b981' : 'var(--text-secondary)', fontWeight: 500 }}>
+                                      {row.isAlreadySaldada ? '(Liquidación saldada)' : ((row.isAlreadyPaidMatch || row.isDbDuplicate) ? '(Pago ya impactó)' : '(Ignorado / Duplicado)')}
                                     </span>
                                   )}
                                 </div>
@@ -3051,7 +3066,7 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                             ) : (
                               (() => {
                                 let isAlreadySaldada = false;
-                                if (row.isAlreadyPaidMatch || row.isDbDuplicate || row.estado === 'CONCILIADO') {
+                                if (row.isAlreadySaldada || row.isAlreadyPaidMatch || row.isDbDuplicate || row.estado === 'CONCILIADO') {
                                   isAlreadySaldada = true;
                                 } else if (row.selectedLiquidations && row.selectedLiquidations.length > 0) {
                                   isAlreadySaldada = row.selectedLiquidations.every(liqId => {
@@ -3065,6 +3080,20 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                   if (liq) {
                                     const pending = Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0);
                                     if (pending <= 2.00 || liq.estado_pago === 'ABONADO') isAlreadySaldada = true;
+                                  }
+                                } else if (row.selectedSocioId && Array.isArray(row.pendingList) && row.pendingList.length > 0) {
+                                  const periodLiqs = selectedPeriod 
+                                    ? row.pendingList.filter(l => l.periodo === selectedPeriod)
+                                    : row.pendingList;
+                                  if (periodLiqs.length > 0 && periodLiqs.every(l => {
+                                    const pending = Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0);
+                                    return pending <= 2.00 || l.estado_pago === 'ABONADO';
+                                  })) {
+                                    const sumAbonado = periodLiqs.reduce((s, l) => s + Number(l.monto_total_facturado || l.monto_abonado || 0), 0);
+                                    const hasMatchingAmount = periodLiqs.some(l => Math.abs(Number(l.monto_total_facturado || l.monto_abonado || 0) - row.netoReal) < 150) || Math.abs(sumAbonado - row.netoReal) < 150;
+                                    if (hasMatchingAmount) {
+                                      isAlreadySaldada = true;
+                                    }
                                   }
                                 }
 
@@ -3121,7 +3150,7 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                               Ver Pago
                                             </button>
                                           )}
-                                          {(!row.isDbDuplicate && row.estado !== 'CONCILIADO') && (
+                                          {(!isAlreadySaldada && !row.isDbDuplicate && row.estado !== 'CONCILIADO') && (
                                             <button 
                                               onClick={() => conciliarFila(row.id, false, row.selectedLines)}
                                               className="action-button"
@@ -3133,15 +3162,15 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                                 flexShrink: 0 
                                               }}
                                               disabled={!row.selectedSocioId && !isTaxOrFee}
-                                              title={isAlreadySaldada ? "Imputar este movimiento a Cuenta Corriente del socio aunque la liquidación figure saldada" : "Conciliar movimiento"}
+                                              title="Conciliar movimiento"
                                             >
                                               <Save size={13} style={{ marginRight: '4px' }} />
-                                              {isAlreadySaldada ? 'Imputar Pago' : 'Conciliar'}
+                                              Conciliar
                                             </button>
                                           )}
                                         </>
                                       )}
-                                      {row.netoReal > 0 && (
+                                      {row.netoReal > 0 && !isAlreadySaldada && row.estado !== 'CONCILIADO' && (
                                         <button 
                                           onClick={() => openLoteModal(row)}
                                           className="action-button"
