@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Landmark, Loader2, ArrowRightLeft, Search, HelpCircle, Save, CheckCircle2, AlertCircle, Check, Settings, Sparkles, FileSpreadsheet, Upload, CheckCircle, XCircle, Download, Copy, ExternalLink, Filter, X, ArrowUpRight, FileText, AlertTriangle } from 'lucide-react';
+import { Landmark, Loader2, ArrowRightLeft, Search, HelpCircle, Save, CheckCircle2, AlertCircle, Check, Settings, Sparkles, FileSpreadsheet, Upload, CheckCircle, XCircle, Download, Copy, ExternalLink, Filter, X, ArrowUpRight, FileText, AlertTriangle, CreditCard } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../supabaseClient';
 import { registrarCobroCuenta } from '../../services/cuentaCorrienteService';
@@ -2572,444 +2572,209 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                     )}
                                   </div>
                                 ) : (
-                                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontStyle: 'italic' }}>Sin factura vinculada</span>
+                                  <span style={{ fontSize: '11px', color: '#2563eb', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                    <CreditCard size={12} />
+                                    Imputado a Deuda en Cuenta Corriente
+                                  </span>
                                 )
                               ) : !isTaxOrFee && (() => {
                                 const isDropdownOpen = openDropdownRowId === row.id;
                                 const socioId = row.selectedSocioId;
-                                
-                                // Get currently selected liquidation info
-                                const selectedLiq = (row.selectedLiquidations || []).length === 1
-                                  ? row.pendingList?.find(l => String(l.liquidacion_id) === String(row.selectedLiquidations[0]))
-                                  : null;
 
-                                // Total pending amount for all selected
-                                const totalGroupPending = row.pendingList
-                                  .filter(liq => (row.selectedLiquidations || []).includes(String(liq.liquidacion_id)))
-                                  .reduce((sum, liq) => 
-                                    sum + (Number(liq?.monto_total_facturado || 0) - Number(liq?.monto_abonado || 0)), 0
+                                if (!socioId) {
+                                  return (
+                                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                                      Asigne un socio primero
+                                    </span>
                                   );
-
-                                // Display text of the button
-                                let buttonText = "Seleccionar factura / líneas...";
-                                if (!row.selectedSocioId) {
-                                  buttonText = "Asigne un socio primero";
-                                } else if ((row.selectedLiquidations || []).length === 0) {
-                                  if (row.pendingList && row.pendingList.length > 0 && row.pendingList.every(l => (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)) <= 2.00 || l.estado_pago === 'ABONADO')) {
-                                    const liq = row.pendingList[0];
-                                    const providerName = liq.proveedores?.nombre || 'S/P';
-                                    buttonText = `${liq.periodo} - Gpo ${liq.numero_grupo} (${providerName}) (Ya saldado)`;
-                                  } else {
-                                    buttonText = "-- Imputar a Cta Cte --";
-                                  }
-                                } else if (row.pendingList.length === 0) {
-                                  buttonText = "-- Imputar a Cta Cte --";
-                                } else if ((row.selectedLiquidations || []).length > 1) {
-                                  buttonText = `[MÚLTIPLES GRUPOS] ($${totalGroupPending.toLocaleString('es-AR', { minimumFractionDigits: 0 })})`;
-                                } else if (selectedLiq) {
-                                  const pendingAmount = Number(selectedLiq.monto_total_facturado || 0) - Number(selectedLiq.monto_abonado || 0);
-                                  const providerName = selectedLiq.proveedores?.nombre || 'S/P';
-                                  
-                                  if ((row.selectedLines || []).length > 0) {
-                                    const selectedSum = (row.selectedLines || []).reduce((sum, lineNum) => {
-                                      const line = periodConsumos.find(c => 
-                                        c.numero_linea === lineNum && 
-                                        c.lineas?.numero_grupo === parseInt(selectedLiq.numero_grupo, 10) &&
-                                        c.proveedor_id === selectedLiq.proveedor_id
-                                      );
-                                      return sum + (line ? Number(line.total_linea) : 0);
-                                    }, 0);
-                                    buttonText = `${(row.selectedLines || []).length} líneas de Gpo ${selectedLiq.numero_grupo} ($${selectedSum.toLocaleString('es-AR', { minimumFractionDigits: 0 })})`;
-                                  } else {
-                                    const isPaid = pendingAmount <= 2.00 || selectedLiq.estado_pago === 'ABONADO';
-                                    const amountDisplay = isPaid 
-                                      ? '(Ya saldado)' 
-                                      : `($${pendingAmount.toLocaleString('es-AR', { minimumFractionDigits: 0 })})`;
-                                    buttonText = `${selectedLiq.periodo} - Gpo ${selectedLiq.numero_grupo} (${providerName}) ${amountDisplay}`;
-                                  }
                                 }
+
+                                const hasPendingInvoices = Array.isArray(row.pendingList) && row.pendingList.length > 0;
+
+                                // CASO 1: El socio NO tiene factura emitida en el mes en curso (ej: Baldomar)
+                                if (!hasPendingInvoices) {
+                                  return (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                        <span style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '5px',
+                                          padding: '5px 10px',
+                                          borderRadius: '7px',
+                                          fontSize: '11px',
+                                          fontWeight: 700,
+                                          background: 'rgba(59, 130, 246, 0.12)',
+                                          color: '#3b82f6',
+                                          border: '1px solid rgba(59, 130, 246, 0.3)'
+                                        }}>
+                                          <CreditCard size={13} />
+                                          Deuda en Cuenta Corriente
+                                        </span>
+                                      </div>
+                                      <span style={{ fontSize: '10px', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                                        Sin factura en {selectedPeriod || 'el mes'} • Amortiza deuda acumulada
+                                      </span>
+                                    </div>
+                                  );
+                                }
+
+                                // CASO 2: El socio TIENE factura en curso en este período (ej: Graciela)
+                                const currentLiq = row.pendingList[0];
+                                const hasMultipleLiqs = row.pendingList.length > 1;
+                                const isCtaCteSelected = (row.selectedLiquidations || []).length === 0;
+                                const isFacturaSelected = !isCtaCteSelected;
+                                const pendingAmount = Number(currentLiq?.monto_total_facturado || 0) - Number(currentLiq?.monto_abonado || 0);
+                                const isPaid = pendingAmount <= 2.00 || currentLiq?.estado_pago === 'ABONADO';
 
                                 return (
                                   <div 
                                     id={`dropdown-container-${row.id}`}
-                                    style={{ display: 'flex', flexDirection: 'column', gap: '6px', position: 'relative' }}
+                                    style={{ display: 'flex', flexDirection: 'column', gap: '4px', position: 'relative' }}
                                   >
                                     <div style={{ display: 'flex', gap: '6px', width: '100%', alignItems: 'center' }}>
+                                      {/* Botón 1: Pagar factura en curso */}
                                       <button
                                         type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (!row.selectedSocioId || row.estado === 'PROCESANDO') return;
-                                          setOpenDropdownRowId(isDropdownOpen ? null : row.id);
+                                        onClick={() => {
+                                          if (hasMultipleLiqs) {
+                                            setOpenDropdownRowId(isDropdownOpen ? null : row.id);
+                                          } else {
+                                            handleToggleLiquidation(row.id, currentLiq.liquidacion_id.toString(), true);
+                                          }
                                         }}
-                                        className="premium-input"
-                                        disabled={!row.selectedSocioId || row.estado === 'PROCESANDO'}
+                                        disabled={row.estado === 'PROCESANDO'}
                                         style={{
-                                          width: '160px',
-                                          minWidth: '160px',
-                                          maxWidth: '160px',
-                                          overflow: 'hidden',
-                                          fontSize: '12px',
-                                          padding: '4px 8px',
-                                          height: '32px',
-                                          background: 'rgba(255, 255, 255, 0.05)',
-                                          border: '1px solid var(--border-light)',
-                                          borderRadius: '8px',
-                                          cursor: (!row.selectedSocioId || row.estado === 'PROCESANDO') ? 'not-allowed' : 'pointer',
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          justifyContent: 'space-between',
-                                          color: 'var(--text-primary)',
-                                          textAlign: 'left'
-                                        }}
-                                      >
-                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flex: 1 }}>
-                                          {buttonText}
-                                        </span>
-                                        {row.selectedSocioId && (
-                                          <span style={{ fontSize: '9px', marginLeft: '6px', opacity: 0.7, flexShrink: 0 }}>▼</span>
-                                        )}
-                                      </button>
-                                      
-                                      <button
-                                        type="button"
-                                        onClick={() => openBreakdownModal(row.selectedLiquidationId, row)}
-                                        disabled={!row.selectedLiquidationId}
-                                        style={{
-                                          width: '32px',
-                                          minWidth: '32px',
-                                          height: '32px',
-                                          display: 'flex',
+                                          flex: 1,
+                                          padding: '5px 8px',
+                                          fontSize: '11px',
+                                          fontWeight: isFacturaSelected ? 700 : 500,
+                                          borderRadius: '7px',
+                                          background: isFacturaSelected ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+                                          color: isFacturaSelected ? '#10b981' : 'var(--text-secondary)',
+                                          border: '1px solid ' + (isFacturaSelected ? '#10b981' : 'var(--border-light)'),
+                                          cursor: row.estado === 'PROCESANDO' ? 'not-allowed' : 'pointer',
+                                          display: 'inline-flex',
                                           alignItems: 'center',
                                           justifyContent: 'center',
-                                          background: row.selectedLiquidationId ? 'rgba(16, 185, 129, 0.1)' : 'rgba(0, 0, 0, 0.02)',
-                                          color: row.selectedLiquidationId ? 'var(--accent)' : 'var(--text-secondary)',
-                                          border: '1px solid var(--border-light)',
-                                          borderRadius: '8px',
-                                          cursor: row.selectedLiquidationId ? 'pointer' : 'not-allowed',
-                                          opacity: row.selectedLiquidationId ? 1 : 0.5,
-                                          transition: 'all 0.2s',
-                                          flexShrink: 0
+                                          gap: '4px',
+                                          transition: 'all 0.15s ease'
                                         }}
-                                        title="Ver desglose del grupo"
+                                        title={hasMultipleLiqs ? 'Seleccionar entre facturas del mes' : `Factura ${currentLiq.periodo} - Gpo ${currentLiq.numero_grupo} ($${Number(currentLiq.monto_total_facturado).toLocaleString('es-AR')})`}
                                       >
-                                        <HelpCircle size={15} />
+                                        📄 Factura en curso {hasMultipleLiqs && `(${row.pendingList.length}) ▼`}
                                       </button>
-                                    </div>
 
-                                    {isDropdownOpen && (
-                                      <div 
-                                        id={`dropdown-panel-${row.id}`}
+                                      {/* Botón 2: Pagar Deuda en Cuenta Corriente */}
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          handleToggleLiquidation(row.id, 'CLEAR');
+                                        }}
+                                        disabled={row.estado === 'PROCESANDO'}
                                         style={{
-                                          position: 'absolute',
-                                          top: '36px',
-                                          right: 0,
-                                          width: '320px',
-                                          background: 'var(--modal-bg)',
-                                          border: '1px solid var(--border-light)',
-                                          borderRadius: '16px',
-                                          boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15), 0 8px 10px -6px rgba(0,0,0,0.15)',
-                                          zIndex: 999,
-                                          maxHeight: '340px',
-                                          overflowY: 'auto',
-                                          padding: '12px',
-                                          display: 'flex',
-                                          flexDirection: 'column',
-                                          gap: '8px'
-                                        }}>
-                                          <div style={{
-                                            paddingBottom: '8px',
-                                            borderBottom: '1px solid var(--border-light)',
-                                            display: 'flex',
-                                            flexDirection: 'column',
-                                            gap: '2px'
-                                          }}>
-                                            <span style={{ fontSize: '11.5px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                                              Vincular Factura / Líneas
-                                            </span>
-                                            <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
-                                              Socio: {row.selectedSocioLabel}
-                                            </span>
-                                          </div>
+                                          flex: 1,
+                                          padding: '5px 8px',
+                                          fontSize: '11px',
+                                          fontWeight: isCtaCteSelected ? 700 : 500,
+                                          borderRadius: '7px',
+                                          background: isCtaCteSelected ? 'rgba(59, 130, 246, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+                                          color: isCtaCteSelected ? '#3b82f6' : 'var(--text-secondary)',
+                                          border: '1px solid ' + (isCtaCteSelected ? '#3b82f6' : 'var(--border-light)'),
+                                          cursor: row.estado === 'PROCESANDO' ? 'not-allowed' : 'pointer',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          gap: '4px',
+                                          transition: 'all 0.15s ease'
+                                        }}
+                                        title="Imputar pago a deuda general en Cuenta Corriente (amortiza deudas acumuladas)"
+                                      >
+                                        <CreditCard size={12} />
+                                        Deuda Cta Cte
+                                      </button>
 
-                                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                            <label style={{
-                                              display: 'flex',
-                                              alignItems: 'center',
-                                              gap: '8px',
-                                              padding: '6px 8px',
-                                              borderRadius: '6px',
-                                              cursor: 'pointer',
-                                              fontSize: '11.5px',
-                                              background: (row.selectedLiquidations || []).length === 0 ? 'var(--accent-light)' : 'transparent',
-                                              border: '1px solid ' + ((row.selectedLiquidations || []).length === 0 ? 'var(--border-light)' : 'transparent')
-                                            }} className="dropdown-item-hover">
-                                              <input 
-                                                type="radio" 
-                                                name={`liq-select-${row.id}`}
-                                                checked={(row.selectedLiquidations || []).length === 0}
-                                                onChange={() => {
-                                                  handleToggleLiquidation(row.id, '');
-                                                }}
-                                                style={{ accentColor: 'var(--accent)', cursor: 'pointer' }}
-                                              />
-                                              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>-- Imputar a Cuenta Corriente (amortizar deuda) --</span>
-                                            </label>
-
-                                            {(!row.pendingList || row.pendingList.length === 0) && (
-                                              <div style={{ padding: '8px', fontSize: '11px', color: 'var(--text-secondary)', textAlign: 'center', fontStyle: 'italic', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px' }}>
-                                                Sin facturas pendientes registradas. El pago se imputará a la Cuenta Corriente del grupo amortizando su deuda general.
-                                              </div>
-                                            )}
-
-                                            <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border-light)' }}>
-                                              {addingGroupToRowId === row.id ? (
-                                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                                  <input
-                                                    autoFocus
-                                                    type="number"
-                                                    value={newGroupValue}
-                                                    onChange={(e) => setNewGroupValue(e.target.value)}
-                                                    onKeyDown={(e) => {
-                                                      if (e.key === 'Enter') {
-                                                        e.preventDefault();
-                                                        if (newGroupValue && !isNaN(newGroupValue)) {
-                                                          handleAddGroupToRow(row.id, parseInt(newGroupValue, 10));
-                                                          setAddingGroupToRowId(null);
-                                                          setNewGroupValue('');
-                                                        }
-                                                      } else if (e.key === 'Escape') {
-                                                        setAddingGroupToRowId(null);
-                                                        setNewGroupValue('');
-                                                      }
-                                                    }}
-                                                    placeholder="N° de Grupo"
-                                                    style={{
-                                                      flex: 1,
-                                                      padding: '4px 8px',
-                                                      borderRadius: '6px',
-                                                      border: '1px solid var(--accent)',
-                                                      fontSize: '11px',
-                                                      outline: 'none'
-                                                    }}
-                                                  />
-                                                  <button
-                                                    type="button"
-                                                    onClick={(e) => {
-                                                      e.stopPropagation();
-                                                      if (newGroupValue && !isNaN(newGroupValue)) {
-                                                        handleAddGroupToRow(row.id, parseInt(newGroupValue, 10));
-                                                        setAddingGroupToRowId(null);
-                                                        setNewGroupValue('');
-                                                      }
-                                                    }}
-                                                    style={{
-                                                      padding: '4px 8px',
-                                                      borderRadius: '6px',
-                                                      background: 'var(--accent)',
-                                                      color: '#fff',
-                                                      border: 'none',
-                                                      fontSize: '11px',
-                                                      cursor: 'pointer',
-                                                      fontWeight: 600
-                                                    }}
-                                                  >
-                                                    Add
-                                                  </button>
-                                                </div>
-                                              ) : (
-                                                <button
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setAddingGroupToRowId(row.id);
-                                                  }}
-                                                  style={{
-                                                    width: '100%',
-                                                    padding: '4px 8px',
-                                                    borderRadius: '6px',
-                                                    border: '1px dashed var(--accent)',
-                                                    background: 'rgba(16, 185, 129, 0.05)',
-                                                    color: 'var(--accent)',
-                                                    fontSize: '11px',
-                                                    cursor: 'pointer',
-                                                    fontWeight: 600
-                                                  }}
-                                                >
-                                                  + Agregar otro grupo...
-                                                </button>
-                                              )}
-                                            </div>
-
-
-                                            {row.pendingList.map(liq => {
-                                              if (!liq) return null;
-                                              const isLiqSelected = (row.selectedLiquidations || []).includes(liq.liquidacion_id.toString());
-                                              const pendingAmount = Number(liq?.monto_total_facturado || 0) - Number(liq?.monto_abonado || 0);
-                                              const isLiqPaid = pendingAmount <= 2.00 || liq.estado_pago === 'ABONADO';
-                                              const providerName = liq.proveedores?.nombre || 'S/P';
-                                              
-                                              const socioLines = periodConsumos.filter(c => 
-                                                c.lineas?.numero_grupo === parseInt(liq.numero_grupo, 10) &&
-                                                c.proveedor_id === liq.proveedor_id
-                                              );
-
-                                              return (
-                                                <div key={liq.liquidacion_id} style={{
-                                                  display: 'flex',
-                                                  flexDirection: 'column',
-                                                  background: isLiqSelected ? 'rgba(0,0,0,0.01)' : 'transparent',
-                                                  borderRadius: '8px',
-                                                  border: '1px solid ' + (isLiqSelected ? 'var(--border-light)' : 'transparent'),
-                                                  padding: '4px'
-                                                }}>
-                                                  <label style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '8px',
-                                                    padding: '6px 8px',
-                                                    borderRadius: '6px',
-                                                    cursor: 'pointer',
-                                                    fontSize: '11.5px',
-                                                    background: isLiqSelected && (row.selectedLines || []).length === 0 ? 'var(--accent-light)' : 'transparent'
-                                                  }} className="dropdown-item-hover">
-                                                    <input 
-                                                      type="checkbox" 
-                                                      name={`liq-select-${row.id}-${liq.liquidacion_id}`}
-                                                      checked={isLiqSelected}
-                                                      onChange={() => {
-                                                        handleToggleLiquidation(row.id, liq.liquidacion_id.toString());
-                                                      }}
-                                                      style={{ accentColor: 'var(--accent)', cursor: 'pointer', width: '14px', height: '14px' }}
-                                                    />
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
-                                                      <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
-                                                        {liq.periodo} - Gpo {liq.numero_grupo} ({providerName})
-                                                      </span>
-                                                      <span 
-                                                        onClick={(e) => {
-                                                          if (isLiqPaid) {
-                                                            e.preventDefault();
-                                                            e.stopPropagation();
-                                                            handleVerPagoConciliado(row, liq.liquidacion_id);
-                                                          }
-                                                        }}
-                                                        style={{ 
-                                                          fontWeight: 800, 
-                                                          color: isLiqPaid ? '#10b981' : 'var(--text-primary)', 
-                                                          fontSize: '11px', 
-                                                          marginLeft: '6px',
-                                                          cursor: isLiqPaid ? 'pointer' : 'default',
-                                                          textDecoration: isLiqPaid ? 'underline' : 'none'
-                                                        }}
-                                                        title={isLiqPaid ? "Clic para ver comprobante y movimiento del pago conciliado" : ""}
-                                                      >
-                                                        {isLiqPaid ? '(Ya saldado 👁️)' : `$${pendingAmount.toLocaleString('es-AR', { minimumFractionDigits: 0 })}`}
-                                                      </span>
-                                                    </div>
-                                                  </label>
-
-                                                  {isLiqSelected && socioLines.length > 0 && (
-                                                    <div style={{
-                                                      marginLeft: '20px',
-                                                      marginTop: '4px',
-                                                      padding: '4px',
-                                                      borderLeft: '2px solid var(--border-light)',
-                                                      display: 'flex',
-                                                      flexDirection: 'column',
-                                                      gap: '4px'
-                                                    }}>
-                                                      {socioLines.map(line => {
-                                                        const isLineChecked = (row.selectedLines || []).includes(line.numero_linea);
-                                                        return (
-                                                          <label key={line.numero_linea} style={{
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            gap: '8px',
-                                                            padding: '4px 8px',
-                                                            borderRadius: '6px',
-                                                            cursor: 'pointer',
-                                                            fontSize: '11px',
-                                                            color: 'var(--text-primary)',
-                                                            background: isLineChecked ? 'var(--accent-light)' : 'transparent'
-                                                          }} className="dropdown-item-hover">
-                                                            <input 
-                                                              type="checkbox"
-                                                              checked={isLineChecked}
-                                                              onChange={(e) => {
-                                                                handleToggleLineSelection(row.id, line.numero_linea, e.target.checked);
-                                                              }}
-                                                              style={{
-                                                                width: '13px',
-                                                                height: '13px',
-                                                                cursor: 'pointer',
-                                                                accentColor: 'var(--accent)'
-                                                              }}
-                                                            />
-                                                            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
-                                                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                                                <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '11px' }}>
-                                                                  {line.lineas?.socios?.nombre_completo || 'Socio Desconocido'}
-                                                                </span>
-                                                                <span style={{ fontFamily: 'monospace', fontSize: '9.5px', color: 'var(--text-secondary)' }}>
-                                                                  Línea: {line.numero_linea}
-                                                                </span>
-                                                              </div>
-                                                              <span style={{ fontWeight: 700, color: 'var(--accent)', fontSize: '11px' }}>
-                                                                ${Number(line.total_linea).toLocaleString('es-AR')}
-                                                              </span>
-                                                            </div>
-                                                          </label>
-                                                        );
-                                                      })}
-                                                    </div>
-                                                  )}
-                                                </div>
-                                              );
-                                            })}
-                                          </div>
-                                        </div>
-                                      )}
-
-                                    {(row.selectedLiquidations || []).length === 1 && (() => {
-                                      const singleLiqId = (row.selectedLiquidations || [])[0];
-                                      const singleLiq = row.pendingList.find(l => String(l.liquidacion_id) === String(singleLiqId));
-                                      if (!singleLiq) return null;
-                                      const currentGroup = singleLiq.numero_grupo;
-                                      const currentLines = periodConsumos.filter(c => 
-                                        c.lineas?.numero_grupo === parseInt(currentGroup, 10) &&
-                                        c.proveedor_id === singleLiq.proveedor_id
-                                      );
-                                      const selectedSum = (row.selectedLines || []).reduce((sum, lineNum) => {
-                                        const line = periodConsumos.find(c => 
-                                          c.numero_linea === lineNum && 
-                                          c.lineas?.numero_grupo === parseInt(singleLiq.numero_grupo, 10) &&
-                                          c.proveedor_id === singleLiq.proveedor_id
-                                        );
-                                        return sum + (line ? Number(line.total_linea) : 0);
-                                      }, 0);
-                                      const diff = Math.abs(selectedSum - Math.abs(row.netoReal));
-                                      const isMatch = diff < 0.05;
-                                      
-                                      if (!isMatch && currentLines.length > 0) {
-                                        return (
-                                          <div style={{
-                                            fontSize: '10px',
-                                            color: '#d97706',
-                                            background: 'rgba(245, 158, 11, 0.05)',
-                                            padding: '4px 6px',
-                                            borderRadius: '6px',
-                                            border: '1px dashed rgba(245, 158, 11, 0.2)',
+                                      {/* Botón desglose */}
+                                      {isFacturaSelected && currentLiq && (
+                                        <button
+                                          type="button"
+                                          onClick={() => openBreakdownModal(currentLiq.liquidacion_id, row)}
+                                          style={{
+                                            width: '26px',
+                                            height: '26px',
+                                            minWidth: '26px',
                                             display: 'flex',
                                             alignItems: 'center',
-                                            gap: '4px',
-                                            marginTop: '2px'
+                                            justifyContent: 'center',
+                                            background: 'transparent',
+                                            border: '1px solid var(--border-light)',
+                                            borderRadius: '6px',
+                                            color: 'var(--text-secondary)',
+                                            cursor: 'pointer'
+                                          }}
+                                          title="Ver desglose de líneas del grupo"
+                                        >
+                                          <HelpCircle size={13} />
+                                        </button>
+                                      )}
+                                    </div>
+
+                                    {/* Subtexto aclaratorio */}
+                                    <div style={{ fontSize: '10px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                      {isFacturaSelected ? (
+                                        <span>
+                                          {currentLiq.periodo} • Gpo {currentLiq.numero_grupo} ({currentLiq.proveedores?.nombre || 'S/P'}): ${Number(currentLiq.monto_total_facturado).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                                          {isPaid ? ' (Ya saldado)' : ''}
+                                        </span>
+                                      ) : (
+                                        <span style={{ color: '#3b82f6', fontWeight: 500 }}>
+                                          Imputa a Cta Cte (amortiza deuda acumulada)
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {/* Si hay múltiples facturas en el mismo mes y se despliega */}
+                                    {hasMultipleLiqs && isDropdownOpen && (
+                                      <div style={{
+                                        position: 'absolute',
+                                        top: '36px',
+                                        left: 0,
+                                        background: 'var(--modal-bg)',
+                                        border: '1px solid var(--border-light)',
+                                        borderRadius: '12px',
+                                        boxShadow: '0 10px 15px -3px rgba(0,0,0,0.15)',
+                                        zIndex: 999,
+                                        padding: '8px',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: '4px',
+                                        minWidth: '240px'
+                                      }}>
+                                        <span style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                                          Facturas de {selectedPeriod}:
+                                        </span>
+                                        {row.pendingList.map(liq => (
+                                          <label key={liq.liquidacion_id} style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            padding: '4px 6px',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontSize: '11px',
+                                            background: (row.selectedLiquidations || []).includes(String(liq.liquidacion_id)) ? 'var(--accent-light)' : 'transparent'
                                           }}>
-                                            <span>⚠️ Seleccionado: ${selectedSum.toLocaleString('es-AR')} (Transf: ${Math.abs(row.netoReal).toLocaleString('es-AR')})</span>
-                                          </div>
-                                        );
-                                      }
-                                      return null;
-                                    })()}
+                                            <input
+                                              type="checkbox"
+                                              checked={(row.selectedLiquidations || []).includes(String(liq.liquidacion_id))}
+                                              onChange={() => handleToggleLiquidation(row.id, String(liq.liquidacion_id))}
+                                              style={{ accentColor: 'var(--accent)' }}
+                                            />
+                                            <span>Gpo {liq.numero_grupo} ({liq.proveedores?.nombre}): ${Number(liq.monto_total_facturado).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
+                                          </label>
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
                                 );
                               })()}
@@ -3116,6 +2881,8 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                 }
 
                                 const isAmountMatch = !isAlreadySaldada && row.netoReal > 0 && checkIsAmountMatch(row, periodConsumos);
+                                const isCtaCteReady = !isAlreadySaldada && row.netoReal > 0 && Boolean(row.selectedSocioId) && (row.selectedLiquidations || []).length === 0;
+                                const isReadyToConciliate = isAmountMatch || isCtaCteReady;
                                 return (
                                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
                                     <span 
@@ -3131,18 +2898,18 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                         gap: '4px', 
                                         fontSize: '11px', 
                                         fontWeight: 700, 
-                                        color: isAlreadySaldada ? '#10b981' : (isAmountMatch ? '#16a34a' : (row.netoReal > 0 ? '#d97706' : 'var(--text-secondary)')),
-                                        background: isAlreadySaldada ? 'rgba(16, 185, 129, 0.1)' : (isAmountMatch ? 'rgba(22, 163, 74, 0.08)' : (row.netoReal > 0 ? 'rgba(245, 158, 11, 0.08)' : 'rgba(0,0,0,0.05)')),
+                                        color: isAlreadySaldada ? '#10b981' : (isReadyToConciliate ? '#16a34a' : (row.netoReal > 0 ? '#d97706' : 'var(--text-secondary)')),
+                                        background: isAlreadySaldada ? 'rgba(16, 185, 129, 0.1)' : (isReadyToConciliate ? 'rgba(22, 163, 74, 0.08)' : (row.netoReal > 0 ? 'rgba(245, 158, 11, 0.08)' : 'rgba(0,0,0,0.05)')),
                                         padding: '3px 8px',
                                         borderRadius: '6px',
-                                        border: isAlreadySaldada ? '1px solid rgba(16, 185, 129, 0.25)' : (isAmountMatch ? '1px solid rgba(22, 163, 74, 0.2)' : (row.netoReal > 0 ? '1px solid rgba(245, 158, 11, 0.2)' : '1px solid var(--border-light)')),
+                                        border: isAlreadySaldada ? '1px solid rgba(16, 185, 129, 0.25)' : (isReadyToConciliate ? '1px solid rgba(22, 163, 74, 0.2)' : (row.netoReal > 0 ? '1px solid rgba(245, 158, 11, 0.2)' : '1px solid var(--border-light)')),
                                         cursor: isAlreadySaldada ? 'pointer' : 'default',
                                         transition: 'all 0.15s ease'
                                       }}
                                       title={isAlreadySaldada ? 'Liquidación ya saldada / pago ya registrado. Haga clic para ver los datos del pago' : ''}
                                     >
-                                      {isAlreadySaldada ? <CheckCircle2 size={12} /> : (isAmountMatch ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />)}
-                                      {isAlreadySaldada ? 'Ya Saldado 👁️' : (isAmountMatch ? 'Listo para conciliar' : (row.netoReal > 0 ? 'Sin Conciliar' : 'No Conciliable'))}
+                                      {isAlreadySaldada ? <CheckCircle2 size={12} /> : (isReadyToConciliate ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />)}
+                                      {isAlreadySaldada ? 'Ya Saldado 👁️' : (isReadyToConciliate ? 'Listo para conciliar' : (row.netoReal > 0 ? 'Sin Conciliar' : 'No Conciliable'))}
                                     </span>
                                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center' }}>
                                       {row.netoReal > 0 && (

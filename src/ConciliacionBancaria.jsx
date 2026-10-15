@@ -785,7 +785,7 @@ export default function ConciliacionBancaria() {
         }
 
         const pendingForSocio = targetSocio
-          ? pendingLiquidaciones.filter(liq => liq && socioGroups.includes(Number(liq.numero_grupo)) && (!selectedPeriod || liq.periodo <= selectedPeriod))
+          ? pendingLiquidaciones.filter(liq => liq && socioGroups.includes(Number(liq.numero_grupo)) && (!selectedPeriod || liq.periodo === selectedPeriod))
           : [];
 
         const { liqId: defaultLiqId, matchedIds, isAlreadySaldada: isLiqSaldada } = findDefaultLiquidation(m.netoReal, pendingForSocio, false, selectedPeriod);
@@ -935,7 +935,7 @@ export default function ConciliacionBancaria() {
         socioId = matchedSocio ? matchedSocio.socio_id : "";
         const socioGroups = matchedSocio ? (matchedSocio.grupo_socio?.map(g => Number(g.numero_grupo)) || []) : [];
         pendingForSocio = matchedSocio 
-          ? pendingLiquidaciones.filter(liq => liq && socioGroups.includes(Number(liq.numero_grupo)) && (!selectedPeriod || liq.periodo <= selectedPeriod))
+          ? pendingLiquidaciones.filter(liq => liq && socioGroups.includes(Number(liq.numero_grupo)) && (!selectedPeriod || liq.periodo === selectedPeriod))
           : [];
       }
       
@@ -973,7 +973,7 @@ export default function ConciliacionBancaria() {
     }));
   };
 
-  const handleToggleLiquidation = (rowId, liqId) => {
+  const handleToggleLiquidation = (rowId, liqId, forceSelect = false) => {
     setParsedMovements(prev => prev.map(m => {
       if (m.id !== rowId) return m;
 
@@ -993,7 +993,9 @@ export default function ConciliacionBancaria() {
       const currentList = m.selectedLiquidations || [];
       const isSelected = currentList.includes(String(liqId));
       let newList;
-      if (isSelected) {
+      if (forceSelect) {
+        newList = [String(liqId)];
+      } else if (isSelected) {
         newList = currentList.filter(id => id !== String(liqId));
       } else {
         newList = [...currentList, String(liqId)];

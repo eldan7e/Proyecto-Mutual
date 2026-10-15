@@ -121,7 +121,7 @@ export const fetchTitulares = fetchTitularData;
  * @param {string} selectedPeriod - Período (YYYY-MM).
  * @returns {Promise<Array>}
  */
-export const fetchPendingLiquidaciones = async (selectedPeriod, includeHistoricalUnpaid = true) => {
+export const fetchPendingLiquidaciones = async (selectedPeriod) => {
   let query = supabase
     .from('liquidaciones_grupos')
     .select(`
@@ -137,9 +137,7 @@ export const fetchPendingLiquidaciones = async (selectedPeriod, includeHistorica
       proveedores!proveedor_id(nombre)
     `);
 
-  if (selectedPeriod && includeHistoricalUnpaid) {
-    query = query.or(`periodo.eq.${selectedPeriod},and(estado_pago.neq.ABONADO,periodo.lte.${selectedPeriod})`);
-  } else if (selectedPeriod) {
+  if (selectedPeriod) {
     query = query.eq('periodo', selectedPeriod);
   }
 
@@ -147,7 +145,7 @@ export const fetchPendingLiquidaciones = async (selectedPeriod, includeHistorica
   if (error) throw error;
   return data || [];
 };
-export const fetchLiquidacionesByPeriod = (period) => fetchPendingLiquidaciones(period, false);
+export const fetchLiquidacionesByPeriod = fetchPendingLiquidaciones;
 
 /**
  * Obtiene los consumos mensuales para un período.
