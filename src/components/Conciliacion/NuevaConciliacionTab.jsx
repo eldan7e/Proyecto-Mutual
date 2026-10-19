@@ -503,18 +503,12 @@ export default function NuevaConciliacionTab({
     }
     if (filtroEstadoNueva !== 'TODOS') {
       filteredRows = filteredRows.filter(r => {
-        let isSaldada = r.isAlreadyPaidMatch || r.isDbDuplicate || r.isAlreadySaldada || r.estado === 'CONCILIADO';
-        if (!isSaldada && r.selectedSocioId && Array.isArray(r.pendingList) && r.pendingList.length > 0) {
-          const pLiqs = selectedPeriod ? r.pendingList.filter(l => l.periodo === selectedPeriod) : r.pendingList;
-          if (pLiqs.length > 0 && pLiqs.every(l => (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)) <= 2.00 || l.estado_pago === 'ABONADO')) {
-            isSaldada = true;
-          }
-        }
+        const isReconciled = r.isDbDuplicate || r.reconciledInSession || (r.estado === 'CONCILIADO' && (r.isDbDuplicate || r.reconciledInSession));
         if (filtroEstadoNueva === 'PENDIENTE') {
-          return r.estado === 'PENDIENTE' && !isSaldada;
+          return !isReconciled && r.estado !== 'CONCILIADO';
         }
         if (filtroEstadoNueva === 'CONCILIADO') {
-          return r.estado === 'CONCILIADO' || isSaldada;
+          return isReconciled || r.estado === 'CONCILIADO';
         }
         return r.estado === filtroEstadoNueva;
       });
@@ -1539,13 +1533,11 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
   const readyToReconcileCount = useMemo(() => {
     return parsedMovements.filter(m => {
       if (m.estado !== 'PENDIENTE') return false;
-      if (m.isAlreadyPaidMatch || m.isDbDuplicate || m.isAlreadySaldada) return false;
-      if (m.selectedSocioId && Array.isArray(m.pendingList) && m.pendingList.length > 0) {
-        const pLiqs = selectedPeriod ? m.pendingList.filter(l => l.periodo === selectedPeriod) : m.pendingList;
-        if (pLiqs.length > 0 && pLiqs.every(l => (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)) <= 2.00 || l.estado_pago === 'ABONADO')) {
-          return false;
-        }
-      }
+      if (m.isAlreadyPaidMatch || m.isDbDuplicate) return false;
+      
+      const isCtaCteMode = Boolean(m.selectedSocioId) && (!m.selectedLiquidations || m.selectedLiquidations.length === 0);
+      if (isCtaCteMode && m.netoReal > 0) return true;
+
       return checkIsAmountMatch(m, periodConsumos);
     }).length;
   }, [parsedMovements, periodConsumos, selectedPeriod]);
@@ -2535,7 +2527,7 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                           {/* 6. Saldar Liquidación */}
                           <td style={{ }}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                              {row.estado === 'CONCILIADO' && (row.isDbDuplicate || row.reconciledInSession || row.isAlreadyPaidMatch) ? (
+                              {row.estado === 'CONCILIADO' && (row.isDbDuplicate || row.reconciledInSession) ? (
                                 (row.selectedLiquidationId || (row.selectedLiquidations && row.selectedLiquidations.length > 0)) ? (
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                     <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
@@ -2852,9 +2844,11 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                               <Loader2 className="animate-spin" size={18} style={{ color: 'var(--accent)', margin: '0 auto' }} />
                             ) : (
                               (() => {
+                                const isCtaCteMode = Boolean(row.selectedSocioId) && (!row.selectedLiquidations || row.selectedLiquidations.length === 0);
+
                                 let isAlreadySaldada = false;
-                                if (row.isAlreadySaldada || row.isAlreadyPaidMatch || row.isDbDuplicate || row.estado === 'CONCILIADO') {
-                                  isAlreadySaldada = true;
+                                if (isCtaCteMode) {
+                                  isAlreadySaldada = false;
                                 } else if (row.selectedLiquidations && row.selectedLiquidations.length > 0) {
                                   isAlreadySaldada = row.selectedLiquidations.every(liqId => {
                                     const liq = row.pendingList?.find(l => String(l.liquidacion_id) === String(liqId));
@@ -2868,20 +2862,10 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                     const pending = Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0);
                                     if (pending <= 2.00 || liq.estado_pago === 'ABONADO') isAlreadySaldada = true;
                                   }
-                                } else if (row.selectedSocioId && Array.isArray(row.pendingList) && row.pendingList.length > 0) {
-                                  const periodLiqs = selectedPeriod 
-                                    ? row.pendingList.filter(l => l.periodo === selectedPeriod)
-                                    : row.pendingList;
-                                  if (periodLiqs.length > 0 && periodLiqs.every(l => {
-                                    const pending = Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0);
-                                    return pending <= 2.00 || l.estado_pago === 'ABONADO';
-                                  })) {
-                                    isAlreadySaldada = true;
-                                  }
                                 }
 
                                 const isAmountMatch = !isAlreadySaldada && row.netoReal > 0 && checkIsAmountMatch(row, periodConsumos);
-                                const isCtaCteReady = !isAlreadySaldada && row.netoReal > 0 && Boolean(row.selectedSocioId) && (row.selectedLiquidations || []).length === 0;
+                                const isCtaCteReady = isCtaCteMode && row.netoReal > 0;
                                 const isReadyToConciliate = isAmountMatch || isCtaCteReady;
                                 return (
                                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
@@ -2909,31 +2893,56 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                       title={isAlreadySaldada ? 'Liquidación ya saldada / pago ya registrado. Haga clic para ver los datos del pago' : ''}
                                     >
                                       {isAlreadySaldada ? <CheckCircle2 size={12} /> : (isReadyToConciliate ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />)}
-                                      {isAlreadySaldada ? 'Ya Saldado 👁️' : (isReadyToConciliate ? 'Listo para conciliar' : (row.netoReal > 0 ? 'Sin Conciliar' : 'No Conciliable'))}
+                                      {isAlreadySaldada ? 'Factura ya saldada 👁️' : (isReadyToConciliate ? 'Listo para conciliar' : (row.netoReal > 0 ? 'Sin Conciliar' : 'No Conciliable'))}
                                     </span>
                                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center' }}>
                                       {row.netoReal > 0 && (
                                         <>
                                           {isAlreadySaldada && (
-                                            <button 
-                                              onClick={() => handleVerPagoConciliado(row)}
-                                              className="action-button"
-                                              style={{ 
-                                                padding: '6px 12px',
-                                                fontSize: '12px',
-                                                height: '32px',
-                                                borderRadius: '8px',
-                                                flexShrink: 0,
-                                                background: 'rgba(16, 185, 129, 0.12)',
-                                                color: '#10b981',
-                                                border: '1px solid rgba(16, 185, 129, 0.3)',
-                                                cursor: 'pointer'
-                                              }}
-                                              title="Liquidación ya saldada / pago ya impactó. Clic para ver el comprobante y detalle del pago"
-                                            >
-                                              <CheckCircle2 size={13} style={{ marginRight: '4px' }} />
-                                              Ver Pago
-                                            </button>
+                                            <>
+                                              <button 
+                                                onClick={() => handleVerPagoConciliado(row)}
+                                                className="action-button"
+                                                style={{ 
+                                                  padding: '6px 12px',
+                                                  fontSize: '12px',
+                                                  height: '32px',
+                                                  borderRadius: '8px',
+                                                  flexShrink: 0,
+                                                  background: 'rgba(16, 185, 129, 0.12)',
+                                                  color: '#10b981',
+                                                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                                                  cursor: 'pointer'
+                                                }}
+                                                title="Liquidación ya saldada / pago ya impactó. Clic para ver el comprobante y detalle del pago"
+                                              >
+                                                <CheckCircle2 size={13} style={{ marginRight: '4px' }} />
+                                                Ver Pago
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleToggleLiquidation(row.id, 'CLEAR')}
+                                                className="action-button"
+                                                style={{
+                                                  padding: '6px 10px',
+                                                  fontSize: '12px',
+                                                  height: '32px',
+                                                  borderRadius: '8px',
+                                                  flexShrink: 0,
+                                                  background: 'rgba(59, 130, 246, 0.12)',
+                                                  color: '#2563eb',
+                                                  border: '1px solid rgba(59, 130, 246, 0.3)',
+                                                  cursor: 'pointer',
+                                                  display: 'inline-flex',
+                                                  alignItems: 'center',
+                                                  gap: '4px'
+                                                }}
+                                                title="Cambiar imputación a Deuda en Cuenta Corriente para conciliar este movimiento"
+                                              >
+                                                <CreditCard size={13} />
+                                                A Cta Cte
+                                              </button>
+                                            </>
                                           )}
                                           {(!isAlreadySaldada && !row.isDbDuplicate && row.estado !== 'CONCILIADO') && (
                                             <button 

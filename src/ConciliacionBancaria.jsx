@@ -753,7 +753,7 @@ export default function ConciliacionBancaria() {
     setParsedMovements(prev => {
       let changed = false;
       const next = prev.map(m => {
-        if (m.isDbDuplicate || m.reconciledInSession || m.isAlreadyPaidMatch || m.estado === 'CONCILIADO') return m;
+        if (m.isDbDuplicate || m.reconciledInSession) return m;
 
         const isTaxOrFee = m.tipo_movimiento === 'IMPUESTO' || m.tipo_movimiento === 'COMISION' || m.tipo_movimiento === 'SUSCRIPCION' || m.tipo_movimiento === 'PAGO_VEP' || m.tipo_movimiento === 'PAGO_SERVICIO' || m.tipo_movimiento === 'PAGO_ARCA' || m.tipo_movimiento === 'TRANSFERENCIA_ENVIADA';
         
@@ -791,16 +791,8 @@ export default function ConciliacionBancaria() {
         const { liqId: defaultLiqId, matchedIds, isAlreadySaldada: isLiqSaldada } = findDefaultLiquidation(m.netoReal, pendingForSocio, false, selectedPeriod);
         const defaultLines = calculateDefaultLines(targetSocio?.socio_id, defaultLiqId, m.netoReal, periodConsumos);
 
-        let nextEstado = 'PENDIENTE';
-        let isAlreadyPaidMatch = false;
-
-        if (m.isDbDuplicate || m.reconciledInSession) {
-          nextEstado = 'CONCILIADO';
-          isAlreadyPaidMatch = true;
-        } else if (isLiqSaldada || m.isAlreadyPaidMatch || m.estado === 'CONCILIADO') {
-          nextEstado = 'CONCILIADO';
-          isAlreadyPaidMatch = true;
-        }
+        let nextEstado = (m.isDbDuplicate || m.reconciledInSession) ? 'CONCILIADO' : 'PENDIENTE';
+        let isAlreadyPaidMatch = (m.isDbDuplicate || m.reconciledInSession) ? true : false;
 
         let selectedLiqs = m.selectedLiquidations || [];
         if (defaultLiqId === 'SALDAR_TODO' && matchedIds) {
@@ -941,15 +933,8 @@ export default function ConciliacionBancaria() {
       
       const { liqId: defaultLiqId, matchedIds, isAlreadySaldada: isLiqSaldada } = findDefaultLiquidation(m.netoReal, pendingForSocio, true, selectedPeriod);
       
-      let nextEstado = 'PENDIENTE';
-      let isAlreadyPaidMatch = false;
-      if (m.isDbDuplicate || isLiqSaldada) {
-        nextEstado = 'CONCILIADO';
-        isAlreadyPaidMatch = true;
-      } else {
-        nextEstado = 'PENDIENTE';
-        isAlreadyPaidMatch = false;
-      }
+      let nextEstado = (m.isDbDuplicate || m.reconciledInSession) ? 'CONCILIADO' : 'PENDIENTE';
+      let isAlreadyPaidMatch = (m.isDbDuplicate || m.reconciledInSession) ? true : false;
 
       let selectedLiqs = [];
       if (defaultLiqId === 'SALDAR_TODO' && matchedIds) {
@@ -1007,8 +992,8 @@ export default function ConciliacionBancaria() {
         return (Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0)) <= 2.00 || liq.estado_pago === 'ABONADO';
       });
 
-      let nextEstado = (m.isDbDuplicate || m.reconciledInSession || allSelectedPaid) ? 'CONCILIADO' : 'PENDIENTE';
-      let isAlreadyPaidMatch = m.isDbDuplicate || allSelectedPaid || false;
+      let nextEstado = (m.isDbDuplicate || m.reconciledInSession) ? 'CONCILIADO' : 'PENDIENTE';
+      let isAlreadyPaidMatch = (m.isDbDuplicate || m.reconciledInSession) ? true : false;
       
       const nextSingleLiqId = newList.length === 1 
         ? newList[0] 
@@ -2518,12 +2503,12 @@ export default function ConciliacionBancaria() {
   };
 
   const handleConciliarTodos = async () => {
-    const readyRows = parsedMovements.filter(m => 
-      m.estado === 'PENDIENTE' && 
-      !m.isAlreadyPaidMatch &&
-      !m.isDbDuplicate &&
-      checkIsAmountMatch(m, periodConsumos)
-    );
+    const readyRows = parsedMovements.filter(m => {
+      if (m.estado !== 'PENDIENTE' || m.isAlreadyPaidMatch || m.isDbDuplicate) return false;
+      const isCtaCteMode = Boolean(m.selectedSocioId) && (!m.selectedLiquidations || m.selectedLiquidations.length === 0);
+      if (isCtaCteMode && m.netoReal > 0) return true;
+      return checkIsAmountMatch(m, periodConsumos);
+    });
     if (readyRows.length === 0) {
       addToast("No hay filas listas para conciliar (que tengan socio asignado o sean gastos bancarios/impuestos/servicios/transferencias enviadas)", "warning");
       return;
@@ -3281,9 +3266,6 @@ export default function ConciliacionBancaria() {
           initialEstado = 'CONCILIADO';
           isAlreadyPaidMatch = true;
           multiLiqIndices.sort((a, b) => b - a).forEach(idx => existingMovsPool.splice(idx, 1));
-        } else if (isLiqSaldada) {
-          initialEstado = 'CONCILIADO';
-          isAlreadyPaidMatch = true;
         }
 
         // Comprobación extra para el número de comprobante (evitar duplicados)
@@ -3315,7 +3297,7 @@ export default function ConciliacionBancaria() {
         }
 
         const isActuallyDuplicate = matchIndex !== -1 || isCuentaMatch || isMultiLiqMatch || isDuplicateCpbte;
-        if (isActuallyDuplicate || isLiqSaldada) {
+        if (isActuallyDuplicate) {
           initialEstado = 'CONCILIADO';
           isAlreadyPaidMatch = true;
         }
@@ -3350,7 +3332,7 @@ export default function ConciliacionBancaria() {
           selectedLines: defaultLines,
           estado: initialEstado,
           isDbDuplicate: isActuallyDuplicate,
-          isAlreadyPaidMatch: isActuallyDuplicate || isAlreadyPaidMatch || isLiqSaldada,
+          isAlreadyPaidMatch: isActuallyDuplicate,
           isAlreadySaldada: isLiqSaldada,
           movimiento_id: matchedDbMov ? matchedDbMov.movimiento_id : null,
           dbLiquidationInfo: matchedDbMov ? matchedDbMov.liquidaciones_grupos : null,
