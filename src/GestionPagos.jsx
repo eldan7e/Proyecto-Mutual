@@ -615,6 +615,7 @@ export default function GestionPagos() {
             .from('consumos_mensuales')
             .update({ 
               precio_lista_audit: plan.precio,
+              precio_lista_factura: plan.precio,
               tarifa_aunar_aplicada: plan.tarifa
             })
             .in('consumo_id', idsToUpdate);

@@ -73,9 +73,8 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       // ============================================================
       // FÓRMULA REAL DEL EXCEL DE CLARO (hojas BONI + AUNAR)
       // ============================================================
-      // BONI!E = precio_oficial_claro × 0.10 (90% descuento fijo Aunar)
-      // Para líneas regulares: BONI!E ≈ costo_abono_real (Claro cobra 10% al corporativo)
-      // Para A100E (Internet): BONI!E ≠ costo_abono_real (Claro cobra 29% al corporativo)
+      // BONI!E = precio_oficial_claro × (1 - bonif_operadora) [85% bonificación -> x 0.15]
+      // Para líneas regulares: BONI!E ≈ costo_abono_real (Claro cobra 15% al corporativo)
       //
       // AUNAR!D = (W + Y + Z + X + CTA_CEL + AA) × (1 + DESC/100)
       //   L = BONI!E (abono ajustado)
@@ -88,12 +87,19 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       //   AA = L × Z (monto bonificación)
       // ============================================================
       
-      // Calcular abono base según fórmula BONI: precio_oficial × 0.10
+      // Calcular abono base según fórmula BONI: precio_oficial × 0.10 (90% bonificación fija Claro)
       // En Claro, para todos los planes con precio de lista oficial (incluyendo combos de internet y fija como 3MC26 y M3C03),
       // el abono base corporativo es el 10% del precio oficial de lista.
       const pName = ((lineInfo?.plan || '') + ' ' + (dbInfo?.nombre_plan || '') + ' ' + (consumo.plan || '')).toUpperCase();
 
-      const precioOficialClaro = Number(consumo.precio_lista_factura || consumo.precio_lista_audit || lineInfo?.planes_abonos?.precio || dbInfo?.precio || 0);
+      const precioOficialClaro = Number(
+        config.historicalPrice?.precio_lista || 
+        consumo.precio_lista_audit || 
+        consumo.precio_lista_factura || 
+        lineInfo?.planes_abonos?.precio || 
+        dbInfo?.precio || 
+        0
+      );
       let abonoBaseClaro = costoAbonoReal;
 
       if (precioOficialClaro > 0) {
