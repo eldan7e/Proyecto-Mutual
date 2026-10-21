@@ -1,4 +1,4 @@
-export const detectarTipoMovimiento = (concepto, monto) => {
+﻿﻿export const detectarTipoMovimiento = (concepto, monto) => {
   if (!concepto) return 'OTRO';
   const conceptoUpper = concepto.toUpperCase();
   
@@ -276,9 +276,10 @@ export const parsearMovimientos = (rawText) => {
     let dialect = 'UNKNOWN';
     let colMap = {};
 
-    const isDebCol = (h) => (h === 'DEBITO' || h === 'DEBITOS' || h === 'DÉBITO' || h === 'DÉBITOS' || h.startsWith('DEBIT')) && !h.includes('UNIDOS') && !h.includes('TOTAL');
-    const isCredCol = (h) => (h === 'CREDITO' || h === 'CREDITOS' || h === 'CRÉDITO' || h === 'CRÉDITOS' || h.startsWith('CREDIT')) && !h.includes('UNIDOS') && !h.includes('TOTAL');
-    const isImpCol = (h) => (h === 'IMPORTE' || h === 'MONTO' || h === 'VALOR') && !h.includes('UNIDOS') && !h.includes('TOTAL');
+    const normalizeHeader = (h) => h.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+    const isDebCol = (h) => { const n = normalizeHeader(h); return (n === 'DEBITO' || n === 'DEBITOS' || n.startsWith('DEBIT')) && !n.includes('UNIDOS') && !n.includes('TOTAL'); };
+    const isCredCol = (h) => { const n = normalizeHeader(h); return (n === 'CREDITO' || n === 'CREDITOS' || n.startsWith('CREDIT')) && !n.includes('UNIDOS') && !n.includes('TOTAL'); };
+    const isImpCol = (h) => { const n = normalizeHeader(h); return (n === 'IMPORTE' || n === 'MONTO' || n === 'VALOR') && !n.includes('UNIDOS') && !n.includes('TOTAL'); };
 
     if (headerUpper.some(h => h.includes('GRUPO')) && (headerUpper.some(isCredCol) || headerUpper.some(isImpCol))) {
       // Sheet "compara" / Audited payments
@@ -318,11 +319,25 @@ export const parsearMovimientos = (rawText) => {
       colMap.fecha = headerUpper.findIndex(h => h.includes('FECHA'));
       colMap.concepto = headerUpper.findIndex(h => h.includes('CONCEPTO'));
       colMap.comprobante = headerUpper.findIndex(h => h.includes('CPBTE') || h.includes('COMPROBANTE'));
-      colMap.debito = headerUpper.findIndex(h => h.includes('BITO'));  // Débito
-      colMap.credito = headerUpper.findIndex(h => h.includes('DITO') && !h.includes('BITO')); // Crédito
+      colMap.debito = headerUpper.findIndex(isDebCol);
+      if (colMap.debito === -1) {
+        colMap.debito = headerUpper.findIndex(h => h.includes('BITO'));
+      }
+      colMap.credito = headerUpper.findIndex(isCredCol);
+      if (colMap.credito === -1) {
+        // Buscar credito sin matchear debito
+        colMap.credito = headerUpper.findIndex(h => (h.includes('DITO') || h.includes('CRED')) && !h.includes('DEB') && !h.includes('BITO'));
+      }
       colMap.saldo = headerUpper.findIndex(h => h.includes('SALDO'));
+      // Fallback: si aun no se encontro credito, usar primera columna no asignada
       if (colMap.credito === -1 && colMap.debito !== -1) {
-        colMap.credito = colMap.debito + 1;
+        const usedCols = new Set([colMap.fecha, colMap.concepto, colMap.comprobante, colMap.debito, colMap.saldo].filter(c => c !== -1));
+        for (let ci = 0; ci < headerUpper.length; ci++) {
+          if (!usedCols.has(ci)) {
+            colMap.credito = ci;
+            break;
+          }
+        }
       }
     } else {
       // Generic fallback: try old approach based on column count
