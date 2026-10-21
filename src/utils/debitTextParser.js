@@ -84,6 +84,43 @@ export function detectDebitColumns(headers, rows) {
   };
 }
 
+/** Keep a user-selected CBU column unless persisted/automatic mapping is clearly worse. */
+export function resolveDebitColumns(headers, rows, selected = {}) {
+  const detected = detectDebitColumns(headers, rows);
+  const cbuCandidates = (headers || []).filter(key => normalizeText(key).includes('cbu'));
+  const validCbuCount = key => key
+    ? (rows || []).reduce((count, row) => count + (isCbu(row?.[key]) ? 1 : 0), 0)
+    : 0;
+  const selectedCbuCount = validCbuCount(selected.cbuCol);
+  const detectedCbuCount = validCbuCount(detected.cbuCol);
+  const cbuCol = detected.cbuCol && detectedCbuCount > selectedCbuCount
+    ? detected.cbuCol
+    : (cbuCandidates.includes(selected.cbuCol) ? selected.cbuCol : detected.cbuCol);
+
+  return { ...detected, ...selected, cbuCol };
+}
+
+/** Liquidations available for a new debit reconciliation, excluding settled/zero-balance invoices. */
+export function getPendingDebitLiquidations(liquidations) {
+  return (liquidations || []).filter(liq => {
+    const remaining = Number(liq?.monto_total_facturado || 0) - Number(liq?.monto_abonado || 0);
+    return liq && liq.estado_pago !== 'ABONADO' && remaining > 2.00;
+  });
+}
+
+/** A debit may settle selected invoices only when it covers their full remaining balances. */
+export function debitCoversSelectedBalances(amount, liquidations, selectedIds) {
+  const ids = [...new Set((selectedIds || []).map(String))];
+  if (ids.length === 0) return false;
+  const selected = (liquidations || []).filter(liq => ids.includes(String(liq?.liquidacion_id)));
+  if (selected.length !== ids.length) return false;
+  const remainingCents = selected.reduce((sum, liq) => {
+    const balance = Math.max(0, Number(liq?.monto_total_facturado || 0) - Number(liq?.monto_abonado || 0));
+    return sum + Math.round(balance * 100);
+  }, 0);
+  return Math.round((Number(amount) || 0) * 100) >= remainingCents;
+}
+
 /** Parse a pasted debit file and infer columns from repeated row evidence. */
 export function parseDebitText(text) {
   const parsedRows = String(text || '').split(/\r\n?|\n/)
