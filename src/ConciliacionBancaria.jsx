@@ -1231,6 +1231,23 @@ export default function ConciliacionBancaria() {
           if (matchedSocio) matchReason = 'Nombre';
         }
       }
+
+      const normalizedExcelCbu = cleanExcelCbu.replace(/^0+/, '');
+      const cbuSocios = normalizedExcelCbu
+        ? socios.filter(s => (s.cbu || '').replace(/\D/g, '').replace(/^0+/, '') === normalizedExcelCbu)
+        : [];
+      const excelGroupNum = cleanExcelGrupo ? parseInt(cleanExcelGrupo, 10) : null;
+      const cbuSociosInGroup = excelGroupNum
+        ? cbuSocios.filter(s => s.grupo_socio?.some(g => Number(g.numero_grupo) === excelGroupNum))
+        : cbuSocios;
+      const cbuGroupConflict = Boolean(excelGroupNum && cbuSocios.length > 0 && cbuSociosInGroup.length === 0);
+      const cbuSocioMatch = cbuSociosInGroup.find(s => matchedSocio && s.socio_id === matchedSocio.socio_id) ||
+        (cbuSociosInGroup.length === 1 ? cbuSociosInGroup[0] : null);
+      const hasValidCbu = Boolean(cbuKey && /^\d{22}$/.test(cleanExcelCbu) && cbuSocioMatch && !cbuGroupConflict);
+      if (cbuSocioMatch && matchedSocio?.socio_id !== cbuSocioMatch.socio_id) {
+        matchedSocio = cbuSocioMatch;
+        matchReason = excelGroupNum ? `CBU + Grupo ${excelGroupNum}` : 'CBU';
+      }
       
       let matchStatus = 'NO_FOUND'; // 'MATCH_DEBT', 'MATCH_NO_DEBT', 'NO_FOUND', 'INVALID_AMOUNT', 'EXCEL_REJECT'
       let reason = 'CBU / Grupo no coincide con ningún socio';
@@ -1239,29 +1256,16 @@ export default function ConciliacionBancaria() {
       let matchedLiquidationIds = null;
       
       // Check if this row is rejected based on Excel status column
-      let isRejected = false;
-      if (excelEstado) {
-        const cleanEstado = excelEstado.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-        if (cleanEstado) {
-          if (
-            cleanEstado.includes('r10') || 
-            cleanEstado.includes('fondos') || 
-            cleanEstado.includes('rechaz') || 
-            cleanEstado.includes('error') || 
-            cleanEstado.includes('fall') || 
-            cleanEstado.includes('insufic')
-          ) {
-            isRejected = true;
-          } else {
-            const exactOks = ['1', 's', 'si'];
-            const partialOks = ['ok', 'exitoso', 'aprobado', 'cobrado', 'procesado', 'true'];
-            const isOk = exactOks.includes(cleanEstado) || partialOks.some(okVal => cleanEstado.includes(okVal));
-            if (!isOk) {
-              isRejected = true;
-            }
-          }
-        }
-      }
+      const cleanEstado = excelEstado.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
+      const explicitFailure = /\br\s*\d+\b/.test(cleanEstado) ||
+        ['fondos', 'rechaz', 'error', 'fall', 'insufic', 'baja', 'inexistente'].some(term => cleanEstado.includes(term));
+      const isSuccessfulStatus = ['1', 's', 'si', 'ok', 'true', 'exitoso', 'aprobado', 'cobrado', 'procesado'].includes(cleanEstado) ||
+        /\bdeb(?:ito)?\.?\s*ok\b/.test(cleanEstado) ||
+        ['exitoso', 'aprobado', 'cobrado', 'procesado'].some(term => cleanEstado.includes(term));
+      // Keep legacy files without a mapped status usable, but never book an
+      // explicit failure or an unknown non-empty result as a successful debit.
+      const isRejected = Boolean(cleanEstado) && (explicitFailure || !isSuccessfulStatus);
+      const isSuccessfulDebit = !isRejected;
       
       if (parsedMonto <= 0) {
         matchStatus = 'INVALID_AMOUNT';
@@ -1305,18 +1309,52 @@ export default function ConciliacionBancaria() {
         } else {
           pendingList = pendingLiquidaciones.filter(liq => liq && socioGroups.includes(liq.numero_grupo) && (!selectedPeriod || liq.periodo === selectedPeriod));
         }
-        const { liqId: dLiqId, matchedIds: dMatchedIds } = findDefaultLiquidation(parsedMonto, pendingList);
-        defaultLiqId = dLiqId;
-        matchedLiquidationIds = dMatchedIds;
+        const defaultMatch = findDefaultLiquidation(parsedMonto, pendingList);
+        defaultLiqId = defaultMatch.liqId;
+        matchedLiquidationIds = defaultMatch.matchedIds;
+
+        // Do not auto-assign a settled payment to the nearest provider invoice
+        // when the group has several. Resolve it by service-line amounts below,
+        // or leave it for explicit review.
+        if (defaultMatch.isAlreadySaldada && pendingList.length > 1) {
+          defaultLiqId = '';
+          matchedLiquidationIds = null;
+        }
+
+        if (!defaultLiqId && pendingList.length > 1 && matchedSocio) {
+          const lineMatches = pendingList.map(liq => {
+            const lines = calculateDefaultLines(matchedSocio.socio_id, liq.liquidacion_id, parsedMonto);
+            const sum = lines.reduce((total, lineNum) => {
+              const line = periodConsumos.find(c => c.numero_linea === lineNum &&
+                c.lineas?.numero_grupo === parseInt(liq.numero_grupo, 10) &&
+                c.proveedor_id === liq.proveedor_id);
+              return total + (line ? Number(line.total_linea) : 0);
+            }, 0);
+            return { liq, lines, diff: Math.abs(sum - parsedMonto) };
+          }).filter(candidate => candidate.lines.length > 0 && candidate.diff < 2.00);
+
+          if (lineMatches.length === 1) {
+            defaultLiqId = String(lineMatches[0].liq.liquidacion_id);
+            matchedLiquidationIds = null;
+          }
+        }
         
-        const activePendingList = pendingList.filter(l => (Number(l.monto_total_facturado) - Number(l.monto_abonado)) > 0);
+        const activePendingList = pendingList.filter(l =>
+          l.estado_pago !== 'ABONADO' &&
+          (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)) > 2.00
+        );
         
         if (isRejected) {
           matchStatus = 'EXCEL_REJECT';
           reason = `Rechazado en Excel (${excelEstado})`;
           defaultLiqId = ''; // Clear suggested liquidation for rejected rows
-        } else if (activePendingList.length > 0) {
-          matchStatus = 'MATCH_DEBT';
+        } else if (isSuccessfulDebit && !hasValidCbu) {
+          matchStatus = 'INVALID_CBU';
+          reason = cbuGroupConflict
+            ? `El CBU del Excel no corresponde al grupo ${excelGroupNum}; corregí el mapeo antes de imputar`
+            : 'El CBU debe tener 22 dígitos y coincidir con el socio; corregí el mapeo antes de imputar';
+        } else if (isSuccessfulDebit && defaultLiqId) {
+          matchStatus = 'MATCH_READY';
           if (defaultLiqId === 'SALDAR_TODO') {
             const listToSum = matchedLiquidationIds && matchedLiquidationIds.length > 0
               ? activePendingList.filter(l => matchedLiquidationIds.includes(l.liquidacion_id))
@@ -1328,9 +1366,19 @@ export default function ConciliacionBancaria() {
             const pendingAmount = matchedLiq ? (Number(matchedLiq.monto_total_facturado || 0) - Number(matchedLiq.monto_abonado || 0)) : 0;
             reason = `Listo: (${matchReason}) Deuda de $${pendingAmount.toLocaleString('es-AR')}`;
           }
+        } else if (isSuccessfulDebit && pendingList.length === 0) {
+          matchStatus = 'NO_INVOICE';
+          reason = `Débito OK (${matchReason}), pero no se encontró una factura del período ${selectedPeriod || ''} para este grupo`;
+        } else if (isSuccessfulDebit) {
+          matchStatus = 'NEEDS_REVIEW';
+          reason = `Débito OK (${matchReason}), pero no se pudo elegir una factura única; revisar imputación`;
         } else {
           matchStatus = 'MATCH_NO_DEBT';
           reason = `Socio (${matchReason}) sin deuda pendiente en este período`;
+        }
+
+        if (matchStatus === 'MATCH_READY' && activePendingList.length === 0) {
+          reason = `Débito OK (${matchReason}). La factura figura saldada, pero el movimiento se imputará a la factura seleccionada`;
         }
         
         // Expose sharing socios array
@@ -1367,7 +1415,10 @@ export default function ConciliacionBancaria() {
         selectedLines: defaultLines,
         matchStatus,
         reason,
-        checked: matchStatus === 'MATCH_DEBT' // check by default only those with debts
+        isSuccessfulDebit,
+        hasValidCbu,
+        canBeImputed: isSuccessfulDebit && hasValidCbu && Boolean(defaultLiqId),
+        checked: isSuccessfulDebit && hasValidCbu && Boolean(defaultLiqId)
       };
     });
   };
@@ -1411,6 +1462,30 @@ export default function ConciliacionBancaria() {
           return `Columna ${i + 1}${sample}`;
         });
         dataRows = parsedRows;
+
+        // Clipboard exports often have no header row. Infer the actual field
+        // positions from the first debit (group, result, name, amount, CBU)
+        // so the default mapping does not mistake the first payment for headers.
+        const cbuIndex = firstRow.findIndex(cell => /^\d{22}$/.test(String(cell).replace(/\D/g, '')));
+        const amountIndex = firstRow.findIndex(cell => /\$/.test(String(cell)) ||
+          /^-?\d{1,3}(?:\.\d{3})*,\d{2}$/.test(String(cell).trim()) ||
+          /^-?\d{1,3}(?:,\d{3})*\.\d{2}$/.test(String(cell).trim()));
+        const statusIndex = firstRow.findIndex(cell => {
+          const value = String(cell).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+          return /\bdeb(?:ito)?\.?\s*ok\b/.test(value) || /^r\s*\d+\b/.test(value) ||
+            ['ok', 'rechazado', 'aprobado', 'error', 'baja'].some(term => value.includes(term));
+        });
+        const groupIndex = firstRow.findIndex((cell, index) => index < (statusIndex >= 0 ? statusIndex : firstRow.length) && /^\d{1,6}$/.test(String(cell).trim()));
+        const nameIndex = firstRow.findIndex((cell, index) => {
+          const value = String(cell).trim();
+          return value && /[a-z]/i.test(value) && index !== statusIndex && index !== cbuIndex && index !== amountIndex;
+        });
+
+        if (groupIndex >= 0) headers[groupIndex] = 'Grupo';
+        if (statusIndex >= 0) headers[statusIndex] = 'Resultado';
+        if (nameIndex >= 0) headers[nameIndex] = 'Nombre';
+        if (amountIndex >= 0) headers[amountIndex] = 'Importe';
+        if (cbuIndex >= 0) headers[cbuIndex] = 'CBU';
       }
       
       const objects = dataRows.map(row => {
@@ -1704,7 +1779,15 @@ export default function ConciliacionBancaria() {
           ...r,
           selectedLiquidationId: liqId,
           selectedLiquidations: newSelectedLiqs,
-          selectedLines: defaultLines
+          selectedLines: defaultLines,
+          canBeImputed: Boolean(r.isSuccessfulDebit && r.hasValidCbu && newSelectedLiqs.length > 0),
+          checked: Boolean(r.isSuccessfulDebit && r.hasValidCbu && newSelectedLiqs.length > 0),
+          matchStatus: r.isSuccessfulDebit
+            ? (!r.hasValidCbu ? 'INVALID_CBU' : (newSelectedLiqs.length > 0 ? 'MATCH_READY' : (r.pendingList.length > 0 ? 'NEEDS_REVIEW' : 'NO_INVOICE')))
+            : r.matchStatus,
+          reason: r.isSuccessfulDebit
+            ? (!r.hasValidCbu ? r.reason : (newSelectedLiqs.length > 0 ? 'Débito OK. Imputación manual seleccionada.' : 'Débito OK, pero no hay factura seleccionada para imputar.'))
+            : r.reason
         };
       })
     }));
@@ -1739,7 +1822,15 @@ export default function ConciliacionBancaria() {
           ...r,
           selectedLiquidations: newList,
           selectedLiquidationId: nextSingleLiqId,
-          selectedLines: defaultLines
+          selectedLines: defaultLines,
+          canBeImputed: Boolean(r.isSuccessfulDebit && r.hasValidCbu && newList.length > 0),
+          checked: Boolean(r.isSuccessfulDebit && r.hasValidCbu && newList.length > 0),
+          matchStatus: r.isSuccessfulDebit
+            ? (!r.hasValidCbu ? 'INVALID_CBU' : (newList.length > 0 ? 'MATCH_READY' : (r.pendingList.length > 0 ? 'NEEDS_REVIEW' : 'NO_INVOICE')))
+            : r.matchStatus,
+          reason: r.isSuccessfulDebit
+            ? (!r.hasValidCbu ? r.reason : (newList.length > 0 ? 'Débito OK. Imputación manual seleccionada.' : 'Débito OK, pero no hay factura seleccionada para imputar.'))
+            : r.reason
         };
       })
     }));
@@ -1771,7 +1862,7 @@ export default function ConciliacionBancaria() {
       ...prev,
       processedRows: prev.processedRows.map(r => {
         if (val) {
-          return { ...r, checked: r.matchStatus === 'MATCH_DEBT' || r.matchStatus === 'MATCH_NO_DEBT' };
+          return { ...r, checked: Boolean(r.canBeImputed) };
         } else {
           return { ...r, checked: false };
         }
@@ -1780,7 +1871,7 @@ export default function ConciliacionBancaria() {
   };
 
   const saveLoteReconciliation = async () => {
-    const checkedRows = loteModal.processedRows.filter(r => r.checked && r.socioId);
+    const checkedRows = loteModal.processedRows.filter(r => r.checked && r.socioId && r.canBeImputed && r.selectedLiquidations?.length > 0);
     if (checkedRows.length === 0) {
       addToast("No has seleccionado ninguna fila válida para conciliar", "warning");
       return;
@@ -1825,6 +1916,7 @@ export default function ConciliacionBancaria() {
       
       const indivMovs = [];
       const aggPayments = {}; // { liqId: amount }
+      const accountPayments = []; // pagos de cuenta corriente con el mismo período de la factura
       
       checkedRows.forEach(r => {
         if (r.selectedLiquidations && r.selectedLiquidations.length > 1) {
@@ -1837,15 +1929,7 @@ export default function ConciliacionBancaria() {
             
             // If it is the last liquidation, absorb any leftover
             const isLast = lIdx === listToPay.length - 1;
-            let paymentForThis = 0;
-            
-            if (isLast) {
-              paymentForThis = remaining;
-            } else {
-              paymentForThis = Math.min(remaining, pendingAmount);
-            }
-            
-            paymentForThis = Math.round(paymentForThis * 100) / 100;
+            const paymentForThis = Math.round((isLast ? remaining : Math.min(remaining, pendingAmount)) * 100) / 100;
             remaining = Math.round((remaining - paymentForThis) * 100) / 100;
             
             if (paymentForThis > 0) {
@@ -1865,6 +1949,13 @@ export default function ConciliacionBancaria() {
               const liqId = parseInt(liq.liquidacion_id, 10);
               if (!aggPayments[liqId]) aggPayments[liqId] = 0;
               aggPayments[liqId] += paymentForThis;
+              accountPayments.push({
+                row: r,
+                amount: paymentForThis,
+                group: liq.numero_grupo || r.grupo,
+                period: liq.periodo || activePeriod,
+                liquidationId: liqId
+              });
             }
           });
         } else {
@@ -1897,6 +1988,13 @@ export default function ConciliacionBancaria() {
             const liqId = parseInt(singleLiqId, 10);
             if (!aggPayments[liqId]) aggPayments[liqId] = 0;
             aggPayments[liqId] += r.monto;
+            accountPayments.push({
+              row: r,
+              amount: r.monto,
+              group: matchedLiq?.numero_grupo || r.grupo,
+              period: matchedLiq?.periodo || activePeriod,
+              liquidationId: liqId
+            });
           }
         }
       });
@@ -1924,33 +2022,46 @@ export default function ConciliacionBancaria() {
         return !isDuplicate;
       });
       
-      if (filteredMovs.length === 0) {
-        addToast("Todos los movimientos de este lote ya fueron conciliados anteriormente. No se insertaron duplicados.", "warning");
-        setParsedMovements(prev => prev.map(m => m.id === bankRow.id ? { ...m, estado: 'CONCILIADO', isDbDuplicate: true } : m));
-        setLoteModal(prev => ({ ...prev, loading: false }));
-        return;
-      }
-      
       const skippedCount = allMovs.length - filteredMovs.length;
       if (skippedCount > 0) {
         console.warn(`Prevención de duplicados: Se omitieron ${skippedCount} movimientos que ya existían en la DB.`);
-        // Recalcular aggPayments con solo los movimientos que se insertarán
-        Object.keys(aggPayments).forEach(liqId => { aggPayments[liqId] = 0; });
-        filteredMovs.forEach(mov => {
-          if (mov.liquidacion_id && mov.tipo_movimiento !== 'OTRO_INGRESO') {
-            if (!aggPayments[mov.liquidacion_id]) aggPayments[mov.liquidacion_id] = 0;
-            aggPayments[mov.liquidacion_id] += Number(mov.monto);
-          }
-        });
       }
       // ═══ FIN PREVENCIÓN DE DUPLICADOS ═══
+
+      const toCents = value => Math.round((Number(value) || 0) * 100);
+      const totalSelectedCents = checkedRows.reduce((sum, row) => sum + toCents(row.monto), 0);
+      const bankTotalCents = toCents(Math.abs(Number(bankRow.netoReal) || 0));
+      if (Math.abs(totalSelectedCents - bankTotalCents) > 0) {
+        throw new Error(`El total de débitos seleccionados ($${(totalSelectedCents / 100).toLocaleString('es-AR', { minimumFractionDigits: 2 })}) no coincide con el movimiento bancario ($${(bankTotalCents / 100).toLocaleString('es-AR', { minimumFractionDigits: 2 })}). No se guardó el lote.`);
+      }
+
+      // Prevalidar todas las facturas antes de insertar movimientos. El lote solo se aplica
+      // cuando cada período queda saldado; tolerancias bancarias se absorben al monto exacto.
+      const liquidationPreflight = new Map();
+      for (const [liqIdStr, extraAmount] of Object.entries(aggPayments)) {
+        const liqId = Number(liqIdStr);
+        const { data: freshLiq, error: fetchLiqErr } = await supabase
+          .from('liquidaciones_grupos')
+          .select('liquidacion_id, numero_grupo, periodo, monto_abonado, monto_total_facturado')
+          .eq('liquidacion_id', liqId)
+          .single();
+        if (fetchLiqErr) throw fetchLiqErr;
+        const currentPaidCents = toCents(freshLiq?.monto_abonado);
+        const totalCents = toCents(freshLiq?.monto_total_facturado);
+        const projectedCents = currentPaidCents + toCents(extraAmount);
+        if (!freshLiq || totalCents <= 0 || projectedCents < totalCents) {
+          const pendingCents = Math.max(0, totalCents - projectedCents);
+          throw new Error(`La factura ${liqId} quedaría con una diferencia de $${(pendingCents / 100).toLocaleString('es-AR', { minimumFractionDigits: 2 })}. Ajustá la imputación antes de guardar; no se aplicó el lote.`);
+        }
+        liquidationPreflight.set(liqId, freshLiq);
+      }
       
-      const { data: insertedMovs, error: insertMovsError } = await supabase
-        .from('movimientos_bancarios')
-        .insert(filteredMovs)
-        .select();
-        
-      if (insertMovsError) throw insertMovsError;
+      if (filteredMovs.length > 0) {
+        const { error: insertMovsError } = await supabase
+          .from('movimientos_bancarios')
+          .insert(filteredMovs);
+        if (insertMovsError) throw insertMovsError;
+      }
       
       // 2. Aggregate and update liquidaciones_grupos
       const liqIds = Object.keys(aggPayments);
@@ -1959,18 +2070,14 @@ export default function ConciliacionBancaria() {
         const extraPaid = aggPayments[liqId];
         
         // SIEMPRE leer monto_abonado fresco de la DB para evitar doble contabilización
-        const { data: freshLiq, error: fetchLiqErr } = await supabase
-          .from('liquidaciones_grupos')
-          .select('monto_abonado, monto_total_facturado, numero_grupo')
-          .eq('liquidacion_id', liqId)
-          .single();
-        if (fetchLiqErr) throw fetchLiqErr;
+        const freshLiq = liquidationPreflight.get(liqId);
         
         if (freshLiq) {
           const currentAbonado = Number(freshLiq.monto_abonado || 0);
           const currentFacturado = Number(freshLiq.monto_total_facturado);
-          const newMontoAbonado = Math.round((currentAbonado + extraPaid) * 100) / 100;
-          const isFullyPaid = newMontoAbonado >= currentFacturado - 2.00;
+          const projectedPaid = Math.round((currentAbonado + extraPaid) * 100) / 100;
+          const isFullyPaid = projectedPaid >= currentFacturado;
+          const newMontoAbonado = isFullyPaid ? currentFacturado : projectedPaid;
           
           const { error: updateLiqError } = await supabase
             .from('liquidaciones_grupos')
@@ -1983,6 +2090,25 @@ export default function ConciliacionBancaria() {
             
           if (updateLiqError) throw updateLiqError;
         }
+      }
+
+      // Registrar cada débito en movimientos_cuenta usando el servicio compartido con Contabilidad.
+      for (const payment of accountPayments) {
+        const groupNumber = Number(String(payment.group || '').match(/\d+/)?.[0]);
+        if (!groupNumber || !payment.period) {
+          throw new Error(`No se pudo resolver el grupo o período del débito de ${payment.row.socioNombreCompleto || payment.row.nombreExcel}.`);
+        }
+        const cbuDigits = String(payment.row.cbu || '').replace(/\D/g, '');
+        await registrarCobroCuenta({
+          numero_grupo: groupNumber,
+          nombre: payment.row.socioNombreCompleto || payment.row.nombreExcel || `Grupo ${groupNumber}`,
+          importe: payment.amount,
+          medio_pago: bankRow.banco || 'CREDICOOP',
+          observaciones: `Conciliación débito automático lote ${loteModal.fileName || 'Excel'} · fila ${payment.row.id + 1} · CBU ${cbuDigits}`,
+          fecha: bankDateISO,
+          periodo: payment.period,
+          skipLiqUpdate: true
+        });
       }
       
       // 3. Insert audit log
@@ -2032,7 +2158,7 @@ export default function ConciliacionBancaria() {
       console.error("Error al conciliar lote:", err);
       if (err.code === '23505') {
         addToast("Alguno de los movimientos de este lote ya fue conciliado anteriormente (detectado por la base de datos)", "warning");
-        setParsedMovements(prev => prev.map(m => m.id === bankRow.id ? { ...m, estado: 'CONCILIADO', isDbDuplicate: true } : m));
+        setParsedMovements(prev => prev.map(m => m.id === loteModal.row?.id ? { ...m, estado: 'CONCILIADO', isDbDuplicate: true } : m));
       } else {
         addToast(`Error al conciliar lote: ${err.message}`, "error");
       }
@@ -2097,6 +2223,7 @@ export default function ConciliacionBancaria() {
       }
 
       const activePeriod = selectedPeriod || (periodosList && periodosList[0]) || '2026-09';
+      let groupNum = null;
 
       if (row.selectedLiquidations && row.selectedLiquidations.length > 1) {
         // 1. Distribute payment amount (row.netoReal) across all selected liquidations
@@ -2163,8 +2290,6 @@ export default function ConciliacionBancaria() {
         if (insertedMovs && insertedMovs.length > 0) {
           insertedId = insertedMovs[0].movimiento_id;
         }
-
-        let groupNum = null;
 
         // Update liquidaciones_grupos
         for (const liqIdStr of Object.keys(aggPayments)) {
@@ -2262,8 +2387,6 @@ export default function ConciliacionBancaria() {
         if (movData && movData.length > 0) {
           insertedId = movData[0].movimiento_id;
         }
-
-        let groupNum = null;
 
         // If vinculated to bill, update liquidaciones_grupos (solo si no estaba ya saldada)
         if (singleLiqId && !skipLiquidationUpdate) {

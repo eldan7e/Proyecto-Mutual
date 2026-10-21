@@ -520,7 +520,8 @@ export default function DebitosAutomaticosTab({
                           <th style={{ width: '40px', textAlign: 'center' }}>
                             <input 
                               type="checkbox" 
-                              checked={loteModal.processedRows.length > 0 && loteModal.processedRows.every(r => !r.socioId || r.checked)}
+                              checked={loteModal.processedRows.some(r => r.canBeImputed) && loteModal.processedRows.every(r => !r.canBeImputed || r.checked)}
+                              disabled={!loteModal.processedRows.some(r => r.canBeImputed)}
                               onChange={(e) => handleCheckAll(e.target.checked)}
                               style={{ cursor: 'pointer' }}
                             />
@@ -538,7 +539,7 @@ export default function DebitosAutomaticosTab({
                           let statusBg = 'rgba(107, 114, 128, 0.08)';
                           let statusColor = '#6b7280';
                           
-                          if (row.matchStatus === 'MATCH_DEBT') {
+                          if (row.matchStatus === 'MATCH_DEBT' || row.matchStatus === 'MATCH_READY') {
                             statusBg = 'rgba(16, 185, 129, 0.1)';
                             statusColor = '#10b981';
                           } else if (row.matchStatus === 'MATCH_NO_DEBT') {
@@ -553,6 +554,15 @@ export default function DebitosAutomaticosTab({
                           } else if (row.matchStatus === 'INVALID_AMOUNT') {
                             statusBg = 'rgba(239, 68, 68, 0.1)';
                             statusColor = '#ef4444';
+                          } else if (row.matchStatus === 'INVALID_CBU') {
+                            statusBg = 'rgba(239, 68, 68, 0.1)';
+                            statusColor = '#ef4444';
+                          } else if (row.matchStatus === 'NEEDS_REVIEW') {
+                            statusBg = 'rgba(217, 119, 6, 0.1)';
+                            statusColor = '#d97706';
+                          } else if (row.matchStatus === 'NO_INVOICE') {
+                            statusBg = 'rgba(239, 68, 68, 0.1)';
+                            statusColor = '#ef4444';
                           }
 
                           return (
@@ -562,8 +572,8 @@ export default function DebitosAutomaticosTab({
                                   type="checkbox" 
                                   checked={row.checked} 
                                   onChange={(e) => handleRowCheckChange(row.id, e.target.checked)}
-                                  disabled={!row.socioId || row.matchStatus === 'INVALID_AMOUNT'}
-                                  style={{ cursor: (!row.socioId || row.matchStatus === 'INVALID_AMOUNT') ? 'default' : 'pointer' }}
+                                  disabled={!row.canBeImputed}
+                                  style={{ cursor: row.canBeImputed ? 'pointer' : 'default' }}
                                 />
                               </td>
                               <td style={{ fontSize: '12px', fontWeight: 600 }}>{row.id + 1}</td>
@@ -1054,8 +1064,12 @@ export default function DebitosAutomaticosTab({
                                   background: statusBg, color: statusColor, display: 'inline-block',
                                   whiteSpace: 'nowrap', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis'
                                 }} title={row.reason}>
-                                  {row.matchStatus === 'MATCH_DEBT' ? 'Listo' :
+                                  {row.matchStatus === 'MATCH_READY' ? 'Débito OK · imputable' :
+                                   row.matchStatus === 'MATCH_DEBT' ? 'Listo' :
                                    row.matchStatus === 'MATCH_NO_DEBT' ? 'Sin Deuda' :
+                                   row.matchStatus === 'NO_INVOICE' ? 'Sin factura del período' :
+                                   row.matchStatus === 'NEEDS_REVIEW' ? 'Revisar imputación' :
+                                   row.matchStatus === 'INVALID_CBU' ? 'CBU inválido / revisar mapeo' :
                                    row.matchStatus === 'EXCEL_REJECT' ? 'Rechazado (Ex)' :
                                    row.matchStatus === 'INVALID_AMOUNT' ? 'Monto Inválido' : 'No Encontrado'}
                                 </span>
