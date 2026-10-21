@@ -156,7 +156,7 @@ export default function DebitosAutomaticosTab({
                     {loteModal.row.concepto} — {loteModal.row.banco} ({loteModal.row.fecha})
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '3px' }}>
-                    Prioriza deuda del período <strong>{targetInvoicePeriod || 'seleccionado'}</strong> (mes anterior al débito)
+                    Período de factura priorizado: <strong>{targetInvoicePeriod || 'seleccionado'}</strong>
                   </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>

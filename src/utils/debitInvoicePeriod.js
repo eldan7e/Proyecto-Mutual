@@ -17,15 +17,16 @@ function getPeriodFromDate(dateValue) {
 
 export function resolveDebitInvoicePeriod({ bankDate, selectedPeriod, groupNumber, socioGroups = [], liquidations = [] }) {
   const bankPeriod = getPeriodFromDate(bankDate);
-  if (!bankPeriod) return selectedPeriod || '';
-
-  const previousPeriod = getPreviousPeriod(bankPeriod);
   const groupSet = new Set((groupNumber ? [groupNumber] : socioGroups).map(Number));
-  const hasPreviousDebt = previousPeriod && (liquidations || []).some(liq =>
-    liq && groupSet.has(Number(liq.numero_grupo)) && liq.periodo === previousPeriod &&
+  const hasDebtInPeriod = period => period && (liquidations || []).some(liq =>
+    liq && groupSet.has(Number(liq.numero_grupo)) && liq.periodo === period &&
     liq.estado_pago !== 'ABONADO' &&
     Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0) > 2.00
   );
 
-  return hasPreviousDebt ? previousPeriod : (selectedPeriod || bankPeriod);
+  // La factura que se imputa corresponde al período de la recaudación.
+  // El mes impreso en el archivo de débitos puede ser el mes de emisión/proceso.
+  if (hasDebtInPeriod(bankPeriod)) return bankPeriod;
+  if (hasDebtInPeriod(selectedPeriod)) return selectedPeriod;
+  return selectedPeriod || bankPeriod;
 }

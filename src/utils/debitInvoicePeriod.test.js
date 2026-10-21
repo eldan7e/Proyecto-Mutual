@@ -2,25 +2,39 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getPreviousPeriod, resolveDebitInvoicePeriod } from './debitInvoicePeriod.js';
 
-test('resolves an October bank debit to the pending September invoice for its group', () => {
+test('resolves an October bank debit to the pending October invoice for its group', () => {
   const period = resolveDebitInvoicePeriod({
     bankDate: '2026-10-13',
-    selectedPeriod: '2026-10',
+    selectedPeriod: '2026-09',
     groupNumber: 218,
     liquidations: [{
       liquidacion_id: 25962,
       numero_grupo: 218,
-      periodo: '2026-09',
+      periodo: '2026-10',
       monto_total_facturado: 169273.22,
       monto_abonado: 0,
       estado_pago: 'PENDIENTE'
     }]
   });
 
-  assert.equal(period, '2026-09');
+  assert.equal(period, '2026-10');
 });
 
-test('uses the selected period when the previous month has no debt for this group', () => {
+test('prefers the bank month when both bank and selected periods have debt', () => {
+  const period = resolveDebitInvoicePeriod({
+    bankDate: '2026-10-13',
+    selectedPeriod: '2026-09',
+    groupNumber: 218,
+    liquidations: [
+      { numero_grupo: 218, periodo: '2026-10', monto_total_facturado: 169273.22, monto_abonado: 0, estado_pago: 'PENDIENTE' },
+      { numero_grupo: 218, periodo: '2026-09', monto_total_facturado: 169273.22, monto_abonado: 0, estado_pago: 'PENDIENTE' }
+    ]
+  });
+
+  assert.equal(period, '2026-10');
+});
+
+test('uses the selected period when the bank month has no debt for this group', () => {
   const period = resolveDebitInvoicePeriod({
     bankDate: '13/10/2026',
     selectedPeriod: '2026-10',
