@@ -1,4 +1,4 @@
-﻿﻿export const detectarTipoMovimiento = (concepto, monto) => {
+﻿﻿﻿export const detectarTipoMovimiento = (concepto, monto) => {
   if (!concepto) return 'OTRO';
   const conceptoUpper = concepto.toUpperCase();
   
@@ -555,7 +555,7 @@ function parsearRawText(rawLines, cleanVal, parseDateStr, formatDateAR, saldoAnt
       'PAGINA', 'PÁGINA', 'HOJA:', 'SUC:',
       'VIENE DE', 'CONTINUA EN', 'SIGUIENTE',
       'BANCO CREDICOOP', 'CREDICOOP RESPONDE', 'CALIDAD DE SERVICIOS', 'SITIO DE INTERNET',
-      'CUENTA CORRIENTE', 'DEBITO DIRECTO', 'CBU DE SU CUENTA', 'RESUMEN DE CUENTA', 'RESUMEN:', 'RESUMEN :',
+      'CUENTA CORRIENTE', 'CBU DE SU CUENTA', 'RESUMEN DE CUENTA', 'RESUMEN:', 'RESUMEN :',
       'SALDO ANTERIOR', 'SALDO FINAL', 'SALDO AL', 'SALDO ACTUAL',
       'TOTAL GRAV.', 'TOTAL GRAV', 'TOTAL GRAVAMEN', 'NACION ARGENTINA', 'BANCO DE LA',
       'CUIT 30-', 'IVA RESPONSABLE', 'ASOCIACION MUTUAL', '13E/48Y49', '1900 LA PLATA',
