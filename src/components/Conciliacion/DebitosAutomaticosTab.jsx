@@ -3,6 +3,7 @@ import { Loader2, Upload, Database, AlertTriangle, FileSpreadsheet, CheckCircle2
 
 export default function DebitosAutomaticosTab({
   loteModal,
+  targetInvoicePeriod,
   setLoteModal,
   candidateMovements,
   handleExcelUpload,
@@ -153,6 +154,9 @@ export default function DebitosAutomaticosTab({
                   <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', fontWeight: 700 }}>Movimiento Seleccionado</span>
                   <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '2px' }}>
                     {loteModal.row.concepto} — {loteModal.row.banco} ({loteModal.row.fecha})
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '3px' }}>
+                    Prioriza deuda del período <strong>{targetInvoicePeriod || 'seleccionado'}</strong> (mes anterior al débito)
                   </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
@@ -622,15 +626,15 @@ export default function DebitosAutomaticosTab({
                                 {(() => {
                                   if (!row.socioId || row.matchStatus === 'EXCEL_REJECT' || row.matchStatus === 'INVALID_AMOUNT') return null;
                                   
-                                  let pendingAmount = 0;
-                                  if (row.selectedLiquidationId === 'SALDAR_TODO') {
-                                    pendingAmount = row.pendingList.reduce((sum, liq) => sum + (Number(liq?.monto_total_facturado || 0) - Number(liq?.monto_abonado || 0)), 0);
-                                  } else if (row.selectedLiquidationId) {
-                                    const matchedLiq = row.pendingList.find(l => l?.liquidacion_id === parseInt(row.selectedLiquidationId, 10));
-                                    pendingAmount = matchedLiq ? (Number(matchedLiq.monto_total_facturado || 0) - Number(matchedLiq.monto_abonado || 0)) : 0;
-                                  } else {
-                                    return null;
-                                  }
+                                  const pendingAmount = row.selectedLiquidationId === 'SALDAR_TODO'
+                                    ? row.pendingList.reduce((sum, liq) => sum + (Number(liq?.monto_total_facturado || 0) - Number(liq?.monto_abonado || 0)), 0)
+                                    : row.selectedLiquidationId
+                                      ? (() => {
+                                        const matchedLiq = row.pendingList.find(l => l?.liquidacion_id === parseInt(row.selectedLiquidationId, 10));
+                                        return matchedLiq ? (Number(matchedLiq.monto_total_facturado || 0) - Number(matchedLiq.monto_abonado || 0)) : 0;
+                                      })()
+                                      : null;
+                                  if (pendingAmount === null) return null;
                                   
                                   const diff = row.monto - pendingAmount;
                                   if (Math.abs(diff) > 5.0) {

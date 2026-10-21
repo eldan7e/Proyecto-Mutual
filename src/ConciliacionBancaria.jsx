@@ -4,6 +4,7 @@ import { supabase } from './supabaseClient';
 import { Calendar, Loader2, FileText } from 'lucide-react';
 import { parsearMovimientos } from './utils/bankParser';
 import { debitCoversSelectedBalances, detectDebitColumns, getPendingDebitLiquidations, parseDebitText, resolveDebitColumns } from './utils/debitTextParser';
+import { getPreviousPeriod, resolveDebitInvoicePeriod } from './utils/debitInvoicePeriod';
 import { useToast } from './components/ui/ToastProvider';
 import { useConfirm } from './components/ui/ConfirmProvider';
 import Modal from './components/Modal';
@@ -23,6 +24,8 @@ import { registrarCobroCuenta } from './services/cuentaCorrienteService';
 
 const parseDateToISODate = (dateStr) => {
   if (!dateStr) return new Date().toISOString().split('T')[0];
+  const isoMatch = String(dateStr).trim().match(/^(20\d{2})-(\d{2})-(\d{2})(?:$|T)/);
+  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
   const match = dateStr.match(/\b(\d{2})[\/\-](\d{2})[\/\-](\d{4}|\d{2})\b/);
   if (!match) return new Date().toISOString().split('T')[0];
   const day = match[1];
@@ -391,7 +394,16 @@ export default function ConciliacionBancaria() {
     try {
       const sociosData = await conciliacionService.fetchSocios();
       const titularData = await conciliacionService.fetchTitularData();
-      const pendingData = await conciliacionService.fetchPendingLiquidaciones(selectedPeriod);
+      // Los débitos suelen acreditarse el mes siguiente al período facturado.
+      // Cargamos también el período anterior para poder imputarlos correctamente.
+      const debitInvoicePeriod = getPreviousPeriod(selectedPeriod);
+      const [selectedPending, previousPending] = await Promise.all([
+        conciliacionService.fetchPendingLiquidaciones(selectedPeriod),
+        debitInvoicePeriod && debitInvoicePeriod !== selectedPeriod
+          ? conciliacionService.fetchPendingLiquidaciones(debitInvoicePeriod)
+          : Promise.resolve([])
+      ]);
+      const pendingData = [...selectedPending, ...previousPending];
       const historicoData = await conciliacionService.fetchConciliacionHistorica();
 
       const titMap = {};
@@ -406,7 +418,13 @@ export default function ConciliacionBancaria() {
 
       let consumosList = [];
       if (selectedPeriod) {
-        consumosList = await conciliacionService.fetchConsumosMensuales(selectedPeriod);
+        const [selectedConsumos, previousConsumos] = await Promise.all([
+          conciliacionService.fetchConsumosMensuales(selectedPeriod),
+          debitInvoicePeriod && debitInvoicePeriod !== selectedPeriod
+            ? conciliacionService.fetchConsumosMensuales(debitInvoicePeriod)
+            : Promise.resolve([])
+        ]);
+        consumosList = [...selectedConsumos, ...previousConsumos];
       }
       setPeriodConsumos(consumosList);
       fetchDbMovementsForPeriod(selectedPeriod);
@@ -885,7 +903,7 @@ export default function ConciliacionBancaria() {
         processedRows: nextRows
       };
     });
-  }, [selectedPeriod, pendingLiquidaciones, periodConsumos, socios]);
+  }, [selectedPeriod, pendingLiquidaciones, periodConsumos, socios, loteModal.row]);
 
   const handleToggleLineSelection = (rowId, lineNumber, isChecked) => {
     setParsedMovements(prev => prev.map(m => {
@@ -1319,16 +1337,26 @@ export default function ConciliacionBancaria() {
           socioGroups = matchedSocio.grupo_socio?.filter(g => g).map(g => g.numero_grupo) || [];
         }
         
+        // El débito se acredita en el mes bancario y suele cancelar la factura
+        // del mes anterior. Solo usamos ese período si el grupo tiene deuda allí.
+        const targetInvoicePeriod = resolveDebitInvoicePeriod({
+          bankDate: loteModal.row?.fecha,
+          selectedPeriod,
+          groupNumber: cleanExcelGrupo ? parseInt(cleanExcelGrupo, 10) : null,
+          socioGroups,
+          liquidations: pendingLiquidaciones
+        });
+
         if (cleanExcelGrupo) {
           const groupNum = parseInt(cleanExcelGrupo, 10);
-          pendingList = pendingLiquidaciones.filter(liq => liq && Number(liq.numero_grupo) === groupNum && (!selectedPeriod || liq.periodo === selectedPeriod));
+          pendingList = pendingLiquidaciones.filter(liq => liq && Number(liq.numero_grupo) === groupNum && (!targetInvoicePeriod || liq.periodo === targetInvoicePeriod));
           if (pendingList.length === 0) {
             const groupSet = new Set(socioGroups.map(Number));
-            pendingList = pendingLiquidaciones.filter(liq => liq && groupSet.has(Number(liq.numero_grupo)) && (!selectedPeriod || liq.periodo === selectedPeriod));
+            pendingList = pendingLiquidaciones.filter(liq => liq && groupSet.has(Number(liq.numero_grupo)) && (!targetInvoicePeriod || liq.periodo === targetInvoicePeriod));
           }
         } else {
           const groupSet = new Set(socioGroups.map(Number));
-          pendingList = pendingLiquidaciones.filter(liq => liq && groupSet.has(Number(liq.numero_grupo)) && (!selectedPeriod || liq.periodo === selectedPeriod));
+          pendingList = pendingLiquidaciones.filter(liq => liq && groupSet.has(Number(liq.numero_grupo)) && (!targetInvoicePeriod || liq.periodo === targetInvoicePeriod));
         }
         // A debit import must only target a real outstanding balance. Historical
         // settled invoices are not candidates for a second payment.
@@ -3738,6 +3766,9 @@ export default function ConciliacionBancaria() {
       {activeTab === 'debitos' && (
         <DebitosAutomaticosTab
           loteModal={loteModal}
+          targetInvoicePeriod={loteModal.row?.fecha
+            ? getPreviousPeriod(parseDateToISODate(loteModal.row.fecha).slice(0, 7)) || selectedPeriod
+            : selectedPeriod}
           setLoteModal={setLoteModal}
           candidateMovements={candidateMovements}
           handleExcelUpload={handleExcelUpload}
