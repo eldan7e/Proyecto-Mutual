@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from './supabaseClient';
 import { Calendar, Loader2, FileText } from 'lucide-react';
 import { parsearMovimientos } from './utils/bankParser';
-import { parseDebitText } from './utils/debitTextParser';
+import { detectDebitColumns, parseDebitText } from './utils/debitTextParser';
 import { useToast } from './components/ui/ToastProvider';
 import { useConfirm } from './components/ui/ConfirmProvider';
 import Modal from './components/Modal';
@@ -1068,10 +1068,19 @@ export default function ConciliacionBancaria() {
       const excelMontoRaw = row[montoKey] !== undefined ? row[montoKey] : '';
       const excelEstado = estadoKey && row[estadoKey] ? String(row[estadoKey]).trim() : '';
       
-      const cleanExcelCbu = excelCbu.replace(/\D/g, '');
+      const rawExcelCbu = excelCbu.replace(/\D/g, '');
+      const cleanExcelCbu = rawExcelCbu.length === 21 ? rawExcelCbu.padStart(22, '0') : rawExcelCbu;
       const cleanExcelId = excelId.replace(/\D/g, '');
       const cleanExcelGrupo = excelGrupo.replace(/\D/g, '');
-      const nombreExcel = row['Nombre'] || row['Nombre y Apellido'] || row['Cliente'] || row['Integrante'] || row['APELLIDO, NOMBRE'] || row['APELLIDO Y NOMBRE'] || row['Apellido, Nombre'] || '';
+      const matchingNameColumn = Object.keys(row).find(key => {
+        const normalizedKey = key.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        return (normalizedKey.includes('integrante') && normalizedKey.includes('nombre')) ||
+          (normalizedKey.includes('nombre') && normalizedKey.includes('excel')) ||
+          normalizedKey.includes('socio titular');
+      });
+      const nombreExcel = row['Nombre'] || row['Nombre y Apellido'] || row['Cliente'] || row['Integrante'] ||
+        row['APELLIDO, NOMBRE'] || row['APELLIDO Y NOMBRE'] || row['Apellido, Nombre'] ||
+        (matchingNameColumn ? row[matchingNameColumn] : '') || '';
       
       let parsedMonto = 0;
       if (typeof excelMontoRaw === 'number') {
@@ -1111,7 +1120,7 @@ export default function ConciliacionBancaria() {
       if (cleanExcelGrupo) {
         const groupNum = parseInt(cleanExcelGrupo, 10);
         const groupSocios = socios.filter(s => 
-          s.grupo_socio?.some(g => g.numero_grupo === groupNum)
+          s.grupo_socio?.some(g => Number(g.numero_grupo) === groupNum)
         );
         
         if (groupSocios.length > 0) {
@@ -1187,7 +1196,7 @@ export default function ConciliacionBancaria() {
             if (cleanExcelGrupo) {
               const groupNum = parseInt(cleanExcelGrupo, 10);
               const exactMatch = matchingSociosByCbu.find(s => 
-                s.grupo_socio?.some(g => g.numero_grupo === groupNum)
+                s.grupo_socio?.some(g => Number(g.numero_grupo) === groupNum)
               );
               if (exactMatch) {
                 matchedSocio = exactMatch;
@@ -1303,12 +1312,14 @@ export default function ConciliacionBancaria() {
         
         if (cleanExcelGrupo) {
           const groupNum = parseInt(cleanExcelGrupo, 10);
-          pendingList = pendingLiquidaciones.filter(liq => liq && liq.numero_grupo === groupNum && (!selectedPeriod || liq.periodo === selectedPeriod));
+          pendingList = pendingLiquidaciones.filter(liq => liq && Number(liq.numero_grupo) === groupNum && (!selectedPeriod || liq.periodo === selectedPeriod));
           if (pendingList.length === 0) {
-            pendingList = pendingLiquidaciones.filter(liq => liq && socioGroups.includes(liq.numero_grupo) && (!selectedPeriod || liq.periodo === selectedPeriod));
+            const groupSet = new Set(socioGroups.map(Number));
+            pendingList = pendingLiquidaciones.filter(liq => liq && groupSet.has(Number(liq.numero_grupo)) && (!selectedPeriod || liq.periodo === selectedPeriod));
           }
         } else {
-          pendingList = pendingLiquidaciones.filter(liq => liq && socioGroups.includes(liq.numero_grupo) && (!selectedPeriod || liq.periodo === selectedPeriod));
+          const groupSet = new Set(socioGroups.map(Number));
+          pendingList = pendingLiquidaciones.filter(liq => liq && groupSet.has(Number(liq.numero_grupo)) && (!selectedPeriod || liq.periodo === selectedPeriod));
         }
         const defaultMatch = findDefaultLiquidation(parsedMonto, pendingList);
         defaultLiqId = defaultMatch.liqId;
@@ -1327,7 +1338,7 @@ export default function ConciliacionBancaria() {
             const lines = calculateDefaultLines(matchedSocio.socio_id, liq.liquidacion_id, parsedMonto);
             const sum = lines.reduce((total, lineNum) => {
               const line = periodConsumos.find(c => c.numero_linea === lineNum &&
-                c.lineas?.numero_grupo === parseInt(liq.numero_grupo, 10) &&
+                Number(c.lineas?.numero_grupo) === parseInt(liq.numero_grupo, 10) &&
                 c.proveedor_id === liq.proveedor_id);
               return total + (line ? Number(line.total_linea) : 0);
             }, 0);
@@ -1449,32 +1460,7 @@ export default function ConciliacionBancaria() {
         return obj;
       });
       
-      // Auto-detect columns
-      let cbuCol = '';
-      let montoCol = '';
-      let idCol = '';
-      let estadoCol = '';
-      let grupoCol = '';
-      
-      headers.forEach(k => {
-        const lowerK = k.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-        if (lowerK.includes('cbu')) {
-          cbuCol = k;
-        } else if (lowerK.includes('monto') || lowerK.includes('importe') || lowerK.includes('debito') || lowerK.includes('neto') || lowerK.includes('total') || lowerK.includes('valor') || lowerK.includes('aunar')) {
-          if (!montoCol) montoCol = k;
-        } else if (lowerK.includes('cuit') || lowerK.includes('cuil') || lowerK.includes('dni') || lowerK.includes('documento') || lowerK.includes('identi')) {
-          if (!idCol) idCol = k;
-        } else if (lowerK.includes('estado') || lowerK.includes('resultado') || lowerK.includes('status') || lowerK.includes('motivo') || lowerK.includes('rechazo') || lowerK.includes('codigo') || lowerK.includes('explicacion') || lowerK.includes('result')) {
-          if (!estadoCol) estadoCol = k;
-        } else if ((lowerK.includes('grupo') || lowerK.includes('gpo')) && !lowerK.includes('email') && !lowerK.includes('correo') && !lowerK.includes('nombre')) {
-          if (!grupoCol) grupoCol = k;
-        }
-      });
-      
-      // Fallbacks if not auto-detected
-      if (!cbuCol) cbuCol = headers.find(k => k.toLowerCase().includes('cbu')) || '';
-      if (!montoCol) montoCol = headers.find(k => k.toLowerCase().includes('monto') || k.toLowerCase().includes('importe') || k.toLowerCase().includes('aunar')) || headers[1] || '';
-      if (!grupoCol) grupoCol = headers.find(k => k.toLowerCase().includes('grupo') || k.toLowerCase() === 'gpo') || '';
+      const { cbuCol, montoCol, idCol, estadoCol, grupoCol } = detectDebitColumns(headers, objects);
       
       setLoteModal(prev => {
         const nextModal = {
@@ -1547,35 +1533,8 @@ export default function ConciliacionBancaria() {
           return;
         }
         
-        // Auto-detect columns using first valid row
-        let cbuCol = '';
-        let montoCol = '';
-        let idCol = '';
-        let estadoCol = '';
-        let grupoCol = '';
-        
-        const firstRow = filteredJson[0];
-        const keys = Object.keys(firstRow);
-        
-        keys.forEach(k => {
-          const lowerK = k.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-          if (lowerK.includes('cbu')) {
-            cbuCol = k;
-          } else if (lowerK.includes('monto') || lowerK.includes('importe') || lowerK.includes('debito') || lowerK.includes('neto') || lowerK.includes('total') || lowerK.includes('valor') || lowerK.includes('aunar')) {
-            if (!montoCol) montoCol = k;
-          } else if (lowerK.includes('cuit') || lowerK.includes('cuil') || lowerK.includes('dni') || lowerK.includes('documento') || lowerK.includes('identi')) {
-            if (!idCol) idCol = k;
-          } else if (lowerK.includes('estado') || lowerK.includes('resultado') || lowerK.includes('status') || lowerK.includes('motivo') || lowerK.includes('rechazo') || lowerK.includes('codigo') || lowerK.includes('explicacion') || lowerK.includes('result')) {
-            if (!estadoCol) estadoCol = k;
-          } else if ((lowerK.includes('grupo') || lowerK.includes('gpo')) && !lowerK.includes('email') && !lowerK.includes('correo') && !lowerK.includes('nombre')) {
-            if (!grupoCol) grupoCol = k;
-          }
-        });
-        
-        // Fallbacks if not auto-detected
-        if (!cbuCol) cbuCol = keys.find(k => k.toLowerCase().includes('cbu')) || '';
-        if (!montoCol) montoCol = keys.find(k => k.toLowerCase().includes('monto') || k.toLowerCase().includes('importe') || k.toLowerCase().includes('aunar')) || keys[1] || '';
-        if (!grupoCol) grupoCol = keys.find(k => k.toLowerCase().includes('grupo') || k.toLowerCase() === 'gpo') || '';
+        const keys = Object.keys(filteredJson[0]);
+        const { cbuCol, montoCol, idCol, estadoCol, grupoCol } = detectDebitColumns(keys, filteredJson);
         
         setLoteModal(prev => {
           const nextModal = {
@@ -1631,34 +1590,9 @@ export default function ConciliacionBancaria() {
         return;
       }
       
-      const firstRow = filteredJson[0];
-      const keys = Object.keys(firstRow);
+      const keys = Object.keys(filteredJson[0]);
       
-      // Auto-detect columns for this sheet
-      let cbuCol = '';
-      let montoCol = '';
-      let idCol = '';
-      let estadoCol = '';
-      let grupoCol = '';
-      
-      keys.forEach(k => {
-        const lowerK = k.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-        if (lowerK.includes('cbu')) {
-          cbuCol = k;
-        } else if (lowerK.includes('monto') || lowerK.includes('importe') || lowerK.includes('debito') || lowerK.includes('neto') || lowerK.includes('total') || lowerK.includes('valor') || lowerK.includes('aunar')) {
-          if (!montoCol) montoCol = k;
-        } else if (lowerK.includes('cuit') || lowerK.includes('cuil') || lowerK.includes('dni') || lowerK.includes('documento') || lowerK.includes('identi')) {
-          if (!idCol) idCol = k;
-        } else if (lowerK.includes('estado') || lowerK.includes('resultado') || lowerK.includes('status') || lowerK.includes('motivo') || lowerK.includes('rechazo') || lowerK.includes('codigo') || lowerK.includes('explicacion') || lowerK.includes('result')) {
-          if (!estadoCol) estadoCol = k;
-        } else if ((lowerK.includes('grupo') || lowerK.includes('gpo')) && !lowerK.includes('email') && !lowerK.includes('correo') && !lowerK.includes('nombre')) {
-          if (!grupoCol) grupoCol = k;
-        }
-      });
-      
-      if (!cbuCol) cbuCol = keys.find(k => k.toLowerCase().includes('cbu')) || '';
-      if (!montoCol) montoCol = keys.find(k => k.toLowerCase().includes('monto') || k.toLowerCase().includes('importe') || k.toLowerCase().includes('aunar')) || keys[1] || '';
-      if (!grupoCol) grupoCol = keys.find(k => k.toLowerCase().includes('grupo') || k.toLowerCase() === 'gpo') || '';
+      const { cbuCol, montoCol, idCol, estadoCol, grupoCol } = detectDebitColumns(keys, filteredJson);
       
       setLoteModal(prev => {
         const nextModal = {

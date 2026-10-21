@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseDebitText } from './debitTextParser.js';
+import { detectDebitColumns, parseDebitText } from './debitTextParser.js';
 
 const sampleLine = '139\t\tDeb. Ok\tFisher, Maria Agustina\t$ 39,690.82\t0140999803200053715709';
 
@@ -48,4 +48,19 @@ test('keeps explicit headers and excludes the header row from data', () => {
 
   assert.deepEqual(headers, ['Grupo', 'Resultado', 'Nombre', 'Importe', 'CBU']);
   assert.equal(dataRows.length, 1);
+});
+
+test('selects the CBU column by its values when another CBU-named column contains OK flags', () => {
+  const headers = ['CBU 22 DIG_1', 'CBU 22 DIG', 'IMPORTE $', 'RESULT', 'GRUPO NRO'];
+  const rows = [
+    { 'CBU 22 DIG_1': 'OK', 'CBU 22 DIG': '0140999803200053715709', 'IMPORTE $': '$ 39,690.82', RESULT: 'Deb. Ok', 'GRUPO NRO': 139 },
+    { 'CBU 22 DIG_1': 'OK', 'CBU 22 DIG': '0140303703694953818439', 'IMPORTE $': '$ 18,048.72', RESULT: 'Deb. Ok', 'GRUPO NRO': '197' }
+  ];
+
+  const columns = detectDebitColumns(headers, rows);
+  assert.equal(columns.cbuCol, 'CBU 22 DIG');
+  assert.equal(columns.montoCol, 'IMPORTE $');
+  assert.equal(columns.estadoCol, 'RESULT');
+  assert.equal(columns.grupoCol, 'GRUPO NRO');
+  assert.equal(columns.idCol, '');
 });

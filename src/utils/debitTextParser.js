@@ -6,7 +6,7 @@ const normalizeText = value => String(value || '')
 
 const digitsOnly = value => String(value || '').replace(/\D/g, '');
 
-const isCbu = value => digitsOnly(value).length === 22;
+const isCbu = value => [21, 22].includes(digitsOnly(value).length);
 
 const isAmount = value => {
   const normalized = String(value || '').replace(/[$\s]/g, '');
@@ -60,6 +60,29 @@ const inferIndex = (rows, predicate, exclude = new Set()) => {
   }
   return { index: bestIndex, score: bestScore };
 };
+
+export function detectDebitColumns(headers, rows) {
+  const keys = headers || [];
+  const data = rows || [];
+  const normalizedKey = key => normalizeText(key).replace(/[^a-z0-9]+/g, ' ');
+  const candidates = keys.filter(key => normalizedKey(key).includes('cbu'));
+  const cbuCol = candidates
+    .map(key => ({
+      key,
+      validCount: data.reduce((count, row) => count + (isCbu(row?.[key]) ? 1 : 0), 0),
+      nonEmptyCount: data.reduce((count, row) => count + (String(row?.[key] || '').trim() ? 1 : 0), 0)
+    }))
+    .sort((a, b) => b.validCount - a.validCount || b.nonEmptyCount - a.nonEmptyCount)[0]?.key || '';
+  const firstKeyMatching = predicate => keys.find(key => predicate(normalizedKey(key))) || '';
+
+  return {
+    cbuCol,
+    montoCol: firstKeyMatching(key => /\b(monto|importe|debito|neto|total|valor|aunar)\b/.test(key)),
+    idCol: firstKeyMatching(key => /\b(cuit|cuil|dni|documento|identificacion)\b/.test(key) && !key.includes('cbu')),
+    estadoCol: firstKeyMatching(key => /\b(estado|resultado|status|motivo|rechazo|codigo|explicacion|result)\b/.test(key)),
+    grupoCol: firstKeyMatching(key => /\b(grupo|gpo)\b/.test(key) && !/\b(email|correo|nombre)\b/.test(key))
+  };
+}
 
 /** Parse a pasted debit file and infer columns from repeated row evidence. */
 export function parseDebitText(text) {
