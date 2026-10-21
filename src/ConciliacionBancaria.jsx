@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from './supabaseClient';
 import { Calendar, Loader2, FileText } from 'lucide-react';
 import { parsearMovimientos } from './utils/bankParser';
+import { parseDebitText } from './utils/debitTextParser';
 import { useToast } from './components/ui/ToastProvider';
 import { useConfirm } from './components/ui/ConfirmProvider';
 import Modal from './components/Modal';
@@ -1432,60 +1433,12 @@ export default function ConciliacionBancaria() {
     setLoteModal(prev => ({ ...prev, loading: true, fileName: 'Texto Pegado' }));
     
     try {
-      const parsedRows = text.split(/\r?\n/)
-        .map(l => l.trim())
-        .filter(Boolean)
-        .map(line => line.split('\t').map(cell => cell.trim().replace(/^"(.*)"$/, '$1')));
-        
-      if (parsedRows.length === 0) {
-        addToast("No se encontraron filas válidas en el texto pegado", "error");
+      const { headers, dataRows } = parseDebitText(text);
+
+      if (dataRows.length === 0) {
+        addToast("No se encontraron filas v?lidas en el texto pegado", "error");
         setLoteModal(prev => ({ ...prev, loading: false }));
         return;
-      }
-      
-      const firstRow = parsedRows[0];
-      const isHeaderRow = firstRow.every(cell => {
-        const clean = String(cell).trim();
-        if (clean.length > 8 && /^\d+$/.test(clean)) return false; // CBU or DNI
-        return true;
-      });
-      
-      let headers = [];
-      let dataRows = [];
-      
-      if (isHeaderRow) {
-        headers = firstRow.map((h, i) => h.trim() || `Columna ${i + 1}`);
-        dataRows = parsedRows.slice(1);
-      } else {
-        headers = firstRow.map((val, i) => {
-          const sample = val ? ` (${String(val).trim().slice(0, 12)})` : '';
-          return `Columna ${i + 1}${sample}`;
-        });
-        dataRows = parsedRows;
-
-        // Clipboard exports often have no header row. Infer the actual field
-        // positions from the first debit (group, result, name, amount, CBU)
-        // so the default mapping does not mistake the first payment for headers.
-        const cbuIndex = firstRow.findIndex(cell => /^\d{22}$/.test(String(cell).replace(/\D/g, '')));
-        const amountIndex = firstRow.findIndex(cell => /\$/.test(String(cell)) ||
-          /^-?\d{1,3}(?:\.\d{3})*,\d{2}$/.test(String(cell).trim()) ||
-          /^-?\d{1,3}(?:,\d{3})*\.\d{2}$/.test(String(cell).trim()));
-        const statusIndex = firstRow.findIndex(cell => {
-          const value = String(cell).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-          return /\bdeb(?:ito)?\.?\s*ok\b/.test(value) || /^r\s*\d+\b/.test(value) ||
-            ['ok', 'rechazado', 'aprobado', 'error', 'baja'].some(term => value.includes(term));
-        });
-        const groupIndex = firstRow.findIndex((cell, index) => index < (statusIndex >= 0 ? statusIndex : firstRow.length) && /^\d{1,6}$/.test(String(cell).trim()));
-        const nameIndex = firstRow.findIndex((cell, index) => {
-          const value = String(cell).trim();
-          return value && /[a-z]/i.test(value) && index !== statusIndex && index !== cbuIndex && index !== amountIndex;
-        });
-
-        if (groupIndex >= 0) headers[groupIndex] = 'Grupo';
-        if (statusIndex >= 0) headers[statusIndex] = 'Resultado';
-        if (nameIndex >= 0) headers[nameIndex] = 'Nombre';
-        if (amountIndex >= 0) headers[amountIndex] = 'Importe';
-        if (cbuIndex >= 0) headers[cbuIndex] = 'CBU';
       }
       
       const objects = dataRows.map(row => {
