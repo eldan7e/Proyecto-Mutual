@@ -5,7 +5,35 @@ import { supabase } from '../supabaseClient';
  * @returns {Promise<Array<string>>} Lista de períodos ordenados descendente.
  */
 export const fetchPeriods = async () => {
-  // 1. Priorizar unique_periods_view que agrupa directamente todos los períodos únicos existentes
+  // 1. Priorizar períodos que efectivamente tienen liquidaciones generadas en liquidaciones_grupos
+  try {
+    const { data: liqData, error: liqErr } = await supabase
+      .from('liquidaciones_grupos')
+      .select('periodo')
+      .order('periodo', { ascending: false });
+
+    if (!liqErr && liqData && liqData.length > 0) {
+      const billedPeriods = [...new Set(liqData.map(d => d.periodo))].filter(Boolean);
+      try {
+        const { data: viewData } = await supabase
+          .from('unique_periods_view')
+          .select('periodo')
+          .order('periodo', { ascending: false });
+        if (viewData) {
+          const allViewPeriods = viewData.map(d => d.periodo).filter(Boolean);
+          const remaining = allViewPeriods.filter(p => !billedPeriods.includes(p));
+          return [...billedPeriods, ...remaining];
+        }
+      } catch (e) {
+        // ignore view error
+      }
+      return billedPeriods;
+    }
+  } catch (e) {
+    console.warn('Aviso al consultar liquidaciones_grupos:', e);
+  }
+
+  // 2. Fallback a unique_periods_view que agrupa directamente todos los períodos únicos existentes
   try {
     const { data: viewData, error: viewErr } = await supabase
       .from('unique_periods_view')

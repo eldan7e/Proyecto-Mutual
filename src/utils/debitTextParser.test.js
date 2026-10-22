@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { debitCoversSelectedBalances, detectDebitColumns, getPendingDebitLiquidations, parseDebitText, resolveDebitColumns } from './debitTextParser.js';
+import { debitCoversSelectedBalances, detectDebitColumns, extractPeriodFromDebitFile, getPendingDebitLiquidations, parseDebitText, resolveDebitColumns } from './debitTextParser.js';
 
 const sampleLine = '139\t\tDeb. Ok\tFisher, Maria Agustina\t$ 39,690.82\t0140999803200053715709';
 
@@ -96,4 +96,22 @@ test('only marks a debit ready when it covers the selected invoice balances', ()
   assert.equal(debitCoversSelectedBalances(74.99, invoices, ['1']), false);
   assert.equal(debitCoversSelectedBalances(125, invoices, ['1', '2']), true);
   assert.equal(debitCoversSelectedBalances(75, invoices, ['1', '2']), false);
+});
+
+test('tolerates minor cent rounding discrepancies when tolerance is provided', () => {
+  const invoices = [
+    { liquidacion_id: 1, monto_total_facturado: 34388.18, monto_abonado: 0 },
+    { liquidacion_id: 2, monto_total_facturado: 25306.85, monto_abonado: 0 }
+  ];
+  // Total is 59695.03, debit is 59695.01 (2 cents difference)
+  assert.equal(debitCoversSelectedBalances(59695.01, invoices, ['1', '2']), false);
+  assert.equal(debitCoversSelectedBalances(59695.01, invoices, ['1', '2'], 0.05), true);
+});
+
+test('extracts period from filename or row content', () => {
+  assert.equal(extractPeriodFromDebitFile('2026-09 DEBITOS (09) (VTO OCTUBRE 2026).xlsx'), '2026-09');
+  assert.equal(extractPeriodFromDebitFile('DEBITOS_2026_08.csv'), '2026-08');
+  assert.equal(extractPeriodFromDebitFile('archivo_sin_fecha.xlsx', [
+    { LEYENDA: 'PERIODO 09.2026', SOCIO: 'Test' }
+  ]), '2026-09');
 });

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, Upload, Database, AlertTriangle, FileSpreadsheet, CheckCircle2, ClipboardPaste, HelpCircle } from 'lucide-react';
+import { Loader2, Upload, Database, AlertTriangle, FileSpreadsheet, CheckCircle2, ClipboardPaste, HelpCircle, Calendar } from 'lucide-react';
 
 export default function DebitosAutomaticosTab({
   loteModal,
@@ -17,7 +17,11 @@ export default function DebitosAutomaticosTab({
   openBreakdownModal,
   handleTextPaste,
   periodConsumos = [],
-  handleToggleLineSelection
+  handleToggleLineSelection,
+  selectedPeriod,
+  handlePeriodChange,
+  periodosList = [],
+  pendingLiquidaciones = []
 }) {
   const [pasteText, setPasteText] = useState('');
   const [openDropdownRowId, setOpenDropdownRowId] = useState(null);
@@ -113,7 +117,87 @@ export default function DebitosAutomaticosTab({
               Conciliá lotes de recaudación subiendo el detalle del débito automático en Excel/CSV (ej: <strong>VC DEBITOS.xlsx</strong>) o pegando la tabla de texto, vinculándolos con la transacción bancaria colectiva.
             </p>
           </div>
+          {/* Selector de Período para Débitos Automáticos */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--surface)', padding: '6px 14px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
+            <Calendar size={18} color="var(--accent)" />
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontSize: '9px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>
+                Período a Imputar
+              </span>
+              <select
+                value={selectedPeriod || ''}
+                onChange={(e) => handlePeriodChange && handlePeriodChange(e.target.value)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  fontWeight: 800,
+                  fontSize: '13.5px',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  outline: 'none',
+                  padding: 0
+                }}
+              >
+                {periodosList.map(p => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
+
+        {/* Banner de aviso si el archivo detectado difiere del período seleccionado */}
+        {loteModal.detectedPeriod && loteModal.detectedPeriod !== selectedPeriod && (
+          <div style={{
+            background: 'rgba(234, 179, 8, 0.1)',
+            border: '1px solid rgba(234, 179, 8, 0.3)',
+            padding: '12px 18px',
+            borderRadius: '14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '12px',
+            marginBottom: '20px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#eab308', fontSize: '13px', fontWeight: 600 }}>
+              <AlertTriangle size={18} />
+              <span>
+                El archivo cargado corresponde al período <strong>{loteModal.detectedPeriod}</strong>, pero la vista actual está filtrando por el período <strong>{selectedPeriod}</strong>.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => handlePeriodChange && handlePeriodChange(loteModal.detectedPeriod)}
+              className="premium-button"
+              style={{ padding: '6px 16px', fontSize: '12px', fontWeight: 700 }}
+            >
+              Cambiar vista al período {loteModal.detectedPeriod}
+            </button>
+          </div>
+        )}
+
+        {/* Banner de aviso si el período seleccionado no tiene facturas */}
+        {pendingLiquidaciones && pendingLiquidaciones.length === 0 && loteModal.processedRows && loteModal.processedRows.length > 0 && (
+          <div style={{
+            background: 'rgba(239, 68, 68, 0.1)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+            padding: '12px 18px',
+            borderRadius: '14px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            color: '#ef4444',
+            fontSize: '13px',
+            fontWeight: 600,
+            marginBottom: '20px'
+          }}>
+            <AlertTriangle size={18} />
+            <span>
+              El período seleccionado (<strong>{selectedPeriod}</strong>) no tiene facturas/liquidaciones generadas en el sistema, por lo que las filas se muestran sin deuda pendiente. Cambiá el período arriba para imputar a las deudas correspondientes.
+            </span>
+          </div>
+        )}
 
         {/* Dropdown de Selección de Movimiento Bancario Colectivo */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>

@@ -108,8 +108,8 @@ export function getPendingDebitLiquidations(liquidations) {
   });
 }
 
-/** A debit may settle selected invoices only when it covers their full remaining balances. */
-export function debitCoversSelectedBalances(amount, liquidations, selectedIds) {
+/** A debit may settle selected invoices only when it covers their full remaining balances (with optional cent rounding tolerance). */
+export function debitCoversSelectedBalances(amount, liquidations, selectedIds, tolerance = 0) {
   const ids = [...new Set((selectedIds || []).map(String))];
   if (ids.length === 0) return false;
   const selected = (liquidations || []).filter(liq => ids.includes(String(liq?.liquidacion_id)));
@@ -118,7 +118,39 @@ export function debitCoversSelectedBalances(amount, liquidations, selectedIds) {
     const balance = Math.max(0, Number(liq?.monto_total_facturado || 0) - Number(liq?.monto_abonado || 0));
     return sum + Math.round(balance * 100);
   }, 0);
-  return Math.round((Number(amount) || 0) * 100) >= remainingCents;
+  const debitCents = Math.round((Number(amount) || 0) * 100);
+  const diffCents = remainingCents - debitCents;
+  return diffCents <= Math.round((Number(tolerance) || 0) * 100);
+}
+
+/** Extracts the target period (YYYY-MM) from file name or row content (e.g. "PERIODO 09.2026", "2026-09 DEBITOS"). */
+export function extractPeriodFromDebitFile(fileName = '', rows = []) {
+  const cleanName = String(fileName || '');
+  const fileMatch = cleanName.match(/(?:^|[^0-9])(20\d\d)[-_](0[1-9]|1[0-2])(?:[^0-9]|$)/);
+  if (fileMatch) {
+    return `${fileMatch[1]}-${fileMatch[2]}`;
+  }
+
+  if (Array.isArray(rows) && rows.length > 0) {
+    const sample = rows.slice(0, 15);
+    for (const r of sample) {
+      if (!r || typeof r !== 'object') continue;
+      for (const val of Object.values(r)) {
+        if (!val) continue;
+        const s = String(val).trim();
+        const m1 = s.match(/(?:periodo|period)?\s*(0[1-9]|1[0-2])[\.\/-](20\d\d)/i);
+        if (m1) {
+          return `${m1[2]}-${m1[1]}`;
+        }
+        const m2 = s.match(/(20\d\d)[-\.\/](0[1-9]|1[0-2])/);
+        if (m2) {
+          return `${m2[1]}-${m2[2]}`;
+        }
+      }
+    }
+  }
+
+  return null;
 }
 
 /** Parse a pasted debit file and infer columns from repeated row evidence. */
