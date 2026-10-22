@@ -539,7 +539,7 @@ export async function registrarCobroCuenta({
 
         const abonoAplicado = Math.min(remanenteCobro, pendiente);
         let nuevoAbonado = pagadoActual + abonoAplicado;
-        const isFullyPaid = nuevoAbonado >= (totalFact - 2);
+        const isFullyPaid = nuevoAbonado >= (totalFact - 0.05);
         const nuevoEstado = isFullyPaid ? 'ABONADO' : 'PARCIAL';
         if (isFullyPaid) {
           nuevoAbonado = totalFact;
@@ -747,7 +747,8 @@ export async function reasignarPagoCuentaCorriente({
     throw new Error('El grupo destino no puede ser igual al grupo origen');
   }
 
-  // 2. Obtener datos del grupo destino
+  // 2. Obtener datos del grupo destino y monto a procesar
+  const montoCobro = Math.abs(Number(mov.importe));
   const infoDestino = await fetchDetalleGrupoParaReasignacion(gDestino);
   const nuevoTitular = infoDestino?.titular || `Grupo ${gDestino}`;
 
@@ -816,7 +817,7 @@ export async function reasignarPagoCuentaCorriente({
 
         const reversa = Math.min(remanenteRevertir, abonadoActual);
         const nuevoAbonado = Math.max(0, Math.round((abonadoActual - reversa) * 100) / 100);
-        const nuevoEstado = nuevoAbonado <= 1 ? 'PENDIENTE' : 'PARCIAL';
+        const nuevoEstado = nuevoAbonado <= 0.05 ? 'PENDIENTE' : 'PARCIAL';
 
         await supabase
           .from('liquidaciones_grupos')
@@ -835,7 +836,6 @@ export async function reasignarPagoCuentaCorriente({
   }
 
   // 5. Imputar/amortizar liquidación pendiente en el grupo destino si corresponde
-  const montoCobro = Math.abs(Number(mov.importe));
   try {
     let queryLiq = supabase
       .from('liquidaciones_grupos')
@@ -859,7 +859,7 @@ export async function reasignarPagoCuentaCorriente({
 
         const amort = Math.min(remanente, pendiente);
         let nuevoAbonado = pagadoActual + amort;
-        const isAbonado = nuevoAbonado >= (totalFact - 2);
+        const isAbonado = nuevoAbonado >= (totalFact - 0.05);
         if (isAbonado) nuevoAbonado = totalFact;
 
         await supabase

@@ -20,7 +20,7 @@ import HistorialMovimientosTab from './components/Conciliacion/HistorialMovimien
 import DebitosAutomaticosTab from './components/Conciliacion/DebitosAutomaticosTab';
 import NuevaConciliacionTab from './components/Conciliacion/NuevaConciliacionTab';
 import SaldosGruposTab from './components/Conciliacion/SaldosGruposTab';
-import { registrarCobroCuenta } from './services/cuentaCorrienteService';
+import { registrarCobroCuenta, sincronizarSaldosPersistidosGrupo, invalidateSaldosCache } from './services/cuentaCorrienteService';
 
 const parseDateToISODate = (dateStr) => {
   if (!dateStr) return new Date().toISOString().split('T')[0];
@@ -588,19 +588,19 @@ export default function ConciliacionBancaria() {
         }
       }
 
-      // Si es manual o si hay una sola deuda activa, asignar la más antigua
-      if (isManual || activePendingList.length === 1) {
+      // Si hay una sola deuda activa, asignar esa liquidación
+      if (activePendingList.length === 1) {
         return { liqId: String(activePendingList[0].liquidacion_id), matchedIds: null, isAlreadySaldada: false };
       }
-      // Si hay múltiples deudas activas en el grupo, imputar masivamente al grupo (SALDAR_TODO)
-      // distribuyendo el monto secuencialmente para saldar y evitar discrepancias
+      // Si hay múltiples deudas activas en el grupo (tanto selección manual como auto-match),
+      // imputar masivamente al grupo (SALDAR_TODO) distribuyendo el monto secuencialmente para saldar ambas operadoras
       if (activePendingList.length > 1) {
         return { liqId: "SALDAR_TODO", matchedIds: activePendingList.map(l => l.liquidacion_id), isAlreadySaldada: false };
       }
       return { liqId: "", matchedIds: null, isAlreadySaldada: false };
     }
 
-    // 2. Si NO hay deudas pendientes en el período porque TODAS YA ESTÁN SALDADAS (saldo <= $2.00 o ABONADO):
+    // 2. Si NO hay deudas pendientes en el período porque TODAS YA ESTÁN SALDADAS (saldo <= $0.05 o ABONADO):
     // El movimiento bancario corresponde a una liquidación que ya fue saldada (ej. por DEBIN o Lote CBU).
     // Auto-asignamos la liquidación saldada y la marcamos como isAlreadySaldada: true.
     let saldadaMatch = filteredByPeriod.find(liq => {
@@ -2208,7 +2208,7 @@ export default function ConciliacionBancaria() {
           const currentAbonado = Number(freshLiq.monto_abonado || 0);
           const currentFacturado = Number(freshLiq.monto_total_facturado || 0);
           const projectedPaid = Math.round((currentAbonado + extraPaid) * 100) / 100;
-          const isFullyPaid = projectedPaid >= (currentFacturado - 2.00);
+          const isFullyPaid = projectedPaid >= (currentFacturado - 0.05);
           const newMontoAbonado = isFullyPaid ? currentFacturado : projectedPaid;
           
           const { error: updateLiqError } = await supabase
@@ -2362,14 +2362,14 @@ export default function ConciliacionBancaria() {
           const liq = row.pendingList?.find(l => String(l.liquidacion_id) === String(liqId));
           if (!liq) return false;
           const pending = Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0);
-          return pending <= 2.00 || liq.estado_pago === 'ABONADO';
+          return pending <= 0.05 || liq.estado_pago === 'ABONADO';
         });
         if (allSelectedPaid) skipLiquidationUpdate = true;
       } else if (row.selectedLiquidationId && row.selectedLiquidationId !== 'SALDAR_TODO') {
         const liq = row.pendingList?.find(l => String(l.liquidacion_id) === String(row.selectedLiquidationId));
         if (liq) {
           const pending = Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0);
-          if (pending <= 2.00 || liq.estado_pago === 'ABONADO') skipLiquidationUpdate = true;
+          if (pending <= 0.05 || liq.estado_pago === 'ABONADO') skipLiquidationUpdate = true;
         }
       }
 
@@ -2491,7 +2491,7 @@ export default function ConciliacionBancaria() {
             const currentAbonado = Number(freshLiq?.monto_abonado || liqObj.monto_abonado || 0);
             const currentFacturado = Number(freshLiq?.monto_total_facturado || liqObj.monto_total_facturado);
             const projectedAbonado = Math.round((currentAbonado + extraPaid) * 100) / 100;
-            const isFullyPaid = projectedAbonado >= currentFacturado - 2.00;
+            const isFullyPaid = projectedAbonado >= currentFacturado - 0.05;
             const newMontoAbonado = isFullyPaid ? currentFacturado : projectedAbonado;
             
             const { error: liqError } = await supabase
@@ -2572,7 +2572,7 @@ export default function ConciliacionBancaria() {
 
         // If vinculated to bill, update liquidaciones_grupos (solo si no estaba ya saldada)
         if (singleLiqId && !skipLiquidationUpdate) {
-          const liqObj = row.pendingList.find(l => String(l.liquidacion_id) === String(singleLiqId));
+          const liqObj = row.pendingList?.find(l => String(l.liquidacion_id) === String(singleLiqId));
           if (liqObj) {
             groupNum = liqObj.numero_grupo;
             // Leer monto_abonado FRESCO de la DB para evitar race conditions y doble contabilización
@@ -2582,9 +2582,11 @@ export default function ConciliacionBancaria() {
               .eq('liquidacion_id', parseInt(singleLiqId, 10))
               .single();
             const currentAbonado = Number(freshLiq?.monto_abonado || liqObj.monto_abonado || 0);
-            const currentFacturado = Number(freshLiq?.monto_total_facturado || liqObj.monto_total_facturado);
-            const projectedAbonado = Math.round((currentAbonado + Number(row.netoReal)) * 100) / 100;
-            const isFullyPaid = projectedAbonado >= currentFacturado - 2.00;
+            const currentFacturado = Number(freshLiq?.monto_total_facturado || liqObj.monto_total_facturado || 0);
+            const pendingThis = Math.max(0, currentFacturado - currentAbonado);
+            const abonoAplicado = Math.min(Number(row.netoReal), pendingThis);
+            const projectedAbonado = Math.round((currentAbonado + abonoAplicado) * 100) / 100;
+            const isFullyPaid = projectedAbonado >= currentFacturado - 0.05;
             const newMontoAbonado = isFullyPaid ? currentFacturado : projectedAbonado;
 
             const { error: liqError } = await supabase
@@ -2597,9 +2599,47 @@ export default function ConciliacionBancaria() {
               .eq('liquidacion_id', parseInt(singleLiqId, 10));
 
             if (liqError) throw liqError;
+
+            // Si el pago excede el total facturado de esta liquidación, amortizar en cascada otras liquidaciones pendientes del grupo (ej: múltiples operadoras)
+            let remanenteCobro = Math.round((Number(row.netoReal) - abonoAplicado) * 100) / 100;
+            if (remanenteCobro > 0 && groupNum) {
+              const otherPendingLiqs = (row.pendingList || []).filter(l =>
+                String(l.liquidacion_id) !== String(singleLiqId) &&
+                (l.numero_grupo === groupNum || String(l.numero_grupo) === String(groupNum)) &&
+                (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)) > 0.05
+              );
+              for (const oLiq of otherPendingLiqs) {
+                if (remanenteCobro <= 0) break;
+                const { data: freshOLiq } = await supabase
+                  .from('liquidaciones_grupos')
+                  .select('monto_abonado, monto_total_facturado')
+                  .eq('liquidacion_id', parseInt(oLiq.liquidacion_id, 10))
+                  .single();
+                const oCurrentAbonado = Number(freshOLiq?.monto_abonado || oLiq.monto_abonado || 0);
+                const oCurrentFacturado = Number(freshOLiq?.monto_total_facturado || oLiq.monto_total_facturado || 0);
+                const oPending = Math.max(0, oCurrentFacturado - oCurrentAbonado);
+                if (oPending <= 0.05) continue;
+
+                const oAmort = Math.min(remanenteCobro, oPending);
+                const oProjected = Math.round((oCurrentAbonado + oAmort) * 100) / 100;
+                const oIsPaid = oProjected >= (oCurrentFacturado - 0.05);
+                const oNewAbonado = oIsPaid ? oCurrentFacturado : oProjected;
+
+                await supabase
+                  .from('liquidaciones_grupos')
+                  .update({
+                    monto_abonado: oNewAbonado,
+                    estado_pago: oIsPaid ? 'ABONADO' : 'PARCIAL',
+                    updated_at: new Date().toISOString()
+                  })
+                  .eq('liquidacion_id', parseInt(oLiq.liquidacion_id, 10));
+
+                remanenteCobro = Math.round((remanenteCobro - oAmort) * 100) / 100;
+              }
+            }
           }
         } else if (singleLiqId && skipLiquidationUpdate) {
-          const liqObj = row.pendingList.find(l => String(l.liquidacion_id) === String(singleLiqId));
+          const liqObj = row.pendingList?.find(l => String(l.liquidacion_id) === String(singleLiqId));
           if (liqObj) groupNum = liqObj.numero_grupo;
         }
 
@@ -2955,24 +2995,27 @@ export default function ConciliacionBancaria() {
       const oldLiqId = movement.liquidacion_id;
       const newLiqId = selectedLiquidationId ? parseInt(selectedLiquidationId, 10) : null;
       const amount = Number(movement.monto);
+      let oldGrupo = null;
+      let newGrupo = null;
 
       // 1. Deduct old
       if (oldLiqId && oldLiqId !== newLiqId) {
         const { data: oldLiq, error: getOldError } = await supabase
           .from('liquidaciones_grupos')
-          .select('monto_abonado, monto_total_facturado')
+          .select('monto_abonado, monto_total_facturado, numero_grupo')
           .eq('liquidacion_id', oldLiqId)
           .single();
         if (getOldError) throw getOldError;
 
+        oldGrupo = oldLiq.numero_grupo;
         const newOldAbonado = Math.max(0, Math.round((Number(oldLiq.monto_abonado || 0) - amount) * 100) / 100);
-        const isFullyPaidOld = newOldAbonado >= Number(oldLiq.monto_total_facturado) - 2.00;
+        const isFullyPaidOld = newOldAbonado >= Number(oldLiq.monto_total_facturado) - 0.05;
 
         const { error: updateOldError } = await supabase
           .from('liquidaciones_grupos')
           .update({
             monto_abonado: newOldAbonado,
-            estado_pago: isFullyPaidOld ? 'ABONADO' : (newOldAbonado > 0 ? 'PARCIAL' : 'PENDIENTE')
+            estado_pago: isFullyPaidOld ? 'ABONADO' : (newOldAbonado > 0.05 ? 'PARCIAL' : 'PENDIENTE')
           })
           .eq('liquidacion_id', oldLiqId);
         if (updateOldError) throw updateOldError;
@@ -2982,20 +3025,21 @@ export default function ConciliacionBancaria() {
       if (newLiqId && oldLiqId !== newLiqId) {
         const { data: newLiq, error: getNewError } = await supabase
           .from('liquidaciones_grupos')
-          .select('monto_abonado, monto_total_facturado')
+          .select('monto_abonado, monto_total_facturado, numero_grupo')
           .eq('liquidacion_id', newLiqId)
           .single();
         if (getNewError) throw getNewError;
 
+        newGrupo = newLiq.numero_grupo;
         const projectedNew = Math.round((Number(newLiq.monto_abonado || 0) + amount) * 100) / 100;
-        const isFullyPaidNew = projectedNew >= Number(newLiq.monto_total_facturado) - 2.00;
+        const isFullyPaidNew = projectedNew >= Number(newLiq.monto_total_facturado) - 0.05;
         const newNewAbonado = isFullyPaidNew ? Number(newLiq.monto_total_facturado) : projectedNew;
 
         const { error: updateNewError } = await supabase
           .from('liquidaciones_grupos')
           .update({
             monto_abonado: newNewAbonado,
-            estado_pago: isFullyPaidNew ? 'ABONADO' : (newNewAbonado > 0 ? 'PARCIAL' : 'PENDIENTE')
+            estado_pago: isFullyPaidNew ? 'ABONADO' : (newNewAbonado > 0.05 ? 'PARCIAL' : 'PENDIENTE')
           })
           .eq('liquidacion_id', newLiqId);
         if (updateNewError) throw updateNewError;
@@ -3010,6 +3054,40 @@ export default function ConciliacionBancaria() {
         })
         .eq('movimiento_id', movement.movimiento_id);
       if (moveError) throw moveError;
+
+      // 3b. Sincronizar movimientos_cuenta en Contaduría si hubo cambio de grupo
+      if (oldGrupo && newGrupo && oldGrupo !== newGrupo) {
+        try {
+          const movDate = movement.fecha_movimiento ? movement.fecha_movimiento.slice(0, 10) : null;
+          let qCc = supabase
+            .from('movimientos_cuenta')
+            .select('id')
+            .eq('numero_grupo', oldGrupo)
+            .eq('tipo', 'PAGO')
+            .gte('importe', -amount - 0.05)
+            .lte('importe', -amount + 0.05);
+
+          if (movDate) qCc = qCc.eq('fecha', movDate);
+          const { data: matchedCc } = await qCc.order('id', { ascending: false }).limit(1);
+          if (matchedCc && matchedCc.length > 0) {
+            const matchedSocio = socios.find(s => s.socio_id === (selectedSocioId ? parseInt(selectedSocioId, 10) : null));
+            const newTitular = matchedSocio ? matchedSocio.nombre_completo : `Grupo ${newGrupo}`;
+            await supabase
+              .from('movimientos_cuenta')
+              .update({
+                numero_grupo: newGrupo,
+                nombre: newTitular
+              })
+              .eq('id', matchedCc[0].id);
+
+            await sincronizarSaldosPersistidosGrupo(oldGrupo);
+            await sincronizarSaldosPersistidosGrupo(newGrupo);
+            invalidateSaldosCache();
+          }
+        } catch (errSyncCc) {
+          console.warn('Aviso al actualizar cuenta corriente en edición de conciliación:', errSyncCc);
+        }
+      }
 
       // 4. Audit
       await supabase
@@ -3146,7 +3224,7 @@ export default function ConciliacionBancaria() {
             .from('liquidaciones_grupos')
             .update({
               monto_abonado: newMontoAbonado,
-              estado_pago: 'PENDIENTE',
+              estado_pago: newMontoAbonado > 0.05 ? 'PARCIAL' : 'PENDIENTE',
               updated_at: new Date().toISOString()
             })
             .eq('liquidacion_id', movement.liquidacion_id);
@@ -3158,7 +3236,7 @@ export default function ConciliacionBancaria() {
             .from('audit_log')
             .insert({
               tipo_evento: 'REVERSION_CONCILIACION',
-              descripcion: `REVERTIDO: Se eliminó movimiento bancario ID ${movement.movimiento_id} de Banco ${movement.banco} por $${movement.monto} y se restableció factura ID ${movement.liquidacion_id} a PENDIENTE.`,
+              descripcion: `REVERTIDO: Se eliminó movimiento bancario ID ${movement.movimiento_id} de Banco ${movement.banco} por $${movement.monto} y se restableció factura ID ${movement.liquidacion_id} a ${newMontoAbonado > 0.05 ? 'PARCIAL' : 'PENDIENTE'}.`,
               monto: movement.monto,
               numero_grupo: liqData.numero_grupo,
               usuario: 'dante@admin.com'
@@ -3174,6 +3252,33 @@ export default function ConciliacionBancaria() {
             monto: movement.monto,
             usuario: 'dante@admin.com'
           });
+      }
+
+      // 2b. Revertir cobro en movimientos_cuenta (Contaduría) para no dejar pagos huérfanos
+      const targetGroup = movement.numero_grupo || (movement.liquidacion_id ? (await supabase.from('liquidaciones_grupos').select('numero_grupo').eq('liquidacion_id', movement.liquidacion_id).single()).data?.numero_grupo : null);
+      if (targetGroup) {
+        try {
+          const movDate = movement.fecha_movimiento ? movement.fecha_movimiento.slice(0, 10) : null;
+          let qCc = supabase
+            .from('movimientos_cuenta')
+            .select('id')
+            .eq('numero_grupo', targetGroup)
+            .eq('tipo', 'PAGO')
+            .gte('importe', -Number(movement.monto) - 0.05)
+            .lte('importe', -Number(movement.monto) + 0.05);
+
+          if (movDate) {
+            qCc = qCc.eq('fecha', movDate);
+          }
+          const { data: matchedCc } = await qCc.order('id', { ascending: false }).limit(1);
+          if (matchedCc && matchedCc.length > 0) {
+            await supabase.from('movimientos_cuenta').delete().eq('id', matchedCc[0].id);
+            await sincronizarSaldosPersistidosGrupo(targetGroup);
+            invalidateSaldosCache();
+          }
+        } catch (errCc) {
+          console.warn('Aviso al revertir movimiento en cuenta corriente:', errCc);
+        }
       }
 
       // 3. Eliminar el movimiento bancario
