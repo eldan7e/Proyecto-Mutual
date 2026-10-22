@@ -140,40 +140,20 @@ export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA, fechaCa
     const isNC = m.tipo === 'NOTA_CREDITO';
     const importeOriginal = Number(m.importe) || 0;
 
-    // 1. Plazo Dias (Col L de Excel):
-    // IF([Orden Mov]="Ultimo movimiento", MAX(0, fechaCalculo - fecha_actual), fecha_actual - fecha_ant)
+    // 1. Plazo Dias entre la fecha anterior y la de este movimiento (Col L de Excel)
     let plazoDias = 0;
-    if (isUltimo && fechaCalculo) {
-      plazoDias = Math.max(0, getDaysDiff(m.fecha, fechaCalculo));
-    } else if (fechaAnt) {
+    if (fechaAnt) {
       plazoDias = Math.max(0, getDaysDiff(fechaAnt, m.fecha));
     }
 
-    // 2. Interes % (Col M de Excel):
-    // (TNA / 365) * [Plazo Dias]
+    // 2. Interes % a la fecha de este movimiento (Col M de Excel)
     const interesPct = tasaDiaria * plazoDias;
 
-    // 3. Intereses $ devengados (Col N de Excel):
-    // pago_a_cap = MAX(0, ABS(Importe) - int_ant)
-    // cap_nuevo = cap_ant + IF(Tipo="FACTURA", Importe, -pago_a_cap)
-    // base_interes = MAX(0, IF(Orden Mov="Ultimo movimiento", cap_nuevo, cap_ant))
-    // Intereses $ = base_interes * Interes%
-    let pagoACapTemp = 0;
-    let capNuevo = capAnt;
-    if (isPago) {
-      pagoACapTemp = Math.max(0, Math.abs(importeOriginal) - intAnt);
-      capNuevo = capAnt - pagoACapTemp;
-    } else if (isNC) {
-      capNuevo = capAnt - Math.abs(importeOriginal);
-    } else {
-      capNuevo = capAnt + importeOriginal;
-    }
-
-    const baseInteres = Math.max(0, isUltimo ? capNuevo : capAnt);
+    // 3. Intereses $ devengados en el intervalo entre movimientos sobre el saldo anterior (Col N de Excel)
+    const baseInteres = Math.max(0, capAnt);
     const interesMora = baseInteres * interesPct;
 
-    // 4. Interes Pendiente Acumulado al momento del movimiento (Col O de Excel):
-    // int_ant + [Intereses $]
+    // 4. Interes Pendiente Acumulado al momento del movimiento (Col O de Excel)
     const intPendAcum = intAnt + interesMora;
 
     // 5 & 6. Imputación de pagos: primero a interés devengado a la fecha, luego a capital (Cols P & Q de Excel)
@@ -218,12 +198,21 @@ export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA, fechaCa
       saldoCapital = capAnt + importeOriginal;
     }
 
-    // 8. Interes Pendiente Final (Col T de Excel):
-    // int_pend_acum - pago_a_interes
+    // 8. Interes Pendiente Final a la fecha del movimiento (Col T de Excel)
     let intPendFinal = intPendAcum - pagoAInteres;
 
-    // 9. Saldo Final (Col U de Excel):
-    // Saldo Capital + Interes Pendiente Final
+    // Si es el último movimiento y fechaCalculo es posterior, proyectar el interés devengado desde m.fecha hasta fechaCalculo
+    let diasProyectadosHoy = 0;
+    let interesProyectadoHoy = 0;
+    if (isUltimo && fechaCalculo) {
+      diasProyectadosHoy = Math.max(0, getDaysDiff(m.fecha, fechaCalculo));
+      if (diasProyectadosHoy > 0 && saldoCapital > 0) {
+        interesProyectadoHoy = saldoCapital * tasaDiaria * diasProyectadosHoy;
+        intPendFinal += interesProyectadoHoy;
+      }
+    }
+
+    // 9. Saldo Final (Col U de Excel) = Saldo Capital + Interes Pendiente Final (acumulado a fechaCalculo)
     const saldoFinal = saldoCapital + intPendFinal;
 
     const saldoCapAntPrev = capAnt;
@@ -235,9 +224,9 @@ export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA, fechaCa
 
     return {
       ...m,
-      plazo_dias: plazoDias,
+      plazo_dias: plazoDias + diasProyectadosHoy,
       interes_pct: interesPct,
-      interes_mora: Math.round(interesMora * 100) / 100,
+      interes_mora: Math.round((interesMora + interesProyectadoHoy) * 100) / 100,
       interes_pend_acumulado: Math.round(intPendAcum * 100) / 100,
       pago_aplicado_interes: Math.round(pagoAInteres * 100) / 100,
       pago_aplicado_capital: Math.round(pagoACapital * 100) / 100,
@@ -248,7 +237,9 @@ export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA, fechaCa
       is_ultimo_movimiento: isUltimo,
       fecha_factura_origen: fechaFacturaOrigen,
       dias_desde_factura: diasDesdeFactura,
-      dias_mora_vencimiento: diasMoraVencimiento
+      dias_mora_vencimiento: diasMoraVencimiento,
+      dias_proyectados_hoy: diasProyectadosHoy,
+      interes_proyectado_hoy: Math.round(interesProyectadoHoy * 100) / 100
     };
   });
 }
