@@ -1,36 +1,55 @@
 import { supabase } from '../supabaseClient';
 
 /* ─────────────────────────────────────────────
-   Dashboard — all five SELECT queries +
-   global counts used in the main useEffect
+   Dashboard — optimized parallel queries +
+   global counts used in the main view
    ───────────────────────────────────────────── */
 
 /**
- * Fetch all liquidaciones_grupos with the provider name.
- * Returns raw rows ordered by periodo desc.
+ * Fetch all liquidaciones_grupos with the provider name using parallel pagination
+ * to avoid sequential round-trip bottlenecks.
  */
-/**
- * Fetch all liquidaciones_grupos with the provider name using pagination
- * to avoid Supabase 1000 default row limit.
- */
-export async function fetchLiquidaciones() {
-  let allData = [];
-  const limit = 1000;
-  let offset = 0;
+export async function fetchLiquidaciones(targetPeriods) {
+  let query = supabase
+    .from('liquidaciones_grupos')
+    .select('periodo, monto_total_facturado, estado_pago, proveedores(nombre)')
+    .order('periodo', { ascending: false });
 
-  while (true) {
-    const { data, error } = await supabase
-      .from('liquidaciones_grupos')
-      .select('periodo, monto_total_facturado, estado_pago, proveedores(nombre)')
-      .order('periodo', { ascending: false })
-      .range(offset, offset + limit - 1);
-
+  if (targetPeriods && targetPeriods.length > 0) {
+    query = query.in('periodo', targetPeriods);
+    const { data, error } = await query.range(0, 3999);
     if (error) throw error;
-    allData.push(...(data || []));
-    if (!data || data.length < limit) break;
-    offset += limit;
+    return data || [];
   }
 
+  // Si no se especifican períodos, consultar el count y traer en paralelo
+  const { count, error: countErr } = await supabase
+    .from('liquidaciones_grupos')
+    .select('*', { count: 'exact', head: true });
+
+  if (countErr) throw countErr;
+  const pageSize = 1000;
+  const numPages = Math.ceil((count || pageSize) / pageSize);
+  const pagePromises = [];
+
+  for (let i = 0; i < numPages; i++) {
+    const from = i * pageSize;
+    const to = from + pageSize - 1;
+    pagePromises.push(
+      supabase
+        .from('liquidaciones_grupos')
+        .select('periodo, monto_total_facturado, estado_pago, proveedores(nombre)')
+        .order('periodo', { ascending: false })
+        .range(from, to)
+    );
+  }
+
+  const results = await Promise.all(pagePromises);
+  const allData = [];
+  results.forEach(res => {
+    if (res.error) throw res.error;
+    if (res.data) allData.push(...res.data);
+  });
   return allData;
 }
 
@@ -41,28 +60,20 @@ export async function fetchLiquidaciones() {
  * @param {string[]} periods - Array of "YYYY-MM" strings. If empty, fetches all.
  */
 export async function fetchConsumos(periods) {
-  let allData = [];
-  const limit = 1000;
-  let offset = 0;
+  if (periods && periods.length === 0) return [];
 
-  while (true) {
-    let query = supabase
-      .from('consumos_mensuales')
-      .select('periodo, numero_linea, lineas(socio_id)')
-      .range(offset, offset + limit - 1);
+  let query = supabase
+    .from('consumos_mensuales')
+    .select('periodo, numero_linea, lineas(socio_id)')
+    .range(0, 3999);
 
-    if (periods && periods.length > 0) {
-      query = query.in('periodo', periods);
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
-    allData.push(...(data || []));
-    if (!data || data.length < limit) break;
-    offset += limit;
+  if (periods && periods.length > 0) {
+    query = query.in('periodo', periods);
   }
 
-  return allData;
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
 }
 
 /**
@@ -101,23 +112,33 @@ export async function fetchGlobalCounts() {
 }
 
 /**
- * Convenience wrapper — fetches all Dashboard data in one call.
+ * Convenience wrapper — fetches all Dashboard data in parallel with optimal filters.
  * Returns { liquidaciones, consumos, auditLogs, globalCounts }.
  */
 export async function fetchDashboardData() {
-  // First fetch liquidaciones to derive periods
-  const liquidaciones = await fetchLiquidaciones();
-
-  // Extract last 12 unique periods
-  const uniquePeriods = [
-    ...new Set(liquidaciones.map((l) => l.periodo)),
-  ].slice(0, 12);
-
-  // Run remaining queries in parallel
-  const [consumos, auditLogs, globalCounts] = await Promise.all([
-    fetchConsumos(uniquePeriods),
+  // 1. Obtener en paralelo los períodos recientes, logs de auditoría y conteos globales
+  const [periodsRes, auditLogs, globalCounts] = await Promise.all([
+    supabase
+      .from('unique_periods_view')
+      .select('periodo')
+      .order('periodo', { ascending: false })
+      .limit(12),
     fetchRecentAuditLogs(),
     fetchGlobalCounts(),
+  ]);
+
+  const uniquePeriods = (periodsRes.data || [])
+    .map((p) => p.periodo)
+    .filter(Boolean);
+
+  // 2. Traer liquidaciones de los últimos 12 períodos y consumos solo de los 7 períodos del gráfico
+  const [liquidaciones, consumos] = await Promise.all([
+    uniquePeriods.length > 0
+      ? fetchLiquidaciones(uniquePeriods)
+      : fetchLiquidaciones(),
+    uniquePeriods.length > 0
+      ? fetchConsumos(uniquePeriods.slice(0, 7))
+      : Promise.resolve([]),
   ]);
 
   return { liquidaciones, consumos, auditLogs, globalCounts };

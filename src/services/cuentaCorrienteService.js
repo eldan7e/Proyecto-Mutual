@@ -190,32 +190,57 @@ function isTransferenciaInterna(mov) {
          (obs.includes('MUTUAL') || obs.includes('30708841656') || obs.includes('AUNAR'));
 }
 
+let saldosGeneralFullCache = null;
+let saldosGeneralCacheTime = 0;
+const SALDOS_CACHE_TTL = 90 * 1000;
+
+export function invalidateSaldosCache() {
+  saldosGeneralFullCache = null;
+  saldosGeneralCacheTime = 0;
+}
+
 /**
  * Obtiene la lista resumida de todos los grupos con sus saldos actuales
  */
-export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = false, fechaCalculo = new Date() } = {}) {
-  // 1. Cargar TODOS los movimientos con campos necesarios para el recálculo
-  let allData = [];
-  const limit = 1000;
-  let offset = 0;
+export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = false, fechaCalculo = new Date(), forceRefresh = false } = {}) {
+  let allGruposCalculados = null;
 
-  while (true) {
-    let query = supabase
+  if (!forceRefresh && saldosGeneralFullCache && (Date.now() - saldosGeneralCacheTime < SALDOS_CACHE_TTL)) {
+    allGruposCalculados = saldosGeneralFullCache;
+  } else {
+    // 1. Cargar count y descargar en paralelo con Promise.all
+    const { count, error: countErr } = await supabase
       .from('movimientos_cuenta')
-      .select('id, numero_grupo, nombre, empresa, fecha, importe, tipo, periodo, observaciones')
-      .not('numero_grupo', 'is', null)
-      .order('numero_grupo', { ascending: true })
-      .order('fecha', { ascending: true })
-      .order('id', { ascending: true })
-      .range(offset, offset + limit - 1);
+      .select('*', { count: 'exact', head: true })
+      .not('numero_grupo', 'is', null);
 
-    const { data, error } = await query;
-    if (error) throw error;
+    if (countErr) throw countErr;
 
-    allData.push(...(data || []));
-    if (!data || data.length < limit) break;
-    offset += limit;
-  }
+    const limit = 1000;
+    const numPages = Math.ceil((count || limit) / limit);
+    const mcPromises = [];
+
+    for (let i = 0; i < numPages; i++) {
+      const from = i * limit;
+      const to = from + limit - 1;
+      mcPromises.push(
+        supabase
+          .from('movimientos_cuenta')
+          .select('id, numero_grupo, nombre, empresa, fecha, importe, tipo, periodo, observaciones')
+          .not('numero_grupo', 'is', null)
+          .order('numero_grupo', { ascending: true })
+          .order('fecha', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, to)
+      );
+    }
+
+    const results = await Promise.all(mcPromises);
+    let allData = [];
+    results.forEach(res => {
+      if (res.error) throw res.error;
+      if (res.data) allData.push(...res.data);
+    });
 
   // 1b. Filtrar transferencias internas entre cuentas propias de la Mutual
   // Estas no son pagos de socios y distorsionan los saldos
@@ -340,14 +365,19 @@ export async function fetchInformeSaldosGeneral({ search = '', soloDeudores = fa
     };
   }
 
-  // 6. Formatear resultado
-  let resultado = Object.values(gruposMap).map(g => ({
-    ...g,
-    total_lineas: g.total_lineas ?? (lineasMap[g.numero_grupo] || 0),
-    empresas: g.empresas instanceof Set ? Array.from(g.empresas).join(', ') || 'N/D' : (g.empresas || 'N/D')
-  }));
+    // 6. Formatear resultado
+    allGruposCalculados = Object.values(gruposMap).map(g => ({
+      ...g,
+      total_lineas: g.total_lineas ?? (lineasMap[g.numero_grupo] || 0),
+      empresas: g.empresas instanceof Set ? Array.from(g.empresas).join(', ') || 'N/D' : (g.empresas || 'N/D')
+    }));
 
-  // 7. Aplicar filtros
+    saldosGeneralFullCache = allGruposCalculados;
+    saldosGeneralCacheTime = Date.now();
+  }
+
+  // 7. Aplicar filtros sobre el array en memoria
+  let resultado = allGruposCalculados || [];
   if (search && search.trim()) {
     const s = search.toLowerCase().trim();
     resultado = resultado.filter(g =>
@@ -546,6 +576,7 @@ export async function registrarCobroCuenta({
     }
   }
 
+  invalidateSaldosCache();
   return data;
 }
 

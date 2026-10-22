@@ -28,6 +28,10 @@ import {
   exportFacturasXLSX, exportSaldosXLSX, exportExtractoXLSX, exportSoloDeudaXLSX, exportLineasXLSX 
 } from './utils/exportContaduria';
 
+let liquidacionesContaduriaCache = null;
+let liquidacionesContaduriaCacheTime = 0;
+const LIQS_CACHE_TTL = 90 * 1000;
+
 export default function Contaduria() {
   const { addToast } = useToast();
   const confirm = useConfirm();
@@ -223,7 +227,7 @@ export default function Contaduria() {
         },
         () => {
           if (selectedGrupo) loadMovimientos(selectedGrupo);
-          loadSaldosGeneral();
+          loadSaldosGeneral(true);
         }
       )
       .on(
@@ -234,7 +238,8 @@ export default function Contaduria() {
           table: 'liquidaciones_grupos'
         },
         () => {
-          loadTodasLiquidaciones();
+          liquidacionesContaduriaCache = null;
+          loadTodasLiquidaciones(true);
           if (selectedGrupo) loadLiquidaciones(selectedGrupo);
         }
       )
@@ -280,28 +285,50 @@ export default function Contaduria() {
     }
   }
 
-  async function loadTodasLiquidaciones() {
+  async function loadTodasLiquidaciones(forceRefresh = false) {
+    if (!forceRefresh && liquidacionesContaduriaCache && (Date.now() - liquidacionesContaduriaCacheTime < LIQS_CACHE_TTL)) {
+      setLiquidacionesAll(liquidacionesContaduriaCache);
+      const pSet = new Set();
+      liquidacionesContaduriaCache.forEach(l => {
+        if (l.periodo) pSet.add(l.periodo);
+      });
+      if (pSet.size > 0) {
+        setPeriodosDisponiblesState(Array.from(pSet).sort().reverse());
+      }
+      return;
+    }
+
     setLoadingLiqs(true);
     try {
-      let allLiqs = [];
-      let from = 0;
+      const { count: totalLiqs, error: countError } = await supabase
+        .from('liquidaciones_grupos')
+        .select('*', { count: 'exact', head: true });
+
+      if (countError) throw countError;
+
       const pageSize = 1000;
+      const numPages = Math.ceil((totalLiqs || 1000) / pageSize);
+      const pagePromises = [];
 
-      while (true) {
-        const { data: liqsData, error: liqsError } = await supabase
-          .from('liquidaciones_grupos')
-          .select('*, proveedores(nombre), socios(nombre_completo), numero_linea')
-          .range(from, from + pageSize - 1)
-          .order('periodo', { ascending: false })
-          .order('numero_grupo', { ascending: true });
-
-        if (liqsError) throw liqsError;
-        if (!liqsData || liqsData.length === 0) break;
-
-        allLiqs = allLiqs.concat(liqsData);
-        if (liqsData.length < pageSize) break;
-        from += pageSize;
+      for (let i = 0; i < numPages; i++) {
+        const from = i * pageSize;
+        const to = from + pageSize - 1;
+        pagePromises.push(
+          supabase
+            .from('liquidaciones_grupos')
+            .select('liquidacion_id, numero_grupo, periodo, monto_total_facturado, monto_abonado, estado_pago, proveedores(nombre), socios(nombre_completo), total_lineas_lote, numero_linea')
+            .range(from, to)
+            .order('periodo', { ascending: false })
+            .order('numero_grupo', { ascending: true })
+        );
       }
+
+      const results = await Promise.all(pagePromises);
+      let allLiqs = [];
+      results.forEach(res => {
+        if (res.error) throw res.error;
+        if (res.data) allLiqs.push(...res.data);
+      });
 
       const listaCompleta = allLiqs
         .filter(l => l.numero_grupo !== 0 && Number(l.monto_total_facturado || 0) > 0)
@@ -323,6 +350,9 @@ export default function Contaduria() {
           return a.numero_grupo - b.numero_grupo;
         });
 
+      liquidacionesContaduriaCache = listaCompleta;
+      liquidacionesContaduriaCacheTime = Date.now();
+
       setLiquidacionesAll(listaCompleta);
 
       const pSet = new Set();
@@ -339,10 +369,10 @@ export default function Contaduria() {
     }
   }
 
-  async function loadSaldosGeneral() {
+  async function loadSaldosGeneral(forceRefresh = false) {
     setLoading(true);
     try {
-      const data = await fetchInformeSaldosGeneral({ search: searchGrupo, soloDeudores, fechaCalculo: fechaCalculoExtracto });
+      const data = await fetchInformeSaldosGeneral({ search: searchGrupo, soloDeudores, fechaCalculo: fechaCalculoExtracto, forceRefresh });
       setSaldosData(data);
     } catch (err) {
       console.error('Error al cargar informe de saldos:', err);

@@ -8,7 +8,15 @@ import { ToastProvider, useToast, globalToast } from './components/ui/ToastProvi
 import { ConfirmProvider, useConfirm, globalConfirm } from './components/ui/ConfirmProvider';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 60 * 1000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 const safeLazy = (importFunc) => {
   return lazy(() => {

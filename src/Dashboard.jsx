@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   Users, Smartphone, TrendingUp, TrendingDown, AlertCircle,
   Activity, BarChart3, Calendar, ArrowRight, CircleDollarSign,
@@ -21,43 +22,38 @@ export default function Dashboard() {
   const [selectedPeriod, setSelectedPeriod] = useState(null);
   const [logs, setLogs] = useState([]);
   const [globalCounts, setGlobalCounts] = useState({ socios: 0, lineas: 0 });
-  const [isLoading, setIsLoading] = useState(true);
   const [hoveredBar, setHoveredBar] = useState(null);
 
   const [rawLiquidaciones, setRawLiquidaciones] = useState([]);
   const [rawConsumos, setRawConsumos] = useState([]);
 
+  const { data: dashboardData, isLoading } = useQuery({
+    queryKey: ['dashboardData'],
+    queryFn: fetchDashboardData,
+    staleTime: 5 * 60 * 1000,
+  });
+
   useEffect(() => {
-    async function loadData() {
-      setIsLoading(true);
-      try {
-        const { liquidaciones, consumos, auditLogs, globalCounts: gCounts } = await fetchDashboardData();
+    if (!dashboardData) return;
+    const { liquidaciones, consumos, auditLogs, globalCounts: gCounts } = dashboardData;
 
-        setRawLiquidaciones(liquidaciones || []);
-        setRawConsumos(consumos || []);
-        if (auditLogs) setLogs(auditLogs);
-        setGlobalCounts({ socios: gCounts.sociosCount || 0, lineas: gCounts.lineasActivasCount || 0 });
+    setRawLiquidaciones(liquidaciones || []);
+    setRawConsumos(consumos || []);
+    if (auditLogs) setLogs(auditLogs);
+    setGlobalCounts({ socios: gCounts?.sociosCount || 0, lineas: gCounts?.lineasActivasCount || 0 });
 
-        const aggregatedSales = {};
-        if (liquidaciones) {
-          liquidaciones.forEach(l => {
-            const monto = Number(l.monto_total_facturado);
-            if (!aggregatedSales[l.periodo]) aggregatedSales[l.periodo] = 0;
-            aggregatedSales[l.periodo] += monto;
-          });
-        }
-        const sortedPeriods = Object.keys(aggregatedSales).sort();
-        const lastPeriod = sortedPeriods[sortedPeriods.length - 1];
-        setSelectedPeriod(lastPeriod);
-
-      } catch (error) {
-        console.error("Error loading dashboard data:", error);
-      } finally {
-        setIsLoading(false);
-      }
+    const aggregatedSales = {};
+    if (liquidaciones) {
+      liquidaciones.forEach(l => {
+        const monto = Number(l.monto_total_facturado);
+        if (!aggregatedSales[l.periodo]) aggregatedSales[l.periodo] = 0;
+        aggregatedSales[l.periodo] += monto;
+      });
     }
-    loadData();
-  }, []);
+    const sortedPeriods = Object.keys(aggregatedSales).sort();
+    const lastPeriod = sortedPeriods[sortedPeriods.length - 1];
+    setSelectedPeriod(prev => prev || lastPeriod);
+  }, [dashboardData]);
 
   // Recalcular estadísticas, gráfico y proveedores cada vez que cambia el período seleccionado
   useEffect(() => {

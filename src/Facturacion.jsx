@@ -47,7 +47,11 @@ export default function Facturacion() {
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'historial');
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
-  const [selectedPeriod, setSelectedPeriod] = useState('');
+  const [selectedPeriod, setSelectedPeriod] = useState(
+    searchParams.get('periodo') || (() => {
+      try { return localStorage.getItem('app_selected_period') || ''; } catch (e) { return ''; }
+    })()
+  );
   const [filterProv, setFilterProv] = useState('');
   const [expandedGroups, setExpandedGroups] = useState({});
 
@@ -73,7 +77,7 @@ export default function Facturacion() {
       if (error) throw error;
       return (data || []).map(d => d.periodo).filter(Boolean);
     },
-    staleTime: 10 * 1000,
+    staleTime: 10 * 60 * 1000,
   });
 
   // Establecer período predeterminado o corregir período inválido
@@ -81,7 +85,9 @@ export default function Facturacion() {
     if (periods.length > 0) {
       const currentPeriod = searchParams.get('periodo');
       if (!currentPeriod || !periods.includes(currentPeriod)) {
-        updateParams({ periodo: periods[0] });
+        const targetP = periods.includes(selectedPeriod) ? selectedPeriod : periods[0];
+        updateParams({ periodo: targetP });
+        setSelectedPeriod(targetP);
       }
     }
   }, [periods]);
@@ -90,7 +96,8 @@ export default function Facturacion() {
   const { data: liquidaciones = [], isLoading: liquidacionesLoading } = useQuery({
     queryKey: ['liquidaciones', selectedPeriod, filterProv],
     queryFn: () => fetchLiquidaciones(selectedPeriod, filterProv),
-    staleTime: 10 * 1000,
+    enabled: !!selectedPeriod,
+    staleTime: 5 * 60 * 1000,
   });
 
   // Cargar liquidaciones detalladas de socios con React Query
@@ -98,7 +105,7 @@ export default function Facturacion() {
     queryKey: ['socioLiquidaciones', selectedPeriod, filterProv],
     queryFn: () => fetchSocioLiquidacionesService(selectedPeriod, filterProv),
     enabled: !!selectedPeriod && (activeTab === 'socios' || activeTab === 'resumen'),
-    staleTime: 10 * 1000,
+    staleTime: 5 * 60 * 1000,
   });
 
   // Mutación para eliminar un lote completo
