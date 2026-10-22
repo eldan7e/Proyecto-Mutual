@@ -178,24 +178,38 @@ export default function DebitosAutomaticosTab({
         )}
 
         {/* Banner de aviso si el período seleccionado no tiene facturas */}
-        {pendingLiquidaciones && pendingLiquidaciones.length === 0 && loteModal.processedRows && loteModal.processedRows.length > 0 && (
+        {pendingLiquidaciones && pendingLiquidaciones.length === 0 && (
           <div style={{
             background: 'rgba(239, 68, 68, 0.1)',
             border: '1px solid rgba(239, 68, 68, 0.3)',
-            padding: '12px 18px',
+            padding: '14px 20px',
             borderRadius: '14px',
             display: 'flex',
             alignItems: 'center',
-            gap: '10px',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '14px',
             color: '#ef4444',
             fontSize: '13px',
             fontWeight: 600,
             marginBottom: '20px'
           }}>
-            <AlertTriangle size={18} />
-            <span>
-              El período seleccionado (<strong>{selectedPeriod}</strong>) no tiene facturas/liquidaciones generadas en el sistema, por lo que las filas se muestran sin deuda pendiente. Cambiá el período arriba para imputar a las deudas correspondientes.
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 320px' }}>
+              <AlertTriangle size={20} style={{ flexShrink: 0 }} />
+              <span>
+                El período seleccionado (<strong>{selectedPeriod}</strong>) no tiene facturas emitidas. Como se factura a mes vencido, los débitos cobrados a mediados de octubre corresponden a las facturas de <strong>2026-09</strong>.
+              </span>
+            </div>
+            {periodosList && periodosList.includes('2026-09') && (
+              <button
+                type="button"
+                onClick={() => handlePeriodChange && handlePeriodChange('2026-09')}
+                className="premium-button"
+                style={{ padding: '8px 18px', fontSize: '12px', fontWeight: 700, whiteSpace: 'nowrap' }}
+              >
+                Cambiar al período 2026-09 (con facturas emitidas)
+              </button>
+            )}
           </div>
         )}
 
