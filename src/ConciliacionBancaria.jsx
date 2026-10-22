@@ -2490,8 +2490,9 @@ export default function ConciliacionBancaria() {
               .single();
             const currentAbonado = Number(freshLiq?.monto_abonado || liqObj.monto_abonado || 0);
             const currentFacturado = Number(freshLiq?.monto_total_facturado || liqObj.monto_total_facturado);
-            const newMontoAbonado = Math.round((currentAbonado + extraPaid) * 100) / 100;
-            const isFullyPaid = newMontoAbonado >= currentFacturado - 2.00;
+            const projectedAbonado = Math.round((currentAbonado + extraPaid) * 100) / 100;
+            const isFullyPaid = projectedAbonado >= currentFacturado - 2.00;
+            const newMontoAbonado = isFullyPaid ? currentFacturado : projectedAbonado;
             
             const { error: liqError } = await supabase
               .from('liquidaciones_grupos')
@@ -2582,8 +2583,9 @@ export default function ConciliacionBancaria() {
               .single();
             const currentAbonado = Number(freshLiq?.monto_abonado || liqObj.monto_abonado || 0);
             const currentFacturado = Number(freshLiq?.monto_total_facturado || liqObj.monto_total_facturado);
-            const newMontoAbonado = Math.round((currentAbonado + Number(row.netoReal)) * 100) / 100;
-            const isFullyPaid = newMontoAbonado >= currentFacturado - 2.00;
+            const projectedAbonado = Math.round((currentAbonado + Number(row.netoReal)) * 100) / 100;
+            const isFullyPaid = projectedAbonado >= currentFacturado - 2.00;
+            const newMontoAbonado = isFullyPaid ? currentFacturado : projectedAbonado;
 
             const { error: liqError } = await supabase
               .from('liquidaciones_grupos')
@@ -2985,8 +2987,9 @@ export default function ConciliacionBancaria() {
           .single();
         if (getNewError) throw getNewError;
 
-        const newNewAbonado = Math.round((Number(newLiq.monto_abonado || 0) + amount) * 100) / 100;
-        const isFullyPaidNew = newNewAbonado >= Number(newLiq.monto_total_facturado) - 2.00;
+        const projectedNew = Math.round((Number(newLiq.monto_abonado || 0) + amount) * 100) / 100;
+        const isFullyPaidNew = projectedNew >= Number(newLiq.monto_total_facturado) - 2.00;
+        const newNewAbonado = isFullyPaidNew ? Number(newLiq.monto_total_facturado) : projectedNew;
 
         const { error: updateNewError } = await supabase
           .from('liquidaciones_grupos')
