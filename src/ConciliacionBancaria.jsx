@@ -1506,25 +1506,26 @@ export default function ConciliacionBancaria() {
             ? `El CBU del Excel no corresponde al grupo ${excelGroupNum}; corregí el mapeo antes de imputar`
             : (!isValidCbuFormat ? 'El CBU debe contener entre 21 y 22 dígitos numéricos' : 'CBU no coincide con el socio o grupo seleccionado');
         } else if (isSuccessfulDebit && hasLiqSelected) {
-          matchStatus = 'MATCH_READY';
+          let listToSum = [];
           if (defaultLiqId === 'SALDAR_TODO') {
-            const listToSum = matchedLiquidationIds && matchedLiquidationIds.length > 0
+            listToSum = matchedLiquidationIds && matchedLiquidationIds.length > 0
               ? activePendingList.filter(l => matchedLiquidationIds.includes(l.liquidacion_id))
               : activePendingList;
-            const totalPending = listToSum.reduce((sum, liq) => sum + (Number(liq?.monto_total_facturado || 0) - Number(liq?.monto_abonado || 0)), 0);
-            if (!coversSelectedBalances) {
-              reason = `Listo (Pago Parcial): (${matchReason}) Imputar débito de ${parsedMonto.toLocaleString('es-AR')} a deudas del grupo (${totalPending.toLocaleString('es-AR')})`;
-            } else {
-              reason = `Listo: (${matchReason}) Saldar deudas del grupo por ${totalPending.toLocaleString('es-AR')}`;
-            }
+          } else if (selectedLiqs.length > 0) {
+            listToSum = pendingList.filter(l => selectedLiqs.includes(String(l.liquidacion_id)));
+          }
+          const totalPending = listToSum.reduce((sum, liq) => sum + (Number(liq?.monto_total_facturado || 0) - Number(liq?.monto_abonado || 0)), 0);
+          const isExcessPayment = parsedMonto > totalPending + 2.00;
+
+          if (!coversSelectedBalances) {
+            matchStatus = 'INSUFFICIENT_AMOUNT';
+            reason = `Débito OK (Abono Parcial): (${matchReason}) Imputará $${parsedMonto.toLocaleString('es-AR')} a deuda de $${totalPending.toLocaleString('es-AR')}, dejando saldo pendiente`;
+          } else if (isExcessPayment) {
+            matchStatus = 'EXCESS_AMOUNT';
+            reason = `Débito OK (Con Saldo a Favor): (${matchReason}) Salda deuda de $${totalPending.toLocaleString('es-AR')} y carga excedente de $${(parsedMonto - totalPending).toLocaleString('es-AR')} al saldo grupal`;
           } else {
-            const matchedLiq = pendingList.find(l => l?.liquidacion_id === parseInt(defaultLiqId, 10));
-            const pendingAmount = matchedLiq ? (Number(matchedLiq.monto_total_facturado || 0) - Number(matchedLiq.monto_abonado || 0)) : 0;
-            if (!coversSelectedBalances) {
-              reason = `Listo (Pago Parcial): (${matchReason}) Imputar débito de ${parsedMonto.toLocaleString('es-AR')} a factura por ${pendingAmount.toLocaleString('es-AR')}`;
-            } else {
-              reason = `Listo: (${matchReason}) Deuda de ${pendingAmount.toLocaleString('es-AR')}`;
-            }
+            matchStatus = 'MATCH_READY';
+            reason = `Débito OK (Listo): (${matchReason}) Saldará deuda de $${totalPending.toLocaleString('es-AR')}`;
           }
         } else if (isSuccessfulDebit && pendingList.length === 0) {
           matchStatus = 'NO_INVOICE';
@@ -1887,6 +1888,10 @@ export default function ConciliacionBancaria() {
           : [];
         const hasLiqs = newSelectedLiqs.length > 0;
         const coversSelected = debitCoversSelectedBalances(r.monto, r.pendingList, newSelectedLiqs, 2.00);
+        const selectedLiqObjs = r.pendingList.filter(l => newSelectedLiqs.includes(String(l.liquidacion_id)));
+        const totalPendingDebt = selectedLiqObjs.reduce((sum, liq) => sum + (Number(liq?.monto_total_facturado || 0) - Number(liq?.monto_abonado || 0)), 0);
+        const isExcess = r.monto > totalPendingDebt + 2.00;
+        const nextStatus = !coversSelected ? 'INSUFFICIENT_AMOUNT' : (isExcess ? 'EXCESS_AMOUNT' : 'MATCH_READY');
         return {
           ...r,
           selectedLiquidationId: liqId,
@@ -1895,10 +1900,10 @@ export default function ConciliacionBancaria() {
           canBeImputed: Boolean(r.isSuccessfulDebit && r.hasValidCbu && hasLiqs),
           checked: Boolean(r.isSuccessfulDebit && r.hasValidCbu && hasLiqs),
           matchStatus: r.isSuccessfulDebit
-            ? (!r.hasValidCbu ? 'INVALID_CBU' : (hasLiqs ? 'MATCH_READY' : (r.pendingList.length > 0 ? 'NEEDS_REVIEW' : 'NO_INVOICE')))
+            ? (!r.hasValidCbu ? 'INVALID_CBU' : (hasLiqs ? nextStatus : (r.pendingList.length > 0 ? 'NEEDS_REVIEW' : 'NO_INVOICE')))
             : r.matchStatus,
           reason: r.isSuccessfulDebit
-            ? (!r.hasValidCbu ? r.reason : (hasLiqs ? (coversSelected ? 'Débito OK. Imputación seleccionada.' : 'Débito OK (Pago Parcial). Imputación seleccionada.') : 'Débito OK, pero no hay factura seleccionada para imputar.'))
+            ? (!r.hasValidCbu ? r.reason : (hasLiqs ? (coversSelected ? (isExcess ? `Débito OK (Con Saldo a Favor). Imputación seleccionada.` : 'Débito OK. Imputación seleccionada.') : 'Débito OK (Pago Parcial). Imputación seleccionada.') : 'Débito OK, pero no hay factura seleccionada para imputar.'))
             : r.reason
         };
       })
@@ -1931,6 +1936,10 @@ export default function ConciliacionBancaria() {
           : [];
         const hasLiqs = newList.length > 0;
         const coversSelected = debitCoversSelectedBalances(r.monto, r.pendingList, newList, 2.00);
+        const selectedLiqObjs = r.pendingList.filter(l => newList.includes(String(l.liquidacion_id)));
+        const totalPendingDebt = selectedLiqObjs.reduce((sum, liq) => sum + (Number(liq?.monto_total_facturado || 0) - Number(liq?.monto_abonado || 0)), 0);
+        const isExcess = r.monto > totalPendingDebt + 2.00;
+        const nextStatus = !coversSelected ? 'INSUFFICIENT_AMOUNT' : (isExcess ? 'EXCESS_AMOUNT' : 'MATCH_READY');
           
         return {
           ...r,
@@ -1940,10 +1949,10 @@ export default function ConciliacionBancaria() {
           canBeImputed: Boolean(r.isSuccessfulDebit && r.hasValidCbu && hasLiqs),
           checked: Boolean(r.isSuccessfulDebit && r.hasValidCbu && hasLiqs),
           matchStatus: r.isSuccessfulDebit
-            ? (!r.hasValidCbu ? 'INVALID_CBU' : (hasLiqs ? 'MATCH_READY' : (r.pendingList.length > 0 ? 'NEEDS_REVIEW' : 'NO_INVOICE')))
+            ? (!r.hasValidCbu ? 'INVALID_CBU' : (hasLiqs ? nextStatus : (r.pendingList.length > 0 ? 'NEEDS_REVIEW' : 'NO_INVOICE')))
             : r.matchStatus,
           reason: r.isSuccessfulDebit
-            ? (!r.hasValidCbu ? r.reason : (hasLiqs ? (coversSelected ? 'Débito OK. Imputación seleccionada.' : 'Débito OK (Pago Parcial). Imputación seleccionada.') : 'Débito OK, pero no hay factura seleccionada para imputar.'))
+            ? (!r.hasValidCbu ? r.reason : (hasLiqs ? (coversSelected ? (isExcess ? `Débito OK (Con Saldo a Favor). Imputación seleccionada.` : 'Débito OK. Imputación seleccionada.') : 'Débito OK (Pago Parcial). Imputación seleccionada.') : 'Débito OK, pero no hay factura seleccionada para imputar.'))
             : r.reason
         };
       })
@@ -2009,16 +2018,27 @@ export default function ConciliacionBancaria() {
 
     const toCents = value => Math.round((Number(value) || 0) * 100);
     const totalSelectedCents = checkedRows.reduce((sum, row) => sum + toCents(row.monto), 0);
-    const bankGrossCents = toCents(Math.abs(Number(bankRow.ingresoBruto) || Number(bankRow.netoReal) || 0));
-    const diffCents = totalSelectedCents - bankGrossCents;
-    const hasDiff = Math.abs(diffCents) > 500;
-    const diffNotice = hasDiff
-      ? `\n\nAtención: La suma de débitos seleccionados ($${(totalSelectedCents / 100).toLocaleString('es-AR', { minimumFractionDigits: 2 })}) difiere del movimiento bancario ($${(bankGrossCents / 100).toLocaleString('es-AR', { minimumFractionDigits: 2 })}). Se registrarán los débitos aprobados.`
-      : '';
+    const totalSelected = totalSelectedCents / 100;
+    const bankNet = Math.abs(Number(bankRow.netoReal) || Number(bankRow.monto) || 0);
+    const bankNetCents = toCents(bankNet);
+    const bankFeeCents = Math.max(0, totalSelectedCents - bankNetCents);
+    const bankFee = bankFeeCents / 100;
+    const feePct = totalSelected > 0 ? ((bankFee / totalSelected) * 100).toFixed(2) : '0';
+
+    const netDiff = Math.abs((totalSelected - bankFee) - bankNet);
+    const hasUnexplainedDiff = netDiff > 0.05 && Math.abs(totalSelected - bankNet) > 0.05;
+
+    let loteSummaryNotice = '';
+    if (bankFee > 0) {
+      loteSummaryNotice = `\n\nResumen del Lote:\n• Recaudación Débitos Excel: $${totalSelected.toLocaleString('es-AR', { minimumFractionDigits: 2 })}\n• Comisión / Arancel Bancario (${feePct}%): -$${bankFee.toLocaleString('es-AR', { minimumFractionDigits: 2 })}\n• Neto Acreditado en Extracto: $${bankNet.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+    }
+    if (hasUnexplainedDiff) {
+      loteSummaryNotice += `\n\n⚠️ Atención: Existe una diferencia no asignada de $${netDiff.toLocaleString('es-AR', { minimumFractionDigits: 2 })} entre los débitos y el extracto bancario.`;
+    }
     
     const accepted = await confirm({
       title: "Confirmar Conciliación de Lote",
-      message: `¿Estás seguro de registrar las conciliaciones para los ${checkedRows.length} socios seleccionados? Esto registrará los movimientos en movimientos_bancarios, saldará las deudas en movimientos_cuenta (Contabilidad) y marcará las facturas como abonadas.${diffNotice}`,
+      message: `¿Estás seguro de registrar las conciliaciones para los ${checkedRows.length} socios seleccionados?${loteSummaryNotice}\n\nSe registrarán las imputaciones exactas de cada socio (cancelando facturas, aplicando abonos parciales a deudas menores y acreditando excedentes como saldo a favor en cuenta corriente).`,
       confirmText: "Confirmar Lote",
       cancelText: "Cancelar"
     });
@@ -2031,9 +2051,9 @@ export default function ConciliacionBancaria() {
       const masterMov = {
         fecha_movimiento: bankDateISO,
         concepto: bankRow.concepto || 'Recaudación Débito Automático CBU',
-        monto: bankRow.netoReal || 0,
-        ingreso_bruto: bankRow.ingresoBruto || bankRow.netoReal || 0,
-        impuestos: bankRow.impuestos || 0,
+        monto: bankNet || bankRow.netoReal || 0,
+        ingreso_bruto: totalSelected || bankRow.ingresoBruto || bankRow.netoReal || 0,
+        impuestos: bankFee || bankRow.impuestos || 0,
         banco: bankRow.banco || 'CREDICOOP',
         socio_id: null,
         liquidacion_id: null,

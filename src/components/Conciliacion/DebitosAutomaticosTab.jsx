@@ -647,6 +647,9 @@ export default function DebitosAutomaticosTab({
                           } else if (row.matchStatus === 'INSUFFICIENT_AMOUNT') {
                             statusBg = 'rgba(59, 130, 246, 0.1)';
                             statusColor = '#3b82f6';
+                          } else if (row.matchStatus === 'EXCESS_AMOUNT') {
+                            statusBg = 'rgba(6, 182, 212, 0.1)';
+                            statusColor = '#06b6d4';
                           } else if (row.matchStatus === 'MATCH_NO_DEBT') {
                             statusBg = 'rgba(234, 179, 8, 0.1)';
                             statusColor = '#eab308';
@@ -831,9 +834,21 @@ export default function DebitosAutomaticosTab({
                                      if (selectedLiqs.length === 0) {
                                        buttonText = "-- No saldar deuda --";
                                      } else if (selectedLiqs.length === row.pendingList.length) {
-                                       buttonText = `[SALDAR TODO EL GRUPO] ($${totalGroupPending.toLocaleString('es-AR', { minimumFractionDigits: 0 })})`;
+                                       if (row.monto < totalGroupPending - 2.00) {
+                                         buttonText = `[Abono Parcial] ($${Math.round(row.monto).toLocaleString('es-AR')} de $${Math.round(totalGroupPending).toLocaleString('es-AR')})`;
+                                       } else if (row.monto > totalGroupPending + 2.00) {
+                                         buttonText = `[Saldar + Saldo a Favor] (+$${Math.round(row.monto - totalGroupPending).toLocaleString('es-AR')})`;
+                                       } else {
+                                         buttonText = `[SALDAR TODO EL GRUPO] ($${totalGroupPending.toLocaleString('es-AR', { minimumFractionDigits: 0 })})`;
+                                       }
                                      } else if (selectedLiqs.length > 1) {
-                                       buttonText = `[${selectedLiqs.length} Facturas] ($${totalSelectedPending.toLocaleString('es-AR', { minimumFractionDigits: 0 })})`;
+                                       if (row.monto < totalSelectedPending - 2.00) {
+                                         buttonText = `[${selectedLiqs.length} Facturas · Parcial] ($${Math.round(row.monto).toLocaleString('es-AR')})`;
+                                       } else if (row.monto > totalSelectedPending + 2.00) {
+                                         buttonText = `[${selectedLiqs.length} Facturas + Saldo a Favor] (+$${Math.round(row.monto - totalSelectedPending).toLocaleString('es-AR')})`;
+                                       } else {
+                                         buttonText = `[${selectedLiqs.length} Facturas] ($${totalSelectedPending.toLocaleString('es-AR', { minimumFractionDigits: 0 })})`;
+                                       }
                                      } else if (selectedLiq) {
                                        const pendingAmount = Number(selectedLiq.monto_total_facturado || 0) - Number(selectedLiq.monto_abonado || 0);
                                        const providerName = selectedLiq.proveedores?.nombre || 'S/P';
@@ -855,7 +870,13 @@ export default function DebitosAutomaticosTab({
                                          }, 0);
                                          buttonText = `${(row.selectedLines || []).length} líneas de Gpo ${selectedLiq.numero_grupo} ($${selectedSum.toLocaleString('es-AR', { minimumFractionDigits: 0 })})`;
                                        } else {
-                                         buttonText = `${selectedLiq.periodo} - Gpo ${selectedLiq.numero_grupo} (${providerName}) ($${pendingAmount.toLocaleString('es-AR', { minimumFractionDigits: 0 })})`;
+                                         if (row.monto < pendingAmount - 2.00) {
+                                           buttonText = `[Abono Parcial] Gpo ${selectedLiq.numero_grupo} ($${Math.round(row.monto).toLocaleString('es-AR')} / $${Math.round(pendingAmount).toLocaleString('es-AR')})`;
+                                         } else if (row.monto > pendingAmount + 2.00) {
+                                           buttonText = `[Saldar + Saldo a Favor] Gpo ${selectedLiq.numero_grupo} (+$${Math.round(row.monto - pendingAmount).toLocaleString('es-AR')})`;
+                                         } else {
+                                           buttonText = `${selectedLiq.periodo} - Gpo ${selectedLiq.numero_grupo} (${providerName}) ($${pendingAmount.toLocaleString('es-AR', { minimumFractionDigits: 0 })})`;
+                                         }
                                        }
                                      }
 
@@ -1003,7 +1024,11 @@ export default function DebitosAutomaticosTab({
                                                     style={{ accentColor: 'var(--accent)', cursor: 'pointer' }}
                                                   />
                                                   <span style={{ fontWeight: 700, color: 'var(--text-primary)', textAlign: 'left' }}>
-                                                    [SALDAR TODO EL GRUPO] (${totalGroupPending.toLocaleString('es-AR', { minimumFractionDigits: 0 })})
+                                                    {row.monto < totalGroupPending - 2.00 
+                                                      ? `[Abono Parcial Todo el Grupo] ($${Math.round(row.monto).toLocaleString('es-AR')} de $${Math.round(totalGroupPending).toLocaleString('es-AR')})`
+                                                      : row.monto > totalGroupPending + 2.00
+                                                      ? `[Saldar Todo el Grupo + Saldo a Favor] ($${Math.round(totalGroupPending).toLocaleString('es-AR')} + $${Math.round(row.monto - totalGroupPending).toLocaleString('es-AR')} a cta)`
+                                                      : `[SALDAR TODO EL GRUPO] ($${totalGroupPending.toLocaleString('es-AR', { minimumFractionDigits: 0 })})`}
                                                   </span>
                                                 </label>
                                               )}
@@ -1169,9 +1194,10 @@ export default function DebitosAutomaticosTab({
                                   background: statusBg, color: statusColor, display: 'inline-block',
                                   whiteSpace: 'nowrap', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis'
                                 }} title={row.reason}>
-                                  {row.matchStatus === 'MATCH_READY' ? 'Débito OK · imputable' :
+                                  {row.matchStatus === 'MATCH_READY' ? 'Débito OK · Imputable' :
                                    row.matchStatus === 'MATCH_DEBT' ? 'Listo' :
-                                   row.matchStatus === 'INSUFFICIENT_AMOUNT' ? 'Débito OK (Parcial)' :
+                                   row.matchStatus === 'INSUFFICIENT_AMOUNT' ? 'Débito OK (Abono Parcial)' :
+                                   row.matchStatus === 'EXCESS_AMOUNT' ? 'Débito OK (+Saldo Favor)' :
                                    row.matchStatus === 'MATCH_NO_DEBT' ? 'Sin Deuda' :
                                    row.matchStatus === 'NO_INVOICE' ? 'Sin factura del período' :
                                    row.matchStatus === 'NEEDS_REVIEW' ? 'Revisar imputación' :
@@ -1191,7 +1217,7 @@ export default function DebitosAutomaticosTab({
                 {/* Resumen de Totales y Comparación */}
                 <div style={{ 
                   display: 'grid', 
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', 
                   gap: '16px', 
                   padding: '16px', 
                   borderRadius: '16px', 
@@ -1199,36 +1225,51 @@ export default function DebitosAutomaticosTab({
                   border: '1px solid var(--border-light)'
                 }}>
                   <div>
-                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Monto a Imputar (Excel Seleccionado)</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Monto a Imputar (Excel Bruto)</span>
                     <div style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', marginTop: '2px' }}>
                       ${loteModal.processedRows.filter(r => r.checked).reduce((sum, r) => sum + r.monto, 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                     </div>
                   </div>
                   <div>
-                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Socio Coincidentes Seleccionados</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Neto Extracto Bancario</span>
                     <div style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', marginTop: '2px' }}>
-                      {loteModal.processedRows.filter(r => r.checked && r.socioId).length} / {loteModal.processedRows.length}
+                      ${(loteModal.row?.netoReal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                     </div>
                   </div>
                   <div>
-                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Diferencia c/ Extracto</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Comisión / Arancel Bancario</span>
                     {(() => {
                       const excelSum = loteModal.processedRows.filter(r => r.checked).reduce((sum, r) => sum + r.monto, 0);
                       const bankSum = loteModal.row?.netoReal || 0;
-                      const diff = Math.round((excelSum - bankSum) * 100) / 100;
-                      const isOk = Math.abs(diff) < 0.05;
+                      const fee = Math.max(0, Math.round((excelSum - bankSum) * 100) / 100);
+                      const feePct = excelSum > 0 ? ((fee / excelSum) * 100).toFixed(2) : '0';
+                      return (
+                        <div style={{ fontSize: '20px', fontWeight: 900, color: '#f59e0b', marginTop: '2px' }}>
+                          -${fee.toLocaleString('es-AR', { minimumFractionDigits: 2 })} <span style={{ fontSize: '11px', fontWeight: 600 }}>({feePct}%)</span>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Estado del Cuadre</span>
+                    {(() => {
+                      const excelSum = loteModal.processedRows.filter(r => r.checked).reduce((sum, r) => sum + r.monto, 0);
+                      const bankSum = loteModal.row?.netoReal || 0;
+                      const fee = Math.max(0, Math.round((excelSum - bankSum) * 100) / 100);
+                      const netDiff = Math.round(((excelSum - fee) - bankSum) * 100) / 100;
+                      const isOk = Math.abs(netDiff) < 0.05;
                       
                       return (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
                           <span style={{ fontSize: '20px', fontWeight: 900, color: isOk ? '#10b981' : 'var(--danger)' }}>
-                            {diff > 0 ? '+' : ''}{diff.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            {isOk ? '$0,00' : `${netDiff > 0 ? '+' : ''}${netDiff.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
                           </span>
                           {isOk ? (
                             <span style={{ fontSize: '10px', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
-                              Coincide
+                              Cuadrado
                             </span>
                           ) : (
-                            <span style={{ fontSize: '10px', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }} title="La suma de débitos seleccionados difiere de la transacción bancaria.">
+                            <span style={{ fontSize: '10px', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }} title="La suma de débitos menos comisión bancaria difiere de la transacción.">
                               Discrepancia
                             </span>
                           )}
