@@ -1335,6 +1335,26 @@ export default function DebitosAutomaticosTab({
                   </div>
                 </div>
 
+                {/* Barra de progreso interactiva si está guardando */}
+                {loteModal.loading && (
+                  <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '12px', background: 'rgba(255,255,255,0.02)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      <span>{loteModal.progressText || 'Procesando e imputando débitos...'}</span>
+                      <span style={{ color: 'var(--accent)' }}>{loteModal.progressPct !== undefined ? `${loteModal.progressPct}%` : ''}</span>
+                    </div>
+                    <div style={{ width: '100%', height: '8px', background: 'rgba(0,0,0,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div 
+                        style={{ 
+                          height: '100%', 
+                          background: 'linear-gradient(90deg, #10b981, #06b6d4)', 
+                          width: loteModal.progressPct !== undefined ? `${loteModal.progressPct}%` : '100%',
+                          transition: 'width 0.25s ease'
+                        }} 
+                      />
+                    </div>
+                  </div>
+                )}
+
                 {/* Botón Guardar */}
                 <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '8px' }}>
                   <button 
@@ -1368,7 +1388,7 @@ export default function DebitosAutomaticosTab({
                     {loteModal.loading ? (
                       <>
                         <Loader2 className="animate-spin" size={16} style={{ marginRight: '8px' }} />
-                        Registrando lote...
+                        {loteModal.progressText || 'Registrando lote...'}
                       </>
                     ) : (
                       <>

@@ -2225,57 +2225,86 @@ export default function ConciliacionBancaria() {
       }
 
       // 3. Registrar cada débito en movimientos_cuenta (Contabilidad)
-      for (const payment of accountPayments) {
-        let groupNumber = Number(String(payment.group || '').match(/\d+/)?.[0]);
-        if (!groupNumber && payment.row.socioId) {
-          const socioObj = socios.find(s => s.socio_id === payment.row.socioId);
-          const firstGrp = socioObj?.grupo_socio?.[0]?.numero_grupo;
-          if (firstGrp) groupNumber = Number(firstGrp);
-        }
-        if (!groupNumber) {
-          console.warn(`No se pudo resolver el grupo para ${payment.row.socioNombreCompleto || payment.row.nombreExcel}`);
-          continue;
-        }
-        const cbuDigits = String(payment.row.cbu || '').replace(/\D/g, '');
-        try {
-          await registrarCobroCuenta({
-            numero_grupo: groupNumber,
-            nombre: payment.row.socioNombreCompleto || payment.row.nombreExcel || `Grupo ${groupNumber}`,
-            importe: payment.amount,
-            medio_pago: bankRow.banco || 'CREDICOOP',
-            observaciones: `Conciliación débito automático lote ${loteModal.fileName || 'Excel'} · fila ${payment.row.id + 1}${payment.liquidationId ? ` · Liq #${payment.liquidationId}` : ''} · CBU ${cbuDigits}`,
-            fecha: bankDateISO,
-            periodo: payment.period || activePeriod,
-            skipLiqUpdate: true
-          });
-        } catch (errCuenta) {
-          console.error(`Error registrando cobro en cuenta corriente para grupo ${groupNumber}:`, errCuenta);
-        }
+      const totalPayments = accountPayments.length;
+      let completedPayments = 0;
+      setLoteModal(prev => ({
+        ...prev,
+        progressText: `Registrando débitos: 0 / ${totalPayments} (0%)`,
+        progressPct: 0
+      }));
+
+      const CONCURRENCY = 5;
+      for (let i = 0; i < accountPayments.length; i += CONCURRENCY) {
+        const chunk = accountPayments.slice(i, i + CONCURRENCY);
+        await Promise.all(chunk.map(async (payment) => {
+          let groupNumber = Number(String(payment.group || '').match(/\d+/)?.[0]);
+          if (!groupNumber && payment.row.socioId) {
+            const socioObj = socios.find(s => s.socio_id === payment.row.socioId);
+            const firstGrp = socioObj?.grupo_socio?.[0]?.numero_grupo;
+            if (firstGrp) groupNumber = Number(firstGrp);
+          }
+          if (!groupNumber) {
+            console.warn(`No se pudo resolver el grupo para ${payment.row.socioNombreCompleto || payment.row.nombreExcel}`);
+            return;
+          }
+          const cbuDigits = String(payment.row.cbu || '').replace(/\D/g, '');
+          try {
+            await registrarCobroCuenta({
+              numero_grupo: groupNumber,
+              nombre: payment.row.socioNombreCompleto || payment.row.nombreExcel || `Grupo ${groupNumber}`,
+              importe: payment.amount,
+              medio_pago: bankRow.banco || 'CREDICOOP',
+              observaciones: `Conciliación débito automático lote ${loteModal.fileName || 'Excel'} · fila ${payment.row.id + 1}${payment.liquidationId ? ` · Liq #${payment.liquidationId}` : ''} · CBU ${cbuDigits}`,
+              fecha: bankDateISO,
+              periodo: payment.period || activePeriod,
+              skipLiqUpdate: true
+            });
+          } catch (errCuenta) {
+            console.error(`Error registrando cobro en cuenta corriente para grupo ${groupNumber}:`, errCuenta);
+          }
+        }));
+
+        completedPayments += chunk.length;
+        const pct = Math.min(100, Math.round((completedPayments / totalPayments) * 100));
+        setLoteModal(prev => ({
+          ...prev,
+          progressText: `Registrando débitos: ${completedPayments} / ${totalPayments} (${pct}%)`,
+          progressPct: pct
+        }));
       }
       
       // 4. Insert audit log
-      const { error: auditError } = await supabase
-        .from('audit_log')
-        .insert({
-          tipo_evento: 'CONCILIACION_LOTE_CBU',
-          descripcion: `Conciliación exitosa de Lote CBU: Banco ${bankRow.banco} - Concepto: "${bankRow.concepto}" - Total Lote: $${bankRow.netoReal} - Integrantes Conciliados: ${checkedRows.length}`,
-          monto: bankRow.netoReal,
-          usuario: 'dante@admin.com'
-        });
-      if (auditError) console.error("Error writing audit log:", auditError);
+      try {
+        await supabase
+          .from('audit_log')
+          .insert({
+            tipo_evento: 'CONCILIACION_LOTE_CBU',
+            descripcion: `Conciliación exitosa de Lote CBU: Banco ${bankRow.banco} - Concepto: "${bankRow.concepto}" - Total Lote: $${bankRow.netoReal} - Integrantes Conciliados: ${checkedRows.length}`,
+            monto: bankRow.netoReal,
+            usuario: 'dante@admin.com'
+          });
+      } catch (eAudit) {
+        console.warn("Audit log notice:", eAudit);
+      }
       
       // 5. Update local state
       setParsedMovements(prev => prev.map(m => String(m.id) === String(bankRow.id) ? { ...m, estado: 'CONCILIADO', selectedSocioLabel: 'Lote Débito Directo' } : m));
       
       if (bankRow.dbMovimientoId || bankRow.source === 'db') {
-        await supabase
-          .from('movimientos_bancarios')
-          .update({
-            socio_id: null,
-            liquidacion_id: null,
-            tipo_movimiento: 'DEBITO_AUTOMATICO'
-          })
-          .eq('movimiento_id', bankRow.id);
+        const rawTargetId = bankRow.dbMovimientoId || bankRow.id;
+        const parsedTargetId = typeof rawTargetId === 'string' && rawTargetId.startsWith('db_')
+          ? parseInt(rawTargetId.replace('db_', ''), 10)
+          : parseInt(rawTargetId, 10);
+        if (!isNaN(parsedTargetId) && parsedTargetId > 0) {
+          await supabase
+            .from('movimientos_bancarios')
+            .update({
+              socio_id: null,
+              liquidacion_id: null,
+              tipo_movimiento: 'DEBITO_AUTOMATICO'
+            })
+            .eq('movimiento_id', parsedTargetId);
+        }
       }
 
       // Actualizar datos de fondo sin bloquear la UI
@@ -2315,7 +2344,7 @@ export default function ConciliacionBancaria() {
         addToast(`Error al conciliar lote: ${err.message}`, "error");
       }
     } finally {
-      setLoteModal(prev => ({ ...prev, loading: false }));
+      setLoteModal(prev => ({ ...prev, loading: false, progressText: '', progressPct: 0 }));
     }
   };
 
