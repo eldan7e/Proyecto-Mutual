@@ -140,20 +140,40 @@ export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA, fechaCa
     const isNC = m.tipo === 'NOTA_CREDITO';
     const importeOriginal = Number(m.importe) || 0;
 
-    // 1. Plazo Dias entre la fecha anterior y la de este movimiento (Col L de Excel)
+    // 1. Plazo Dias (Col L de Excel):
+    // IF([Orden Mov]="Ultimo movimiento", MAX(0, fechaCalculo - fecha_actual), fecha_actual - fecha_ant)
     let plazoDias = 0;
-    if (fechaAnt) {
+    if (isUltimo && fechaCalculo) {
+      plazoDias = Math.max(0, getDaysDiff(m.fecha, fechaCalculo));
+    } else if (fechaAnt) {
       plazoDias = Math.max(0, getDaysDiff(fechaAnt, m.fecha));
     }
 
-    // 2. Interes % (Col M de Excel)
+    // 2. Interes % (Col M de Excel):
+    // (TNA / 365) * [Plazo Dias]
     const interesPct = tasaDiaria * plazoDias;
 
-    // 3. Intereses $ devengados en el intervalo entre movimientos sobre el saldo anterior
-    const baseInteres = Math.max(0, capAnt);
+    // 3. Intereses $ devengados (Col N de Excel):
+    // pago_a_cap = MAX(0, ABS(Importe) - int_ant)
+    // cap_nuevo = cap_ant + IF(Tipo="FACTURA", Importe, -pago_a_cap)
+    // base_interes = MAX(0, IF(Orden Mov="Ultimo movimiento", cap_nuevo, cap_ant))
+    // Intereses $ = base_interes * Interes%
+    let pagoACapTemp = 0;
+    let capNuevo = capAnt;
+    if (isPago) {
+      pagoACapTemp = Math.max(0, Math.abs(importeOriginal) - intAnt);
+      capNuevo = capAnt - pagoACapTemp;
+    } else if (isNC) {
+      capNuevo = capAnt - Math.abs(importeOriginal);
+    } else {
+      capNuevo = capAnt + importeOriginal;
+    }
+
+    const baseInteres = Math.max(0, isUltimo ? capNuevo : capAnt);
     const interesMora = baseInteres * interesPct;
 
-    // 4. Interes Pendiente Acumulado al momento del movimiento (Col O de Excel)
+    // 4. Interes Pendiente Acumulado al momento del movimiento (Col O de Excel):
+    // int_ant + [Intereses $]
     const intPendAcum = intAnt + interesMora;
 
     // 5 & 6. Imputación de pagos: primero a interés devengado a la fecha, luego a capital (Cols P & Q de Excel)
@@ -187,7 +207,8 @@ export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA, fechaCa
       }
     }
 
-    // 7. Saldo Capital (Col S de Excel)
+    // 7. Saldo Capital (Col S de Excel):
+    // cap_ant + IF(Tipo="FACTURA", Importe, 0) - pago_a_capital
     let saldoCapital;
     if (isPago) {
       saldoCapital = capAnt - pagoACapital;
@@ -197,21 +218,12 @@ export function recalcularSaldosGrupo(movimientos, tnaPct = DEFAULT_TNA, fechaCa
       saldoCapital = capAnt + importeOriginal;
     }
 
-    // 8. Interes Pendiente Final (Col T de Excel)
+    // 8. Interes Pendiente Final (Col T de Excel):
+    // int_pend_acum - pago_a_interes
     let intPendFinal = intPendAcum - pagoAInteres;
 
-    // Si es el último movimiento y fechaCalculo es posterior, proyectar el interés acumulado hasta hoy
-    let diasProyectadosHoy = 0;
-    let interesProyectadoHoy = 0;
-    if (isUltimo && fechaCalculo) {
-      diasProyectadosHoy = Math.max(0, getDaysDiff(m.fecha, fechaCalculo));
-      if (diasProyectadosHoy > 0 && saldoCapital > 0) {
-        interesProyectadoHoy = saldoCapital * tasaDiaria * diasProyectadosHoy;
-        intPendFinal += interesProyectadoHoy;
-      }
-    }
-
-    // 9. Saldo Final (Col U de Excel)
+    // 9. Saldo Final (Col U de Excel):
+    // Saldo Capital + Interes Pendiente Final
     const saldoFinal = saldoCapital + intPendFinal;
 
     const saldoCapAntPrev = capAnt;
