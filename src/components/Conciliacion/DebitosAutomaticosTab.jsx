@@ -511,7 +511,7 @@ export default function DebitosAutomaticosTab({
                         value={loteModal.cbuCol}
                         onChange={(e) => handleColumnMappingChange('cbuCol', e.target.value)}
                       >
-                        {loteModal.columns.map(c => (
+                        {(loteModal.columns || []).filter(c => !String(c).startsWith('__EMPTY')).map(c => (
                           <option key={c} value={c}>{c}</option>
                         ))}
                       </select>
@@ -526,7 +526,7 @@ export default function DebitosAutomaticosTab({
                         value={loteModal.montoCol}
                         onChange={(e) => handleColumnMappingChange('montoCol', e.target.value)}
                       >
-                        {loteModal.columns.map(c => (
+                        {(loteModal.columns || []).filter(c => !String(c).startsWith('__EMPTY')).map(c => (
                           <option key={c} value={c}>{c}</option>
                         ))}
                       </select>
@@ -542,7 +542,7 @@ export default function DebitosAutomaticosTab({
                         onChange={(e) => handleColumnMappingChange('idCol', e.target.value)}
                       >
                         <option value="">-- No mapeado --</option>
-                        {loteModal.columns.map(c => (
+                        {(loteModal.columns || []).filter(c => !String(c).startsWith('__EMPTY')).map(c => (
                           <option key={c} value={c}>{c}</option>
                         ))}
                       </select>
@@ -558,7 +558,7 @@ export default function DebitosAutomaticosTab({
                         onChange={(e) => handleColumnMappingChange('estadoCol', e.target.value)}
                       >
                         <option value="">-- No mapeado --</option>
-                        {loteModal.columns.map(c => (
+                        {(loteModal.columns || []).filter(c => !String(c).startsWith('__EMPTY')).map(c => (
                           <option key={c} value={c}>{c}</option>
                         ))}
                       </select>
@@ -574,7 +574,7 @@ export default function DebitosAutomaticosTab({
                         onChange={(e) => handleColumnMappingChange('grupoCol', e.target.value)}
                       >
                         <option value="">-- No mapeado --</option>
-                        {loteModal.columns.map(c => (
+                        {(loteModal.columns || []).filter(c => !String(c).startsWith('__EMPTY')).map(c => (
                           <option key={c} value={c}>{c}</option>
                         ))}
                       </select>
@@ -644,6 +644,9 @@ export default function DebitosAutomaticosTab({
                           if (row.matchStatus === 'MATCH_DEBT' || row.matchStatus === 'MATCH_READY') {
                             statusBg = 'rgba(16, 185, 129, 0.1)';
                             statusColor = '#10b981';
+                          } else if (row.matchStatus === 'INSUFFICIENT_AMOUNT') {
+                            statusBg = 'rgba(59, 130, 246, 0.1)';
+                            statusColor = '#3b82f6';
                           } else if (row.matchStatus === 'MATCH_NO_DEBT') {
                             statusBg = 'rgba(234, 179, 8, 0.1)';
                             statusColor = '#eab308';
@@ -1168,6 +1171,7 @@ export default function DebitosAutomaticosTab({
                                 }} title={row.reason}>
                                   {row.matchStatus === 'MATCH_READY' ? 'Débito OK · imputable' :
                                    row.matchStatus === 'MATCH_DEBT' ? 'Listo' :
+                                   row.matchStatus === 'INSUFFICIENT_AMOUNT' ? 'Débito OK (Parcial)' :
                                    row.matchStatus === 'MATCH_NO_DEBT' ? 'Sin Deuda' :
                                    row.matchStatus === 'NO_INVOICE' ? 'Sin factura del período' :
                                    row.matchStatus === 'NEEDS_REVIEW' ? 'Revisar imputación' :

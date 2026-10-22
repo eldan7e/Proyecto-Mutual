@@ -101,9 +101,22 @@ export const extractConceptMetadata = (concepto = '', detectedBanco = 'AUTO') =>
   const cuits = allCuitMatches.filter(c => !INSTITUTIONAL_CUITS.has(c));
   const primaryCuit = cuits[0] || null;
 
-  // 3. Extraer CBUs válidos (22 dígitos)
-  const allCbuMatches = concepto.match(/\b\d{22}\b/g) || [];
-  const primaryCbu = allCbuMatches[0] || null;
+  // 3. Extraer CBU/CVU del PAGADOR (Origen) a partir de las etiquetas explícitas del concepto Credicoop.
+  //    El concepto puede tener: "CBU Origen: XXXXXXXX CVU Origen: YYYYYYYY"
+  //    El CBU de DESTINO (de la entidad receptora) NO sirve para identificar al pagador.
+  //    Prioridad: CVU Origen > CBU Origen > primer CBU suelto (fallback).
+  let primaryCbu = null;
+  const cvuOrigenMatch = concepto.match(/CVU\s+Origen\s*:?\s*(\d{22})/i);
+  const cbuOrigenMatch = concepto.match(/CBU\s+Origen\s*:?\s*(\d{22})/i);
+  if (cvuOrigenMatch) {
+    primaryCbu = cvuOrigenMatch[1]; // CVU del pagador — identificador más confiable
+  } else if (cbuOrigenMatch) {
+    primaryCbu = cbuOrigenMatch[1]; // CBU del pagador
+  } else {
+    // Fallback: primer número de 22 dígitos suelto (comportamiento original)
+    const allCbuMatches = concepto.match(/\b\d{22}\b/g) || [];
+    primaryCbu = allCbuMatches[0] || null;
+  }
 
   // 4. Extraer Nombre del Transferente
   let rawExtractedName = '';

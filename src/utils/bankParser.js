@@ -1,4 +1,4 @@
-﻿﻿﻿export const detectarTipoMovimiento = (concepto, monto) => {
+﻿﻿export const detectarTipoMovimiento = (concepto, monto) => {
   if (!concepto) return 'OTRO';
   const conceptoUpper = concepto.toUpperCase();
   
@@ -55,7 +55,9 @@
     conceptoUpper.includes('EDELAP') ||
     conceptoUpper.includes('TELECOM') ||
     conceptoUpper.includes('TELEFONICA') ||
-    conceptoUpper.includes('CLARO') ||
+    // "CLARO" solo aplica si NO es una transferencia de tipo Credicoop Dist. Titular
+    // (donde "(CLARO)" aparece como etiqueta del CVU Origen, no como servicio)
+    (conceptoUpper.includes('CLARO') && !conceptoUpper.includes('DIST. TITULAR') && !conceptoUpper.includes('CVU ORIGEN')) ||
     conceptoUpper.includes('PERSONAL')
   ) {
     return 'PAGO_SERVICIO';

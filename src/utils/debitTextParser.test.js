@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { debitCoversSelectedBalances, detectDebitColumns, extractPeriodFromDebitFile, getPendingDebitLiquidations, parseDebitText, resolveDebitColumns } from './debitTextParser.js';
+import { debitCoversSelectedBalances, detectDebitColumns, extractPeriodFromDebitFile, getPendingDebitLiquidations, isDebitRowValid, parseDebitText, resolveDebitColumns } from './debitTextParser.js';
 
 const sampleLine = '139\t\tDeb. Ok\tFisher, Maria Agustina\t$ 39,690.82\t0140999803200053715709';
 
@@ -115,3 +115,59 @@ test('extracts period from filename or row content', () => {
     { LEYENDA: 'PERIODO 09.2026', SOCIO: 'Test' }
   ]), '2026-09');
 });
+
+test('isDebitRowValid filters out rows without CBU or socio data, or with zero amount', () => {
+  const mapping = {
+    cbuCol: 'CBU EN 22 OK',
+    montoCol: 'IMPORTE $',
+    idCol: 'CUIT AUNAR',
+    estadoCol: 'RESULT',
+    grupoCol: 'GRUPO NRO'
+  };
+
+  // Valid row: CBU + socio name + amount
+  const validRow1 = {
+    'CBU EN 22 OK': '0110881930088100203515',
+    'IMPORTE $': '$15.465,43',
+    'CUIT AUNAR': '30708841656',
+    'GRUPO NRO': '120',
+    'RESULT': 'Deb. Ok',
+    'SOCIO': 'Galante, Melina'
+  };
+  assert.equal(isDebitRowValid(validRow1, mapping), true);
+
+  // Valid row: CBU + amount, no socio name in excel
+  const validRow2 = {
+    'CBU EN 22 OK': '0070105730004899205349',
+    'IMPORTE $': '59151.27',
+    'GRUPO NRO': '121'
+  };
+  assert.equal(isDebitRowValid(validRow2, mapping), true);
+
+  // Junk row: like row 122 from user screenshot (no CBU, no socio data, 0 amount)
+  const junkRow122 = {
+    'CBU EN 22 OK': '',
+    'IMPORTE $': '0',
+    'CUIT AUNAR': '',
+    'GRUPO NRO': '',
+    'SOCIO': ''
+  };
+  assert.equal(isDebitRowValid(junkRow122, mapping), false);
+
+  // Junk row with $0.00 and S/C
+  const junkRowSC = {
+    'CBU EN 22 OK': 'S/C',
+    'IMPORTE $': '$0,00',
+    'SOCIO': 'Desconocido'
+  };
+  assert.equal(isDebitRowValid(junkRowSC, mapping), false);
+
+  // Summary row: "TOTAL GENERAL" with amount but no CBU and no socio data
+  const summaryRow = {
+    'IMPORTE $': '$ 4.460.405,39',
+    'SOCIO': 'TOTAL GENERAL',
+    'CBU EN 22 OK': ''
+  };
+  assert.equal(isDebitRowValid(summaryRow, mapping), false);
+});
+

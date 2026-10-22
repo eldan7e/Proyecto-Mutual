@@ -61,25 +61,113 @@ const inferIndex = (rows, predicate, exclude = new Set()) => {
   return { index: bestIndex, score: bestScore };
 };
 
+export function isDebitRowValid(row, mapping = {}) {
+  if (!row || typeof row !== 'object') return false;
+
+  const cbuVal = mapping.cbuCol ? row[mapping.cbuCol] : (row['cbu'] || row['CBU'] || '');
+  const cleanCbu = digitsOnly(cbuVal);
+  const hasCbu = cleanCbu.length >= 6 && /[1-9]/.test(cleanCbu);
+
+  const montoVal = mapping.montoCol !== undefined && mapping.montoCol !== '' ? row[mapping.montoCol] : (row['monto'] || row['importe'] || row['IMPORTE'] || '');
+  let parsedMonto = 0;
+  if (typeof montoVal === 'number') {
+    parsedMonto = Math.abs(montoVal);
+  } else if (montoVal) {
+    let s = String(montoVal).replace(/[$\s]/g, '');
+    if (/^\-?\d{1,3}(,\d{3})*\.\d+$/.test(s)) {
+      s = s.replace(/,/g, '');
+      parsedMonto = Math.abs(parseFloat(s)) || 0;
+    } else {
+      if (s.includes('.') && s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+      else if (s.includes(',')) s = s.replace(',', '.');
+      parsedMonto = Math.abs(parseFloat(s)) || 0;
+    }
+  }
+
+  const idVal = mapping.idCol ? row[mapping.idCol] : (row['cuit'] || row['dni'] || row['CUIT'] || row['DNI'] || '');
+  const cleanId = digitsOnly(idVal);
+
+  const grupoVal = mapping.grupoCol ? row[mapping.grupoCol] : (row['grupo'] || row['gpo'] || row['GRUPO'] || '');
+  const cleanGrupo = digitsOnly(grupoVal);
+
+  const nameKeys = ['socio', 'nombre', 'integrante', 'cliente', 'apellido y nombre', 'apellido, nombre'];
+  let hasName = false;
+  for (const [k, v] of Object.entries(row)) {
+    const normK = normalizeText(k);
+    if (nameKeys.some(nk => normK.includes(nk)) && !normK.includes('cbu') && !normK.includes('nro') && !normK.includes('id') && !normK.includes('cuenta')) {
+      const valStr = String(v || '').trim();
+      const normVal = normalizeText(valStr);
+      if (normVal && normVal !== 'desconocido' && !normVal.startsWith('total') && !normVal.startsWith('subtotal') && !normVal.startsWith('cantidad')) {
+        hasName = true;
+        break;
+      }
+    }
+  }
+
+  const hasSocioData = Boolean(cleanId || cleanGrupo || hasName);
+
+  return (hasCbu || hasSocioData) && parsedMonto > 0;
+}
+
 export function detectDebitColumns(headers, rows) {
-  const keys = headers || [];
+  const keys = (headers || []).filter(k => k && !String(k).startsWith('__EMPTY'));
   const data = rows || [];
   const normalizedKey = key => normalizeText(key).replace(/[^a-z0-9]+/g, ' ');
   const candidates = keys.filter(key => normalizedKey(key).includes('cbu'));
-  const cbuCol = candidates
+
+  // 1. First priority: candidate columns containing 'cbu' in header that actually have valid CBUs
+  const candidateCounts = candidates
     .map(key => ({
       key,
       validCount: data.reduce((count, row) => count + (isCbu(row?.[key]) ? 1 : 0), 0),
       nonEmptyCount: data.reduce((count, row) => count + (String(row?.[key] || '').trim() ? 1 : 0), 0)
     }))
-    .sort((a, b) => b.validCount - a.validCount || b.nonEmptyCount - a.nonEmptyCount)[0]?.key || '';
+    .filter(c => c.validCount > 0)
+    .sort((a, b) => b.validCount - a.validCount || b.nonEmptyCount - a.nonEmptyCount);
+
+  let cbuCol = candidateCounts[0]?.key || '';
+
+  // 2. If no candidate with 'cbu' in the name had valid CBUs, search all keys for actual 21/22 digit CBUs
+  if (!cbuCol) {
+    const allCounts = keys
+      .map(key => ({
+        key,
+        validCount: data.reduce((count, row) => count + (isCbu(row?.[key]) ? 1 : 0), 0),
+        nonEmptyCount: data.reduce((count, row) => count + (String(row?.[key] || '').trim() ? 1 : 0), 0)
+      }))
+      .filter(c => c.validCount > 0)
+      .sort((a, b) => b.validCount - a.validCount || b.nonEmptyCount - a.nonEmptyCount);
+
+    if (allCounts.length > 0) {
+      cbuCol = allCounts[0].key;
+    }
+  }
+
+  // 3. Fallback to candidate containing 'cbu' if still not found
+  if (!cbuCol && candidates.length > 0) {
+    cbuCol = candidates[0];
+  }
+
   const firstKeyMatching = predicate => keys.find(key => predicate(normalizedKey(key))) || '';
+
+  const estadoCandidates = ['explicacion', 'motivo', 'estado', 'resultado', 'status', 'rechazo', 'codigo', 'result'];
+  let estadoCol = '';
+  for (const cand of estadoCandidates) {
+    const found = keys.find(key => normalizedKey(key).includes(cand));
+    if (found) {
+      estadoCol = found;
+      break;
+    }
+  }
+  if (!estadoCol) {
+    estadoCol = firstKeyMatching(key => /\b(estado|resultado|status|motivo|rechazo|codigo|explicacion|result)\b/.test(key));
+  }
 
   return {
     cbuCol,
     montoCol: firstKeyMatching(key => /\b(monto|importe|debito|neto|total|valor|aunar)\b/.test(key)),
-    idCol: firstKeyMatching(key => /\b(cuit|cuil|dni|documento|identificacion)\b/.test(key) && !key.includes('cbu')),
-    estadoCol: firstKeyMatching(key => /\b(estado|resultado|status|motivo|rechazo|codigo|explicacion|result)\b/.test(key)),
+    idCol: firstKeyMatching(key => /\b(cuit|cuil|dni|documento|identificacion)\b/.test(key) && !key.includes('cbu') && !/\b(aunar|mutual|empresa|banco|origen|destino)\b/.test(key)),
+    estadoCol,
     grupoCol: firstKeyMatching(key => /\b(grupo|gpo)\b/.test(key) && !/\b(email|correo|nombre)\b/.test(key))
   };
 }
