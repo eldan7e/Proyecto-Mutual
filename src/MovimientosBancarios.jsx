@@ -4,14 +4,14 @@ import { supabase } from './supabaseClient';
 import { 
   Search, RefreshCw, AlertCircle, Plus, Calendar, DollarSign, 
   TrendingUp, Landmark, CheckCircle2, User, Loader2, Printer, 
-  FileSpreadsheet, Filter, ArrowUpDown, ChevronDown, Check, Coins, CreditCard
+  FileSpreadsheet, Filter, ArrowUpDown, ChevronDown, Check, Coins, CreditCard, Trash2
 } from 'lucide-react';
 import Modal from './components/Modal';
 import { useToast } from './components/ui/ToastProvider';
 import { useConfirm } from './components/ui/ConfirmProvider';
 import ComprobanteCobroModal from './components/ComprobanteCobroModal';
 import { formatMoney, formatFecha } from './utils/cuentaCorrienteEngine';
-import { fetchGruposUnicos, registrarCobroCuenta } from './services/cuentaCorrienteService';
+import { fetchGruposUnicos, registrarCobroCuenta, eliminarCobroCuenta } from './services/cuentaCorrienteService';
 import { fetchPeriods } from './services/conciliacionService';
 import * as XLSX from 'xlsx';
 
@@ -75,6 +75,26 @@ export default function MovimientosBancarios() {
   // Modal de Comprobante Oficial de Cobro
   const [comprobanteModalOpen, setComprobanteModalOpen] = useState(false);
   const [comprobanteData, setComprobanteData] = useState(null);
+
+  // Modal de Eliminación de Pago Duplicado / Erróneo
+  const [pagoAEliminar, setPagoAEliminar] = useState(null);
+  const [eliminandoPago, setEliminandoPago] = useState(false);
+
+  async function handleEliminarPago() {
+    if (!pagoAEliminar) return;
+    setEliminandoPago(true);
+    try {
+      await eliminarCobroCuenta(pagoAEliminar.id);
+      setPagos(prev => prev.filter(p => p.id !== pagoAEliminar.id));
+      addToast(`Cobro ID #${pagoAEliminar.id} por ${formatMoney(pagoAEliminar.monto)} eliminado con éxito`, 'success');
+      setPagoAEliminar(null);
+    } catch (err) {
+      console.error('Error al eliminar cobro:', err);
+      addToast('Error al eliminar cobro: ' + err.message, 'error');
+    } finally {
+      setEliminandoPago(false);
+    }
+  }
 
   // Modal para Registrar Pago Manual
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -849,7 +869,7 @@ export default function MovimientosBancarios() {
                 <th style={{ padding: '10px 12px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>MEDIO DE PAGO</th>
                 <th style={{ padding: '10px 12px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>DETALLE / PERÍODO</th>
                 <th style={{ padding: '10px 12px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'right' }}>MONTO COBRADO</th>
-                <th style={{ padding: '10px 12px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', borderRadius: '0 10px 10px 0' }}>COMPROBANTE</th>
+                <th style={{ padding: '10px 12px', fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', borderRadius: '0 10px 10px 0' }}>ACCIONES</th>
               </tr>
             </thead>
             <tbody>
@@ -1011,6 +1031,27 @@ export default function MovimientosBancarios() {
                         >
                           <Printer size={13} /> Recibo
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => setPagoAEliminar(pago)}
+                          className="air-btn"
+                          style={{
+                            padding: '5px 8px',
+                            fontSize: '11px',
+                            borderRadius: '8px',
+                            fontWeight: 800,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            background: 'rgba(239, 68, 68, 0.08)',
+                            color: '#ef4444',
+                            border: '1px solid rgba(239, 68, 68, 0.25)',
+                            marginLeft: '6px'
+                          }}
+                          title="Eliminar cobro duplicado o erróneo"
+                        >
+                          <Trash2 size={12} /> Eliminar
+                        </button>
                       </td>
                     </tr>
                   );
@@ -1159,6 +1200,106 @@ export default function MovimientosBancarios() {
 
         </form>
       </Modal>
+
+      {/* MODAL DE CONFIRMACIÓN PARA ELIMINAR PAGO */}
+      {pagoAEliminar && (
+        <Modal
+          isOpen={!!pagoAEliminar}
+          onClose={() => !eliminandoPago && setPagoAEliminar(null)}
+          title="Eliminar Cobro Registrado"
+          maxWidth="480px"
+        >
+          <div style={{ padding: '8px 4px' }}>
+            <div style={{
+              background: 'rgba(239, 68, 68, 0.08)',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              borderRadius: '10px',
+              padding: '12px 16px',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '10px',
+              marginBottom: '16px'
+            }}>
+              <AlertCircle size={20} style={{ color: '#ef4444', flexShrink: 0, marginTop: '2px' }} />
+              <div style={{ fontSize: '13px', color: '#991b1b', lineHeight: 1.4 }}>
+                <strong>¿Estás seguro de que deseas eliminar este cobro?</strong>
+                <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#7f1d1d' }}>
+                  Esta acción eliminará el registro de la cuenta corriente del grupo y recalculará automáticamente su saldo y amortizaciones.
+                </p>
+              </div>
+            </div>
+
+            <div style={{
+              background: 'var(--surface-hover)',
+              borderRadius: '10px',
+              padding: '14px',
+              marginBottom: '20px',
+              fontSize: '13px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>ID de Movimiento:</span>
+                <strong>#{pagoAEliminar.id}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Grupo y Titular:</span>
+                <strong>Grupo #{pagoAEliminar.numero_grupo} — {pagoAEliminar.nombre}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Fecha de Pago:</span>
+                <strong>{formatFecha(pagoAEliminar.fecha)}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Medio de Pago:</span>
+                <strong>{pagoAEliminar.medio_pago}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border-light)', paddingTop: '8px' }}>
+                <span style={{ color: 'var(--text-secondary)', fontWeight: 700 }}>Importe a Eliminar:</span>
+                <strong style={{ fontSize: '16px', color: '#ef4444' }}>{formatMoney(pagoAEliminar.monto)}</strong>
+              </div>
+              {pagoAEliminar.observaciones && (
+                <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  <em>{pagoAEliminar.observaciones}</em>
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setPagoAEliminar(null)}
+                disabled={eliminandoPago}
+                className="action-button"
+                style={{ padding: '8px 16px', fontWeight: 700, fontSize: '12.5px' }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleEliminarPago}
+                disabled={eliminandoPago}
+                className="btn-primary"
+                style={{
+                  padding: '8px 18px',
+                  fontWeight: 800,
+                  fontSize: '12.5px',
+                  background: '#ef4444',
+                  color: '#ffffff',
+                  border: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                {eliminandoPago ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                Confirmar Eliminación
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
     </div>
   );

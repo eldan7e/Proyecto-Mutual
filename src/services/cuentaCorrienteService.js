@@ -1009,3 +1009,115 @@ async function limpiarGrupoHuerfanoSiAplica(numeroGrupo) {
   }
 }
 
+/**
+ * Elimina un cobro o pago de movimientos_cuenta.
+ * Revierte la amortización aplicada en liquidaciones_grupos si corresponde,
+ * recalcula los saldos del grupo en cuenta corriente y registra la acción en audit_log.
+ *
+ * @param {number|string} movimientoId
+ * @returns {Promise<{success: boolean, numero_grupo: number, monto: number}>}
+ */
+export async function eliminarCobroCuenta(movimientoId) {
+  const mId = parseInt(movimientoId, 10);
+  if (isNaN(mId)) throw new Error('ID de cobro inválido');
+
+  // 1. Obtener datos del movimiento antes de eliminarlo
+  const { data: mov, error: getErr } = await supabase
+    .from('movimientos_cuenta')
+    .select('*')
+    .eq('id', mId)
+    .single();
+
+  if (getErr || !mov) throw new Error('No se encontró el movimiento a eliminar');
+
+  const gNum = mov.numero_grupo;
+  const monto = Math.abs(Number(mov.importe || 0));
+
+  // 2. Si el movimiento estaba imputado o amortizaba liquidaciones, revertir la amortización en liquidaciones_grupos
+  try {
+    let queryLiq = supabase
+      .from('liquidaciones_grupos')
+      .select('liquidacion_id, periodo, monto_total_facturado, monto_abonado, estado_pago')
+      .eq('numero_grupo', gNum);
+
+    if (mov.periodo) {
+      queryLiq = queryLiq.eq('periodo', mov.periodo);
+    }
+    const { data: liqs } = await queryLiq.order('periodo', { ascending: false });
+    if (liqs && liqs.length > 0) {
+      let remanente = monto;
+      for (const liq of liqs) {
+        if (remanente <= 0) break;
+        const abonado = Number(liq.monto_abonado || 0);
+        if (abonado <= 0) continue;
+
+        const reversa = Math.min(remanente, abonado);
+        const nuevoAbonado = Math.max(0, Math.round((abonado - reversa) * 100) / 100);
+        const nuevoEstado = nuevoAbonado <= 0.05 ? 'PENDIENTE' : (nuevoAbonado >= Number(liq.monto_total_facturado) - 0.05 ? 'ABONADO' : 'PARCIAL');
+
+        await supabase
+          .from('liquidaciones_grupos')
+          .update({
+            monto_abonado: nuevoAbonado,
+            estado_pago: nuevoEstado,
+            updated_at: new Date().toISOString()
+          })
+          .eq('liquidacion_id', liq.liquidacion_id);
+
+        remanente -= reversa;
+      }
+    }
+  } catch (errLiq) {
+    console.warn('Aviso al revertir amortización en liquidaciones_grupos:', errLiq);
+  }
+
+  // 3. Eliminar el registro en movimientos_cuenta
+  const { error: delErr } = await supabase
+    .from('movimientos_cuenta')
+    .delete()
+    .eq('id', mId);
+
+  if (delErr) throw delErr;
+
+  // 4. Si el pago venía de una conciliación bancaria directa, desvincular liquidación en movimientos_bancarios si corresponde
+  try {
+    const movDate = mov.fecha ? String(mov.fecha).slice(0, 10) : null;
+    let qMb = supabase
+      .from('movimientos_bancarios')
+      .select('movimiento_id')
+      .eq('numero_grupo', gNum)
+      .gte('monto', (monto - 0.05).toString())
+      .lte('monto', (monto + 0.05).toString());
+
+    if (movDate) qMb = qMb.eq('fecha_movimiento', movDate);
+    const { data: mbList } = await qMb.limit(1);
+    if (mbList && mbList.length > 0 && mov.origen === 'CONCILIACION_BANCARIA') {
+      await supabase
+        .from('movimientos_bancarios')
+        .update({ liquidacion_id: null })
+        .eq('movimiento_id', mbList[0].movimiento_id);
+    }
+  } catch (errMb) {
+    console.warn('Aviso al actualizar movimientos_bancarios:', errMb);
+  }
+
+  // 5. Registrar en audit_log
+  try {
+    await supabase.from('audit_log').insert({
+      tipo_evento: 'ELIMINACION_PAGO_CUENTA',
+      descripcion: `Eliminación manual de cobro ID #${mId} por $${monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })} en Grupo #${gNum} (${mov.nombre || 'S/N'}). Obs: "${mov.observaciones || ''}".`,
+      monto: monto,
+      usuario: 'dante@admin.com'
+    });
+  } catch (errAudit) {
+    console.warn('Aviso al registrar audit_log:', errAudit);
+  }
+
+  // 6. Recalcular y sincronizar saldos persistidos del grupo
+  await sincronizarSaldosPersistidosGrupo(gNum);
+  invalidateSaldosCache();
+
+  return { success: true, numero_grupo: gNum, monto };
+}
+
+

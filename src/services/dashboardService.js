@@ -7,73 +7,95 @@ import { supabase } from '../supabaseClient';
 
 /**
  * Fetch all liquidaciones_grupos with the provider name using parallel pagination
- * to avoid sequential round-trip bottlenecks.
+ * to avoid PostgREST's 1000-row default truncation limit.
  */
 export async function fetchLiquidaciones(targetPeriods) {
-  let query = supabase
-    .from('liquidaciones_grupos')
-    .select('periodo, monto_total_facturado, estado_pago, proveedores(nombre)')
-    .order('periodo', { ascending: false });
-
-  if (targetPeriods && targetPeriods.length > 0) {
-    query = query.in('periodo', targetPeriods);
-    const { data, error } = await query.range(0, 3999);
-    if (error) throw error;
-    return data || [];
-  }
-
-  // Si no se especifican períodos, consultar el count y traer en paralelo
-  const { count, error: countErr } = await supabase
+  let queryCount = supabase
     .from('liquidaciones_grupos')
     .select('*', { count: 'exact', head: true });
 
-  if (countErr) throw countErr;
-  const pageSize = 1000;
-  const numPages = Math.ceil((count || pageSize) / pageSize);
-  const pagePromises = [];
+  if (targetPeriods && targetPeriods.length > 0) {
+    queryCount = queryCount.in('periodo', targetPeriods);
+  }
 
+  const { count, error: countErr } = await queryCount;
+  if (countErr) throw countErr;
+
+  const pageSize = 1000;
+  const numPages = Math.ceil((count || 0) / pageSize);
+  if (numPages === 0) return [];
+
+  const pagePromises = [];
   for (let i = 0; i < numPages; i++) {
     const from = i * pageSize;
     const to = from + pageSize - 1;
-    pagePromises.push(
-      supabase
-        .from('liquidaciones_grupos')
-        .select('periodo, monto_total_facturado, estado_pago, proveedores(nombre)')
-        .order('periodo', { ascending: false })
-        .range(from, to)
-    );
+    let pageQuery = supabase
+      .from('liquidaciones_grupos')
+      .select('periodo, monto_total_facturado, estado_pago, proveedores(nombre)')
+      .order('periodo', { ascending: false })
+      .range(from, to);
+
+    if (targetPeriods && targetPeriods.length > 0) {
+      pageQuery = pageQuery.in('periodo', targetPeriods);
+    }
+    pagePromises.push(pageQuery);
   }
 
   const results = await Promise.all(pagePromises);
   const allData = [];
-  results.forEach(res => {
+  for (const res of results) {
     if (res.error) throw res.error;
     if (res.data) allData.push(...res.data);
-  });
+  }
   return allData;
 }
 
 /**
- * Fetch consumos_mensuales filtered to a set of periods with pagination.
- * Includes the joined linea → socio_id for counting.
+ * Fetch consumos_mensuales filtered to a set of periods with parallel pagination
+ * to guarantee no records are truncated by the 1000-row limit.
  *
  * @param {string[]} periods - Array of "YYYY-MM" strings. If empty, fetches all.
  */
 export async function fetchConsumos(periods) {
   if (periods && periods.length === 0) return [];
 
-  let query = supabase
+  let queryCount = supabase
     .from('consumos_mensuales')
-    .select('periodo, numero_linea, lineas(socio_id)')
-    .range(0, 3999);
+    .select('*', { count: 'exact', head: true });
 
   if (periods && periods.length > 0) {
-    query = query.in('periodo', periods);
+    queryCount = queryCount.in('periodo', periods);
   }
 
-  const { data, error } = await query;
-  if (error) throw error;
-  return data || [];
+  const { count, error: countErr } = await queryCount;
+  if (countErr) throw countErr;
+
+  const pageSize = 1000;
+  const numPages = Math.ceil((count || 0) / pageSize);
+  if (numPages === 0) return [];
+
+  const pagePromises = [];
+  for (let i = 0; i < numPages; i++) {
+    const from = i * pageSize;
+    const to = from + pageSize - 1;
+    let pageQuery = supabase
+      .from('consumos_mensuales')
+      .select('periodo, numero_linea, lineas(socio_id)')
+      .range(from, to);
+
+    if (periods && periods.length > 0) {
+      pageQuery = pageQuery.in('periodo', periods);
+    }
+    pagePromises.push(pageQuery);
+  }
+
+  const results = await Promise.all(pagePromises);
+  const allData = [];
+  for (const res of results) {
+    if (res.error) throw res.error;
+    if (res.data) allData.push(...res.data);
+  }
+  return allData;
 }
 
 /**

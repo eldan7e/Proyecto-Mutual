@@ -6,7 +6,7 @@ import {
   Download, Settings, Building, 
   FileText, Eye, Edit3, X, Receipt,
   AlertCircle, Phone, Printer, Coins, Banknote, ArrowRightLeft, Check, CreditCard,
-  Calendar
+  Calendar, Trash2
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import Modal from './components/Modal';
@@ -17,7 +17,8 @@ import { useConfirm } from './components/ui/ConfirmProvider';
 import { 
   getParametrosCuenta, updateTasaAnual, fetchGruposUnicos, 
   fetchMovimientosGrupo, fetchInformeSaldosGeneral, registrarCobroCuenta,
-  fetchDetalleGrupoParaReasignacion, reasignarPagoCuentaCorriente, reasignarGrupoCompleto
+  fetchDetalleGrupoParaReasignacion, reasignarPagoCuentaCorriente, reasignarGrupoCompleto,
+  eliminarCobroCuenta
 } from './services/cuentaCorrienteService';
 import { fetchPeriods } from './services/conciliacionService';
 import { 
@@ -1252,6 +1253,31 @@ export default function Contaduria() {
     setTargetPeriodoInput(mov.periodo || '');
     setMotivoReasignacion('Error de asignación en planilla original');
     setReasignarModalOpen(true);
+  }
+
+  async function handleEliminarMovimiento(mov) {
+    if (!mov || !mov.id) return;
+    const monto = Math.abs(Number(mov.importe || 0));
+    const accepted = await confirm({
+      title: "Eliminar Cobro Registrado",
+      message: `¿Estás seguro de eliminar el cobro ID #${mov.id} por ${formatMoney(monto)} del Grupo #${mov.numero_grupo || selectedGrupo}? Esta acción recalculará automáticamente la cuenta corriente y las amortizaciones de liquidaciones.`,
+      isDanger: true,
+      confirmText: "Eliminar Cobro",
+      cancelText: "Cancelar"
+    });
+    if (!accepted) return;
+
+    try {
+      await eliminarCobroCuenta(mov.id);
+      addToast(`Cobro ID #${mov.id} de ${formatMoney(monto)} eliminado con éxito`, 'success');
+      if (selectedGrupo) {
+        loadMovimientos(selectedGrupo, tna, fechaCalculoExtracto);
+      }
+      loadSaldosGeneral();
+    } catch (err) {
+      console.error('Error al eliminar cobro:', err);
+      addToast('Error al eliminar cobro: ' + err.message, 'error');
+    }
   }
 
   function handleOpenReasignarGrupoCompleto(grupoNum) {
@@ -3845,6 +3871,26 @@ export default function Contaduria() {
                                   title="Reasignar este cobro a otro grupo (por error en planilla original)"
                                 >
                                   <ArrowRightLeft size={11} /> Reasignar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleEliminarMovimiento(m)}
+                                  className="air-btn"
+                                  style={{
+                                    padding: '4px 7px',
+                                    fontSize: '10.5px',
+                                    borderRadius: '6px',
+                                    fontWeight: 700,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    background: 'rgba(239, 68, 68, 0.08)',
+                                    color: '#ef4444',
+                                    border: '1px solid rgba(239, 68, 68, 0.25)'
+                                  }}
+                                  title="Eliminar este cobro duplicado o erróneo"
+                                >
+                                  <Trash2 size={11} /> Eliminar
                                 </button>
                               </div>
                             ) : (

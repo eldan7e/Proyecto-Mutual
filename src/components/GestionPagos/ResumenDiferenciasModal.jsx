@@ -23,7 +23,7 @@ export default function ResumenDiferenciasModal({
 
   if (!isOpen || !resumen) return null;
 
-  const { stats, tarifas, lineasFaltantes = [], lineasNuevas = [], planAverages = [], bonifBreakdown = [] } = resumen;
+  const { stats, tarifas, lineasFaltantes = [], lineasNuevas = [], lineasCambioPlan = [], planAverages = [], bonifBreakdown = [] } = resumen;
 
   // Filtrado en pestaña de faltantes
   const filteredFaltantes = lineasFaltantes.filter(f => {
@@ -47,6 +47,19 @@ export default function ResumenDiferenciasModal({
       a.socioNombre?.toLowerCase().includes(term) ||
       String(a.numeroGrupo).toLowerCase().includes(term) ||
       a.planNombre?.toLowerCase().includes(term)
+    );
+  });
+
+  // Filtrado en pestaña de cambios de plan
+  const filteredCambios = (lineasCambioPlan || []).filter(c => {
+    if (!searchTerm.trim()) return true;
+    const term = searchTerm.toLowerCase();
+    return (
+      c.numero_linea?.toLowerCase().includes(term) ||
+      c.socioNombre?.toLowerCase().includes(term) ||
+      String(c.numeroGrupo).toLowerCase().includes(term) ||
+      c.planAnterior?.toLowerCase().includes(term) ||
+      c.planActual?.toLowerCase().includes(term)
     );
   });
 
@@ -250,6 +263,28 @@ export default function ResumenDiferenciasModal({
               {stats.countAltas}
             </div>
           </div>
+
+          {/* Card 5: Cambios de Plan (si los hubiera) */}
+          {stats.countCambiosPlan > 0 && (
+            <div 
+              onClick={() => setActiveTab('cambios')}
+              style={{
+                background: activeTab === 'cambios' ? 'rgba(99, 102, 241, 0.1)' : 'var(--bg-app)',
+                padding: '16px',
+                borderRadius: '16px',
+                border: activeTab === 'cambios' ? '1px solid rgba(99, 102, 241, 0.3)' : '1px solid var(--border-light)',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+            >
+              <div style={{ fontSize: '11px', fontWeight: 800, color: '#6366f1', textTransform: 'uppercase', marginBottom: '6px' }}>
+                Cambios de Plan
+              </div>
+              <div style={{ fontSize: '24px', fontWeight: 900, color: '#6366f1' }}>
+                {stats.countCambiosPlan}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── BANNER BONIFICACIONES PORCENTUALES ── */}
@@ -337,6 +372,24 @@ export default function ResumenDiferenciasModal({
               📈 Nuevas Altas ({stats.countAltas})
             </button>
 
+            {stats.countCambiosPlan > 0 && (
+              <button
+                onClick={() => setActiveTab('cambios')}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '10px',
+                  fontSize: '13px',
+                  fontWeight: 800,
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: activeTab === 'cambios' ? '#6366f1' : 'transparent',
+                  color: activeTab === 'cambios' ? 'white' : 'var(--text-secondary)'
+                }}
+              >
+                🔀 Cambios de Plan ({stats.countCambiosPlan})
+              </button>
+            )}
+
             <button
               onClick={() => setActiveTab('planes')}
               style={{
@@ -370,7 +423,7 @@ export default function ResumenDiferenciasModal({
             </button>
           </div>
 
-          {(activeTab === 'faltantes' || activeTab === 'altas') && (
+          {(activeTab === 'faltantes' || activeTab === 'altas' || activeTab === 'cambios') && (
             <div className="search-bar" style={{ width: '260px', height: '36px' }}>
               <Search size={14} />
               <input
@@ -495,6 +548,63 @@ export default function ResumenDiferenciasModal({
                             }}>
                               Alta / Incorporación
                             </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB: CAMBIOS DE PLAN */}
+          {activeTab === 'cambios' && (
+            <div>
+              {filteredCambios.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-secondary)' }}>
+                  <p style={{ fontSize: '15px', fontWeight: 700, margin: 0 }}>
+                    {searchTerm ? 'No se encontraron líneas con ese criterio.' : 'No hubo líneas con cambio de plan detectadas en este período.'}
+                  </p>
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--border-light)', textAlign: 'left', color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        <th style={{ padding: '10px 14px' }}>Línea</th>
+                        <th style={{ padding: '10px 14px' }}>Socio / Grupo</th>
+                        <th style={{ padding: '10px 14px' }}>Plan Anterior</th>
+                        <th style={{ padding: '10px 14px' }}>Plan Actual</th>
+                        <th style={{ padding: '10px 14px', textAlign: 'right' }}>Abono Anterior</th>
+                        <th style={{ padding: '10px 14px', textAlign: 'right' }}>Abono Actual</th>
+                        <th style={{ padding: '10px 14px', textAlign: 'right' }}>Diferencia</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredCambios.map((c, idx) => (
+                        <tr key={idx} style={{ borderBottom: '1px solid var(--border-light)' }}>
+                          <td style={{ padding: '12px 14px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                            {c.numero_linea}
+                          </td>
+                          <td style={{ padding: '12px 14px' }}>
+                            <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{c.socioNombre}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Grupo {c.numeroGrupo}</div>
+                          </td>
+                          <td style={{ padding: '12px 14px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                            {c.planAnterior}
+                          </td>
+                          <td style={{ padding: '12px 14px', color: '#6366f1', fontWeight: 700 }}>
+                            {c.planActual}
+                          </td>
+                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                            ${c.abonoAnterior.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>
+                            ${c.abonoActual.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, color: c.diffAbono > 0 ? '#ef4444' : '#10b981' }}>
+                            {c.diffAbono >= 0 ? '+' : ''}${c.diffAbono.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                         </tr>
                       ))}

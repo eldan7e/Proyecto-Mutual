@@ -116,6 +116,16 @@ export async function fetchResumenDiferencias({ periodo, proveedorId, currentLin
     if (h.periodo === periodo) currHistMap[h.plan_id] = h;
   });
 
+  // 3b. Catálogo de planes del proveedor para asociar plan_id y tarifas oficiales
+  const { data: provPlans } = await supabase
+    .from('planes_abonos')
+    .select('plan_id, nombre_plan, tarifa_aunar, precio')
+    .eq('proveedor_id', provId);
+
+  const provPlanIds = new Set((provPlans || []).map(p => p.plan_id));
+  const provPlansMap = new Map((provPlans || []).map(p => [p.plan_id, p]));
+  const provPlansByName = new Map((provPlans || []).map(p => [p.nombre_plan, p]));
+
   // 4. Identificar números faltantes (estaban en mes anterior pero NO en el actual)
   const missingLineNumbers = [];
   prevConsumosMap.forEach((_, linea) => {
@@ -249,15 +259,19 @@ export async function fetchResumenDiferencias({ periodo, proveedorId, currentLin
 
   lineasNuevas.sort((a, b) => a.socioNombre.localeCompare(b.socioNombre));
 
-  // 8. Agrupación para cálculo de variaciones por plan
+  // 8. Agrupación para cálculo de variaciones por plan y detección de Cambios de Plan
   const planStatsMap = {};
+  const lineasCambioPlan = [];
 
   (currentLinesData || []).forEach(row => {
     const linea = String(row.numero_linea);
     const currPlanRaw = row.lineas?.planes_abonos;
     const currPlanInfo = Array.isArray(currPlanRaw) ? currPlanRaw[0] : currPlanRaw;
     const planName = currPlanInfo?.nombre_plan || row.plan || 'Sin Plan';
-    const planId = currPlanInfo?.plan_id || row.plan_id;
+    let planId = currPlanInfo?.plan_id || row.plan_id || row.lineas?.plan_id;
+    if (!planId && provPlansByName.has(planName)) {
+      planId = provPlansByName.get(planName).plan_id;
+    }
 
     if (!planStatsMap[planName]) {
       planStatsMap[planName] = {
@@ -276,12 +290,43 @@ export async function fetchResumenDiferencias({ periodo, proveedorId, currentLin
     if (prevC) {
       const prevAbono = Number(prevC.costo_abono_real || 0);
       const currAbono = Number(row.costo_abono_real || row.calculado?.baseAb || 0);
-
-      // Si no tiene excedentes en ninguno de los dos meses, es apta para cálculo limpio de variación
       const currExc = Number(row.excedentes || row.calculado?.excedentes || 0);
       const prevExc = Number(prevC.excedentes || 0);
 
-      if (prevAbono > 0 && currAbono > 0 && currExc === 0 && prevExc === 0) {
+      // Detectar si la línea cambió de plan entre períodos
+      const prevPlanHist = planId ? prevHistMap[planId] : null;
+      const expectedPrevLista = Number(prevPlanHist?.precio_lista || 0);
+      const actualPrevLista = Number(prevC.precio_lista_audit || prevC.precio_lista_factura || 0);
+
+      const cambioPlan = expectedPrevLista > 0 && actualPrevLista > 0 && Math.abs(actualPrevLista - expectedPrevLista) > 50;
+
+      if (cambioPlan) {
+        // Encontrar el nombre del plan anterior según el precio de lista histórico de los planes de este proveedor
+        const prevPlanEntry = Object.values(prevHistMap).find(h => 
+          provPlanIds.has(h.plan_id) && Math.abs(Number(h.precio_lista || 0) - actualPrevLista) < 50
+        );
+        const prevPlanName = prevPlanEntry ? (provPlansMap.get(prevPlanEntry.plan_id)?.nombre_plan || `Plan ${actualPrevLista.toLocaleString('es-AR')}`) : `Plan ${actualPrevLista.toLocaleString('es-AR')}`;
+
+        const socioRaw = row.lineas?.socios;
+        const socioInfo = Array.isArray(socioRaw) ? socioRaw[0] : socioRaw;
+        const socioNombre = socioInfo?.nombre_completo || 'Sin Asignar';
+        const numeroGrupo = row.lineas?.numero_grupo || '-';
+
+        lineasCambioPlan.push({
+          numero_linea: linea,
+          socioNombre,
+          numeroGrupo,
+          planAnterior: prevPlanName,
+          planActual: planName,
+          abonoAnterior: prevAbono,
+          abonoActual: currAbono,
+          diffAbono: currAbono - prevAbono,
+          label: `${prevPlanName} ➔ ${planName}`
+        });
+      }
+
+      // Solo comparar abonos si la línea NO cambió de plan y no tuvo excedentes
+      if (!cambioPlan && prevAbono > 0 && currAbono > 0 && currExc === 0 && prevExc === 0) {
         planStatsMap[planName].prevTotalAbono += prevAbono;
         planStatsMap[planName].currTotalAbono += currAbono;
         planStatsMap[planName].countComparable++;
@@ -289,12 +334,14 @@ export async function fetchResumenDiferencias({ periodo, proveedorId, currentLin
     }
   });
 
+  lineasCambioPlan.sort((a, b) => a.socioNombre.localeCompare(b.socioNombre));
+
   // 9. Cálculo de Variación Promedio por Plan
   const planAverages = Object.values(planStatsMap).map(p => {
     let avgPrev = p.countComparable > 0 ? p.prevTotalAbono / p.countComparable : 0;
     let avgCurr = p.countComparable > 0 ? p.currTotalAbono / p.countComparable : 0;
     
-    // Si no hubo líneas comparables sin excedentes, promediar todas las que tengan previo
+    // Si no hubo líneas comparables sin excedentes, promediar todas las de este mismo plan que tengan previo
     if (p.countComparable === 0) {
       let tPrev = 0;
       let tCurr = 0;
@@ -324,8 +371,11 @@ export async function fetchResumenDiferencias({ periodo, proveedorId, currentLin
 
     const prevHist = p.planId ? prevHistMap[p.planId] : null;
     const currHist = p.planId ? currHistMap[p.planId] : null;
-    const prevListPrice = Number(prevHist?.precio_lista || 0);
-    const currListPrice = Number(currHist?.precio_lista || 0);
+    let prevListPrice = Number(prevHist?.precio_lista || 0);
+    let currListPrice = Number(currHist?.precio_lista || 0);
+    if (!currListPrice && p.planId && provPlansMap.has(p.planId)) {
+      currListPrice = Number(provPlansMap.get(p.planId).precio || 0);
+    }
 
     return {
       plan: p.planName,
@@ -344,34 +394,86 @@ export async function fetchResumenDiferencias({ periodo, proveedorId, currentLin
 
   // 10. Comparativa de Tarifa Aunar
   let tarifaAnterior = 0;
-  // Buscar en historial de precios del mes anterior
-  const prevHistEntries = Object.values(prevHistMap);
-  if (prevHistEntries.length > 0 && Number(prevHistEntries[0].tarifa_aunar || 0) > 0) {
-    tarifaAnterior = Number(prevHistEntries[0].tarifa_aunar);
-  } else {
-    // Si no está en historial, promediar tarifas aplicadas en consumos del mes anterior
-    const nonZeroPrevTarifas = prevConsumos
-      .map(c => Number(c.tarifa_aunar_aplicada || 0))
-      .filter(t => t > 0);
-    if (nonZeroPrevTarifas.length > 0) {
-      tarifaAnterior = nonZeroPrevTarifas[0];
-    } else {
-      // Fallback según operadora
-      tarifaAnterior = provId === 3 ? 8335 : (provId === 1 ? 7630 : 7600);
+
+  // Prioridad 1: Obtener la tarifa efectivamente aplicada en los consumos del mes anterior para este proveedor
+  const prevTarifasApplied = (prevConsumos || [])
+    .map(c => Number(c.tarifa_aunar_aplicada || 0))
+    .filter(t => t > 0);
+
+  if (prevTarifasApplied.length > 0) {
+    const freq = {};
+    let maxCount = 0;
+    prevTarifasApplied.forEach(t => {
+      freq[t] = (freq[t] || 0) + 1;
+      if (freq[t] > maxCount) {
+        maxCount = freq[t];
+        tarifaAnterior = t;
+      }
+    });
+  }
+
+  // Prioridad 2: Buscar en historial de precios del mes anterior para los planes de este proveedor
+  if (tarifaAnterior === 0) {
+    const prevHistProv = Object.values(prevHistMap)
+      .filter(h => provPlanIds.has(h.plan_id) && Number(h.tarifa_aunar || 0) > 0);
+    if (prevHistProv.length > 0) {
+      tarifaAnterior = Number(prevHistProv[0].tarifa_aunar);
     }
   }
 
-  let tarifaActual = Number(currentTarifaAunar || 0);
-  if (tarifaActual === 0) {
-    const currHistEntries = Object.values(currHistMap);
-    if (currHistEntries.length > 0 && Number(currHistEntries[0].tarifa_aunar || 0) > 0) {
-      tarifaActual = Number(currHistEntries[0].tarifa_aunar);
-    } else {
-      const nonZeroCurr = (currentLinesData || [])
-        .map(r => Number(r.calculado?.tarifaAunar || r.tarifa_aunar_aplicada || 0))
-        .filter(t => t > 0);
-      tarifaActual = nonZeroCurr.length > 0 ? nonZeroCurr[0] : tarifaAnterior;
+  // Prioridad 3: Buscar en catálogo oficial de planes del proveedor
+  if (tarifaAnterior === 0) {
+    const catTarifa = provPlans?.find(p => Number(p.tarifa_aunar || 0) > 0)?.tarifa_aunar;
+    if (catTarifa) {
+      tarifaAnterior = Number(catTarifa);
     }
+  }
+
+  // Prioridad 4: Fallback según operadora
+  if (tarifaAnterior === 0) {
+    tarifaAnterior = provId === 3 ? 8700 : (provId === 1 ? 8000 : 7905);
+  }
+
+  let tarifaActual = Number(currentTarifaAunar || 0);
+
+  // Prioridad 2: Revisar tarifas de las líneas del mes actual
+  if (tarifaActual === 0) {
+    const currTarifasApplied = (currentLinesData || [])
+      .map(r => Number(r.calculado?.tarifaAunar || r.tarifa_aunar_aplicada || 0))
+      .filter(t => t > 0);
+    if (currTarifasApplied.length > 0) {
+      const freq = {};
+      let maxCount = 0;
+      currTarifasApplied.forEach(t => {
+        freq[t] = (freq[t] || 0) + 1;
+        if (freq[t] > maxCount) {
+          maxCount = freq[t];
+          tarifaActual = t;
+        }
+      });
+    }
+  }
+
+  // Prioridad 3: Buscar en historial de precios del mes actual para los planes de este proveedor
+  if (tarifaActual === 0) {
+    const currHistProv = Object.values(currHistMap)
+      .filter(h => provPlanIds.has(h.plan_id) && Number(h.tarifa_aunar || 0) > 0);
+    if (currHistProv.length > 0) {
+      tarifaActual = Number(currHistProv[0].tarifa_aunar);
+    }
+  }
+
+  // Prioridad 4: Catálogo oficial de planes
+  if (tarifaActual === 0) {
+    const catTarifa = provPlans?.find(p => Number(p.tarifa_aunar || 0) > 0)?.tarifa_aunar;
+    if (catTarifa) {
+      tarifaActual = Number(catTarifa);
+    }
+  }
+
+  // Prioridad 5: Si no hay dato actual, fallback a la anterior
+  if (tarifaActual === 0) {
+    tarifaActual = tarifaAnterior;
   }
 
   let variacionTarifa = 0;
@@ -442,7 +544,7 @@ export async function fetchResumenDiferencias({ periodo, proveedorId, currentLin
       diffCount,
       countFaltantes: lineasFaltantes.length,
       countAltas: lineasNuevas.length,
-      countCambiosPlan: 0,
+      countCambiosPlan: lineasCambioPlan.length,
       countMantenidas,
       totalWithBonif: totalLines - sinBonifCount,
       totalSinBonif: sinBonifCount
@@ -455,6 +557,7 @@ export async function fetchResumenDiferencias({ periodo, proveedorId, currentLin
     },
     lineasFaltantes,
     lineasNuevas,
+    lineasCambioPlan,
     planAverages,
     bonifBreakdown
   };
@@ -519,6 +622,25 @@ export function exportResumenDiferenciasXLSX({ resumen, operadora }) {
       { wch: 14 }, { wch: 30 }, { wch: 10 }, { wch: 25 }, { wch: 20 }, { wch: 12 }
     ];
     XLSX.utils.book_append_sheet(wb, wsAltas, 'Nuevas Altas');
+  }
+
+  // Hoja 3b: Cambios de Plan
+  if (resumen.lineasCambioPlan && resumen.lineasCambioPlan.length > 0) {
+    const cambiosRows = resumen.lineasCambioPlan.map(c => ({
+      'Línea': c.numero_linea,
+      'Socio': c.socioNombre,
+      'Grupo': c.numeroGrupo,
+      'Plan Anterior': c.planAnterior,
+      'Plan Actual': c.planActual,
+      'Abono Anterior': c.abonoAnterior,
+      'Abono Actual': c.abonoActual,
+      'Diferencia Abono': c.diffAbono
+    }));
+    const wsCambios = XLSX.utils.json_to_sheet(cambiosRows);
+    wsCambios['!cols'] = [
+      { wch: 14 }, { wch: 30 }, { wch: 10 }, { wch: 25 }, { wch: 25 }, { wch: 18 }, { wch: 18 }, { wch: 18 }
+    ];
+    XLSX.utils.book_append_sheet(wb, wsCambios, 'Cambios de Plan');
   }
 
   // Hoja 4: Variación Promedio por Plan

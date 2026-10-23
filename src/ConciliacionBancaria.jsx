@@ -2404,7 +2404,13 @@ export default function ConciliacionBancaria() {
       }
 
       const activePeriod = selectedPeriod || (periodosList && periodosList[0]) || '2026-09';
-      let groupNum = null;
+      const socioObj = row.selectedSocioId ? socios.find(s => s.socio_id === parseInt(row.selectedSocioId, 10)) : null;
+      let groupNum = row.grupo 
+        ? parseInt(row.grupo, 10) 
+        : (row.pendingList?.[0]?.numero_grupo 
+            ? parseInt(row.pendingList[0].numero_grupo, 10) 
+            : (socioObj?.grupo_socio?.[0]?.numero_grupo || (row.suggestedSocio?.learnedGroup ? parseInt(row.suggestedSocio.learnedGroup, 10) : null)));
+      const socioLabel = row.selectedSocioLabel || (groupNum ? `Grupo ${groupNum}` : null);
 
       if (row.selectedLiquidations && row.selectedLiquidations.length > 1) {
         // 1. Distribute payment amount (row.netoReal) across all selected liquidations
@@ -2437,6 +2443,8 @@ export default function ConciliacionBancaria() {
               impuestos: 0,
               banco: row.banco,
               socio_id: row.selectedSocioId ? parseInt(row.selectedSocioId, 10) : null,
+              numero_grupo: Number(liq.numero_grupo || groupNum) || null,
+              nombre_socio: socioLabel,
               liquidacion_id: parseInt(liq.liquidacion_id, 10),
               tipo_movimiento: 'TRANSFERENCIA_RECIBIDA',
               periodo: liq.periodo || activePeriod
@@ -2456,6 +2464,8 @@ export default function ConciliacionBancaria() {
           impuestos: row.impuestos || 0,
           banco: row.banco,
           socio_id: row.selectedSocioId ? parseInt(row.selectedSocioId, 10) : null,
+          numero_grupo: groupNum,
+          nombre_socio: socioLabel,
           liquidacion_id: null,
           tipo_movimiento: 'CONCILIACION_GRUPO_MASTER',
           comprobante: row.comprobante || null,
@@ -2515,6 +2525,7 @@ export default function ConciliacionBancaria() {
               importe: Number(row.netoReal),
               medio_pago: row.banco || 'TRANSFERENCIA',
               observaciones: `Conciliación Bancaria - ${row.concepto}${row.comprobante ? ` (Cpbte: ${row.comprobante})` : ''}`,
+              fecha: parseDateToISODate(row.fecha_movimiento || row.fecha),
               periodo: activePeriod,
               skipLiqUpdate: true
             });
@@ -2547,6 +2558,9 @@ export default function ConciliacionBancaria() {
 
         // El período asignado SIEMPRE coincide con Facturación y Contaduría
         const resolvedPeriod = matchedLiq?.periodo || activePeriod;
+        if (!groupNum && matchedLiq?.numero_grupo) {
+          groupNum = parseInt(matchedLiq.numero_grupo, 10);
+        }
 
         const { data: movData, error: movError } = await supabase
           .from('movimientos_bancarios')
@@ -2558,6 +2572,8 @@ export default function ConciliacionBancaria() {
             impuestos: row.impuestos,
             banco: row.banco,
             socio_id: row.selectedSocioId ? parseInt(row.selectedSocioId, 10) : null,
+            numero_grupo: groupNum,
+            nombre_socio: socioLabel,
             liquidacion_id: singleLiqId ? parseInt(singleLiqId, 10) : null,
             tipo_movimiento: row.tipo_movimiento,
             comprobante: row.comprobante || null,
@@ -2660,6 +2676,7 @@ export default function ConciliacionBancaria() {
               importe: Number(row.netoReal),
               medio_pago: row.banco || 'TRANSFERENCIA',
               observaciones: `Conciliación Bancaria - ${row.concepto}${row.comprobante ? ` (Cpbte: ${row.comprobante})` : ''}`,
+              fecha: parseDateToISODate(row.fecha_movimiento || row.fecha),
               periodo: resolvedPeriod,
               skipLiqUpdate: singleLiqId ? true : false,
               amortizarHistorico: !singleLiqId
@@ -3045,12 +3062,20 @@ export default function ConciliacionBancaria() {
         if (updateNewError) throw updateNewError;
       }
 
+      if (!newGrupo && selectedSocioId) {
+        const sObj = socios.find(s => s.socio_id === parseInt(selectedSocioId, 10));
+        newGrupo = sObj?.grupo_socio?.[0]?.numero_grupo || null;
+      }
+
       // 3. Update movement
+      const matchedSocio = socios.find(s => s.socio_id === (selectedSocioId ? parseInt(selectedSocioId, 10) : null));
       const { error: moveError } = await supabase
         .from('movimientos_bancarios')
         .update({
           socio_id: selectedSocioId ? parseInt(selectedSocioId, 10) : null,
-          liquidacion_id: newLiqId
+          liquidacion_id: newLiqId,
+          numero_grupo: newGrupo || null,
+          nombre_socio: matchedSocio?.nombre_completo || null
         })
         .eq('movimiento_id', movement.movimiento_id);
       if (moveError) throw moveError;
@@ -3070,7 +3095,6 @@ export default function ConciliacionBancaria() {
           if (movDate) qCc = qCc.eq('fecha', movDate);
           const { data: matchedCc } = await qCc.order('id', { ascending: false }).limit(1);
           if (matchedCc && matchedCc.length > 0) {
-            const matchedSocio = socios.find(s => s.socio_id === (selectedSocioId ? parseInt(selectedSocioId, 10) : null));
             const newTitular = matchedSocio ? matchedSocio.nombre_completo : `Grupo ${newGrupo}`;
             await supabase
               .from('movimientos_cuenta')
