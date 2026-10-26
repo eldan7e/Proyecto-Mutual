@@ -72,6 +72,7 @@ export default function CargaManual() {
   const [confirmStats, setConfirmStats] = useState(null);
   const [forceSave, setForceSave] = useState(false);
   const [applySuggestedTarifa, setApplySuggestedTarifa] = useState(false);
+  const [selectedTarifaAunar, setSelectedTarifaAunar] = useState(null);
   const [sortByAnomalies, setSortByAnomalies] = useState(false);
   const [selectedRows, setSelectedRows] = useState(new Set());
   const [isUpdatingPlanes, setIsUpdatingPlanes] = useState(false);
@@ -1234,14 +1235,16 @@ export default function CargaManual() {
       }
 
       // Variación real en precio de lista oficial vs variación en abono neto de factura
-      const listIncrease = (prevListPrice > 0 && currListPrice > 0)
+      const hasListPrices = prevListPrice > 0 && currListPrice > 0;
+      const listIncrease = hasListPrices
         ? ((currListPrice - prevListPrice) / prevListPrice) * 100
         : 0;
 
       planIncreases.push({ 
         plan: planName, 
-        increase: listIncrease !== 0 ? listIncrease : avgPct,
+        increase: hasListPrices ? listIncrease : avgPct,
         listIncrease,
+        hasListPrices,
         abonoIncrease: avgPct,
         avgPrevAbono: avgPrev,
         avgCurrAbono: avgCurr,
@@ -1284,9 +1287,43 @@ export default function CargaManual() {
     if (curTarifa === 0) {
       curTarifa = currentProvId === 3 ? 8335 : (currentProvId === 1 ? 7630 : 7600);
     }
-    // Redondear sugerido a múltiplos de $5 para alinearse a las tarifas comerciales usuales
-    const sugTarifaRaw = curTarifa * (1 + weightedAvgPct / 100);
-    const sugTarifa = Math.abs(weightedAvgPct) > 0.01 ? (Math.round(sugTarifaRaw / 5) * 5) : curTarifa;
+
+    // Verificar si la variacion en el costo de factura es anomala (> 8% o < -8%)
+    // debido a fluctuaciones o expiracion de bonificaciones de la operadora.
+    const isAnomalousInvoice = Math.abs(weightedAvgPct) > 8.0;
+
+    // Buscar si hubo aumento real en precios de lista oficiales
+    const plansWithList = planIncreases.filter(p => p.hasListPrices);
+    const hasOfficialListPrices = plansWithList.length > 0;
+    const avgListIncrease = hasOfficialListPrices
+      ? (plansWithList.reduce((acc, p) => acc + p.listIncrease, 0) / plansWithList.length)
+      : 0;
+
+    // Principio de cálculo para Tarifa Aunar:
+    // 1. Si existen precios de lista oficiales:
+    //    - Si la lista subió (> 0.5% y <= 15%), se toma la variación oficial de lista.
+    //    - Si la lista no varió (0.0%), la operadora no aumentó precios este mes. Se sugiere 4.0% por inflación estándar o mantener.
+    // 2. Si no hay precios de lista (solo abonos netos de factura):
+    //    - Si la variación de factura es normal (-8% a +8%), se toma esa variación.
+    //    - Si la factura saltó más del 8% por expiración/cambio de bonificación, se descarta el salto y se sugiere 4.0%.
+    let recommendedPct = 4.0;
+    if (hasOfficialListPrices && avgListIncrease > 0.5 && avgListIncrease <= 15.0) {
+      recommendedPct = avgListIncrease;
+    } else if (!hasOfficialListPrices && Math.abs(weightedAvgPct) <= 8.0) {
+      recommendedPct = weightedAvgPct;
+    } else {
+      recommendedPct = 4.0; // Benchmark mensual típico en Argentina (3% - 5%)
+    }
+
+    // Redondear sugerido a multiplos de $5 para alinearse a las tarifas comerciales usuales
+    const sugTarifaRaw = curTarifa * (1 + recommendedPct / 100);
+    const sugTarifa = Math.abs(recommendedPct) > 0.01 ? (Math.round(sugTarifaRaw / 5) * 5) : curTarifa;
+    const invoiceSugTarifaRaw = curTarifa * (1 + weightedAvgPct / 100);
+    const invoiceSugTarifa = Math.abs(weightedAvgPct) > 0.01 ? (Math.round(invoiceSugTarifaRaw / 5) * 5) : curTarifa;
+
+    const opt3Pct = Math.round((curTarifa * 1.03) / 5) * 5;
+    const opt4Pct = Math.round((curTarifa * 1.04) / 5) * 5;
+    const opt5Pct = Math.round((curTarifa * 1.05) / 5) * 5;
 
     const getShortMonthName = (pStr) => {
       if (!pStr) return '';
@@ -1318,14 +1355,21 @@ export default function CargaManual() {
       sinGrupo,
       planIncreases,
       weightedAvgPct,
+      recommendedPct,
+      isAnomalousInvoice,
       curTarifa,
       sugTarifa,
+      invoiceSugTarifa,
+      opt3Pct,
+      opt4Pct,
+      opt5Pct,
       prevMonthLabel,
       currMonthLabel
     });
     
     setForceSave(false);
     setApplySuggestedTarifa(false);
+    setSelectedTarifaAunar(sugTarifa);
     setIsConfirmModalOpen(true);
   };
 
@@ -1340,7 +1384,7 @@ export default function CargaManual() {
         proveedorId: currentProviderId,
         proveedorName: selectedProvider,
         fileData,
-        sugTarifa: applySuggestedTarifa ? confirmStats?.sugTarifa : null,
+        sugTarifa: applySuggestedTarifa ? (selectedTarifaAunar || confirmStats?.sugTarifa) : null,
         planIncreases: confirmStats?.planIncreases
       });
 
@@ -1855,8 +1899,9 @@ export default function CargaManual() {
                     const curPrecio = dbPlanInfo?.precio_oficial || 0;
                     const hasAbonoData = p.avgPrevAbono > 0 && p.avgCurrAbono > 0;
                     const diffAbono = p.avgCurrAbono - p.avgPrevAbono;
-                    const isListChanged = p.prevListPrice > 0 && p.currListPrice > 0 && Math.abs(p.currListPrice - p.prevListPrice) > 1;
-                    const displayPct = isListChanged ? p.listIncrease : (p.abonoIncrease ?? p.increase ?? 0);
+                    const hasListPrices = p.hasListPrices ?? (p.prevListPrice > 0 && p.currListPrice > 0);
+                    const isListChanged = hasListPrices && Math.abs(p.currListPrice - p.prevListPrice) > 1;
+                    const displayPct = hasListPrices ? p.listIncrease : (p.abonoIncrease ?? p.increase ?? 0);
 
                     return (
                       <div key={idx} style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '8px', borderBottom: idx < confirmStats.planIncreases.length - 1 ? '1px solid var(--border-light)' : 'none' }}>
@@ -1864,17 +1909,17 @@ export default function CargaManual() {
                           <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>{p.plan}</div>
                           <div style={{ fontSize: '13px', fontWeight: 900, color: Math.abs(displayPct) < 0.5 ? 'var(--text-secondary)' : displayPct > 0 ? '#ef4444' : '#10b981', display: 'flex', alignItems: 'center', gap: '6px' }}>
                             {Math.abs(displayPct) < 0.5 ? (
-                              '0.0% Sin cambios'
+                              hasListPrices ? '0.0% Sin cambios (Lista Oficial)' : '0.0% Sin cambios'
                             ) : displayPct > 0 ? (
-                              <><TrendingUp size={14} /> {displayPct.toFixed(1)}% AUMENTO {isListChanged ? '(Lista)' : '(Costo Factura)'}</>
+                              <><TrendingUp size={14} /> {displayPct.toFixed(1)}% AUMENTO {hasListPrices ? '(Lista Oficial)' : '(Costo Factura)'}</>
                             ) : (
-                              <><TrendingDown size={14} /> {Math.abs(displayPct).toFixed(1)}% BAJA {isListChanged ? '(Lista)' : '(Costo Factura)'}</>
+                              <><TrendingDown size={14} /> {Math.abs(displayPct).toFixed(1)}% BAJA {hasListPrices ? '(Lista Oficial)' : '(Costo Factura)'}</>
                             )}
                           </div>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>
                           {hasAbonoData && (
-                            <span>Abono Base Factura: <span style={{ textDecoration: 'line-through' }}>${p.avgPrevAbono.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> ({confirmStats?.prevMonthLabel || 'Mes Ant.'}) → <span style={{ color: 'var(--text-primary)', fontWeight: 800 }}>${p.avgCurrAbono.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> ({confirmStats?.currMonthLabel || 'Actual'}) <span style={{ color: diffAbono > 0 ? '#ef4444' : '#10b981', marginLeft: '4px' }}>({diffAbono >= 0 ? '+' : '-'}${Math.abs(diffAbono).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span></span>
+                            <span>Abono Base Factura: <span style={{ textDecoration: 'line-through' }}>${p.avgPrevAbono.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> ({confirmStats?.prevMonthLabel || 'Mes Ant.'}) → <span style={{ color: 'var(--text-primary)', fontWeight: 800 }}>${p.avgCurrAbono.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> ({confirmStats?.currMonthLabel || 'Actual'}) <span style={{ color: diffAbono > 0 ? (hasListPrices && !isListChanged ? '#d97706' : '#ef4444') : '#10b981', marginLeft: '4px' }}>({diffAbono >= 0 ? '+' : '-'}${Math.abs(diffAbono).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{hasListPrices && !isListChanged ? ' ajuste bonificación' : ''})</span></span>
                           )}
                           {(p.prevListPrice > 0 || p.currListPrice > 0 || hasData) && (
                             <span>
@@ -1903,18 +1948,149 @@ export default function CargaManual() {
                       borderRadius: '12px',
                       display: 'flex', 
                       flexDirection: 'column', 
-                      gap: '10px'
+                      gap: '12px'
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ fontSize: '11px', fontWeight: 800, color: applySuggestedTarifa ? '#10b981' : '#3b82f6', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                          {applySuggestedTarifa ? 'Tarifa Aunar Aumentada (Seleccionado)' : 'Tarifa Aunar Sugerida (Opcional)'}
+                          {applySuggestedTarifa ? 'Tarifa Aunar Seleccionada para Guardar' : 'Ajuste de Tarifa Aunar (Opcional)'}
                         </div>
                         <span style={{ fontSize: '11px', fontWeight: 800, background: applySuggestedTarifa ? 'rgba(16, 185, 129, 0.15)' : 'rgba(59, 130, 246, 0.15)', color: applySuggestedTarifa ? '#10b981' : '#3b82f6', padding: '3px 10px', borderRadius: '100px', whiteSpace: 'nowrap' }}>
-                          {confirmStats.weightedAvgPct >= 0 ? '+' : ''}{confirmStats.weightedAvgPct.toFixed(1)}% {selectedProvider === 'movistar' ? '(Planes Base)' : 'Ponderado'}
+                          {confirmStats.isAnomalousInvoice
+                            ? `Sugerido: +${confirmStats.recommendedPct.toFixed(1)}% (Factura: +${confirmStats.weightedAvgPct.toFixed(1)}%)`
+                            : `${confirmStats.weightedAvgPct >= 0 ? '+' : ''}${confirmStats.weightedAvgPct.toFixed(1)}% Ponderado`
+                          }
                         </span>
                       </div>
 
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                      {confirmStats.isAnomalousInvoice && (
+                        <div style={{ 
+                          padding: '10px 12px', 
+                          background: 'rgba(245, 158, 11, 0.1)', 
+                          border: '1px solid rgba(245, 158, 11, 0.25)', 
+                          borderRadius: '8px', 
+                          fontSize: '11px', 
+                          color: '#d97706', 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '8px' 
+                        }}>
+                          <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+                          <span>
+                            <strong>Atención:</strong> La factura neta subió +{confirmStats.weightedAvgPct.toFixed(1)}% por normalización de bonificaciones del mes anterior. Se sugiere aplicar entre un <strong>+3% y +5%</strong> (Recomendado: <strong>+{confirmStats.recommendedPct.toFixed(1)}%</strong>) para no desfasar la cuota social.
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Selector de opciones rápidas */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>Elegir aumento para la cuota social:</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setApplySuggestedTarifa(false);
+                              setSelectedTarifaAunar(confirmStats.curTarifa);
+                            }}
+                            style={{
+                              padding: '6px 12px',
+                              borderRadius: '8px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              border: !applySuggestedTarifa ? '2px solid var(--accent)' : '1px solid var(--border-light)',
+                              background: !applySuggestedTarifa ? 'var(--accent-light)' : 'var(--bg-app)',
+                              color: !applySuggestedTarifa ? 'var(--accent)' : 'var(--text-primary)'
+                            }}
+                          >
+                            Mantener actual (${confirmStats.curTarifa.toLocaleString('es-AR')})
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setApplySuggestedTarifa(true);
+                              setSelectedTarifaAunar(confirmStats.opt3Pct);
+                            }}
+                            style={{
+                              padding: '6px 12px',
+                              borderRadius: '8px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              border: applySuggestedTarifa && selectedTarifaAunar === confirmStats.opt3Pct ? '2px solid #10b981' : '1px solid var(--border-light)',
+                              background: applySuggestedTarifa && selectedTarifaAunar === confirmStats.opt3Pct ? 'rgba(16, 185, 129, 0.15)' : 'var(--bg-app)',
+                              color: applySuggestedTarifa && selectedTarifaAunar === confirmStats.opt3Pct ? '#10b981' : 'var(--text-primary)'
+                            }}
+                          >
+                            +3% (${confirmStats.opt3Pct.toLocaleString('es-AR')})
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setApplySuggestedTarifa(true);
+                              setSelectedTarifaAunar(confirmStats.opt4Pct);
+                            }}
+                            style={{
+                              padding: '6px 12px',
+                              borderRadius: '8px',
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              border: applySuggestedTarifa && selectedTarifaAunar === confirmStats.opt4Pct ? '2px solid #10b981' : '1px solid var(--border-light)',
+                              background: applySuggestedTarifa && selectedTarifaAunar === confirmStats.opt4Pct ? 'rgba(16, 185, 129, 0.15)' : 'var(--bg-app)',
+                              color: applySuggestedTarifa && selectedTarifaAunar === confirmStats.opt4Pct ? '#10b981' : 'var(--text-primary)'
+                            }}
+                          >
+                            ⭐ +4% Sugerido (${confirmStats.opt4Pct.toLocaleString('es-AR')})
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setApplySuggestedTarifa(true);
+                              setSelectedTarifaAunar(confirmStats.opt5Pct);
+                            }}
+                            style={{
+                              padding: '6px 12px',
+                              borderRadius: '8px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              border: applySuggestedTarifa && selectedTarifaAunar === confirmStats.opt5Pct ? '2px solid #10b981' : '1px solid var(--border-light)',
+                              background: applySuggestedTarifa && selectedTarifaAunar === confirmStats.opt5Pct ? 'rgba(16, 185, 129, 0.15)' : 'var(--bg-app)',
+                              color: applySuggestedTarifa && selectedTarifaAunar === confirmStats.opt5Pct ? '#10b981' : 'var(--text-primary)'
+                            }}
+                          >
+                            +5% (${confirmStats.opt5Pct.toLocaleString('es-AR')})
+                          </button>
+
+                          {confirmStats.isAnomalousInvoice && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setApplySuggestedTarifa(true);
+                                setSelectedTarifaAunar(confirmStats.invoiceSugTarifa);
+                              }}
+                              style={{
+                                padding: '6px 12px',
+                                borderRadius: '8px',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                opacity: 0.8,
+                                border: applySuggestedTarifa && selectedTarifaAunar === confirmStats.invoiceSugTarifa ? '2px solid #ef4444' : '1px solid var(--border-light)',
+                                background: applySuggestedTarifa && selectedTarifaAunar === confirmStats.invoiceSugTarifa ? 'rgba(239, 68, 68, 0.15)' : 'var(--bg-app)',
+                                color: applySuggestedTarifa && selectedTarifaAunar === confirmStats.invoiceSugTarifa ? '#ef4444' : 'var(--text-secondary)'
+                              }}
+                            >
+                              +{confirmStats.weightedAvgPct.toFixed(1)}% Factura (${confirmStats.invoiceSugTarifa.toLocaleString('es-AR')})
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', paddingTop: '4px' }}>
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap', fontSize: '13px', fontWeight: 900, color: 'var(--text-primary)' }}>
                           <span>Tarifa Actual:</span>
                           <span style={{ textDecoration: applySuggestedTarifa ? 'line-through' : 'none', color: applySuggestedTarifa ? 'var(--text-secondary)' : 'var(--text-primary)', fontWeight: applySuggestedTarifa ? 600 : 900 }}>
@@ -1923,41 +2099,42 @@ export default function CargaManual() {
                           {applySuggestedTarifa && (
                             <>
                               <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>→ Nueva:</span>
-                              <span style={{ color: '#10b981', fontSize: '18px', fontWeight: 900 }}>${confirmStats.sugTarifa.toLocaleString('es-AR')}</span>
+                              <span style={{ color: '#10b981', fontSize: '18px', fontWeight: 900 }}>${(selectedTarifaAunar || confirmStats.sugTarifa).toLocaleString('es-AR')}</span>
+                              <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 700 }}>
+                                ({(((selectedTarifaAunar || confirmStats.sugTarifa) - confirmStats.curTarifa) / confirmStats.curTarifa * 100) >= 0 ? '+' : ''}
+                                {(((selectedTarifaAunar || confirmStats.sugTarifa) - confirmStats.curTarifa) / confirmStats.curTarifa * 100).toFixed(1)}%)
+                              </span>
                             </>
                           )}
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => setApplySuggestedTarifa(!applySuggestedTarifa)}
-                          className="air-btn"
-                          style={{
-                            padding: '8px 14px',
-                            fontSize: '12px',
-                            fontWeight: 800,
-                            borderRadius: '10px',
-                            background: applySuggestedTarifa ? 'rgba(239, 68, 68, 0.1)' : 'var(--accent)',
-                            color: applySuggestedTarifa ? '#ef4444' : '#fff',
-                            border: applySuggestedTarifa ? '1px solid rgba(239, 68, 68, 0.3)' : 'none',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          {applySuggestedTarifa ? (
-                            <>Mantener Tarifa Actual (${confirmStats.curTarifa.toLocaleString('es-AR')})</>
-                          ) : (
-                            <>Aplicar Aumento Sugerido (${confirmStats.sugTarifa.toLocaleString('es-AR')})</>
-                          )}
-                        </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>O monto personalizado: $</span>
+                          <input
+                            type="number"
+                            step="5"
+                            placeholder="Monto"
+                            value={applySuggestedTarifa ? (selectedTarifaAunar || '') : ''}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              if (val > 0) {
+                                setApplySuggestedTarifa(true);
+                                setSelectedTarifaAunar(val);
+                              } else {
+                                setApplySuggestedTarifa(false);
+                                setSelectedTarifaAunar(confirmStats.curTarifa);
+                              }
+                            }}
+                            className="air-textarea"
+                            style={{ width: '100px', height: '32px', padding: '0 8px', fontSize: '12px', fontWeight: 800 }}
+                          />
+                        </div>
                       </div>
 
                       <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 500 }}>
                         {applySuggestedTarifa 
-                          ? `✅ Se guardará la liquidación con la nueva Tarifa Aunar ($${confirmStats.sugTarifa.toLocaleString('es-AR')}) para ${selectedProvider?.toUpperCase()}.`
-                          : 'ℹ️ Es una sugerencia calculada según la variación real. Hacé clic en "Aplicar Aumento Sugerido" si deseás actualizar la tarifa del socio.'}
+                          ? `✅ Se guardará la liquidación con la nueva Tarifa Aunar ($${(selectedTarifaAunar || confirmStats.sugTarifa).toLocaleString('es-AR')}) para ${selectedProvider?.toUpperCase()}.`
+                          : `ℹ️ Se mantendrá la tarifa actual de $${confirmStats.curTarifa.toLocaleString('es-AR')}. Hacé clic en +3%, +4% o +5% si deseás actualizar la tarifa del socio.`}
                       </div>
                     </div>
                   )}
