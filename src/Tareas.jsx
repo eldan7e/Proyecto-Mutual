@@ -5,10 +5,22 @@ import {
   RefreshCw, AlertCircle, ClipboardList, TrendingUp, Info, ChevronDown,
   CheckCircle, ShieldAlert, Square, User, UserCheck, Users, X,
   Edit3, Filter, SlidersHorizontal, ArrowUp, ArrowDown, Zap,
-  Eye, MoreHorizontal, Link, Search, UserPlus, Copy, Loader2
+  Eye, MoreHorizontal, Link, Search, UserPlus, Copy, Loader2,
+  CalendarDays
 } from 'lucide-react';
 import { useToast } from './components/ui/ToastProvider';
 import Modal from './components/Modal';
+import TareasPlanner, { getTodoPlannerDate } from './components/TareasPlanner';
+
+// Helper local YYYY-MM-DD
+function formatLocalDate(d) {
+  if (!d) return '';
+  const date = typeof d === 'string' ? new Date(d) : d;
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 // ---------- SUBCOMPONENTES ----------
 
@@ -128,6 +140,9 @@ export default function Tareas() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Modo de vista principal: 'lista' o 'planner'
+  const [viewMode, setViewMode] = useState('lista');
+
   // Estado del formulario
   const [showForm, setShowForm] = useState(false);
   const [editingTodo, setEditingTodo] = useState(null);
@@ -136,6 +151,7 @@ export default function Tareas() {
   const [priority, setPriority] = useState('media');
   const [slaDays, setSlaDays] = useState(3);
   const [assignedTo, setAssignedTo] = useState('');
+  const [dueDate, setDueDate] = useState('');
 
   // Confirmación de eliminación
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -221,7 +237,7 @@ export default function Tareas() {
     }
   }
 
-  // Filtros y orden
+  // Filtros y orden de vista lista
   const [activeTab, setActiveTab] = useState('pendientes'); // 'pendientes' | 'historial'
   const [searchTerm, setSearchTerm] = useState('');
   const [filterPriority, setFilterPriority] = useState('ALL');
@@ -273,6 +289,7 @@ export default function Tareas() {
     return Math.floor((new Date(completedAt) - new Date(createdAt)) / (1000*60*60*24));
   };
   const formatRelativeTime = (dateString) => {
+    if (!dateString) return '';
     const date = new Date(dateString);
     const now = new Date();
     const diffSec = Math.floor((now - date) / 1000);
@@ -307,7 +324,7 @@ export default function Tareas() {
     ? (completedTodos.reduce((acc, t) => acc + getResolutionDays(t.created_at, t.completed_at), 0) / completedTodos.length).toFixed(1)
     : '0';
 
-  // Filtrado y ordenamiento (base)
+  // Filtrado y ordenamiento (base lista)
   const filteredTodos = useMemo(() => {
     let filtered = [...todos];
     if (debouncedSearch) {
@@ -343,18 +360,32 @@ export default function Tareas() {
     return filtered;
   }, [todos, debouncedSearch, filterPriority, filterSlaStatus, filterAssignee, sortBy, sortOrder, currentUser]);
 
-  // Separar por pestaña
+  // Separar por pestaña lista
   const displayTodos = useMemo(() => {
     if (activeTab === 'pendientes') return filteredTodos.filter(t => t.status !== 'completado');
     else return filteredTodos.filter(t => t.status === 'completado');
   }, [filteredTodos, activeTab]);
 
-  // Acciones
-  const openNewForm = () => {
+  // Acciones de formulario
+  const openNewForm = (defaultDate = null) => {
     setEditingTodo(null);
-    setTitle(''); setDescription(''); setPriority('media'); setSlaDays(3); setAssignedTo('');
+    setTitle('');
+    setDescription('');
+    setPriority('media');
+    setSlaDays(3);
+    setAssignedTo('');
+
+    if (defaultDate) {
+      setDueDate(defaultDate);
+    } else {
+      const d = new Date();
+      d.setDate(d.getDate() + 3);
+      setDueDate(formatLocalDate(d));
+    }
+
     setShowForm(true);
   };
+
   const openEditForm = (todo) => {
     setEditingTodo(todo);
     setTitle(todo.title);
@@ -362,11 +393,14 @@ export default function Tareas() {
     setPriority(todo.priority);
     setSlaDays(todo.sla_days);
     setAssignedTo(todo.assigned_to || '');
+    setDueDate(todo.due_date || getTodoPlannerDate(todo) || '');
     setShowForm(true);
   };
+
   const closeForm = () => {
     setShowForm(false);
     setEditingTodo(null);
+    setDueDate('');
   };
 
   const handleSave = async (e) => {
@@ -379,6 +413,7 @@ export default function Tareas() {
       sla_days: Number(slaDays),
       assigned_to: assignedTo || null,
       status: editingTodo ? editingTodo.status : 'pendiente',
+      due_date: dueDate || null
     };
     try {
       if (editingTodo) {
@@ -390,7 +425,7 @@ export default function Tareas() {
         payload.created_at = new Date().toISOString();
         const { error } = await supabase.from('todos').insert([payload]);
         if (error) throw error;
-        addToast('Tarea creada.', 'success');
+        addToast('Tarea creada y agendada.', 'success');
       }
       closeForm();
       loadInitialData();
@@ -417,6 +452,23 @@ export default function Tareas() {
     }
   };
 
+  // Reprogramar fecha desde el Planner (Drag & Drop o Datepicker)
+  const handleReschedule = async (todoId, newDateStr) => {
+    try {
+      const { error } = await supabase
+        .from('todos')
+        .update({ due_date: newDateStr })
+        .eq('id', todoId);
+      if (error) throw error;
+
+      setTodos(prev => prev.map(t => t.id === todoId ? { ...t, due_date: newDateStr } : t));
+      addToast(`Tarea reprogramada para el ${newDateStr}.`, 'success');
+    } catch (err) {
+      console.error(err);
+      addToast('Error al reprogramar la tarea.', 'error');
+    }
+  };
+
   const requestDelete = (todo) => setDeleteTarget(todo);
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -432,20 +484,21 @@ export default function Tareas() {
     }
   };
 
-  // Render de fila (compartido entre pestañas)
+  // Render de fila en Vista Lista
   const renderTaskRow = (todo) => {
     const slaStatus = getSlaStatus(todo);
     const assignedIds = todo.assigned_to ? todo.assigned_to.split(',') : [];
     const assignedUsers = assignedIds.map(id => usuarios.find(u => u.id === id)).filter(Boolean);
     const creatorEmail = usuarios.find(u => u.id === todo.user_id)?.email || 'Sistema';
     const isCompleted = todo.status === 'completado';
+    const plannerDate = getTodoPlannerDate(todo);
 
     return (
       <div
         key={todo.id}
         style={{
           display: 'grid',
-          gridTemplateColumns: '40px 100px 1fr 140px 140px 120px 80px',
+          gridTemplateColumns: '40px 100px 1fr 140px 140px 150px 80px',
           alignItems: 'center',
           gap: 12,
           padding: '10px 16px',
@@ -546,9 +599,19 @@ export default function Tareas() {
           <SlaBadge status={slaStatus} />
         </div>
 
-        {/* Fecha */}
-        <div style={{ fontSize: 12, color: '#64748b' }}>
-          {formatRelativeTime(todo.created_at)}
+        {/* Fecha Agendada y Creación */}
+        <div style={{ fontSize: 12, color: '#64748b', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {plannerDate ? (
+            <div style={{ fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Calendar size={12} style={{ color: '#2563eb' }} />
+              <span>{new Date(plannerDate + 'T12:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })}</span>
+            </div>
+          ) : (
+            <span style={{ color: '#94a3b8', fontSize: 11 }}>Sin agendar</span>
+          )}
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>
+            {formatRelativeTime(todo.created_at)}
+          </span>
         </div>
 
         {/* Acciones */}
@@ -580,33 +643,86 @@ export default function Tareas() {
     <div style={{ padding: '24px 32px', maxWidth: '1440px', margin: '0 auto', fontFamily: 'Inter, system-ui, sans-serif' }}>
       
       {/* CABECERA */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 16 }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
             <ClipboardList size={28} style={{ color: '#2563eb' }} />
-            Tablero de Gestión
+            Tablero de Gestión y Planner
           </h1>
           <p style={{ color: '#64748b', fontSize: 14, margin: '4px 0 0' }}>
-            {pendingTodos.length} pendientes · {completedTodos.length} completadas
+            {pendingTodos.length} pendientes • {completedTodos.length} completadas
           </p>
         </div>
-        <button
-          onClick={openNewForm}
-          style={{
-            background: '#2563eb', color: 'white', border: 'none',
-            padding: '10px 20px', borderRadius: 8, fontWeight: 600,
-            display: 'flex', alignItems: 'center', gap: 6,
-            cursor: 'pointer', boxShadow: '0 2px 8px rgba(37,99,235,0.3)',
-            transition: '0.2s'
-          }}
-          onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
-          onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
-        >
-          <Plus size={18} /> Nueva Solicitud
-        </button>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {/* Selector de Vista: Lista vs Planner */}
+          <div style={{
+            display: 'flex',
+            background: '#f1f5f9',
+            padding: 3,
+            borderRadius: 10,
+            border: '1px solid #e2e8f0'
+          }}>
+            <button
+              onClick={() => setViewMode('lista')}
+              style={{
+                padding: '7px 14px',
+                borderRadius: 8,
+                border: 'none',
+                background: viewMode === 'lista' ? '#ffffff' : 'transparent',
+                color: viewMode === 'lista' ? '#0f172a' : '#64748b',
+                fontWeight: 600,
+                fontSize: 13,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                cursor: 'pointer',
+                boxShadow: viewMode === 'lista' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <ClipboardList size={16} /> Lista
+            </button>
+            <button
+              onClick={() => setViewMode('planner')}
+              style={{
+                padding: '7px 14px',
+                borderRadius: 8,
+                border: 'none',
+                background: viewMode === 'planner' ? '#ffffff' : 'transparent',
+                color: viewMode === 'planner' ? '#0f172a' : '#64748b',
+                fontWeight: 600,
+                fontSize: 13,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                cursor: 'pointer',
+                boxShadow: viewMode === 'planner' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <CalendarDays size={16} /> Planner / Calendario
+            </button>
+          </div>
+
+          <button
+            onClick={() => openNewForm()}
+            style={{
+              background: '#2563eb', color: 'white', border: 'none',
+              padding: '10px 20px', borderRadius: 8, fontWeight: 600,
+              display: 'flex', alignItems: 'center', gap: 6,
+              cursor: 'pointer', boxShadow: '0 2px 8px rgba(37,99,235,0.3)',
+              transition: '0.2s'
+            }}
+            onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
+            onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+          >
+            <Plus size={18} /> Nueva Solicitud
+          </button>
+        </div>
       </div>
 
-      {/* KPIs */}
+      {/* KPIs GENERALES */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
@@ -647,7 +763,7 @@ export default function Tareas() {
               {pendingTodos.length}
             </div>
             <div style={{ fontSize: '12px', color: '#22c55e', marginTop: '4px', fontWeight: 500 }}>
-              ▲ 0% vs semana ant.
+              En gestión activa
             </div>
           </div>
         </div>
@@ -764,166 +880,203 @@ export default function Tareas() {
               {avgResolution} días
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 500 }}>
-              últimas {completedTodos.length} tareas
+              Últimas {completedTodos.length} tareas
             </div>
           </div>
         </div>
       </div>
 
-      {/* FILTROS */}
-      <div style={{
-        display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center',
-        marginBottom: 20, background: '#ffffff', padding: '12px 16px',
-        borderRadius: 10, border: '1px solid #e2e8f0'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '1 1 200px' }}>
-          <Search size={16} style={{ color: '#94a3b8' }} />
-          <input
-            type="text"
-            placeholder="Buscar por título, descripción..."
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            style={{
-              border: 'none', outline: 'none', flex: 1, padding: '6px 0',
-              fontSize: 14, background: 'transparent'
-            }}
-          />
-        </div>
-
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-          <button
-            onClick={() => setFilterAssignee('ALL')}
-            style={{
-              padding: '4px 12px', borderRadius: 16, border: '1px solid #e2e8f0',
-              background: filterAssignee === 'ALL' ? '#e2e8f0' : 'transparent',
-              fontSize: 12, fontWeight: 500, cursor: 'pointer'
-            }}
-          >Todos</button>
-          <button
-            onClick={() => setFilterAssignee('MY_TASKS')}
-            style={{
-              padding: '4px 12px', borderRadius: 16, border: '1px solid #e2e8f0',
-              background: filterAssignee === 'MY_TASKS' ? '#e2e8f0' : 'transparent',
-              fontSize: 12, fontWeight: 500, cursor: 'pointer'
-            }}
-          >Mis tareas</button>
-          <select
-            value={filterAssignee !== 'ALL' && filterAssignee !== 'MY_TASKS' ? filterAssignee : ''}
-            onChange={e => setFilterAssignee(e.target.value || 'ALL')}
-            style={{
-              padding: '3px 8px', borderRadius: 16, border: '1px solid #e2e8f0',
-              background: filterAssignee !== 'ALL' && filterAssignee !== 'MY_TASKS' ? '#e2e8f0' : 'transparent',
-              fontSize: 12, fontWeight: 500, cursor: 'pointer', outline: 'none'
-            }}
-          >
-            <option value="">Colaborador...</option>
-            {usuarios.map(u => <option key={u.id} value={u.id}>{u.email.split('@')[0]}</option>)}
-          </select>
-        </div>
-
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          {['ALL','baja','media','alta','urgente'].map(p => (
-            <button
-              key={p}
-              onClick={() => setFilterPriority(p)}
-              style={{
-                padding: '4px 10px', borderRadius: 16, border: '1px solid #e2e8f0',
-                background: filterPriority === p ? '#e2e8f0' : 'transparent',
-                fontSize: 12, fontWeight: 500, cursor: 'pointer'
-              }}
-            >{p === 'ALL' ? 'Prioridad' : p}</button>
-          ))}
-        </div>
-
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          {['ALL','PLAZO','RIESGO','VENCIDO'].map(s => (
-            <button
-              key={s}
-              onClick={() => setFilterSlaStatus(s)}
-              style={{
-                padding: '4px 10px', borderRadius: 16, border: '1px solid #e2e8f0',
-                background: filterSlaStatus === s ? '#e2e8f0' : 'transparent',
-                fontSize: 12, fontWeight: 500, cursor: 'pointer'
-              }}
-            >{s === 'ALL' ? 'SLA' : s}</button>
-          ))}
-        </div>
-
-        <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
-          <select
-            value={sortBy}
-            onChange={e => setSortBy(e.target.value)}
-            style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12 }}
-          >
-            <option value="created_at">Fecha</option>
-            <option value="priority">Prioridad</option>
-            <option value="sla_remaining">SLA restante</option>
-          </select>
-          <button
-            onClick={() => setSortOrder(o => o === 'asc' ? 'desc' : 'asc')}
-            style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 8px', cursor: 'pointer' }}
-          >
-            {sortOrder === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
-          </button>
-        </div>
-      </div>
-
-      {/* PESTAÑAS */}
+      {/* PESTAÑAS PRINCIPALES */}
       <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid #e2e8f0', marginBottom: 20 }}>
         <button
-          onClick={() => setActiveTab('pendientes')}
+          onClick={() => { setViewMode('lista'); setActiveTab('pendientes'); }}
           style={{
             padding: '10px 20px', background: 'none', border: 'none',
-            fontSize: 14, fontWeight: 600, color: activeTab === 'pendientes' ? '#2563eb' : '#64748b',
-            borderBottom: activeTab === 'pendientes' ? '2px solid #2563eb' : '2px solid transparent',
-            cursor: 'pointer', transition: '0.2s'
+            fontSize: 14, fontWeight: 600,
+            color: viewMode === 'lista' && activeTab === 'pendientes' ? '#2563eb' : '#64748b',
+            borderBottom: viewMode === 'lista' && activeTab === 'pendientes' ? '2px solid #2563eb' : '2px solid transparent',
+            cursor: 'pointer', transition: '0.2s', display: 'flex', alignItems: 'center', gap: 6
           }}
         >
-          Pendientes ({pendingTodos.length})
+          <ClipboardList size={16} /> Pendientes ({pendingTodos.length})
         </button>
+
         <button
-          onClick={() => setActiveTab('historial')}
+          onClick={() => setViewMode('planner')}
           style={{
             padding: '10px 20px', background: 'none', border: 'none',
-            fontSize: 14, fontWeight: 600, color: activeTab === 'historial' ? '#2563eb' : '#64748b',
-            borderBottom: activeTab === 'historial' ? '2px solid #2563eb' : '2px solid transparent',
-            cursor: 'pointer', transition: '0.2s'
+            fontSize: 14, fontWeight: 600,
+            color: viewMode === 'planner' ? '#2563eb' : '#64748b',
+            borderBottom: viewMode === 'planner' ? '2px solid #2563eb' : '2px solid transparent',
+            cursor: 'pointer', transition: '0.2s', display: 'flex', alignItems: 'center', gap: 6
           }}
         >
-          Historial ({completedTodos.length})
+          <CalendarDays size={16} /> Planner / Calendario
+        </button>
+
+        <button
+          onClick={() => { setViewMode('lista'); setActiveTab('historial'); }}
+          style={{
+            padding: '10px 20px', background: 'none', border: 'none',
+            fontSize: 14, fontWeight: 600,
+            color: viewMode === 'lista' && activeTab === 'historial' ? '#2563eb' : '#64748b',
+            borderBottom: viewMode === 'lista' && activeTab === 'historial' ? '2px solid #2563eb' : '2px solid transparent',
+            cursor: 'pointer', transition: '0.2s', display: 'flex', alignItems: 'center', gap: 6
+          }}
+        >
+          <CheckCircle size={16} /> Historial ({completedTodos.length})
         </button>
       </div>
 
-      {/* LISTA DE TAREAS */}
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: 40 }}>
-          <RefreshCw className="animate-spin" size={32} style={{ color: '#2563eb' }} />
-        </div>
-      ) : displayTodos.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
-          <ClipboardList size={40} style={{ opacity: 0.3, marginBottom: 12 }} />
-          <p style={{ fontWeight: 500 }}>No hay tareas {activeTab === 'pendientes' ? 'pendientes' : 'completadas'}.</p>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {/* Encabezado de columnas (solo visual) */}
-          <div style={{
-            display: 'grid', gridTemplateColumns: '40px 100px 1fr 140px 140px 120px 80px',
-            gap: 12, padding: '0 16px 8px', fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5
-          }}>
-            <span>Estado</span>
-            <span>Prioridad</span>
-            <span>Título</span>
-            <span>Asignado</span>
-            <span>SLA</span>
-            <span>Fecha</span>
-            <span style={{ textAlign: 'right' }}>Acciones</span>
+      {/* CONTENIDO PRINCIPAL: O PLANNER O LISTA */}
+      {viewMode === 'planner' ? (
+        loading ? (
+          <div style={{ textAlign: 'center', padding: 40 }}>
+            <RefreshCw className="animate-spin" size={32} style={{ color: '#2563eb' }} />
           </div>
-          {displayTodos.map(todo => renderTaskRow(todo))}
-        </div>
+        ) : (
+          <TareasPlanner
+            todos={todos}
+            usuarios={usuarios}
+            currentUser={currentUser}
+            onSelectTodo={(todo) => setSelectedTodo(todo)}
+            onNewTask={(dateStr) => openNewForm(dateStr)}
+            onToggleStatus={(todo) => toggleStatus(todo)}
+            onReschedule={handleReschedule}
+          />
+        )
+      ) : (
+        <>
+          {/* FILTROS VISTA LISTA */}
+          <div style={{
+            display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center',
+            marginBottom: 20, background: '#ffffff', padding: '12px 16px',
+            borderRadius: 10, border: '1px solid #e2e8f0'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '1 1 200px' }}>
+              <Search size={16} style={{ color: '#94a3b8' }} />
+              <input
+                type="text"
+                placeholder="Buscar por título, descripción..."
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                style={{
+                  border: 'none', outline: 'none', flex: 1, padding: '6px 0',
+                  fontSize: 14, background: 'transparent'
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                onClick={() => setFilterAssignee('ALL')}
+                style={{
+                  padding: '4px 12px', borderRadius: 16, border: '1px solid #e2e8f0',
+                  background: filterAssignee === 'ALL' ? '#e2e8f0' : 'transparent',
+                  fontSize: 12, fontWeight: 500, cursor: 'pointer'
+                }}
+              >Todos</button>
+              <button
+                onClick={() => setFilterAssignee('MY_TASKS')}
+                style={{
+                  padding: '4px 12px', borderRadius: 16, border: '1px solid #e2e8f0',
+                  background: filterAssignee === 'MY_TASKS' ? '#e2e8f0' : 'transparent',
+                  fontSize: 12, fontWeight: 500, cursor: 'pointer'
+                }}
+              >Mis tareas</button>
+              <select
+                value={filterAssignee !== 'ALL' && filterAssignee !== 'MY_TASKS' ? filterAssignee : ''}
+                onChange={e => setFilterAssignee(e.target.value || 'ALL')}
+                style={{
+                  padding: '3px 8px', borderRadius: 16, border: '1px solid #e2e8f0',
+                  background: filterAssignee !== 'ALL' && filterAssignee !== 'MY_TASKS' ? '#e2e8f0' : 'transparent',
+                  fontSize: 12, fontWeight: 500, cursor: 'pointer', outline: 'none'
+                }}
+              >
+                <option value="">Colaborador...</option>
+                {usuarios.map(u => <option key={u.id} value={u.id}>{u.email.split('@')[0]}</option>)}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              {['ALL','baja','media','alta','urgente'].map(p => (
+                <button
+                  key={p}
+                  onClick={() => setFilterPriority(p)}
+                  style={{
+                    padding: '4px 10px', borderRadius: 16, border: '1px solid #e2e8f0',
+                    background: filterPriority === p ? '#e2e8f0' : 'transparent',
+                    fontSize: 12, fontWeight: 500, cursor: 'pointer'
+                  }}
+                >{p === 'ALL' ? 'Prioridad' : p}</button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              {['ALL','PLAZO','RIESGO','VENCIDO'].map(s => (
+                <button
+                  key={s}
+                  onClick={() => setFilterSlaStatus(s)}
+                  style={{
+                    padding: '4px 10px', borderRadius: 16, border: '1px solid #e2e8f0',
+                    background: filterSlaStatus === s ? '#e2e8f0' : 'transparent',
+                    fontSize: 12, fontWeight: 500, cursor: 'pointer'
+                  }}
+                >{s === 'ALL' ? 'SLA' : s}</button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+              <select
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value)}
+                style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12 }}
+              >
+                <option value="created_at">Fecha Creación</option>
+                <option value="priority">Prioridad</option>
+                <option value="sla_remaining">SLA restante</option>
+              </select>
+              <button
+                onClick={() => setSortOrder(o => o === 'asc' ? 'desc' : 'asc')}
+                style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 8px', cursor: 'pointer' }}
+              >
+                {sortOrder === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
+              </button>
+            </div>
+          </div>
+
+          {/* LISTA DE TAREAS */}
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: 40 }}>
+              <RefreshCw className="animate-spin" size={32} style={{ color: '#2563eb' }} />
+            </div>
+          ) : displayTodos.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
+              <ClipboardList size={40} style={{ opacity: 0.3, marginBottom: 12 }} />
+              <p style={{ fontWeight: 500 }}>No hay tareas {activeTab === 'pendientes' ? 'pendientes' : 'completadas'}.</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {/* Encabezado de columnas */}
+              <div style={{
+                display: 'grid', gridTemplateColumns: '40px 100px 1fr 140px 140px 150px 80px',
+                gap: 12, padding: '0 16px 8px', fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5
+              }}>
+                <span>Estado</span>
+                <span>Prioridad</span>
+                <span>Título</span>
+                <span>Asignado</span>
+                <span>SLA</span>
+                <span>Agendada / Creada</span>
+                <span style={{ textAlign: 'right' }}>Acciones</span>
+              </div>
+              {displayTodos.map(todo => renderTaskRow(todo))}
+            </div>
+          )}
+        </>
       )}
 
-      {/* MODAL FORMULARIO */}
+      {/* MODAL FORMULARIO: CREAR O EDITAR SOLICITUD */}
       <Modal isOpen={showForm} onClose={closeForm} title={editingTodo ? 'Editar Solicitud' : 'Nueva Solicitud'} maxWidth="720px">
         <form onSubmit={handleSave} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
           {/* Columna izquierda: campos */}
@@ -939,17 +1092,19 @@ export default function Tareas() {
                 required
               />
             </div>
+
             <div>
               <label style={{ fontWeight: 600, fontSize: 12, color: '#475569' }}>Descripción</label>
               <textarea
                 value={description}
                 onChange={e => setDescription(e.target.value)}
-                rows={4}
+                rows={3}
                 className="premium-input"
                 style={{ width: '100%', padding: '8px 12px', marginTop: 4, resize: 'vertical' }}
                 placeholder="Detalles adicionales..."
               />
             </div>
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
                 <label style={{ fontWeight: 600, fontSize: 12, color: '#475569' }}>Prioridad</label>
@@ -965,11 +1120,20 @@ export default function Tareas() {
                   <option value="urgente">Urgente</option>
                 </select>
               </div>
+
               <div>
                 <label style={{ fontWeight: 600, fontSize: 12, color: '#475569' }}>SLA (días)</label>
                 <select
                   value={slaDays}
-                  onChange={e => setSlaDays(Number(e.target.value))}
+                  onChange={e => {
+                    const val = Number(e.target.value);
+                    setSlaDays(val);
+                    if (!editingTodo && !dueDate) {
+                      const d = new Date();
+                      d.setDate(d.getDate() + val);
+                      setDueDate(formatLocalDate(d));
+                    }
+                  }}
                   className="premium-input"
                   style={{ width: '100%', padding: '8px 12px', marginTop: 4 }}
                 >
@@ -977,6 +1141,22 @@ export default function Tareas() {
                 </select>
               </div>
             </div>
+
+            {/* Fecha Agendada / Vencimiento */}
+            <div>
+              <label style={{ fontWeight: 600, fontSize: 12, color: '#475569', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Calendar size={13} style={{ color: '#2563eb' }} /> Fecha Agendada / Vencimiento *
+              </label>
+              <input
+                type="date"
+                value={dueDate}
+                onChange={e => setDueDate(e.target.value)}
+                className="premium-input"
+                style={{ width: '100%', padding: '8px 12px', marginTop: 4 }}
+                required
+              />
+            </div>
+
             <div>
               <label style={{ fontWeight: 600, fontSize: 12, color: '#475569', display: 'block', marginBottom: '6px' }}>Asignar a (uno o más)</label>
               <div style={{
@@ -1015,6 +1195,7 @@ export default function Tareas() {
                 {usuarios.length === 0 && <span style={{ fontSize: '12px', color: '#94a3b8' }}>No hay colaboradores disponibles</span>}
               </div>
             </div>
+
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
               <button type="button" onClick={closeForm} style={{ padding: '8px 16px', background: '#f1f5f9', border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
               <button type="submit" style={{ padding: '8px 20px', background: '#2563eb', color: 'white', border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer' }}>
@@ -1025,7 +1206,7 @@ export default function Tareas() {
 
           {/* Columna derecha: Preview */}
           <div style={{ background: '#f8fafc', borderRadius: 8, padding: 16, border: '1px solid #e2e8f0' }}>
-            <p style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginTop: 0, marginBottom: 12 }}>Vista previa</p>
+            <p style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginTop: 0, marginBottom: 12 }}>Vista previa de la ficha</p>
             <div style={{
               padding: 12, borderRadius: 8, background: '#ffffff',
               borderLeft: `4px solid ${
@@ -1042,9 +1223,14 @@ export default function Tareas() {
               {description && (
                 <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>{description}</div>
               )}
-              <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#94a3b8' }}>
-                <span>Asignado: {assignedTo ? usuarios.find(u => u.id === assignedTo)?.email || '—' : 'Sin asignar'}</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#64748b' }}>
+                <span>Asignado: {assignedTo ? usuarios.filter(u => assignedTo.split(',').includes(u.id)).map(u => u.email.split('@')[0]).join(', ') : 'Sin asignar'}</span>
                 <span>SLA: {slaDays} días</span>
+                {dueDate && (
+                  <span style={{ color: '#2563eb', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Calendar size={13} /> Agendada para: {dueDate}
+                  </span>
+                )}
               </div>
               <div style={{ marginTop: 8 }}>
                 <SlaProgress todo={{ status: 'pendiente', created_at: new Date().toISOString(), sla_days: slaDays }} size="small" />
@@ -1080,6 +1266,7 @@ export default function Tareas() {
           const isCompleted = selectedTodo.status === 'completado';
           const elapsed = getElapsedDays(selectedTodo.created_at);
           const total = selectedTodo.sla_days;
+          const plannerDate = getTodoPlannerDate(selectedTodo);
           
           return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -1177,9 +1364,21 @@ export default function Tareas() {
                 </div>
 
                 <div>
+                  <span style={{ fontSize: '12px', color: '#64748b', display: 'block', marginBottom: '4px' }}>Fecha Agendada / Vencimiento</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#0f172a', fontWeight: 600 }}>
+                    <Calendar size={14} style={{ color: '#2563eb' }} />
+                    <span>
+                      {plannerDate 
+                        ? new Date(plannerDate + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' })
+                        : 'No especificada'}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
                   <span style={{ fontSize: '12px', color: '#64748b', display: 'block', marginBottom: '4px' }}>Fecha de creación</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#334155', fontWeight: 500 }}>
-                    <Calendar size={14} style={{ color: '#64748b' }} />
+                    <Clock size={14} style={{ color: '#64748b' }} />
                     <span>{new Date(selectedTodo.created_at).toLocaleString('es-AR')}</span>
                   </div>
                 </div>
@@ -1199,11 +1398,11 @@ export default function Tareas() {
                 </div>
                 
                 {isCompleted && selectedTodo.completed_at && (
-                  <div style={{ gridColumn: 'span 2' }}>
+                  <div>
                     <span style={{ fontSize: '12px', color: '#64748b', display: 'block', marginBottom: '4px' }}>Fecha de resolución</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#22c55e', fontWeight: 600 }}>
                       <CheckCircle size={14} />
-                      <span>{new Date(selectedTodo.completed_at).toLocaleString('es-AR')} (Resuelto en {getResolutionDays(selectedTodo.created_at, selectedTodo.completed_at)} días)</span>
+                      <span>{new Date(selectedTodo.completed_at).toLocaleString('es-AR')}</span>
                     </div>
                   </div>
                 )}
