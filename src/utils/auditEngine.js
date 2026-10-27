@@ -93,9 +93,9 @@ export function calculateAuditLine(consumo, lineInfo, config = {}) {
       const pName = ((lineInfo?.plan || '') + ' ' + (dbInfo?.nombre_plan || '') + ' ' + (consumo.plan || '')).toUpperCase();
 
       const precioOficialClaro = Number(
-        config.historicalPrice?.precio_lista || 
         consumo.precio_lista_audit || 
         consumo.precio_lista_factura || 
+        config.historicalPrice?.precio_lista || 
         lineInfo?.planes_abonos?.precio || 
         dbInfo?.precio || 
         0
