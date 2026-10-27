@@ -97,7 +97,7 @@ export default function TareasPlanner({
 }) {
   // Estado del mes y año visualizados en el calendario
   const [currentDate, setCurrentDate] = useState(() => new Date());
-  const [selectedDayModal, setSelectedDayModal] = useState(null);
+  const [selectedDayDate, setSelectedDayDate] = useState(null); // Guarda solo la fecha string 'YYYY-MM-DD'
   const [showCompleted, setShowCompleted] = useState(false); // Ocultas por defecto para no saturar los días
   const [dragOverDate, setDragOverDate] = useState(null);
   const [hoveredCardDate, setHoveredCardDate] = useState(null);
@@ -182,6 +182,12 @@ export default function TareasPlanner({
     });
     return map;
   }, [filteredTodos]);
+
+  // Tareas dinámicas para el modal del día abierto actualmente (reactivas a cualquier cambio)
+  const selectedDayTasks = useMemo(() => {
+    if (!selectedDayDate) return [];
+    return tasksByDate[selectedDayDate] || [];
+  }, [selectedDayDate, tasksByDate]);
 
   // Cálculo de días a renderizar en la cuadrícula del mes
   const calendarCells = useMemo(() => {
@@ -704,7 +710,7 @@ export default function TareasPlanner({
                 onDrop={(e) => handleDrop(e, cell.dateStr)}
                 onClick={() => {
                   if (hasTasks) {
-                    setSelectedDayModal(cell);
+                    setSelectedDayDate(cell.dateStr);
                   } else {
                     onNewTask && onNewTask(cell.dateStr);
                   }
@@ -769,7 +775,7 @@ export default function TareasPlanner({
                       <span
                         onClick={(e) => {
                           e.stopPropagation();
-                          setSelectedDayModal(cell);
+                          setSelectedDayDate(cell.dateStr);
                         }}
                         style={{
                           fontSize: 10.5,
@@ -909,7 +915,7 @@ export default function TareasPlanner({
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        setSelectedDayModal(cell);
+                        setSelectedDayDate(cell.dateStr);
                       }}
                       style={{
                         background: '#eff6ff',
@@ -952,8 +958,8 @@ export default function TareasPlanner({
         </div>
       </div>
 
-      {/* MODAL DETALLE DEL DÍA */}
-      {selectedDayModal && (
+      {/* MODAL DETALLE DEL DÍA (REACTIVO EN TIEMPO REAL) */}
+      {selectedDayDate && (
         <div style={{
           position: 'fixed',
           inset: 0,
@@ -988,17 +994,16 @@ export default function TareasPlanner({
             }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a', textTransform: 'capitalize' }}>
-                  {formatDayTitle(selectedDayModal.dateStr)}
+                  {formatDayTitle(selectedDayDate)}
                 </h3>
                 <span style={{ fontSize: 12, color: '#64748b' }}>
-                  {selectedDayModal.tasks?.length || 0} solicitudes agendadas
+                  {selectedDayTasks.length} solicitudes agendadas
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <button
                   onClick={() => {
-                    const date = selectedDayModal.dateStr;
-                    setSelectedDayModal(null);
+                    const date = selectedDayDate;
                     onNewTask && onNewTask(date);
                   }}
                   style={{
@@ -1018,7 +1023,7 @@ export default function TareasPlanner({
                   <Plus size={14} /> Agendar tarea
                 </button>
                 <button
-                  onClick={() => setSelectedDayModal(null)}
+                  onClick={() => setSelectedDayDate(null)}
                   style={{
                     background: 'none',
                     border: 'none',
@@ -1035,13 +1040,13 @@ export default function TareasPlanner({
 
             {/* Lista de Tareas del Día */}
             <div style={{ padding: 20, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {selectedDayModal.tasks?.length === 0 ? (
+              {selectedDayTasks.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '30px 10px', color: '#94a3b8' }}>
                   <Calendar size={36} style={{ opacity: 0.4, marginBottom: 8 }} />
                   <p style={{ margin: 0, fontSize: 14 }}>No hay tareas agendadas para este día.</p>
                 </div>
               ) : (
-                selectedDayModal.tasks.map(t => {
+                selectedDayTasks.map(t => {
                   const isCompleted = t.status === 'completado';
                   const pCol = getPriorityStyle(t.priority);
                   const assignedIds = t.assigned_to ? t.assigned_to.split(',') : [];
@@ -1051,7 +1056,6 @@ export default function TareasPlanner({
                     <div
                       key={t.id}
                       onClick={() => {
-                        setSelectedDayModal(null);
                         onSelectTodo && onSelectTodo(t);
                       }}
                       style={{
@@ -1161,7 +1165,7 @@ export default function TareasPlanner({
             {/* Footer Modal Día */}
             <div style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', background: '#f8fafc' }}>
               <button
-                onClick={() => setSelectedDayModal(null)}
+                onClick={() => setSelectedDayDate(null)}
                 style={{
                   padding: '6px 16px',
                   background: '#f1f5f9',

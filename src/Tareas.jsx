@@ -140,8 +140,8 @@ export default function Tareas() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Modo de vista principal: 'lista' o 'planner'
-  const [viewMode, setViewMode] = useState('lista');
+  // Modo de vista principal: 'planner' por defecto
+  const [viewMode, setViewMode] = useState('planner');
 
   // Estado del formulario
   const [showForm, setShowForm] = useState(false);
@@ -214,6 +214,11 @@ export default function Tareas() {
       // 2. Update task status if it changed
       if (commentStatus !== selectedTodo.status) {
         const completedAt = commentStatus === 'completado' ? new Date().toISOString() : null;
+        
+        // Optimistic update
+        setTodos(prev => prev.map(t => t.id === selectedTodo.id ? { ...t, status: commentStatus, completed_at: completedAt } : t));
+        setSelectedTodo(prev => ({ ...prev, status: commentStatus, completed_at: completedAt }));
+
         const { error: todoErr } = await supabase
           .from('todos')
           .update({ 
@@ -222,10 +227,6 @@ export default function Tareas() {
           })
           .eq('id', selectedTodo.id);
         if (todoErr) throw todoErr;
-
-        // Update local tasks state
-        setTodos(prev => prev.map(t => t.id === selectedTodo.id ? { ...t, status: commentStatus, completed_at: completedAt } : t));
-        setSelectedTodo(prev => ({ ...prev, status: commentStatus, completed_at: completedAt }));
       }
 
       addToast('Avance registrado correctamente.', 'success');
@@ -258,8 +259,47 @@ export default function Tareas() {
     loadInitialData();
   }, []);
 
-  async function loadInitialData() {
-    setLoading(true);
+  // Sincronización en tiempo real (Supabase Realtime) sin necesidad de F5
+  useEffect(() => {
+    const channel = supabase
+      .channel('realtime_todos_board_sync')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'todos'
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newTodo = payload.new;
+            if (!newTodo) return;
+            setTodos(prev => {
+              if (prev.some(t => t.id === newTodo.id)) return prev;
+              return [newTodo, ...prev];
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            const updatedTodo = payload.new;
+            if (!updatedTodo) return;
+            setTodos(prev => prev.map(t => t.id === updatedTodo.id ? { ...t, ...updatedTodo } : t));
+            setSelectedTodo(prev => prev?.id === updatedTodo.id ? { ...prev, ...updatedTodo } : prev);
+          } else if (payload.eventType === 'DELETE') {
+            const deletedId = payload.old?.id;
+            if (!deletedId) return;
+            setTodos(prev => prev.filter(t => t.id !== deletedId));
+            setSelectedTodo(prev => prev?.id === deletedId ? null : prev);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  async function loadInitialData(isSilent = false) {
+    if (!isSilent) setLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) setCurrentUser(session.user);
@@ -275,9 +315,9 @@ export default function Tareas() {
       setTodos(dbTodos || []);
     } catch (err) {
       console.error(err);
-      addToast('Error al cargar datos.', 'error');
+      if (!isSilent) addToast('Error al cargar datos.', 'error');
     } finally {
-      setLoading(false);
+      if (!isSilent) setLoading(false);
     }
   }
 
@@ -417,18 +457,39 @@ export default function Tareas() {
     };
     try {
       if (editingTodo) {
-        const { error } = await supabase.from('todos').update(payload).eq('id', editingTodo.id);
+        const { data: updated, error } = await supabase
+          .from('todos')
+          .update(payload)
+          .eq('id', editingTodo.id)
+          .select()
+          .single();
         if (error) throw error;
+        
+        // Actualización optimista inmediata
+        setTodos(prev => prev.map(t => t.id === editingTodo.id ? (updated || { ...t, ...payload }) : t));
+        if (selectedTodo?.id === editingTodo.id) {
+          setSelectedTodo(prev => ({ ...prev, ...(updated || payload) }));
+        }
         addToast('Tarea actualizada.', 'success');
       } else {
         payload.user_id = currentUser?.id || null;
         payload.created_at = new Date().toISOString();
-        const { error } = await supabase.from('todos').insert([payload]);
+        const { data: created, error } = await supabase
+          .from('todos')
+          .insert([payload])
+          .select()
+          .single();
         if (error) throw error;
+        
+        // Actualización optimista inmediata
+        if (created) {
+          setTodos(prev => [created, ...prev]);
+        }
         addToast('Tarea creada y agendada.', 'success');
       }
       closeForm();
-      loadInitialData();
+      // Refresco silencioso de respaldo sin pantalla de carga
+      loadInitialData(true);
     } catch (err) {
       console.error(err);
       addToast('Error al guardar.', 'error');
@@ -438,33 +499,45 @@ export default function Tareas() {
   const toggleStatus = async (todo) => {
     const newStatus = todo.status === 'completado' ? 'pendiente' : 'completado';
     const completedAt = newStatus === 'completado' ? new Date().toISOString() : null;
+
+    // Actualización optimista inmediata
+    setTodos(prev => prev.map(t => t.id === todo.id ? { ...t, status: newStatus, completed_at: completedAt } : t));
+    if (selectedTodo?.id === todo.id) {
+      setSelectedTodo(prev => ({ ...prev, status: newStatus, completed_at: completedAt }));
+    }
+
     try {
       const { error } = await supabase
         .from('todos')
         .update({ status: newStatus, completed_at: completedAt })
         .eq('id', todo.id);
       if (error) throw error;
-      setTodos(prev => prev.map(t => t.id === todo.id ? { ...t, status: newStatus, completed_at: completedAt } : t));
       addToast(newStatus === 'completado' ? 'Tarea completada.' : 'Tarea reabierta.', 'success');
     } catch (err) {
       console.error(err);
+      loadInitialData(true);
       addToast('Error al actualizar estado.', 'error');
     }
   };
 
   // Reprogramar fecha desde el Planner (Drag & Drop o Datepicker)
   const handleReschedule = async (todoId, newDateStr) => {
+    // Actualización optimista inmediata
+    setTodos(prev => prev.map(t => t.id === todoId ? { ...t, due_date: newDateStr } : t));
+    if (selectedTodo?.id === todoId) {
+      setSelectedTodo(prev => ({ ...prev, due_date: newDateStr }));
+    }
+
     try {
       const { error } = await supabase
         .from('todos')
         .update({ due_date: newDateStr })
         .eq('id', todoId);
       if (error) throw error;
-
-      setTodos(prev => prev.map(t => t.id === todoId ? { ...t, due_date: newDateStr } : t));
       addToast(`Tarea reprogramada para el ${newDateStr}.`, 'success');
     } catch (err) {
       console.error(err);
+      loadInitialData(true);
       addToast('Error al reprogramar la tarea.', 'error');
     }
   };
@@ -472,15 +545,19 @@ export default function Tareas() {
   const requestDelete = (todo) => setDeleteTarget(todo);
   const confirmDelete = async () => {
     if (!deleteTarget) return;
+    const targetId = deleteTarget.id;
     try {
-      const { error } = await supabase.from('todos').delete().eq('id', deleteTarget.id);
+      // Actualización optimista inmediata
+      setTodos(prev => prev.filter(t => t.id !== targetId));
+      if (selectedTodo?.id === targetId) setSelectedTodo(null);
+      setDeleteTarget(null);
+
+      const { error } = await supabase.from('todos').delete().eq('id', targetId);
       if (error) throw error;
-      setTodos(prev => prev.filter(t => t.id !== deleteTarget.id));
       addToast('Tarea eliminada.', 'success');
     } catch (err) {
       addToast('Error al eliminar.', 'error');
-    } finally {
-      setDeleteTarget(null);
+      loadInitialData(true);
     }
   };
 
@@ -655,7 +732,7 @@ export default function Tareas() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {/* Selector de Vista: Lista vs Planner */}
+          {/* Selector de Vista: Lista vs Planner (Planner predeterminado) */}
           <div style={{
             display: 'flex',
             background: '#f1f5f9',
