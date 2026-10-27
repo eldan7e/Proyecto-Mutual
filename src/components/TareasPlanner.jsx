@@ -24,8 +24,23 @@ function formatLocalDate(d) {
   return `${year}-${month}-${day}`;
 }
 
+// Formatear títulos de tareas del sistema para que no saturen la tarjeta
+function formatTaskTitle(title) {
+  if (!title) return '';
+  if (title.toUpperCase().includes('VENCIMIENTO BONIFICACION')) {
+    const match = title.match(/(\d+)\s*\(([^)]+)\)/);
+    if (match) {
+      const [_, phone, name] = match;
+      const shortName = name.split(',')[0].trim();
+      return `Bonif. ${phone} (${shortName})`;
+    }
+    return title.replace(/VENCIMIENTO BONIFICACION\s*-\s*/i, 'Bonif. ');
+  }
+  return title;
+}
+
 // Avatar con inicial
-function PlannerUserAvatar({ email, size = 20 }) {
+function PlannerUserAvatar({ email, size = 18 }) {
   if (!email || email === 'Sin asignar') {
     return (
       <div style={{
@@ -61,7 +76,6 @@ function PlannerUserAvatar({ email, size = 20 }) {
 // Obtener fecha del planner para una tarea
 export function getTodoPlannerDate(todo) {
   if (todo.due_date) {
-    // Si viene en formato YYYY-MM-DD o ISO
     return todo.due_date.split('T')[0];
   }
   if (todo.created_at) {
@@ -83,9 +97,10 @@ export default function TareasPlanner({
 }) {
   // Estado del mes y año visualizados en el calendario
   const [currentDate, setCurrentDate] = useState(() => new Date());
-  const [selectedDayModal, setSelectedDayModal] = useState(null); // Para modal detalle del día
-  const [showCompleted, setShowCompleted] = useState(true);
+  const [selectedDayModal, setSelectedDayModal] = useState(null);
+  const [showCompleted, setShowCompleted] = useState(false); // Ocultas por defecto para no saturar los días
   const [dragOverDate, setDragOverDate] = useState(null);
+  const [hoveredCardDate, setHoveredCardDate] = useState(null);
 
   // Filtros internos del planner
   const [plannerSearch, setPlannerSearch] = useState('');
@@ -174,10 +189,8 @@ export default function TareasPlanner({
     const daysInCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
     const daysInPrevMonth = new Date(currentYear, currentMonth, 0).getDate();
 
-    // En JS getDay(): 0 = Domingo, 1 = Lunes, ..., 6 = Sábado
-    // Ajustamos para que la semana empiece el Lunes (0 = Lunes, 6 = Domingo)
+    // Lunes = 0, Domingo = 6
     const startWeekdayOffset = (firstDayOfMonth.getDay() + 6) % 7;
-
     const cells = [];
 
     // 1. Días del mes anterior
@@ -228,7 +241,7 @@ export default function TareasPlanner({
     return cells;
   }, [currentYear, currentMonth, todayStr, tasksByDate]);
 
-  // Métricas específicas del mes actual en pantalla
+  // Métricas del mes actual en pantalla
   const monthStats = useMemo(() => {
     const prefix = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
     const monthTasks = todos.filter(t => {
@@ -284,12 +297,12 @@ export default function TareasPlanner({
   };
 
   // Color de prioridad
-  const getPriorityColor = (priority) => {
+  const getPriorityStyle = (priority) => {
     switch (priority) {
-      case 'urgente': return { border: '#dc2626', bg: '#fef2f2', text: '#991b1b', label: 'Urgente' };
-      case 'alta': return { border: '#ea580c', bg: '#fff7ed', text: '#9a3412', label: 'Alta' };
-      case 'media': return { border: '#2563eb', bg: '#eff6ff', text: '#1e40af', label: 'Media' };
-      case 'baja': default: return { border: '#16a34a', bg: '#f0fdf4', text: '#166534', label: 'Baja' };
+      case 'urgente': return { border: '#ef4444', bg: '#fef2f2', text: '#991b1b', dot: '#dc2626', label: 'Urgente' };
+      case 'alta': return { border: '#f97316', bg: '#fff7ed', text: '#9a3412', dot: '#ea580c', label: 'Alta' };
+      case 'media': return { border: '#3b82f6', bg: '#eff6ff', text: '#1e40af', dot: '#2563eb', label: 'Media' };
+      case 'baja': default: return { border: '#22c55e', bg: '#f0fdf4', text: '#166534', dot: '#16a34a', label: 'Baja' };
     }
   };
 
@@ -382,7 +395,7 @@ export default function TareasPlanner({
           </div>
 
           {/* Título y Selectores de Mes / Año */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <select
               value={currentMonth}
               onChange={(e) => handleMonthSelect(e.target.value)}
@@ -449,7 +462,7 @@ export default function TareasPlanner({
                 background: 'transparent',
                 outline: 'none',
                 fontSize: 13,
-                width: 140
+                width: 130
               }}
             />
             {plannerSearch && (
@@ -478,7 +491,7 @@ export default function TareasPlanner({
               outline: 'none'
             }}
           >
-            <option value="ALL">Todos los colaboradores</option>
+            <option value="ALL">Colaborador: Todos</option>
             <option value="MY_TASKS">Mis asignaciones</option>
             {usuarios.map(u => (
               <option key={u.id} value={u.id}>{u.email.split('@')[0]}</option>
@@ -501,36 +514,35 @@ export default function TareasPlanner({
               outline: 'none'
             }}
           >
-            <option value="ALL">Todas las prioridades</option>
+            <option value="ALL">Prioridad: Todas</option>
             <option value="urgente">Urgente</option>
             <option value="alta">Alta</option>
             <option value="media">Media</option>
             <option value="baja">Baja</option>
           </select>
 
-          {/* Toggle completadas */}
-          <label style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            fontSize: 12.5,
-            fontWeight: 500,
-            color: '#475569',
-            cursor: 'pointer',
-            userSelect: 'none',
-            background: showCompleted ? '#f1f5f9' : 'transparent',
-            padding: '6px 10px',
-            borderRadius: 8,
-            border: '1px solid #e2e8f0'
-          }}>
-            <input
-              type="checkbox"
-              checked={showCompleted}
-              onChange={(e) => setShowCompleted(e.target.checked)}
-              style={{ cursor: 'pointer' }}
-            />
-            <span>Completadas</span>
-          </label>
+          {/* Botón toggle completadas */}
+          <button
+            onClick={() => setShowCompleted(!showCompleted)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 12.5,
+              fontWeight: 600,
+              color: showCompleted ? '#2563eb' : '#64748b',
+              background: showCompleted ? '#eff6ff' : '#f8fafc',
+              padding: '7px 12px',
+              borderRadius: 8,
+              border: showCompleted ? '1px solid #bfdbfe' : '1px solid #e2e8f0',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
+            }}
+            title={showCompleted ? 'Ocultar tareas completadas del calendario' : 'Mostrar también las tareas ya completadas'}
+          >
+            <CheckCircle size={14} style={{ color: showCompleted ? '#2563eb' : '#94a3b8' }} />
+            <span>{showCompleted ? 'Completadas (visibles)' : 'Ocultando completadas'}</span>
+          </button>
 
           {/* Botón Agendar en Hoy */}
           <button
@@ -612,30 +624,33 @@ export default function TareasPlanner({
         </div>
       </div>
 
-      {/* CUADRÍCULA DEL CALENDARIO */}
+      {/* CONTENEDOR DEL CALENDARIO: TARJETAS REDONDEADAS POR DÍA */}
       <div style={{
         background: '#ffffff',
-        borderRadius: 16,
+        borderRadius: 20,
         border: '1px solid #e2e8f0',
-        overflow: 'hidden',
-        boxShadow: '0 4px 16px rgba(0,0,0,0.03)'
+        padding: 16,
+        boxShadow: '0 4px 20px rgba(0,0,0,0.03)'
       }}>
-        {/* Cabecera de Días de la Semana */}
+        {/* Cabecera de Días de la Semana (Pills elegantes exactamente alineadas) */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(7, 1fr)',
-          background: '#f8fafc',
-          borderBottom: '1px solid #e2e8f0'
+          gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
+          gap: 10,
+          marginBottom: 10
         }}>
           {WEEK_DAYS.map((dayName, idx) => (
             <div
               key={dayName}
               style={{
-                padding: '12px 8px',
+                padding: '9px 4px',
                 textAlign: 'center',
                 fontSize: 12,
                 fontWeight: 700,
-                color: idx >= 5 ? '#94a3b8' : '#475569',
+                color: idx >= 5 ? '#94a3b8' : '#334155',
+                background: '#f8fafc',
+                borderRadius: 10,
+                border: '1px solid #f1f5f9',
                 textTransform: 'uppercase',
                 letterSpacing: '0.6px'
               }}
@@ -645,120 +660,146 @@ export default function TareasPlanner({
           ))}
         </div>
 
-        {/* Celdas de los Días */}
+        {/* Cuadrícula de Tarjetas de Días */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(7, 1fr)',
-          background: '#e2e8f0', // Color para líneas de rejilla
-          gap: 1
+          gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
+          gap: 10
         }}>
           {calendarCells.map((cell) => {
             const isDragTarget = dragOverDate === cell.dateStr;
+            const isHovered = hoveredCardDate === cell.dateStr;
             const hasTasks = cell.tasks && cell.tasks.length > 0;
-            const maxVisible = 3;
+            const maxVisible = 2; // Mostrar máximo 2 para no romper la altura
             const visibleTasks = cell.tasks.slice(0, maxVisible);
             const extraCount = cell.tasks.length - maxVisible;
+
+            // Estilos del cuadrado según si es hoy, mes actual u otro mes
+            let cardBg = '#ffffff';
+            let cardBorder = '1px solid #e2e8f0';
+            let cardShadow = '0 1px 3px rgba(0,0,0,0.02)';
+            let cardOpacity = 1;
+
+            if (isDragTarget) {
+              cardBg = '#eff6ff';
+              cardBorder = '2px dashed #2563eb';
+              cardShadow = '0 0 0 3px rgba(37,99,235,0.15)';
+            } else if (cell.isToday) {
+              cardBg = '#ffffff';
+              cardBorder = '2px solid #2563eb';
+              cardShadow = '0 4px 14px rgba(37,99,235,0.12)';
+            } else if (!cell.isCurrentMonth) {
+              cardBg = '#fafbfd';
+              cardBorder = '1px dashed #e2e8f0';
+              cardOpacity = 0.55;
+            }
 
             return (
               <div
                 key={cell.dateStr}
+                onMouseEnter={() => setHoveredCardDate(cell.dateStr)}
+                onMouseLeave={() => setHoveredCardDate(null)}
                 onDragOver={(e) => handleDragOver(e, cell.dateStr)}
                 onDragLeave={(e) => handleDragLeave(e, cell.dateStr)}
                 onDrop={(e) => handleDrop(e, cell.dateStr)}
+                onClick={() => {
+                  if (hasTasks) {
+                    setSelectedDayModal(cell);
+                  } else {
+                    onNewTask && onNewTask(cell.dateStr);
+                  }
+                }}
                 style={{
-                  minHeight: 125,
-                  background: isDragTarget
-                    ? '#eff6ff'
-                    : cell.isCurrentMonth
-                      ? '#ffffff'
-                      : '#fbfcfd',
-                  padding: '8px 8px 10px',
+                  minHeight: 135,
+                  minWidth: 0, // Evita que se ensanche la columna
+                  background: cardBg,
+                  border: cardBorder,
+                  borderRadius: 14,
+                  padding: '10px 10px 8px',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: 4,
-                  transition: 'background-color 0.15s ease',
-                  border: isDragTarget ? '2px dashed #2563eb' : 'none',
+                  gap: 6,
+                  transition: 'all 0.16s ease',
+                  boxShadow: isHovered && !cell.isToday ? '0 4px 12px rgba(0,0,0,0.06)' : cardShadow,
+                  transform: isHovered && !cell.isToday ? 'translateY(-1px)' : 'none',
+                  opacity: cardOpacity,
+                  cursor: 'pointer',
                   position: 'relative'
                 }}
               >
-                {/* Cabecera del Día */}
+                {/* Cabecera de la Tarjeta del Día */}
                 <div style={{
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
-                  marginBottom: 2
+                  minHeight: 26
                 }}>
-                  {/* Número de día y badge 'Hoy' */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span
-                      onClick={() => hasTasks && setSelectedDayModal(cell)}
-                      style={{
-                        width: 24,
-                        height: 24,
-                        borderRadius: '50%',
-                        display: 'flex',
+                  {/* Número de día */}
+                  <div>
+                    {cell.isToday ? (
+                      <div style={{
+                        display: 'inline-flex',
                         alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 12.5,
-                        fontWeight: cell.isToday ? 800 : cell.isCurrentMonth ? 600 : 400,
-                        color: cell.isToday
-                          ? '#ffffff'
-                          : cell.isCurrentMonth
-                            ? '#0f172a'
-                            : '#94a3b8',
-                        background: cell.isToday ? '#2563eb' : 'transparent',
-                        cursor: hasTasks ? 'pointer' : 'default',
-                        boxShadow: cell.isToday ? '0 2px 6px rgba(37,99,235,0.35)' : 'none'
-                      }}
-                    >
-                      {cell.dayNumber}
-                    </span>
-
-                    {cell.isToday && (
-                      <span style={{
-                        fontSize: 10,
-                        fontWeight: 700,
-                        color: '#2563eb',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.4px'
+                        gap: 5,
+                        background: '#2563eb',
+                        color: 'white',
+                        padding: '2px 8px',
+                        borderRadius: 12,
+                        fontSize: 12,
+                        fontWeight: 800,
+                        boxShadow: '0 2px 6px rgba(37,99,235,0.3)'
                       }}>
-                        Hoy
+                        <span>{cell.dayNumber}</span>
+                        <span style={{ fontSize: 9.5, letterSpacing: 0.5 }}>HOY</span>
+                      </div>
+                    ) : (
+                      <span style={{
+                        fontSize: 14.5,
+                        fontWeight: 700,
+                        color: cell.isCurrentMonth ? '#1e293b' : '#94a3b8'
+                      }}>
+                        {cell.dayNumber}
                       </span>
                     )}
                   </div>
 
-                  {/* Acciones del día: Contador y Botón rápido '+' */}
+                  {/* Acciones del día: Contador y botón '+' en hover */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                     {hasTasks && (
                       <span
-                        onClick={() => setSelectedDayModal(cell)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedDayModal(cell);
+                        }}
                         style={{
                           fontSize: 10.5,
                           fontWeight: 700,
-                          color: '#64748b',
-                          background: '#f1f5f9',
+                          color: '#2563eb',
+                          background: '#eff6ff',
                           padding: '1px 6px',
-                          borderRadius: 10,
+                          borderRadius: 8,
+                          border: '1px solid #dbeafe',
                           cursor: 'pointer'
                         }}
-                        title={`${cell.tasks.length} tarea(s)`}
+                        title={`${cell.tasks.length} tareas agendadas`}
                       >
                         {cell.tasks.length}
                       </span>
                     )}
 
+                    {/* Botón '+' solo aparece en hover del día */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         onNewTask && onNewTask(cell.dateStr);
                       }}
                       style={{
-                        width: 22,
-                        height: 22,
+                        width: 20,
+                        height: 20,
                         borderRadius: 6,
                         border: 'none',
-                        background: 'transparent',
-                        color: '#94a3b8',
+                        background: isHovered ? '#eff6ff' : 'transparent',
+                        color: isHovered ? '#2563eb' : 'transparent',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -766,59 +807,54 @@ export default function TareasPlanner({
                         padding: 0,
                         transition: 'all 0.15s ease'
                       }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#eff6ff';
-                        e.currentTarget.style.color = '#2563eb';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = 'transparent';
-                        e.currentTarget.style.color = '#94a3b8';
-                      }}
                       title={`Agendar para el ${cell.dateStr}`}
                     >
-                      <Plus size={14} />
+                      <Plus size={13} />
                     </button>
                   </div>
                 </div>
 
                 {/* Lista de Fichas de Tareas para este día */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0, overflow: 'hidden' }}>
                   {visibleTasks.map((todo) => {
                     const isCompleted = todo.status === 'completado';
                     const isPastDue = !isCompleted && cell.dateStr < todayStr;
-                    const pCol = getPriorityColor(todo.priority);
+                    const pCol = getPriorityStyle(todo.priority);
                     const assignedIds = todo.assigned_to ? todo.assigned_to.split(',') : [];
                     const assignedUsers = assignedIds.map(id => usuarios.find(u => u.id === id)).filter(Boolean);
+                    const cleanTitle = formatTaskTitle(todo.title);
 
                     return (
                       <div
                         key={todo.id}
                         draggable={true}
                         onDragStart={(e) => handleDragStart(e, todo)}
-                        onClick={() => onSelectTodo && onSelectTodo(todo)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectTodo && onSelectTodo(todo);
+                        }}
                         style={{
-                          background: isCompleted ? '#f8fafc' : '#ffffff',
+                          background: isCompleted ? '#f8fafc' : pCol.bg,
                           border: `1px solid ${isPastDue ? '#fca5a5' : '#e2e8f0'}`,
                           borderLeft: `3px solid ${isPastDue ? '#dc2626' : pCol.border}`,
-                          borderRadius: 6,
-                          padding: '4px 6px',
-                          fontSize: 11.5,
+                          borderRadius: 7,
+                          padding: '3px 6px',
+                          fontSize: 11,
                           cursor: 'grab',
-                          boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: 6,
+                          gap: 5,
                           transition: 'all 0.15s ease',
-                          opacity: isCompleted ? 0.65 : 1
+                          opacity: isCompleted ? 0.65 : 1,
+                          minWidth: 0
                         }}
                         onMouseEnter={(e) => {
-                          e.currentTarget.style.transform = 'translateY(-1px)';
-                          e.currentTarget.style.boxShadow = '0 3px 8px rgba(0,0,0,0.08)';
+                          e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.08)';
                         }}
                         onMouseLeave={(e) => {
-                          e.currentTarget.style.transform = 'translateY(0)';
-                          e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.03)';
+                          e.currentTarget.style.boxShadow = 'none';
                         }}
+                        title={todo.title}
                       >
                         {/* Checkbox rápido */}
                         <button
@@ -838,62 +874,76 @@ export default function TareasPlanner({
                           }}
                           title={isCompleted ? 'Reabrir' : 'Completar'}
                         >
-                          {isCompleted ? <CheckCircle size={13} /> : <Square size={13} />}
+                          {isCompleted ? <CheckCircle size={12} /> : <Square size={12} />}
                         </button>
 
-                        {/* Título de la tarea */}
+                        {/* Título de la tarea estilizado */}
                         <span
                           style={{
                             fontWeight: 600,
-                            color: isCompleted ? '#64748b' : '#0f172a',
+                            color: isCompleted ? '#64748b' : pCol.text,
                             textDecoration: isCompleted ? 'line-through' : 'none',
                             whiteSpace: 'nowrap',
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
-                            flex: 1
+                            flex: 1,
+                            minWidth: 0
                           }}
-                          title={todo.title}
                         >
-                          {todo.title}
+                          {cleanTitle}
                         </span>
 
-                        {/* Avatar o alerta si está vencida */}
                         {isPastDue && (
-                          <AlertCircle size={12} style={{ color: '#dc2626', flexShrink: 0 }} title="Tarea con fecha vencida" />
+                          <AlertCircle size={11} style={{ color: '#dc2626', flexShrink: 0 }} title="Vencida" />
                         )}
 
                         {assignedUsers.length > 0 && (
-                          <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0, marginLeft: 2 }}>
-                            <PlannerUserAvatar email={assignedUsers[0].email} size={16} />
-                          </div>
+                          <PlannerUserAvatar email={assignedUsers[0].email} size={15} />
                         )}
                       </div>
                     );
                   })}
 
-                  {/* Botón "+X más" */}
+                  {/* Botón "+X más..." si hay muchas tareas */}
                   {extraCount > 0 && (
                     <button
-                      onClick={() => setSelectedDayModal(cell)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedDayModal(cell);
+                      }}
                       style={{
-                        background: '#f1f5f9',
-                        border: 'none',
-                        borderRadius: 4,
+                        background: '#eff6ff',
+                        border: '1px solid #dbeafe',
+                        borderRadius: 6,
                         padding: '3px 6px',
                         fontSize: 10.5,
                         fontWeight: 700,
                         color: '#2563eb',
                         cursor: 'pointer',
-                        textAlign: 'left',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        marginTop: 2
+                        marginTop: 1,
+                        width: '100%'
                       }}
                     >
-                      <span>+{extraCount} más...</span>
+                      <span>+{extraCount} más</span>
                       <ArrowRight size={10} />
                     </button>
+                  )}
+
+                  {/* Estado vacío con prompt suave en hover */}
+                  {!hasTasks && isHovered && (
+                    <div style={{
+                      margin: 'auto 0 0 0',
+                      fontSize: 10.5,
+                      color: '#94a3b8',
+                      textAlign: 'center',
+                      padding: '4px 0',
+                      fontWeight: 500
+                    }}>
+                      + Agendar
+                    </div>
                   )}
                 </div>
               </div>
@@ -993,7 +1043,7 @@ export default function TareasPlanner({
               ) : (
                 selectedDayModal.tasks.map(t => {
                   const isCompleted = t.status === 'completado';
-                  const pCol = getPriorityColor(t.priority);
+                  const pCol = getPriorityStyle(t.priority);
                   const assignedIds = t.assigned_to ? t.assigned_to.split(',') : [];
                   const assignedUsers = assignedIds.map(id => usuarios.find(u => u.id === id)).filter(Boolean);
 
