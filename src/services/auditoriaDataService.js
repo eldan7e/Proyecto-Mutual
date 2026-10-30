@@ -62,6 +62,24 @@ async function enrichConsumosWithAudit(consumos, periodo) {
       .eq('activo', true)
       .in('numero_linea', chunk);
     if (adicData) allAdicionales = [...allAdicionales, ...adicData];
+    // Fallback: incluir adicionales globales a nivel socio (sin numero_linea asignado)
+    const chunkSocioIds = [...new Set(chunkLineas.map(l => l.socio_id).filter(Boolean))];
+    if (chunkSocioIds.length > 0) {
+      const { data: globalAdics } = await supabase
+        .from('adicionales')
+        .select('*')
+        .eq('activo', true)
+        .is('numero_linea', null)
+        .in('socio_id', chunkSocioIds);
+      if (globalAdics && globalAdics.length > 0) {
+        chunkLineas.forEach(l => {
+          const matching = globalAdics.filter(ga => ga.socio_id === l.socio_id);
+          matching.forEach(ga => {
+            allAdicionales.push({ ...ga, numero_linea: l.numero_linea });
+          });
+        });
+      }
+    }
   }
 
   // Build lookup maps

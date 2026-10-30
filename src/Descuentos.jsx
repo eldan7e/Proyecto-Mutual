@@ -4,7 +4,7 @@ import {
   Tag, Search, AlertCircle, CheckCircle2, TrendingDown, 
   Smartphone, Plus, Edit2, Trash2, X, Filter, Calendar, 
   Loader2, RefreshCw, ShieldCheck, UserCheck, CreditCard,
-  Ticket, Check
+  Ticket, Check, Users, User, Phone
 } from 'lucide-react';
 import Modal from './components/Modal';
 import { 
@@ -99,6 +99,10 @@ export default function Descuentos() {
   const [crearTicketEnModal, setCrearTicketEnModal] = useState(true);
   const [socioSearch, setSocioSearch] = useState('');
   const [grupoLineas, setGrupoLineas] = useState([]);
+  const [destinatarioModo, setDestinatarioModo] = useState('socio'); // 'socio' | 'grupo'
+  const [gruposList, setGruposList] = useState([]);
+  const [grupoSearch, setGrupoSearch] = useState('');
+  const [selectedGrupoNum, setSelectedGrupoNum] = useState(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -277,9 +281,45 @@ export default function Descuentos() {
     setSocios(data || []);
   }
 
+  async function fetchGrupos() {
+    try {
+      const { data } = await supabase
+        .from('v_grupos_integrantes_lineas')
+        .select('*')
+        .order('numero_grupo');
+      setGruposList(data || []);
+    } catch (err) {
+      console.warn('Error fetching grupos list:', err);
+    }
+  }
+
+  async function selectGrupo(grupoNum) {
+    if (!grupoNum) {
+      setSelectedGrupoNum(null);
+      setGrupoLineas([]);
+      return;
+    }
+    setSelectedGrupoNum(grupoNum);
+    const { data } = await supabase
+      .from('lineas')
+      .select('numero_linea, socio_id, estado, socios:socios!lineas_socio_id_fkey(socio_id, nombre_completo, nro_socio), planes_abonos(nombre_plan), proveedores:proveedor_id(nombre)')
+      .eq('numero_grupo', grupoNum)
+      .eq('estado', 'ACTIVA');
+    setGrupoLineas(data || []);
+    if (data && data.length > 0 && !form.socio_id) {
+      setForm(f => ({ ...f, socio_id: data[0].socio_id || '' }));
+    }
+  }
+
+  async function selectSocio(s) {
+    setSocioSearch(s.nombre_completo);
+    setForm(f => ({ ...f, socio_id: s.socio_id, numero_linea: '', alcance: 'socio' }));
+    fetchLineas(s.socio_id);
+    fetchGrupoLineas(s.socio_id);
+  }
+
   async function fetchGrupoLineas(socioId) {
-    if (!socioId) { setGrupoLineas([]); return; }
-    // Get the group number from the socio's lines
+    if (!socioId) { setGrupoLineas([]); setSelectedGrupoNum(null); return; }
     const { data: lineasData } = await supabase
       .from('lineas')
       .select('numero_grupo')
@@ -287,12 +327,13 @@ export default function Descuentos() {
       .not('numero_grupo', 'is', null)
       .limit(1);
     const grupoNum = lineasData?.[0]?.numero_grupo;
-    if (!grupoNum) { setGrupoLineas([]); return; }
-    // Fetch all socios in that group
+    if (!grupoNum) { setGrupoLineas([]); setSelectedGrupoNum(null); return; }
+    setSelectedGrupoNum(grupoNum);
     const { data: grupoData } = await supabase
       .from('lineas')
-      .select('numero_linea, socio_id, socios(nombre_completo), proveedores:proveedor_id(nombre)')
-      .eq('numero_grupo', grupoNum);
+      .select('numero_linea, socio_id, estado, socios:socios!lineas_socio_id_fkey(socio_id, nombre_completo, nro_socio), planes_abonos(nombre_plan), proveedores:proveedor_id(nombre)')
+      .eq('numero_grupo', grupoNum)
+      .eq('estado', 'ACTIVA');
     setGrupoLineas(grupoData || []);
   }
 
@@ -316,9 +357,46 @@ export default function Descuentos() {
     setEditId(null);
     setCrearTicketEnModal(true);
     fetchSocios();
+    fetchGrupos();
     setLineasBySocio([]);
     setSocioSearch('');
+    setGrupoSearch('');
+    setSelectedGrupoNum(null);
     setGrupoLineas([]);
+    setDestinatarioModo('socio');
+    setIsModalOpen(true);
+  }
+
+  function openEdit(a) {
+    const startStr = a.created_at ? a.created_at.substring(0, 7) : getCurrentPeriodYMD();
+    const socioData = a.socios || a.lineas?.socios;
+    const sid = socioData?.socio_id || a.socio_id;
+    const lineaNum = a.lineas?.numero_linea || a.numero_linea || '';
+    const grpNum = a.lineas?.numero_grupo || null;
+
+    setForm({
+      tipo: a.tipo,
+      descripcion: a.descripcion || '',
+      valor: a.valor,
+      cta_numero: a.cta_numero,
+      total_cuotas: a.total_cuotas,
+      socio_id: sid || '',
+      numero_linea: lineaNum,
+      periodo_inicio: startStr,
+      alcance: 'socio',
+    });
+    setSocioSearch(socioData?.nombre_completo || '');
+    setEditId(a.id);
+    setCrearTicketEnModal(false);
+    setDestinatarioModo(grpNum && !lineaNum ? 'grupo' : 'socio');
+    fetchSocios();
+    fetchGrupos();
+    if (sid) {
+      fetchLineas(sid);
+      fetchGrupoLineas(sid);
+    } else if (grpNum) {
+      selectGrupo(grpNum);
+    }
     setIsModalOpen(true);
   }
 
@@ -431,44 +509,119 @@ export default function Descuentos() {
   async function handleSubmit(e) {
     e.preventDefault();
     setSaving(true);
+    const numValor = parseFloat(form.valor);
+    const numCuotas = parseInt(form.total_cuotas, 10) || 12;
+    const numCta = parseInt(form.cta_numero, 10) || 1;
+
     const basePayload = {
       tipo: form.tipo,
-      descripcion: form.descripcion,
-      valor: parseFloat(form.valor),
-      cta_numero: parseInt(form.cta_numero),
-      total_cuotas: parseInt(form.total_cuotas),
+      descripcion: form.descripcion || (form.tipo === 'DESCUENTO' ? `Descuento ${numValor}%` : `Cargo ${numValor}`),
+      valor: numValor,
+      cta_numero: numCta,
+      total_cuotas: numCuotas,
       activo: true,
       periodo_inicio: form.periodo_inicio || getCurrentPeriodYMD(),
       updated_at: new Date().toISOString(),
     };
 
     let error = null;
-    if (editId) {
-      const payload = { ...basePayload, socio_id: form.socio_id || null, numero_linea: form.numero_linea || null };
-      const { error: updateError } = await supabase.from('adicionales').update(payload).eq('id', editId);
-      error = updateError;
-    } else if (form.alcance === 'grupo' && grupoLineas.length > 0) {
-      // Insert one adicional record per line in the group
-      const records = grupoLineas.map(l => ({
-        ...basePayload,
-        socio_id: l.socio_id || null,
-        numero_linea: l.numero_linea || null,
-      }));
-      const { error: insertError } = await supabase.from('adicionales').insert(records);
-      error = insertError;
-    } else {
-      const payload = { ...basePayload, socio_id: form.socio_id || null, numero_linea: form.numero_linea || null };
-      const { error: insertError } = await supabase.from('adicionales').insert([payload]);
-      error = insertError;
+    const esPorGrupo = destinatarioModo === 'grupo' || form.alcance === 'grupo';
+
+    try {
+      if (esPorGrupo && grupoLineas.length > 0) {
+        if (editId) {
+          const targetLinea = form.numero_linea || grupoLineas[0]?.numero_linea;
+          await supabase.from('adicionales').update({
+            ...basePayload,
+            socio_id: form.socio_id || grupoLineas[0]?.socio_id || null,
+            numero_linea: targetLinea || null,
+          }).eq('id', editId);
+
+          const otherLines = grupoLineas.filter(l => l.numero_linea !== targetLinea);
+          if (otherLines.length > 0) {
+            const records = otherLines.map(l => ({
+              ...basePayload,
+              socio_id: l.socio_id || null,
+              numero_linea: l.numero_linea || null,
+            }));
+            await supabase.from('adicionales').insert(records);
+          }
+        } else {
+          const records = grupoLineas.map(l => ({
+            ...basePayload,
+            socio_id: l.socio_id || null,
+            numero_linea: l.numero_linea || null,
+          }));
+          const { error: insertErr } = await supabase.from('adicionales').insert(records);
+          if (insertErr) throw insertErr;
+        }
+
+        if (form.tipo === 'DESCUENTO') {
+          const lineNumbers = grupoLineas.map(l => l.numero_linea).filter(Boolean);
+          if (lineNumbers.length > 0) {
+            await supabase.from('lineas').update({ descuento_esperado: numValor }).in('numero_linea', lineNumbers);
+          }
+        }
+        addToast(`${form.tipo === 'DESCUENTO' ? 'Descuento' : 'Cargo'} aplicado a las ${grupoLineas.length} líneas del Grupo #${selectedGrupoNum}`, 'success');
+      } else {
+        if (editId) {
+          const payload = {
+            ...basePayload,
+            socio_id: form.socio_id || null,
+            numero_linea: form.numero_linea || null,
+          };
+          const { error: updateError } = await supabase.from('adicionales').update(payload).eq('id', editId);
+          if (updateError) throw updateError;
+          if (form.tipo === 'DESCUENTO' && form.numero_linea) {
+            await supabase.from('lineas').update({ descuento_esperado: numValor }).eq('numero_linea', form.numero_linea);
+          }
+          addToast('Registro actualizado exitosamente', 'success');
+        } else if (form.numero_linea) {
+          const { error: insertError } = await supabase.from('adicionales').insert([{
+            ...basePayload,
+            socio_id: form.socio_id || null,
+            numero_linea: form.numero_linea,
+          }]);
+          if (insertError) throw insertError;
+          if (form.tipo === 'DESCUENTO') {
+            await supabase.from('lineas').update({ descuento_esperado: numValor }).eq('numero_linea', form.numero_linea);
+          }
+          addToast('Registro creado exitosamente para la línea', 'success');
+        } else if (lineasBySocio.length > 0) {
+          const records = lineasBySocio.map(l => ({
+            ...basePayload,
+            socio_id: form.socio_id || null,
+            numero_linea: l.numero_linea,
+          }));
+          const { error: insertError } = await supabase.from('adicionales').insert(records);
+          if (insertError) throw insertError;
+          if (form.tipo === 'DESCUENTO') {
+            const lineNumbers = lineasBySocio.map(l => l.numero_linea).filter(Boolean);
+            if (lineNumbers.length > 0) {
+              await supabase.from('lineas').update({ descuento_esperado: numValor }).in('numero_linea', lineNumbers);
+            }
+          }
+          addToast(`Registro creado para las ${lineasBySocio.length} líneas del socio`, 'success');
+        } else {
+          const { error: insertError } = await supabase.from('adicionales').insert([{
+            ...basePayload,
+            socio_id: form.socio_id || null,
+            numero_linea: null,
+          }]);
+          if (insertError) throw insertError;
+          addToast('Registro creado exitosamente', 'success');
+        }
+      }
+    } catch (err) {
+      error = err;
     }
-    
+
     setSaving(false);
     if (error) {
       alert('Error al guardar: ' + error.message);
     } else {
       setIsModalOpen(false);
 
-      // Auto-creación de ticket de seguimiento en Tareas si aplica
       if (!editId && form.tipo === 'DESCUENTO' && parseInt(form.total_cuotas, 10) > 1 && crearTicketEnModal) {
         try {
           const socioObj = socios.find(s => String(s.socio_id) === String(form.socio_id));
@@ -477,7 +630,7 @@ export default function Descuentos() {
           await crearTicketSeguimientoDescuentoMutual({
             linea: form.numero_linea || null,
             socioNombre: socioObj?.nombre_completo,
-            numeroGrupo: lineaObj?.numero_grupo,
+            numeroGrupo: selectedGrupoNum || lineaObj?.numero_grupo,
             nroSocio: socioObj?.nro_socio,
             socioId: form.socio_id,
             valor: form.valor,
@@ -486,7 +639,6 @@ export default function Descuentos() {
             descripcion: form.descripcion,
             finEstimado: est.formatted
           });
-          addToast('Descuento y Ticket de seguimiento creados exitosamente', 'success');
         } catch (tErr) {
           console.warn('Error al crear ticket en guardado de descuento:', tErr);
         }
@@ -802,104 +954,120 @@ export default function Descuentos() {
               </div>
             </div>
 
-            {/* Socio Beneficiario — búsqueda con filtro */}
+            {/* Selector de Destinatario: Por Socio vs Por Grupo */}
             <div>
-              <label className="form-label">Socio Beneficiario</label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  className="premium-input"
-                  style={{ width: '100%', padding: '12px', paddingRight: '32px' }}
-                  placeholder="Buscar socio por nombre..."
-                  value={socioSearch}
-                  onChange={e => {
-                    setSocioSearch(e.target.value);
-                    if (!e.target.value) { setForm({...form, socio_id: '', numero_linea: ''}); setLineasBySocio([]); setGrupoLineas([]); }
+              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Users size={15} /> ¿A quién se asigna este {form.tipo === 'DESCUENTO' ? 'descuento' : 'cargo'}?
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <button
+                  type="button"
+                  onClick={() => { setDestinatarioModo('socio'); setForm(f => ({ ...f, alcance: 'socio' })); }}
+                  style={{
+                    padding: '12px 14px', borderRadius: '12px', cursor: 'pointer',
+                    border: `2px solid ${destinatarioModo === 'socio' ? 'var(--accent)' : 'var(--border-light)'}`,
+                    background: destinatarioModo === 'socio' ? 'var(--accent-light)' : 'var(--surface)',
+                    color: destinatarioModo === 'socio' ? 'var(--accent)' : 'var(--text-secondary)',
+                    fontWeight: 800, fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
                   }}
-                  autoComplete="off"
-                />
-                {socioSearch && (
-                  <button
-                    type="button"
-                    onClick={() => { setSocioSearch(''); setForm({...form, socio_id: '', numero_linea: ''}); setLineasBySocio([]); setGrupoLineas([]); }}
-                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '2px' }}
-                  ><X size={14} /></button>
-                )}
-                {/* Dropdown list */}
-                {socioSearch && !form.socio_id && (() => {
-                  const term = socioSearch.toLowerCase();
-                  const filtered = socios.filter(s => s.nombre_completo.toLowerCase().includes(term)).slice(0, 10);
-                  if (!filtered.length) return null;
-                  return (
-                    <div style={{ position: 'absolute', zIndex: 200, left: 0, right: 0, top: 'calc(100% + 4px)', background: 'var(--surface)', border: '1px solid var(--border-light)', borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', maxHeight: '220px', overflowY: 'auto' }}>
-                      {filtered.map(s => (
-                        <button
-                          key={s.socio_id}
-                          type="button"
-                          onClick={() => {
-                            setSocioSearch(s.nombre_completo);
-                            setForm({...form, socio_id: s.socio_id, numero_linea: '', alcance: 'socio'});
-                            fetchLineas(s.socio_id);
-                            fetchGrupoLineas(s.socio_id);
-                          }}
-                          style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-light)' }}
-                          onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-light)'}
-                          onMouseLeave={e => e.currentTarget.style.background = 'none'}
-                        >
-                          {s.nombre_completo}
-                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginLeft: '8px' }}>#{s.nro_socio}</span>
-                        </button>
-                      ))}
-                    </div>
-                  );
-                })()}
+                >
+                  <User size={16} /> Por Socio Individual
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setDestinatarioModo('grupo'); setForm(f => ({ ...f, alcance: 'grupo', numero_linea: '' })); }}
+                  style={{
+                    padding: '12px 14px', borderRadius: '12px', cursor: 'pointer',
+                    border: `2px solid ${destinatarioModo === 'grupo' ? '#7c3aed' : 'var(--border-light)'}`,
+                    background: destinatarioModo === 'grupo' ? 'rgba(124, 58, 237, 0.1)' : 'var(--surface)',
+                    color: destinatarioModo === 'grupo' ? '#7c3aed' : 'var(--text-secondary)',
+                    fontWeight: 800, fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+                  }}
+                >
+                  <Users size={16} /> Por Grupo Completo
+                </button>
               </div>
-              {/* Indicador del socio seleccionado */}
-              {form.socio_id && (
-                <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--accent)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <CheckCircle2 size={13} /> Socio seleccionado
-                </div>
-              )}
             </div>
 
-            {/* Alcance: Solo este socio vs Todo el grupo */}
-            {!editId && form.socio_id && (
-              <div>
-                <label className="form-label">¿A quién aplicar?</label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                  <button
-                    type="button"
-                    onClick={() => setForm({...form, alcance: 'socio'})}
-                    style={{
-                      padding: '11px', borderRadius: '10px', fontWeight: 800, fontSize: '13px', cursor: 'pointer',
-                      border: `2px solid ${form.alcance === 'socio' ? 'var(--accent)' : 'var(--border-light)'}`,
-                      background: form.alcance === 'socio' ? 'var(--accent-light)' : 'var(--surface)',
-                      color: form.alcance === 'socio' ? 'var(--accent)' : 'var(--text-secondary)',
+            {/* MODO GRUPO: Buscador de Grupo */}
+            {destinatarioModo === 'grupo' && (
+              <div style={{ background: 'rgba(124, 58, 237, 0.05)', border: '1px solid rgba(124, 58, 237, 0.25)', borderRadius: '16px', padding: '16px' }}>
+                <label className="form-label" style={{ color: '#7c3aed', fontWeight: 800, marginBottom: '8px', display: 'block' }}>
+                  Buscar Grupo (por N° o integrante)
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    className="premium-input"
+                    style={{ width: '100%', padding: '12px', paddingRight: '32px' }}
+                    placeholder="Ej: 126 o apellido (Vidal, Perez...)"
+                    value={grupoSearch}
+                    onChange={e => {
+                      setGrupoSearch(e.target.value);
+                      if (!e.target.value) { setSelectedGrupoNum(null); setGrupoLineas([]); }
                     }}
-                  >👤 Solo este socio</button>
-                  <button
-                    type="button"
-                    onClick={() => setForm({...form, alcance: 'grupo'})}
-                    disabled={grupoLineas.length === 0}
-                    title={grupoLineas.length === 0 ? 'Este socio no pertenece a un grupo' : `Aplicar a todo el grupo (${grupoLineas.length} líneas)`}
-                    style={{
-                      padding: '11px', borderRadius: '10px', fontWeight: 800, fontSize: '13px', cursor: grupoLineas.length === 0 ? 'not-allowed' : 'pointer',
-                      border: `2px solid ${form.alcance === 'grupo' ? '#7c3aed' : 'var(--border-light)'}`,
-                      background: form.alcance === 'grupo' ? 'rgba(124,58,237,0.1)' : 'var(--surface)',
-                      color: form.alcance === 'grupo' ? '#7c3aed' : 'var(--text-secondary)',
-                      opacity: grupoLineas.length === 0 ? 0.5 : 1,
-                    }}
-                  >
-                    👥 Todo el grupo
-                    {grupoLineas.length > 0 && <span style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginTop: '2px' }}>({grupoLineas.length} líneas)</span>}
-                  </button>
+                    autoComplete="off"
+                  />
+                  {grupoSearch && (
+                    <button
+                      type="button"
+                      onClick={() => { setGrupoSearch(''); setSelectedGrupoNum(null); setGrupoLineas([]); }}
+                      style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '2px' }}
+                    ><X size={14} /></button>
+                  )}
+                  {/* Dropdown de sugerencias de grupos */}
+                  {grupoSearch && !selectedGrupoNum && (() => {
+                    const term = grupoSearch.toLowerCase().trim();
+                    const filtered = gruposList.filter(g => {
+                      const numStr = String(g.numero_grupo);
+                      const integr = (g.integrantes || '').toLowerCase();
+                      return numStr.includes(term) || integr.includes(term);
+                    }).slice(0, 10);
+                    if (!filtered.length) return null;
+                    return (
+                      <div style={{ position: 'absolute', zIndex: 200, left: 0, right: 0, top: 'calc(100% + 4px)', background: 'var(--surface)', border: '1px solid var(--border-light)', borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.14)', maxHeight: '240px', overflowY: 'auto' }}>
+                        {filtered.map(g => (
+                          <button
+                            key={g.numero_grupo}
+                            type="button"
+                            onClick={() => {
+                              setGrupoSearch(`Grupo #${g.numero_grupo}`);
+                              selectGrupo(g.numero_grupo);
+                            }}
+                            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', borderBottom: '1px solid var(--border-light)' }}
+                            onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-light)'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                          >
+                            <div style={{ fontWeight: 800, fontSize: '13px', color: '#7c3aed' }}>
+                              Grupo #{g.numero_grupo}
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {g.integrantes || 'Sin integrantes'}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
-                {form.alcance === 'grupo' && grupoLineas.length > 0 && (
-                  <div style={{ marginTop: '8px', padding: '10px 14px', background: 'rgba(124,58,237,0.06)', borderRadius: '10px', border: '1px solid rgba(124,58,237,0.2)', fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                    Se crearán <strong style={{ color: '#7c3aed' }}>{grupoLineas.length} registros</strong>, uno por cada línea del grupo:
-                    <div style={{ marginTop: '6px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+
+                {/* Resumen del Grupo Seleccionado */}
+                {selectedGrupoNum && (
+                  <div style={{ marginTop: '12px', padding: '12px 14px', background: 'var(--surface)', borderRadius: '12px', border: '1px solid rgba(124, 58, 237, 0.3)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <div style={{ fontWeight: 900, color: '#7c3aed', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <CheckCircle2 size={16} /> Grupo #{selectedGrupoNum}
+                      </div>
+                      <span style={{ fontSize: '11px', fontWeight: 800, background: 'rgba(124, 58, 237, 0.12)', color: '#7c3aed', padding: '2px 8px', borderRadius: '6px' }}>
+                        {grupoLineas.length} líneas activas
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                      El {form.tipo === 'DESCUENTO' ? 'descuento' : 'cargo'} se computará para todas las líneas de este grupo en liquidaciones:
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '120px', overflowY: 'auto' }}>
                       {grupoLineas.map(l => (
-                        <span key={l.numero_linea} style={{ padding: '2px 8px', background: 'rgba(124,58,237,0.12)', borderRadius: '6px', fontSize: '11px' }}>
-                          {l.socios?.nombre_completo || l.socio_id} · {l.numero_linea}
+                        <span key={l.numero_linea} style={{ padding: '3px 8px', background: 'rgba(124, 58, 237, 0.08)', borderRadius: '6px', fontSize: '11px', fontWeight: 600, color: 'var(--text-primary)', border: '1px solid rgba(124, 58, 237, 0.2)' }}>
+                          {l.socios?.nombre_completo || 'S/D'} · {l.numero_linea}
                         </span>
                       ))}
                     </div>
@@ -908,13 +1076,130 @@ export default function Descuentos() {
               </div>
             )}
 
-            <div>
-              <label className="form-label">Línea Aplicable (Opcional)</label>
-              <select className="premium-input" style={{ width: '100%', padding: '12px' }} value={form.numero_linea} onChange={e => setForm({...form, numero_linea: e.target.value})}>
-                <option value="">Todas las líneas</option>
-                {lineasBySocio.map(l => <option key={l.numero_linea} value={l.numero_linea}>{l.numero_linea} · {l.proveedores?.nombre}</option>)}
-              </select>
-            </div>
+            {/* MODO SOCIO: Buscador de Socio */}
+            {destinatarioModo === 'socio' && (
+              <>
+                <div>
+                  <label className="form-label">Socio Beneficiario</label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      className="premium-input"
+                      style={{ width: '100%', padding: '12px', paddingRight: '32px' }}
+                      placeholder="Buscar socio por nombre..."
+                      value={socioSearch}
+                      onChange={e => {
+                        setSocioSearch(e.target.value);
+                        if (!e.target.value) { setForm({...form, socio_id: '', numero_linea: ''}); setLineasBySocio([]); setGrupoLineas([]); setSelectedGrupoNum(null); }
+                      }}
+                      autoComplete="off"
+                    />
+                    {socioSearch && (
+                      <button
+                        type="button"
+                        onClick={() => { setSocioSearch(''); setForm({...form, socio_id: '', numero_linea: ''}); setLineasBySocio([]); setGrupoLineas([]); setSelectedGrupoNum(null); }}
+                        style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '2px' }}
+                      ><X size={14} /></button>
+                    )}
+                    {/* Dropdown list */}
+                    {socioSearch && !form.socio_id && (() => {
+                      const term = socioSearch.toLowerCase();
+                      const filtered = socios.filter(s => s.nombre_completo.toLowerCase().includes(term)).slice(0, 10);
+                      if (!filtered.length) return null;
+                      return (
+                        <div style={{ position: 'absolute', zIndex: 200, left: 0, right: 0, top: 'calc(100% + 4px)', background: 'var(--surface)', border: '1px solid var(--border-light)', borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', maxHeight: '220px', overflowY: 'auto' }}>
+                          {filtered.map(s => (
+                            <button
+                              key={s.socio_id}
+                              type="button"
+                              onClick={() => selectSocio(s)}
+                              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-light)' }}
+                              onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-light)'}
+                              onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                            >
+                              {s.nombre_completo}
+                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginLeft: '8px' }}>#{s.nro_socio}</span>
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                  {/* Indicador del socio seleccionado */}
+                  {form.socio_id && (
+                    <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--accent)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <CheckCircle2 size={13} /> Socio: {socioSearch} ({lineasBySocio.length} líneas propias)
+                    </div>
+                  )}
+                </div>
+
+                {/* Si el socio pertenece a un Grupo: Selector de alcance muy claro */}
+                {form.socio_id && selectedGrupoNum && (
+                  <div style={{ padding: '14px 16px', background: 'rgba(124, 58, 237, 0.05)', borderRadius: '16px', border: '1px solid rgba(124, 58, 237, 0.25)' }}>
+                    <div style={{ fontSize: '12px', color: '#7c3aed', fontWeight: 800, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Users size={14} /> Este socio pertenece al <strong>Grupo #{selectedGrupoNum}</strong> ({grupoLineas.length} líneas en total)
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                      <button
+                        type="button"
+                        onClick={() => setForm(f => ({ ...f, alcance: 'socio' }))}
+                        style={{
+                          padding: '10px 12px', borderRadius: '10px', fontWeight: 800, fontSize: '12px', cursor: 'pointer',
+                          border: `2px solid ${form.alcance === 'socio' ? 'var(--accent)' : 'var(--border-light)'}`,
+                          background: form.alcance === 'socio' ? 'var(--accent-light)' : 'var(--surface)',
+                          color: form.alcance === 'socio' ? 'var(--accent)' : 'var(--text-secondary)',
+                        }}
+                      >
+                        👤 Solo para {socioSearch.split(',')[0]} ({lineasBySocio.length} lín.)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setForm(f => ({ ...f, alcance: 'grupo', numero_linea: '' }))}
+                        style={{
+                          padding: '10px 12px', borderRadius: '10px', fontWeight: 800, fontSize: '12px', cursor: 'pointer',
+                          border: `2px solid ${form.alcance === 'grupo' ? '#7c3aed' : 'var(--border-light)'}`,
+                          background: form.alcance === 'grupo' ? 'rgba(124, 58, 237, 0.12)' : 'var(--surface)',
+                          color: form.alcance === 'grupo' ? '#7c3aed' : 'var(--text-secondary)',
+                        }}
+                      >
+                        👥 A todo el Grupo #{selectedGrupoNum} ({grupoLineas.length} lín.)
+                      </button>
+                    </div>
+                    {form.alcance === 'grupo' && (
+                      <div style={{ marginTop: '10px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        Se computará en la liquidación para las {grupoLineas.length} líneas de la familia en este grupo:
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
+                          {grupoLineas.map(l => (
+                            <span key={l.numero_linea} style={{ padding: '2px 8px', background: 'rgba(124, 58, 237, 0.12)', borderRadius: '6px', fontSize: '11px' }}>
+                              {l.socios?.nombre_completo || l.socio_id} · {l.numero_linea}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Línea Aplicable (solo si alcance === 'socio') */}
+                {form.alcance === 'socio' && (
+                  <div>
+                    <label className="form-label">Línea Aplicable</label>
+                    <select
+                      className="premium-input"
+                      style={{ width: '100%', padding: '12px' }}
+                      value={form.numero_linea}
+                      onChange={e => setForm({...form, numero_linea: e.target.value})}
+                    >
+                      <option value="">Todas las líneas del socio ({lineasBySocio.length} líneas)</option>
+                      {lineasBySocio.map(l => (
+                        <option key={l.numero_linea} value={l.numero_linea}>
+                          {l.numero_linea} · {l.proveedores?.nombre || 'S/D'}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
               <div>
