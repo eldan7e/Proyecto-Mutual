@@ -4,7 +4,7 @@ import { supabase } from './supabaseClient';
 import { Calendar, Loader2, FileText } from 'lucide-react';
 import { parsearMovimientos } from './utils/bankParser';
 import { debitCoversSelectedBalances, detectDebitColumns, extractPeriodFromDebitFile, getPendingDebitLiquidations, isDebitRowValid, parseDebitText, resolveDebitColumns } from './utils/debitTextParser';
-import { resolveDebitInvoicePeriod } from './utils/debitInvoicePeriod';
+import { resolveDebitInvoicePeriod, getPreviousPeriod } from './utils/debitInvoicePeriod';
 import { useToast } from './components/ui/ToastProvider';
 import { useConfirm } from './components/ui/ConfirmProvider';
 import Modal from './components/Modal';
@@ -2944,9 +2944,10 @@ export default function ConciliacionBancaria() {
         if (liqError) throw liqError;
         
         const bankPeriod = getBankPeriod(normalizedMov.concepto, normalizedMov.fecha_movimiento);
+        const maxPeriod = bankPeriod ? (getPreviousPeriod(bankPeriod) || bankPeriod) : '';
         pList = (liqData || []).filter(l => 
           (l.estado_pago === 'PENDIENTE' || l.estado_pago === 'PARCIAL' || l.liquidacion_id === normalizedMov.liquidacion_id) &&
-          (!bankPeriod || l.periodo <= bankPeriod)
+          (!maxPeriod || l.periodo <= maxPeriod)
         );
       } catch (err) {
         console.error("Error fetching group liquidations for edit:", err);
@@ -2984,9 +2985,10 @@ export default function ConciliacionBancaria() {
         if (liqError) throw liqError;
         
         const bankPeriod = getBankPeriod(editConciliacionModal.movement?.concepto, editConciliacionModal.movement?.fecha_movimiento);
+        const maxPeriod = bankPeriod ? (getPreviousPeriod(bankPeriod) || bankPeriod) : '';
         pList = (liqData || []).filter(l => 
           (l.estado_pago === 'PENDIENTE' || l.estado_pago === 'PARCIAL' || l.liquidacion_id === editConciliacionModal.movement?.liquidacion_id) &&
-          (!bankPeriod || l.periodo <= bankPeriod)
+          (!maxPeriod || l.periodo <= maxPeriod)
         );
       } catch (err) {
         console.error("Error fetching group liquidations for edit socio change:", err);
@@ -3689,13 +3691,15 @@ export default function ConciliacionBancaria() {
         }
 
         const bankPeriod = getBankPeriod(m.concepto, rowDateISO);
+        const expectedInvoicePeriod = bankPeriod ? getPreviousPeriod(bankPeriod) : '';
         const pendingForSocio = (targetSocio || suggestion?.learnedGroup)
-          ? pendingLiquidaciones.filter(liq => liq && socioGroups.includes(Number(liq.numero_grupo)) && (!bankPeriod || liq.periodo <= bankPeriod))
+          ? pendingLiquidaciones.filter(liq => liq && socioGroups.includes(Number(liq.numero_grupo)) && (!expectedInvoicePeriod || liq.periodo <= (expectedInvoicePeriod || bankPeriod)))
           : [];
         
+        const fallbackTarget = expectedInvoicePeriod || bankPeriod;
         const { liqId: calculatedLiqId, matchedIds, isAlreadySaldada: isLiqSaldada } = matchedDbMov && matchedDbMov.liquidacion_id 
           ? { liqId: String(matchedDbMov.liquidacion_id), matchedIds: null, isAlreadySaldada: false } 
-          : findDefaultLiquidation(m.netoReal, pendingForSocio, false, bankPeriod);
+          : findDefaultLiquidation(m.netoReal, pendingForSocio, false, fallbackTarget);
         const activeLiqId = calculatedLiqId;
 
         let initialEstado = 'PENDIENTE';

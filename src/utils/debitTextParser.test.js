@@ -114,6 +114,10 @@ test('extracts period from filename or row content', () => {
   assert.equal(extractPeriodFromDebitFile('archivo_sin_fecha.xlsx', [
     { LEYENDA: 'PERIODO 09.2026', SOCIO: 'Test' }
   ]), '2026-09');
+  // Row with bank execution date in October (mes vencido -> factura de septiembre)
+  assert.equal(extractPeriodFromDebitFile('extracto_debitos.csv', [
+    { FECHA: '13/10/2026', CBU: '0140999803200053715709', MONTO: '15000' }
+  ]), '2026-09');
 });
 
 test('isDebitRowValid filters out rows without CBU or socio data, or with zero amount', () => {

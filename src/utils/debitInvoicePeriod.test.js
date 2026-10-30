@@ -20,7 +20,7 @@ test('resolves an October bank debit to the pending October invoice for its grou
   assert.equal(period, '2026-10');
 });
 
-test('prefers the bank month when both bank and selected periods have debt', () => {
+test('prefers the selected period and previous month (mes vencido) when both bank and selected periods have debt', () => {
   const period = resolveDebitInvoicePeriod({
     bankDate: '2026-10-13',
     selectedPeriod: '2026-09',
@@ -31,7 +31,20 @@ test('prefers the bank month when both bank and selected periods have debt', () 
     ]
   });
 
-  assert.equal(period, '2026-10');
+  assert.equal(period, '2026-09');
+});
+
+test('prefers the previous month (mes vencido) when selectedPeriod is not provided and both have debt', () => {
+  const period = resolveDebitInvoicePeriod({
+    bankDate: '2026-10-13',
+    groupNumber: 218,
+    liquidations: [
+      { numero_grupo: 218, periodo: '2026-10', monto_total_facturado: 169273.22, monto_abonado: 0, estado_pago: 'PENDIENTE' },
+      { numero_grupo: 218, periodo: '2026-09', monto_total_facturado: 169273.22, monto_abonado: 0, estado_pago: 'PENDIENTE' }
+    ]
+  });
+
+  assert.equal(period, '2026-09');
 });
 
 test('uses the selected period when the bank month has no debt for this group', () => {

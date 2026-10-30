@@ -5,7 +5,7 @@ export function getPreviousPeriod(period) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
 
-function getPeriodFromDate(dateValue) {
+export function getPeriodFromDate(dateValue) {
   const value = String(dateValue || '').trim();
   const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|T)/);
   if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}`;
@@ -17,16 +17,25 @@ function getPeriodFromDate(dateValue) {
 
 export function resolveDebitInvoicePeriod({ bankDate, selectedPeriod, groupNumber, socioGroups = [], liquidations = [] }) {
   const bankPeriod = getPeriodFromDate(bankDate);
+  const prevBankPeriod = bankPeriod ? getPreviousPeriod(bankPeriod) : '';
   const groupSet = new Set((groupNumber ? [groupNumber] : socioGroups).map(Number));
+  
   const hasDebtInPeriod = period => period && (liquidations || []).some(liq =>
     liq && groupSet.has(Number(liq.numero_grupo)) && liq.periodo === period &&
     liq.estado_pago !== 'ABONADO' &&
     Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0) > 2.00
   );
 
-  // La factura que se imputa corresponde al período de la recaudación.
-  // El mes impreso en el archivo de débitos puede ser el mes de emisión/proceso.
-  if (hasDebtInPeriod(bankPeriod)) return bankPeriod;
+  // 1. PRIORIDAD MÁXIMA: Si el usuario seleccionó un período explícito en la UI (ej. '2026-09') y tiene deuda, respetar ese período
   if (hasDebtInPeriod(selectedPeriod)) return selectedPeriod;
-  return selectedPeriod || bankPeriod;
+
+  // 2. Facturación a mes vencido: los cobros bancarios del mes M (ej. Octubre 2026-10) pagan las facturas de consumo del mes M-1 (ej. Septiembre 2026-09)
+  if (hasDebtInPeriod(prevBankPeriod)) return prevBankPeriod;
+
+  // 3. Fallback: si no hay deuda en el mes vencido pero sí en el mes calendario del banco
+  if (hasDebtInPeriod(bankPeriod)) return bankPeriod;
+
+  // 4. Default si no hay deuda pendiente detectada:
+  // Priorizar el período seleccionado por el usuario, luego el mes vencido, y por último el mes bancario
+  return selectedPeriod || prevBankPeriod || bankPeriod;
 }

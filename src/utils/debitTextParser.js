@@ -1,3 +1,5 @@
+import { getPreviousPeriod } from './debitInvoicePeriod.js';
+
 const normalizeText = value => String(value || '')
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
@@ -220,19 +222,43 @@ export function extractPeriodFromDebitFile(fileName = '', rows = []) {
   }
 
   if (Array.isArray(rows) && rows.length > 0) {
-    const sample = rows.slice(0, 15);
+    const sample = rows.slice(0, 30);
+    // 1. Buscar mención explícita de "periodo" o "período" en las celdas
     for (const r of sample) {
       if (!r || typeof r !== 'object') continue;
       for (const val of Object.values(r)) {
         if (!val) continue;
         const s = String(val).trim();
-        const m1 = s.match(/(?:periodo|period)?\s*(0[1-9]|1[0-2])[\.\/-](20\d\d)/i);
-        if (m1) {
-          return `${m1[2]}-${m1[1]}`;
+        const mExplicit1 = s.match(/(?:periodo|per[ií]odo|period)\s*[:=]?\s*(0[1-9]|1[0-2])[\.\/-](20\d\d)/i);
+        if (mExplicit1) {
+          return `${mExplicit1[2]}-${mExplicit1[1]}`;
         }
-        const m2 = s.match(/(20\d\d)[-\.\/](0[1-9]|1[0-2])/);
-        if (m2) {
-          return `${m2[1]}-${m2[2]}`;
+        const mExplicit2 = s.match(/(?:periodo|per[ií]odo|period)\s*[:=]?\s*(20\d\d)[-\.\/](0[1-9]|1[0-2])/i);
+        if (mExplicit2) {
+          return `${mExplicit2[1]}-${mExplicit2[2]}`;
+        }
+      }
+    }
+
+    // 2. Si no hay palabra "periodo", buscar fechas de transacción bancaria en las filas.
+    // En telefonía los débitos se cobran a mes vencido: si la fecha bancaria es en el mes M
+    // (ej. Octubre 2026-10), la factura de consumo que se cancela es mes M-1 (Septiembre 2026-09).
+    for (const r of sample) {
+      if (!r || typeof r !== 'object') continue;
+      for (const val of Object.values(r)) {
+        if (!val) continue;
+        const s = String(val).trim();
+        // DD/MM/YYYY o DD-MM-YYYY
+        const mDateLocal = s.match(/\b\d{1,2}[\/\.-](0[1-9]|1[0-2])[\/\.-](20\d\d)\b/);
+        if (mDateLocal) {
+          const bankMonth = `${mDateLocal[2]}-${mDateLocal[1]}`;
+          return getPreviousPeriod(bankMonth);
+        }
+        // YYYY-MM-DD
+        const mDateISO = s.match(/\b(20\d\d)[-\/\.](0[1-9]|1[0-2])[-\/\.]\d{1,2}\b/);
+        if (mDateISO) {
+          const bankMonth = `${mDateISO[1]}-${mDateISO[2]}`;
+          return getPreviousPeriod(bankMonth);
         }
       }
     }
