@@ -84,7 +84,16 @@ async function enrichConsumosWithAudit(consumos, periodo) {
 
   // Build lookup maps
   const lineMap = {};
-  allLineas.forEach((l) => { lineMap[l.numero_linea] = l; });
+  allLineas.forEach((l) => {
+    // Si la linea tiene numero_grupo en 0 o vacio, resolver desde grupo_socio del socio/responsable
+    if (!l.numero_grupo || Number(l.numero_grupo) === 0) {
+      const socioGrp = l.socios?.grupo_socio?.[0]?.numero_grupo || l.responsable?.grupo_socio?.[0]?.numero_grupo;
+      if (socioGrp && Number(socioGrp) > 0) {
+        l.numero_grupo = socioGrp;
+      }
+    }
+    lineMap[l.numero_linea] = l;
+  });
 
   const adicionalesMap = {};
   allAdicionales.forEach((ad) => {

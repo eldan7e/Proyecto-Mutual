@@ -1,10 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   X, Download, TrendingUp, TrendingDown, Users, AlertTriangle, 
   Search, ShieldCheck, CheckCircle2, ArrowRight, Smartphone,
   Layers, ArrowUpDown, ChevronRight, HelpCircle, Calendar
 } from 'lucide-react';
 import { exportResumenDiferenciasXLSX } from '../../services/resumenDiferenciasService';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 
 export default function ResumenDiferenciasModal({
   isOpen,
@@ -16,14 +17,35 @@ export default function ResumenDiferenciasModal({
   const [activeTab, setActiveTab] = useState(initialTab);
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Bloquear el scroll de la página de fondo mientras el modal está abierto
+  useBodyScrollLock(isOpen);
+
+  // Cerrar con tecla Escape
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   // Sincronizar tab si cambia initialTab
-  React.useEffect(() => {
+  useEffect(() => {
     if (initialTab) setActiveTab(initialTab);
   }, [initialTab]);
 
   if (!isOpen || !resumen) return null;
 
-  const { stats, tarifas, lineasFaltantes = [], lineasNuevas = [], lineasCambioPlan = [], planAverages = [], bonifBreakdown = [] } = resumen;
+  const { 
+    stats = {}, 
+    tarifas = {}, 
+    lineasFaltantes = [], 
+    lineasNuevas = [], 
+    lineasCambioPlan = [], 
+    planAverages = [], 
+    bonifBreakdown = [] 
+  } = resumen;
 
   // Filtrado en pestaña de faltantes
   const filteredFaltantes = lineasFaltantes.filter(f => {
@@ -72,64 +94,70 @@ export default function ResumenDiferenciasModal({
 
   return (
     <div 
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
       style={{
         position: 'fixed',
         inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        backgroundColor: 'rgba(0, 0, 0, 0.75)',
         backdropFilter: 'blur(8px)',
         zIndex: 9999,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '20px'
+        padding: '16px',
+        overscrollBehavior: 'contain'
       }}
     >
       <div 
         className="glass-panel animate-fade"
         style={{
           width: '100%',
-          maxWidth: '1020px',
-          maxHeight: '90vh',
+          maxWidth: '1060px',
+          height: 'min(92vh, 880px)',
           display: 'flex',
           flexDirection: 'column',
-          borderRadius: '24px',
+          borderRadius: '20px',
           background: 'var(--surface)',
           border: '1px solid var(--border-light)',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.4)',
-          overflow: 'hidden'
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+          overflow: 'hidden',
+          overscrollBehavior: 'contain'
         }}
       >
         {/* ── HEADER ── */}
         <div style={{
-          padding: '24px 28px 20px',
+          padding: '16px 24px 14px',
           borderBottom: '1px solid var(--border-light)',
           display: 'flex',
           justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          gap: '16px'
+          alignItems: 'center',
+          gap: '16px',
+          background: 'rgba(0, 0, 0, 0.1)'
         }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
               <span style={{
                 background: 'linear-gradient(135deg, var(--accent) 0%, #16a34a 100%)',
                 color: 'white',
-                padding: '4px 10px',
-                borderRadius: '8px',
-                fontSize: '11px',
+                padding: '3px 8px',
+                borderRadius: '6px',
+                fontSize: '10.5px',
                 fontWeight: 900,
-                letterSpacing: '0.05em',
+                letterSpacing: '0.04em',
                 textTransform: 'uppercase'
               }}>
                 Liquidación Confirmada
               </span>
-              <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 700 }}>
+              <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 800 }}>
                 {operadoraName?.toUpperCase()}
               </span>
             </div>
-            <h2 style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
+            <h2 style={{ fontSize: '19px', fontWeight: 900, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.01em' }}>
               Resumen de Diferencias y Variación de Facturación
             </h2>
-            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '4px 0 0 0', fontWeight: 500 }}>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '3px 0 0 0', fontWeight: 500 }}>
               Comparativa entre <strong style={{ color: 'var(--text-primary)' }}>{resumen.prevPeriodoLabel || resumen.prevPeriodo}</strong> y <strong style={{ color: 'var(--text-primary)' }}>{resumen.currPeriodoLabel || resumen.periodo}</strong>
             </p>
           </div>
@@ -139,54 +167,60 @@ export default function ResumenDiferenciasModal({
             style={{
               background: 'rgba(255, 255, 255, 0.05)',
               border: '1px solid var(--border-light)',
-              borderRadius: '12px',
-              padding: '8px',
+              borderRadius: '10px',
+              padding: '7px',
               cursor: 'pointer',
               color: 'var(--text-secondary)',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              justifyContent: 'center',
+              transition: 'all 0.15s ease'
             }}
-            title="Cerrar"
+            title="Cerrar (Esc)"
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
 
-        {/* ── TOP KPI CARDS ── */}
+        {/* ── TOP KPI CARDS (COMPACT SINGLE ROW) ── */}
         <div style={{
-          padding: '20px 28px',
+          padding: '12px 24px',
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-          gap: '14px',
-          background: 'rgba(0, 0, 0, 0.15)',
+          gridTemplateColumns: stats.countCambiosPlan > 0 ? 'repeat(5, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))',
+          gap: '10px',
+          background: 'rgba(0, 0, 0, 0.12)',
           borderBottom: '1px solid var(--border-light)'
         }}>
           {/* Card 1: Comparativa Líneas */}
           <div style={{
             background: 'var(--bg-app)',
-            padding: '16px',
-            borderRadius: '16px',
-            border: '1px solid var(--border-light)'
+            padding: '10px 14px',
+            borderRadius: '12px',
+            border: '1px solid var(--border-light)',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            minWidth: 0
           }}>
-            <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '6px' }}>
+            <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               Líneas Mes Anterior vs Actual
             </div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-              <span style={{ fontSize: '24px', fontWeight: 900, color: 'var(--text-primary)' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'nowrap' }}>
+              <span style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1 }}>
                 {stats.currCount}
               </span>
-              <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>
                 (vs {stats.prevCount})
               </span>
               <span style={{
-                fontSize: '11px',
+                fontSize: '10px',
                 fontWeight: 800,
-                padding: '2px 8px',
-                borderRadius: '6px',
+                padding: '1px 6px',
+                borderRadius: '5px',
                 background: stats.diffCount >= 0 ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
                 color: stats.diffCount >= 0 ? '#16a34a' : '#ef4444',
-                marginLeft: 'auto'
+                marginLeft: 'auto',
+                whiteSpace: 'nowrap'
               }}>
                 {stats.diffCount >= 0 ? `+${stats.diffCount}` : stats.diffCount} netas
               </span>
@@ -196,30 +230,35 @@ export default function ResumenDiferenciasModal({
           {/* Card 2: Tarifa Aunar */}
           <div style={{
             background: 'var(--bg-app)',
-            padding: '16px',
-            borderRadius: '16px',
-            border: '1px solid var(--border-light)'
+            padding: '10px 14px',
+            borderRadius: '12px',
+            border: '1px solid var(--border-light)',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            minWidth: 0
           }}>
-            <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '6px' }}>
+            <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               Tarifa Aunar
             </div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '13px', color: 'var(--text-secondary)', textDecoration: tarifas.variacionTarifa !== 0 ? 'line-through' : 'none' }}>
-                ${tarifas.tarifaAnterior.toLocaleString('es-AR')}
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'nowrap' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textDecoration: (tarifas?.variacionTarifa || 0) !== 0 ? 'line-through' : 'none', whiteSpace: 'nowrap' }}>
+                ${(tarifas?.tarifaAnterior || 0).toLocaleString('es-AR')}
               </span>
-              <span style={{ fontSize: '20px', fontWeight: 900, color: 'var(--accent)' }}>
-                ${tarifas.tarifaActual.toLocaleString('es-AR')}
+              <span style={{ fontSize: '18px', fontWeight: 900, color: 'var(--accent)', lineHeight: 1, whiteSpace: 'nowrap' }}>
+                ${(tarifas?.tarifaActual || 0).toLocaleString('es-AR')}
               </span>
               <span style={{
-                fontSize: '11px',
+                fontSize: '10px',
                 fontWeight: 800,
-                padding: '2px 8px',
-                borderRadius: '6px',
-                background: Math.abs(tarifas.variacionTarifa) < 0.1 ? 'rgba(255, 255, 255, 0.05)' : tarifas.variacionTarifa > 0 ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                color: Math.abs(tarifas.variacionTarifa) < 0.1 ? 'var(--text-secondary)' : tarifas.variacionTarifa > 0 ? '#16a34a' : '#ef4444',
-                marginLeft: 'auto'
+                padding: '1px 6px',
+                borderRadius: '5px',
+                background: Math.abs(tarifas?.variacionTarifa || 0) < 0.1 ? 'rgba(255, 255, 255, 0.05)' : (tarifas?.variacionTarifa || 0) > 0 ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                color: Math.abs(tarifas?.variacionTarifa || 0) < 0.1 ? 'var(--text-secondary)' : (tarifas?.variacionTarifa || 0) > 0 ? '#16a34a' : '#ef4444',
+                marginLeft: 'auto',
+                whiteSpace: 'nowrap'
               }}>
-                {tarifas.variacionTarifa > 0 ? `+${tarifas.variacionTarifa.toFixed(1)}%` : `${tarifas.variacionTarifa.toFixed(1)}%`}
+                {(tarifas?.variacionTarifa || 0) > 0 ? `+${tarifas.variacionTarifa.toFixed(1)}%` : `${(tarifas?.variacionTarifa || 0).toFixed(1)}%`}
               </span>
             </div>
           </div>
@@ -228,19 +267,29 @@ export default function ResumenDiferenciasModal({
           <div 
             onClick={() => setActiveTab('faltantes')}
             style={{
-              background: activeTab === 'faltantes' ? 'rgba(245, 158, 11, 0.1)' : 'var(--bg-app)',
-              padding: '16px',
-              borderRadius: '16px',
-              border: activeTab === 'faltantes' ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid var(--border-light)',
+              background: activeTab === 'faltantes' ? 'rgba(245, 158, 11, 0.12)' : 'var(--bg-app)',
+              padding: '10px 14px',
+              borderRadius: '12px',
+              border: activeTab === 'faltantes' ? '1.5px solid rgba(245, 158, 11, 0.5)' : '1px solid var(--border-light)',
               cursor: 'pointer',
-              transition: 'all 0.2s'
+              transition: 'all 0.15s ease',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              minWidth: 0
             }}
+            title="Ver líneas que no vinieron más"
           >
-            <div style={{ fontSize: '11px', fontWeight: 800, color: '#f59e0b', textTransform: 'uppercase', marginBottom: '6px' }}>
+            <div style={{ fontSize: '10px', fontWeight: 800, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               No Vinieron Más
             </div>
-            <div style={{ fontSize: '24px', fontWeight: 900, color: stats.countFaltantes > 0 ? '#f59e0b' : 'var(--text-secondary)' }}>
-              {stats.countFaltantes}
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '20px', fontWeight: 900, color: (stats?.countFaltantes || 0) > 0 ? '#f59e0b' : 'var(--text-secondary)', lineHeight: 1 }}>
+                {stats?.countFaltantes || 0}
+              </span>
+              <span style={{ fontSize: '10px', color: activeTab === 'faltantes' ? '#f59e0b' : 'var(--text-secondary)', fontWeight: 700 }}>
+                {(stats?.countFaltantes || 0) === 0 ? 'Sin bajas' : 'Ver detalle →'}
+              </span>
             </div>
           </div>
 
@@ -248,142 +297,123 @@ export default function ResumenDiferenciasModal({
           <div 
             onClick={() => setActiveTab('altas')}
             style={{
-              background: activeTab === 'altas' ? 'rgba(16, 185, 129, 0.1)' : 'var(--bg-app)',
-              padding: '16px',
-              borderRadius: '16px',
-              border: activeTab === 'altas' ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid var(--border-light)',
+              background: activeTab === 'altas' ? 'rgba(16, 185, 129, 0.12)' : 'var(--bg-app)',
+              padding: '10px 14px',
+              borderRadius: '12px',
+              border: activeTab === 'altas' ? '1.5px solid rgba(16, 185, 129, 0.5)' : '1px solid var(--border-light)',
               cursor: 'pointer',
-              transition: 'all 0.2s'
+              transition: 'all 0.15s ease',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              minWidth: 0
             }}
+            title="Ver nuevas altas"
           >
-            <div style={{ fontSize: '11px', fontWeight: 800, color: '#10b981', textTransform: 'uppercase', marginBottom: '6px' }}>
+            <div style={{ fontSize: '10px', fontWeight: 800, color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               Líneas Nuevas (Altas)
             </div>
-            <div style={{ fontSize: '24px', fontWeight: 900, color: stats.countAltas > 0 ? '#10b981' : 'var(--text-secondary)' }}>
-              {stats.countAltas}
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '20px', fontWeight: 900, color: (stats?.countAltas || 0) > 0 ? '#10b981' : 'var(--text-secondary)', lineHeight: 1 }}>
+                {stats?.countAltas || 0}
+              </span>
+              <span style={{ fontSize: '10px', color: activeTab === 'altas' ? '#10b981' : 'var(--text-secondary)', fontWeight: 700 }}>
+                {(stats?.countAltas || 0) === 0 ? 'Sin altas' : 'Ver detalle →'}
+              </span>
             </div>
           </div>
 
           {/* Card 5: Cambios de Plan (si los hubiera) */}
-          {stats.countCambiosPlan > 0 && (
+          {stats?.countCambiosPlan > 0 && (
             <div 
               onClick={() => setActiveTab('cambios')}
               style={{
-                background: activeTab === 'cambios' ? 'rgba(99, 102, 241, 0.1)' : 'var(--bg-app)',
-                padding: '16px',
-                borderRadius: '16px',
-                border: activeTab === 'cambios' ? '1px solid rgba(99, 102, 241, 0.3)' : '1px solid var(--border-light)',
+                background: activeTab === 'cambios' ? 'rgba(99, 102, 241, 0.12)' : 'var(--bg-app)',
+                padding: '10px 14px',
+                borderRadius: '12px',
+                border: activeTab === 'cambios' ? '1.5px solid rgba(99, 102, 241, 0.5)' : '1px solid var(--border-light)',
                 cursor: 'pointer',
-                transition: 'all 0.2s'
+                transition: 'all 0.15s ease',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                minWidth: 0
               }}
+              title="Ver cambios de plan"
             >
-              <div style={{ fontSize: '11px', fontWeight: 800, color: '#6366f1', textTransform: 'uppercase', marginBottom: '6px' }}>
+              <div style={{ fontSize: '10px', fontWeight: 800, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 Cambios de Plan
               </div>
-              <div style={{ fontSize: '24px', fontWeight: 900, color: '#6366f1' }}>
-                {stats.countCambiosPlan}
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '20px', fontWeight: 900, color: '#6366f1', lineHeight: 1 }}>
+                  {stats.countCambiosPlan}
+                </span>
+                <span style={{ fontSize: '10px', color: activeTab === 'cambios' ? '#6366f1' : 'var(--text-secondary)', fontWeight: 700 }}>
+                  Ver cambios →
+                </span>
               </div>
             </div>
           )}
         </div>
 
-        {/* ── BANNER BONIFICACIONES PORCENTUALES ── */}
-        {bonifBreakdown && bonifBreakdown.length > 0 && (
-          <div style={{
-            padding: '12px 28px',
-            background: 'rgba(168, 85, 247, 0.05)',
-            borderBottom: '1px solid var(--border-light)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            flexWrap: 'wrap'
-          }}>
-            <span style={{ fontSize: '11px', fontWeight: 800, color: '#a855f7', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>
-              🎁 Bonificaciones por %:
-            </span>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', flex: 1 }}>
-              {bonifBreakdown.map((b, i) => (
-                <div
-                  key={i}
-                  onClick={() => setActiveTab('bonificaciones')}
-                  style={{
-                    background: activeTab === 'bonificaciones' ? 'rgba(168, 85, 247, 0.2)' : 'var(--bg-app)',
-                    border: '1px solid rgba(168, 85, 247, 0.3)',
-                    borderRadius: '8px',
-                    padding: '4px 10px',
-                    fontSize: '12px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    transition: 'all 0.15s'
-                  }}
-                  title={`Ver detalle de líneas con ${b.label}`}
-                >
-                  <span style={{ fontWeight: 900, color: '#a855f7' }}>{b.label}</span>
-                  <span style={{ fontWeight: 800, color: 'var(--text-primary)' }}>{b.count}</span>
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>({b.pctOfTotal.toFixed(1)}%)</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* ── TABS NAVIGATION ── */}
         <div style={{
-          padding: '12px 28px',
+          padding: '10px 24px',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          gap: '12px',
+          gap: '10px',
           borderBottom: '1px solid var(--border-light)',
           flexWrap: 'wrap'
         }}>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
             <button
               onClick={() => setActiveTab('faltantes')}
               style={{
-                padding: '8px 16px',
-                borderRadius: '10px',
-                fontSize: '13px',
+                padding: '6px 13px',
+                borderRadius: '8px',
+                fontSize: '12px',
                 fontWeight: 800,
                 border: 'none',
                 cursor: 'pointer',
-                background: activeTab === 'faltantes' ? 'var(--accent)' : 'transparent',
-                color: activeTab === 'faltantes' ? 'white' : 'var(--text-secondary)'
+                background: activeTab === 'faltantes' ? 'var(--accent)' : 'rgba(255, 255, 255, 0.04)',
+                color: activeTab === 'faltantes' ? 'white' : 'var(--text-secondary)',
+                transition: 'all 0.15s ease'
               }}
             >
-              📉 No Vinieron Más ({stats.countFaltantes})
+              📉 No Vinieron Más ({stats?.countFaltantes || 0})
             </button>
 
             <button
               onClick={() => setActiveTab('altas')}
               style={{
-                padding: '8px 16px',
-                borderRadius: '10px',
-                fontSize: '13px',
+                padding: '6px 13px',
+                borderRadius: '8px',
+                fontSize: '12px',
                 fontWeight: 800,
                 border: 'none',
                 cursor: 'pointer',
-                background: activeTab === 'altas' ? 'var(--accent)' : 'transparent',
-                color: activeTab === 'altas' ? 'white' : 'var(--text-secondary)'
+                background: activeTab === 'altas' ? 'var(--accent)' : 'rgba(255, 255, 255, 0.04)',
+                color: activeTab === 'altas' ? 'white' : 'var(--text-secondary)',
+                transition: 'all 0.15s ease'
               }}
             >
-              📈 Nuevas Altas ({stats.countAltas})
+              📈 Nuevas Altas ({stats?.countAltas || 0})
             </button>
 
-            {stats.countCambiosPlan > 0 && (
+            {stats?.countCambiosPlan > 0 && (
               <button
                 onClick={() => setActiveTab('cambios')}
                 style={{
-                  padding: '8px 16px',
-                  borderRadius: '10px',
-                  fontSize: '13px',
+                  padding: '6px 13px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
                   fontWeight: 800,
                   border: 'none',
                   cursor: 'pointer',
-                  background: activeTab === 'cambios' ? '#6366f1' : 'transparent',
-                  color: activeTab === 'cambios' ? 'white' : 'var(--text-secondary)'
+                  background: activeTab === 'cambios' ? '#6366f1' : 'rgba(255, 255, 255, 0.04)',
+                  color: activeTab === 'cambios' ? 'white' : 'var(--text-secondary)',
+                  transition: 'all 0.15s ease'
                 }}
               >
                 🔀 Cambios de Plan ({stats.countCambiosPlan})
@@ -393,51 +423,59 @@ export default function ResumenDiferenciasModal({
             <button
               onClick={() => setActiveTab('planes')}
               style={{
-                padding: '8px 16px',
-                borderRadius: '10px',
-                fontSize: '13px',
+                padding: '6px 13px',
+                borderRadius: '8px',
+                fontSize: '12px',
                 fontWeight: 800,
                 border: 'none',
                 cursor: 'pointer',
-                background: activeTab === 'planes' ? 'var(--accent)' : 'transparent',
-                color: activeTab === 'planes' ? 'white' : 'var(--text-secondary)'
+                background: activeTab === 'planes' ? 'var(--accent)' : 'rgba(255, 255, 255, 0.04)',
+                color: activeTab === 'planes' ? 'white' : 'var(--text-secondary)',
+                transition: 'all 0.15s ease'
               }}
             >
-              📊 Variación Promedio por Plan ({planAverages.length})
+              📊 Variación Promedio por Plan ({planAverages?.length || 0})
             </button>
 
             <button
               onClick={() => setActiveTab('bonificaciones')}
               style={{
-                padding: '8px 16px',
-                borderRadius: '10px',
-                fontSize: '13px',
+                padding: '6px 13px',
+                borderRadius: '8px',
+                fontSize: '12px',
                 fontWeight: 800,
                 border: 'none',
                 cursor: 'pointer',
-                background: activeTab === 'bonificaciones' ? '#a855f7' : 'transparent',
-                color: activeTab === 'bonificaciones' ? 'white' : 'var(--text-secondary)'
+                background: activeTab === 'bonificaciones' ? '#a855f7' : 'rgba(255, 255, 255, 0.04)',
+                color: activeTab === 'bonificaciones' ? 'white' : 'var(--text-secondary)',
+                transition: 'all 0.15s ease'
               }}
             >
-              🎁 Bonificaciones por % ({bonifBreakdown.length})
+              🎁 Bonificaciones por % ({bonifBreakdown?.length || 0})
             </button>
           </div>
 
           {(activeTab === 'faltantes' || activeTab === 'altas' || activeTab === 'cambios') && (
-            <div className="search-bar" style={{ width: '260px', height: '36px' }}>
-              <Search size={14} />
+            <div className="search-bar" style={{ width: '230px', height: '32px' }}>
+              <Search size={13} />
               <input
                 placeholder="Buscar línea, socio, plan..."
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
-                style={{ fontSize: '12px' }}
+                style={{ fontSize: '11.5px' }}
               />
             </div>
           )}
         </div>
 
         {/* ── TAB CONTENT ── */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+        <div style={{ 
+          flex: 1, 
+          minHeight: 0, 
+          overflowY: 'auto', 
+          padding: '16px 24px', 
+          overscrollBehavior: 'contain' 
+        }}>
           {/* TAB 1: NO VINIERON MÁS */}
           {activeTab === 'faltantes' && (
             <div>
@@ -449,9 +487,9 @@ export default function ResumenDiferenciasModal({
                   </p>
                 </div>
               ) : (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                    <thead>
+                <div style={{ overflowX: 'auto', border: '1px solid var(--border-light)', borderRadius: '12px', background: 'var(--surface)' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                    <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 3, boxShadow: '0 1px 0 var(--border-light)' }}>
                       <tr style={{ borderBottom: '1px solid var(--border-light)', textAlign: 'left', color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                         <th style={{ padding: '10px 14px' }}>Línea</th>
                         <th style={{ padding: '10px 14px' }}>Socio / Grupo</th>
@@ -463,20 +501,20 @@ export default function ResumenDiferenciasModal({
                     <tbody>
                       {filteredFaltantes.map((f, idx) => (
                         <tr key={idx} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                          <td style={{ padding: '12px 14px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                          <td style={{ padding: '10px 14px', fontWeight: 800, color: 'var(--text-primary)' }}>
                             {f.numero_linea}
                           </td>
-                          <td style={{ padding: '12px 14px' }}>
+                          <td style={{ padding: '10px 14px' }}>
                             <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{f.socioNombre}</div>
                             <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Grupo {f.numeroGrupo}</div>
                           </td>
-                          <td style={{ padding: '12px 14px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                          <td style={{ padding: '10px 14px', color: 'var(--text-secondary)', fontWeight: 600 }}>
                             {f.planNombre}
                           </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700 }}>
+                          <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700 }}>
                             ${f.abonoAnterior.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td style={{ padding: '12px 14px' }}>
+                          <td style={{ padding: '10px 14px' }}>
                             <span style={{
                               padding: '4px 10px',
                               borderRadius: '8px',
@@ -510,9 +548,9 @@ export default function ResumenDiferenciasModal({
                   </p>
                 </div>
               ) : (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                    <thead>
+                <div style={{ overflowX: 'auto', border: '1px solid var(--border-light)', borderRadius: '12px', background: 'var(--surface)' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                    <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 3, boxShadow: '0 1px 0 var(--border-light)' }}>
                       <tr style={{ borderBottom: '1px solid var(--border-light)', textAlign: 'left', color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                         <th style={{ padding: '10px 14px' }}>Línea</th>
                         <th style={{ padding: '10px 14px' }}>Socio / Grupo</th>
@@ -524,20 +562,20 @@ export default function ResumenDiferenciasModal({
                     <tbody>
                       {filteredNuevas.map((a, idx) => (
                         <tr key={idx} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                          <td style={{ padding: '12px 14px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                          <td style={{ padding: '10px 14px', fontWeight: 800, color: 'var(--text-primary)' }}>
                             {a.numero_linea}
                           </td>
-                          <td style={{ padding: '12px 14px' }}>
+                          <td style={{ padding: '10px 14px' }}>
                             <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{a.socioNombre}</div>
                             <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Grupo {a.numeroGrupo}</div>
                           </td>
-                          <td style={{ padding: '12px 14px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                          <td style={{ padding: '10px 14px', color: 'var(--text-secondary)', fontWeight: 600 }}>
                             {a.planNombre}
                           </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>
                             ${a.abonoActual.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td style={{ padding: '12px 14px' }}>
+                          <td style={{ padding: '10px 14px' }}>
                             <span style={{
                               padding: '4px 10px',
                               borderRadius: '8px',
@@ -558,7 +596,7 @@ export default function ResumenDiferenciasModal({
             </div>
           )}
 
-          {/* TAB: CAMBIOS DE PLAN */}
+          {/* TAB 3: CAMBIOS DE PLAN */}
           {activeTab === 'cambios' && (
             <div>
               {filteredCambios.length === 0 ? (
@@ -568,9 +606,9 @@ export default function ResumenDiferenciasModal({
                   </p>
                 </div>
               ) : (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                    <thead>
+                <div style={{ overflowX: 'auto', border: '1px solid var(--border-light)', borderRadius: '12px', background: 'var(--surface)' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                    <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 3, boxShadow: '0 1px 0 var(--border-light)' }}>
                       <tr style={{ borderBottom: '1px solid var(--border-light)', textAlign: 'left', color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                         <th style={{ padding: '10px 14px' }}>Línea</th>
                         <th style={{ padding: '10px 14px' }}>Socio / Grupo</th>
@@ -584,26 +622,26 @@ export default function ResumenDiferenciasModal({
                     <tbody>
                       {filteredCambios.map((c, idx) => (
                         <tr key={idx} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                          <td style={{ padding: '12px 14px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                          <td style={{ padding: '10px 14px', fontWeight: 800, color: 'var(--text-primary)' }}>
                             {c.numero_linea}
                           </td>
-                          <td style={{ padding: '12px 14px' }}>
+                          <td style={{ padding: '10px 14px' }}>
                             <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{c.socioNombre}</div>
                             <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Grupo {c.numeroGrupo}</div>
                           </td>
-                          <td style={{ padding: '12px 14px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                          <td style={{ padding: '10px 14px', color: 'var(--text-secondary)', fontWeight: 600 }}>
                             {c.planAnterior}
                           </td>
-                          <td style={{ padding: '12px 14px', color: '#6366f1', fontWeight: 700 }}>
+                          <td style={{ padding: '10px 14px', color: '#6366f1', fontWeight: 700 }}>
                             {c.planActual}
                           </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                          <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600, color: 'var(--text-secondary)' }}>
                             ${c.abonoAnterior.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>
                             ${c.abonoActual.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, color: c.diffAbono > 0 ? '#ef4444' : '#10b981' }}>
+                          <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 800, color: c.diffAbono > 0 ? '#ef4444' : '#10b981' }}>
                             {c.diffAbono >= 0 ? '+' : ''}${c.diffAbono.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                         </tr>
@@ -615,12 +653,12 @@ export default function ResumenDiferenciasModal({
             </div>
           )}
 
-          {/* TAB 3: VARIACIÓN PROMEDIO POR PLAN */}
+          {/* TAB 4: VARIACIÓN PROMEDIO POR PLAN */}
           {activeTab === 'planes' && (
             <div>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                  <thead>
+              <div style={{ overflowX: 'auto', border: '1px solid var(--border-light)', borderRadius: '12px', background: 'var(--surface)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                  <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 3, boxShadow: '0 1px 0 var(--border-light)' }}>
                     <tr style={{ borderBottom: '1px solid var(--border-light)', textAlign: 'left', color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                       <th style={{ padding: '10px 14px' }}>Plan</th>
                       <th style={{ padding: '10px 14px', textAlign: 'center' }}>Líneas</th>
@@ -632,16 +670,16 @@ export default function ResumenDiferenciasModal({
                   <tbody>
                     {planAverages.map((p, idx) => (
                       <tr key={idx} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                        <td style={{ padding: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                        <td style={{ padding: '10px 14px', fontWeight: 800, color: 'var(--text-primary)' }}>
                           {p.plan}
                         </td>
-                        <td style={{ padding: '14px', textAlign: 'center', fontWeight: 700 }}>
+                        <td style={{ padding: '10px 14px', textAlign: 'center', fontWeight: 700 }}>
                           {p.linesCount}
                         </td>
-                        <td style={{ padding: '14px' }}>
+                        <td style={{ padding: '10px 14px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                             {p.avgPrevAbono > 0 ? (
-                              <span style={{ color: 'var(--text-secondary)', textDecoration: 'line-through', fontSize: '12px' }}>
+                              <span style={{ color: 'var(--text-secondary)', textDecoration: 'line-through', fontSize: '11.5px' }}>
                                 ${p.avgPrevAbono.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </span>
                             ) : null}
@@ -656,10 +694,10 @@ export default function ResumenDiferenciasModal({
                             )}
                           </div>
                         </td>
-                        <td style={{ padding: '14px', textAlign: 'center' }}>
+                        <td style={{ padding: '10px 14px', textAlign: 'center' }}>
                           <span style={{
-                            padding: '4px 10px',
-                            borderRadius: '8px',
+                            padding: '3px 8px',
+                            borderRadius: '6px',
                             fontSize: '11px',
                             fontWeight: 900,
                             background: Math.abs(p.variacionPct) < 0.2 ? 'rgba(255, 255, 255, 0.05)' : p.variacionPct > 0 ? 'rgba(239, 68, 68, 0.12)' : 'rgba(16, 185, 129, 0.12)',
@@ -671,13 +709,13 @@ export default function ResumenDiferenciasModal({
                             {Math.abs(p.variacionPct) < 0.2 ? (
                               '0.0%'
                             ) : p.variacionPct > 0 ? (
-                              <><TrendingUp size={12} /> +{p.variacionPct.toFixed(1)}%</>
+                              <><TrendingUp size={11} /> +{p.variacionPct.toFixed(1)}%</>
                             ) : (
-                              <><TrendingDown size={12} /> {p.variacionPct.toFixed(1)}%</>
+                              <><TrendingDown size={11} /> {p.variacionPct.toFixed(1)}%</>
                             )}
                           </span>
                         </td>
-                        <td style={{ padding: '14px', color: 'var(--text-secondary)', fontSize: '12px' }}>
+                        <td style={{ padding: '10px 14px', color: 'var(--text-secondary)', fontSize: '11.5px' }}>
                           {p.currListPrice > 0 || p.prevListPrice > 0 ? (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                               {p.prevListPrice > 0 && (
@@ -685,7 +723,7 @@ export default function ResumenDiferenciasModal({
                                   ${p.prevListPrice.toLocaleString('es-AR')}
                                 </span>
                               )}
-                              {p.prevListPrice > 0 && <ArrowRight size={12} />}
+                              {p.prevListPrice > 0 && <ArrowRight size={11} />}
                               <span style={{ color: 'var(--accent)', fontWeight: 800 }}>
                                 ${p.currListPrice.toLocaleString('es-AR')}
                               </span>
@@ -702,33 +740,67 @@ export default function ResumenDiferenciasModal({
             </div>
           )}
 
-          {/* TAB 4: BONIFICACIONES POR % */}
+          {/* TAB 5: BONIFICACIONES POR % */}
           {activeTab === 'bonificaciones' && (
             <div>
-              <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+              <div style={{ marginBottom: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
                 <div>
-                  <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px 0' }}>
+                  <h3 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 2px 0' }}>
                     Distribución de Bonificaciones del Lote
                   </h3>
-                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>
+                  <p style={{ fontSize: '11.5px', color: 'var(--text-secondary)', margin: 0 }}>
                     Cantidad de líneas agrupadas por porcentaje de descuento aplicado en el período.
                   </p>
                 </div>
-                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '12px', fontWeight: 700, padding: '6px 12px', borderRadius: '8px', background: 'rgba(168, 85, 247, 0.1)', color: '#a855f7' }}>
-                    Con Bonificación: {stats.totalWithBonif || 0} líneas
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '11.5px', fontWeight: 700, padding: '4px 10px', borderRadius: '6px', background: 'rgba(168, 85, 247, 0.1)', color: '#a855f7' }}>
+                    Con Bonificación: {stats?.totalWithBonif || 0} líneas
                   </span>
-                  {stats.totalSinBonif > 0 && (
-                    <span style={{ fontSize: '12px', fontWeight: 700, padding: '6px 12px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}>
+                  {(stats?.totalSinBonif || 0) > 0 && (
+                    <span style={{ fontSize: '11.5px', fontWeight: 700, padding: '4px 10px', borderRadius: '6px', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}>
                       Sin Bonificación: {stats.totalSinBonif} líneas
                     </span>
                   )}
                 </div>
               </div>
 
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                  <thead>
+              {/* Quick Summary Chips */}
+              {bonifBreakdown && bonifBreakdown.length > 0 && (
+                <div style={{
+                  display: 'flex',
+                  gap: '8px',
+                  flexWrap: 'wrap',
+                  marginBottom: '14px',
+                  padding: '8px 12px',
+                  background: 'rgba(168, 85, 247, 0.05)',
+                  borderRadius: '10px',
+                  border: '1px solid rgba(168, 85, 247, 0.2)'
+                }}>
+                  {bonifBreakdown.map((b, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        background: 'var(--bg-app)',
+                        border: '1px solid rgba(168, 85, 247, 0.3)',
+                        borderRadius: '6px',
+                        padding: '3px 8px',
+                        fontSize: '11.5px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px'
+                      }}
+                    >
+                      <span style={{ fontWeight: 900, color: '#a855f7' }}>{b.label}</span>
+                      <span style={{ fontWeight: 800, color: 'var(--text-primary)' }}>{b.count}</span>
+                      <span style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>({b.pctOfTotal.toFixed(1)}%)</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ overflowX: 'auto', border: '1px solid var(--border-light)', borderRadius: '12px', background: 'var(--surface)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                  <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 3, boxShadow: '0 1px 0 var(--border-light)' }}>
                     <tr style={{ borderBottom: '1px solid var(--border-light)', textAlign: 'left', color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                       <th style={{ padding: '10px 14px' }}>Porcentaje</th>
                       <th style={{ padding: '10px 14px', textAlign: 'center' }}>Cantidad de Líneas</th>
@@ -739,15 +811,15 @@ export default function ResumenDiferenciasModal({
                   <tbody>
                     {bonifBreakdown.map((b, idx) => (
                       <tr key={idx} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                        <td style={{ padding: '14px', fontWeight: 900, color: b.pct > 0 ? '#a855f7' : 'var(--text-secondary)', fontSize: '15px' }}>
+                        <td style={{ padding: '10px 14px', fontWeight: 900, color: b.pct > 0 ? '#a855f7' : 'var(--text-secondary)', fontSize: '14px' }}>
                           {b.label}
                         </td>
-                        <td style={{ padding: '14px', textAlign: 'center', fontWeight: 800, fontSize: '16px', color: 'var(--text-primary)' }}>
+                        <td style={{ padding: '10px 14px', textAlign: 'center', fontWeight: 800, fontSize: '15px', color: 'var(--text-primary)' }}>
                           {b.count}
                         </td>
-                        <td style={{ padding: '14px', minWidth: '220px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <div style={{ flex: 1, height: '8px', background: 'var(--border-light)', borderRadius: '100px', overflow: 'hidden' }}>
+                        <td style={{ padding: '10px 14px', minWidth: '200px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ flex: 1, height: '7px', background: 'var(--border-light)', borderRadius: '100px', overflow: 'hidden' }}>
                               <div style={{
                                 width: `${b.pctOfTotal}%`,
                                 height: '100%',
@@ -755,15 +827,15 @@ export default function ResumenDiferenciasModal({
                                 borderRadius: '100px'
                               }} />
                             </div>
-                            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)', width: '45px', textAlign: 'right' }}>
+                            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-primary)', width: '42px', textAlign: 'right' }}>
                               {b.pctOfTotal.toFixed(1)}%
                             </span>
                           </div>
                         </td>
-                        <td style={{ padding: '14px' }}>
+                        <td style={{ padding: '10px 14px' }}>
                           <span style={{
-                            padding: '4px 10px',
-                            borderRadius: '8px',
+                            padding: '3px 8px',
+                            borderRadius: '6px',
                             fontSize: '11px',
                             fontWeight: 800,
                             background: b.pct >= 80 ? 'rgba(34, 197, 94, 0.12)' : b.pct > 0 ? 'rgba(59, 130, 246, 0.12)' : 'rgba(239, 68, 68, 0.12)',
@@ -783,7 +855,7 @@ export default function ResumenDiferenciasModal({
 
         {/* ── FOOTER ── */}
         <div style={{
-          padding: '16px 28px',
+          padding: '12px 24px',
           borderTop: '1px solid var(--border-light)',
           display: 'flex',
           justifyContent: 'space-between',
@@ -795,20 +867,20 @@ export default function ResumenDiferenciasModal({
             onClick={handleDownloadExcel}
             className="air-btn"
             style={{
-              padding: '10px 18px',
-              fontSize: '13px',
+              padding: '8px 16px',
+              fontSize: '12.5px',
               fontWeight: 800,
               background: 'rgba(34, 197, 94, 0.12)',
               color: '#16a34a',
               border: '1px solid rgba(34, 197, 94, 0.3)',
-              borderRadius: '12px',
+              borderRadius: '10px',
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
+              gap: '6px',
               cursor: 'pointer'
             }}
           >
-            <Download size={16} />
+            <Download size={15} />
             Descargar Resumen Excel (.xlsx)
           </button>
 
@@ -816,10 +888,10 @@ export default function ResumenDiferenciasModal({
             onClick={onClose}
             className="air-btn air-btn-primary"
             style={{
-              padding: '10px 24px',
-              fontSize: '13px',
+              padding: '8px 22px',
+              fontSize: '12.5px',
               fontWeight: 800,
-              borderRadius: '12px',
+              borderRadius: '10px',
               cursor: 'pointer'
             }}
           >

@@ -63,11 +63,20 @@ export default function AuditLineRow({
         <div style={{ fontWeight: 800, fontSize: '14px', color: 'var(--text-primary)' }}>
           {d.lineas?.socios?.nombre_completo || 'Sin Socio'}
         </div>
-        {d.lineas?.numero_grupo && (
-          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, marginTop: '2px' }}>
-            Grupo {d.lineas.numero_grupo}
-          </div>
-        )}
+        {(() => {
+          const rawGrupo = (d.lineas?.numero_grupo && Number(d.lineas.numero_grupo) > 0)
+            ? d.lineas.numero_grupo
+            : (d.lineas?.socios?.grupo_socio?.[0]?.numero_grupo || d.lineas?.responsable?.grupo_socio?.[0]?.numero_grupo || null);
+          const grpNum = Number(rawGrupo);
+
+          if (!grpNum || grpNum <= 0) return null;
+
+          return (
+            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, marginTop: '2px' }}>
+              Grupo {grpNum}
+            </div>
+          );
+        })()}
       </td>
       <td style={{ textAlign: 'right' }}>
         <EditableAbonoCell 

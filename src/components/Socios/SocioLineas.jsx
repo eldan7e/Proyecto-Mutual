@@ -196,7 +196,7 @@ export default function SocioLineas({ socio, onUpdate }) {
       plan_id: selectedPlanId ? parseInt(selectedPlanId, 10) : null,
       estado: selectedEstado,
       socio_id: socio.socio_id,
-      numero_grupo: socio.grupo_socio?.[0]?.numero_grupo || 0,
+      numero_grupo: socio.grupo_socio?.[0]?.numero_grupo || currentLinea?.numero_grupo || 0,
       descuento_esperado: parseFloat(descuentoEsperado || 0)
     };
 

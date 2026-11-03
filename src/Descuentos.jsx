@@ -839,7 +839,7 @@ export default function Descuentos() {
                             <div style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '14px' }}>{socioData?.nombre_completo || 'Sin Asignar'}</div>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '2px' }}>
                               <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>ID #{socioData?.nro_socio || '—'}</div>
-                              {a.lineas?.numero_grupo && (
+                              {Boolean(a.lineas?.numero_grupo && Number(a.lineas.numero_grupo) > 0) && (
                                 <div style={{ fontSize: '10px', background: 'var(--accent-light)', color: 'var(--accent)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
                                   G{a.lineas.numero_grupo}
                                 </div>

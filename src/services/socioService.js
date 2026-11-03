@@ -254,6 +254,13 @@ export async function upsertSocioDatos(socioId, data) {
       .insert({ numero_grupo: grupoNum, socio_id: socioId, es_titular: false });
 
     if (assocErr) throw assocErr;
+
+    // Sincronizar lineas del socio que hayan quedado con grupo 0
+    await supabase
+      .from('lineas')
+      .update({ numero_grupo: grupoNum })
+      .eq('socio_id', socioId)
+      .eq('numero_grupo', 0);
   } else {
     // No grupo selected — remove any existing association
     await supabase

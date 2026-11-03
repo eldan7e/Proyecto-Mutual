@@ -518,6 +518,13 @@ export default function Socios({ hideHeader = false }) {
           });
 
         if (assocErr) throw assocErr;
+
+        // Sincronizar lineas del socio que hayan quedado con grupo 0
+        await supabase
+          .from('lineas')
+          .update({ numero_grupo: grupoNum })
+          .eq('socio_id', socioIdToUse)
+          .eq('numero_grupo', 0);
       } catch (assocErr) {
         alert("Socio guardado, pero error al asociar grupo / correos grupales: " + assocErr.message);
       }
@@ -1716,7 +1723,7 @@ export default function Socios({ hideHeader = false }) {
                                   {l.proveedores.nombre}
                                 </span>
                               )}
-                              {l.numero_grupo && (
+                              {Boolean(l.numero_grupo && Number(l.numero_grupo) > 0) && (
                                 <span style={{
                                   padding: '4px 10px',
                                   borderRadius: '12px',
