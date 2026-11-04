@@ -2191,22 +2191,21 @@ export default function Campanas() {
     const cuitStr = r.cuit || '-';
     const diasMoraStr = r.dias_mora || '0';
 
-    // Generar filas de la tabla de detalle de líneas (Línea, Compañía, GB Contratados, Abono, Excedentes, Total por Línea)
+    // Generar filas de la tabla de detalle de líneas (Línea, Compañía / Plan, Abono, Excedentes, Total por Línea)
     let tableRows;
     if (r.detalle_lineas && r.detalle_lineas.length > 0) {
       tableRows = r.detalle_lineas.map(l => {
         const lineNum = l.numero_linea || '';
-        let lineLabel = lineNum;
-        if (l.nombre_socio) {
-          const sName = l.nombre_socio.includes(',')
-            ? l.nombre_socio.split(',')[1].trim().split(' ')[0]
-            : l.nombre_socio.trim().split(' ')[0];
-          if (sName && sName.toLowerCase() !== 'socio') {
-            lineLabel = `${lineNum} (${sName})`;
-          }
-        }
+        const lineLabel = lineNum;
         const planGb = formatGbsPlan(l.nombre_plan, l.gb);
-        const prov = l.proveedor || '-';
+        const prov = (l.proveedor || '').trim();
+
+        // Unificar Compañía y GB Contratados (ej: 'PERSONAL 30 GB', 'CLARO 10 GB')
+        let planCompleto = prov && prov !== '-' ? prov : '';
+        if (planGb && planGb !== '-') {
+          planCompleto = planCompleto ? `${planCompleto} ${planGb}` : planGb;
+        }
+        if (!planCompleto) planCompleto = '-';
 
         // Abono base del plan
         const abonoBaseVal = Number(l.costo_abono_real || 0) > 0
@@ -2231,8 +2230,7 @@ export default function Campanas() {
 
         return `<tr>
           <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; font-weight: 600; color: #333; white-space: nowrap;">${lineLabel}</td>
-          <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; color: #555; white-space: nowrap;">${prov}</td>
-          <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; text-align: center; color: #555; white-space: nowrap;">${planGb}</td>
+          <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; color: #555; white-space: nowrap;">${planCompleto}</td>
           <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; text-align: right; color: #555; font-weight: 600; white-space: nowrap;">${abonoStr}</td>
           <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; text-align: right; ${excStyle} white-space: nowrap;">${excStr}</td>
           <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; text-align: right; color: #1e293b; font-weight: 700; white-space: nowrap;">${totalLineaStr}</td>
@@ -2242,17 +2240,22 @@ export default function Campanas() {
       tableRows = `<tr>
         <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; font-weight: 600; color: #333; white-space: nowrap;">${lineasStr}</td>
         <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; color: #555; white-space: nowrap;">Mutual Aunar</td>
-        <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; text-align: center; color: #555; white-space: nowrap;">-</td>
         <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; text-align: right; color: #555; font-weight: 600; white-space: nowrap;">$ ${montoStr}</td>
         <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; text-align: right; color: #777; white-space: nowrap;">$ 0,00</td>
         <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; text-align: right; color: #1e293b; font-weight: 700; white-space: nowrap;">$ ${montoStr}</td>
       </tr>`;
     }
 
-    // Asegurar que si el cuerpo trae el encabezado de 3 columnas (Línea / Empresa / Abono), se transforme a 4 columnas con GB
+    // Unificar columnas Compañía y GB Contratados en 'Compañía / Plan'
+    body = body.replace(
+      /<th([^>]*)>(?:Empresa|Compañía)<\/th>\s*<th([^>]*)>GB Contratados<\/th>/gi,
+      `<th$1 style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: left; color: #555; white-space: nowrap;">Compañía / Plan</th>`
+    );
+
+    // Si viene de formato viejo sin GB Contratados (Compañía / Abono)
     body = body.replace(
       /<th([^>]*)>(?:Empresa|Compañía)<\/th>\s*<th([^>]*)>Abono<\/th>/gi,
-      `<th$1 style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: left; color: #555; white-space: nowrap;">Compañía</th><th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: center; color: #555; white-space: nowrap;">GB Contratados</th><th$2>Abono</th>`
+      `<th$1 style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: left; color: #555; white-space: nowrap;">Compañía / Plan</th>\n          <th$2>Abono</th>`
     );
 
     // Asegurar que si el cuerpo trae encabezado sin columna de Excedentes, se agregue automáticamente
@@ -2261,7 +2264,6 @@ export default function Campanas() {
         /<th([^>]*)>Abono<\/th>/gi,
         `<th$1 style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Abono</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Excedentes</th>`
       );
-      body = body.replace(/colspan=["']4["']/gi, 'colspan="5"');
     }
 
     // Asegurar que si el cuerpo trae encabezado sin columna de Total por Línea, se agregue automáticamente
@@ -2277,13 +2279,15 @@ export default function Campanas() {
           `<th$1 style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Abono</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Excedentes</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Total por Línea</th>`
         );
       }
-      body = body.replace(/colspan=["'][345]["']/gi, 'colspan="6"');
     }
 
+    // Asegurar colspan='5' para la tabla unificada de 5 columnas
+    body = body.replace(/colspan=["'][346]["']/gi, 'colspan="5"');
+
     // Asegurar que no se rompan las palabras ni signos en los encabezados
-    body = body.replace(/<th([^>]*)>(Línea|Compañía|Empresa|GB Contratados|Abono|Excedentes|Total por Línea)<\/th>/gi, (match, attrs, text) => {
+    body = body.replace(/<th([^>]*)>(Línea|Compañía\s*\/\s*Plan|Compañía|Empresa|GB Contratados|Abono|Excedentes|Total por Línea)<\/th>/gi, (match, attrs, text) => {
       if (!attrs.includes('white-space')) {
-        const align = (text === 'Línea' || text === 'Compañía' || text === 'Empresa') ? 'left' : (text === 'GB Contratados' ? 'center' : 'right');
+        const align = (text === 'Línea' || text.includes('Compañía') || text === 'Empresa') ? 'left' : 'right';
         return `<th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: ${align}; color: #555; white-space: nowrap;">${text}</th>`;
       }
       return match;
@@ -2434,8 +2438,7 @@ export default function Campanas() {
       <thead>
         <tr>
           <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: left; color: #555; white-space: nowrap;">Línea</th>
-          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: left; color: #555; white-space: nowrap;">Compañía</th>
-          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: center; color: #555; white-space: nowrap;">GB Contratados</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: left; color: #555; white-space: nowrap;">Compañía / Plan</th>
           <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Abono</th>
           <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Excedentes</th>
           <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Total por Línea</th>
@@ -2444,7 +2447,7 @@ export default function Campanas() {
       <tbody>
         <!-- DETALLE_LINEAS_START -->
         <tr data-lineas-placeholder="true">
-          <td colspan="6" style="padding: 12px; text-align: center; color: #999; font-size: 13px; font-style: italic;">
+          <td colspan="5" style="padding: 12px; text-align: center; color: #999; font-size: 13px; font-style: italic;">
             (El detalle de líneas se insertará automáticamente aquí)
           </td>
         </tr>
@@ -2523,6 +2526,12 @@ export default function Campanas() {
       const t = customTemplates.find(c => String(c.id) === String(customId));
       if (t) {
         let customBody = t.cuerpo_html || '';
+        if (customBody && /<th[^>]*>(?:Empresa|Compañía)<\/th>\s*<th[^>]*>GB Contratados<\/th>/i.test(customBody)) {
+          customBody = customBody.replace(
+            /<th([^>]*)>(?:Empresa|Compañía)<\/th>\s*<th([^>]*)>GB Contratados<\/th>/gi,
+            `<th$1 style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: left; color: #555; white-space: nowrap;">Compañía / Plan</th>`
+          );
+        }
         if (customBody && !/<th[^>]*>Excedentes<\/th>/i.test(customBody) && /<th[^>]*>Abono<\/th>/i.test(customBody)) {
           customBody = customBody.replace(
             /<th([^>]*)>Abono<\/th>/gi,
@@ -2541,8 +2550,8 @@ export default function Campanas() {
               `<th$1 style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Abono</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Excedentes</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Total por Línea</th>`
             );
           }
-          customBody = customBody.replace(/colspan=["'][345]["']/gi, 'colspan="6"');
         }
+        customBody = customBody.replace(/colspan=["'][346]["']/gi, 'colspan="5"');
         setCampaignName(t.nombre);
         setSubject(t.asunto || '');
         setBodyHtml(customBody);
@@ -2580,8 +2589,7 @@ export default function Campanas() {
       <thead>
         <tr>
           <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: left; color: #555; white-space: nowrap;">Línea</th>
-          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: left; color: #555; white-space: nowrap;">Compañía</th>
-          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: center; color: #555; white-space: nowrap;">GB Contratados</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: left; color: #555; white-space: nowrap;">Compañía / Plan</th>
           <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Abono</th>
           <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Excedentes</th>
           <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Total por Línea</th>
@@ -2590,7 +2598,7 @@ export default function Campanas() {
       <tbody>
         <!-- DETALLE_LINEAS_START -->
         <tr data-lineas-placeholder="true">
-          <td colspan="6" style="padding: 12px; text-align: center; color: #999; font-size: 13px; font-style: italic;">
+          <td colspan="5" style="padding: 12px; text-align: center; color: #999; font-size: 13px; font-style: italic;">
             (El detalle de líneas se insertará automáticamente aquí)
           </td>
         </tr>
@@ -2696,12 +2704,18 @@ export default function Campanas() {
       } else {
         let upgraded = bodyHtml;
         let changed = false;
+        if (/<th[^>]*>(?:Empresa|Compañía)<\/th>\s*<th[^>]*>GB Contratados<\/th>/i.test(upgraded)) {
+          upgraded = upgraded.replace(
+            /<th([^>]*)>(?:Empresa|Compañía)<\/th>\s*<th([^>]*)>GB Contratados<\/th>/gi,
+            `<th$1 style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: left; color: #555; white-space: nowrap;">Compañía / Plan</th>`
+          );
+          changed = true;
+        }
         if (!/<th[^>]*>Excedentes<\/th>/i.test(upgraded) && /<th[^>]*>Abono<\/th>/i.test(upgraded)) {
           upgraded = upgraded.replace(
             /<th([^>]*)>Abono<\/th>/gi,
             `<th$1 style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Abono</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Excedentes</th>`
           );
-          upgraded = upgraded.replace(/colspan=["']4["']/gi, 'colspan="5"');
           changed = true;
         }
         if (!/<th[^>]*>Total\s+(?:por\s+)?Línea<\/th>/i.test(upgraded)) {
@@ -2718,7 +2732,9 @@ export default function Campanas() {
             );
             changed = true;
           }
-          upgraded = upgraded.replace(/colspan=["'][345]["']/gi, 'colspan="6"');
+        }
+        if (/colspan=["'][346]["']/i.test(upgraded)) {
+          upgraded = upgraded.replace(/colspan=["'][346]["']/gi, 'colspan="5"');
           changed = true;
         }
         if (changed) {
