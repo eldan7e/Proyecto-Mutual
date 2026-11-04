@@ -2191,7 +2191,7 @@ export default function Campanas() {
     const cuitStr = r.cuit || '-';
     const diasMoraStr = r.dias_mora || '0';
 
-    // Generar filas de la tabla de detalle de líneas (Línea, Compañía, GB Contratados, Abono, Excedentes)
+    // Generar filas de la tabla de detalle de líneas (Línea, Compañía, GB Contratados, Abono, Excedentes, Total por Línea)
     let tableRows;
     if (r.detalle_lineas && r.detalle_lineas.length > 0) {
       tableRows = r.detalle_lineas.map(l => {
@@ -2209,54 +2209,86 @@ export default function Campanas() {
         const prov = l.proveedor || '-';
 
         // Abono base del plan
-        const abonoBaseVal = Number(l.costo_abono_real || 0) > 0 
-          ? Number(l.costo_abono_real) 
+        const abonoBaseVal = Number(l.costo_abono_real || 0) > 0
+          ? Number(l.costo_abono_real)
           : Math.max(0, Number(l.total_linea || 0) - Number(l.excedentes || 0));
         const abonoStr = `$ ${abonoBaseVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
 
         // Excedentes de la línea
         const excVal = Number(l.excedentes || 0);
-        const excStr = excVal > 0 
-          ? `$ ${excVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` 
+        const excStr = excVal > 0
+          ? `$ ${excVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
           : '$ 0,00';
-        const excStyle = excVal > 0 
-          ? 'color: #d97706; font-weight: 700;' 
+        const excStyle = excVal > 0
+          ? 'color: #d97706; font-weight: 700;'
           : 'color: #777;';
 
+        // Total por línea (abono + excedentes incluidos)
+        const totalLineaVal = (Number(l.total_linea || 0) > 0 && Number(l.total_linea) >= (abonoBaseVal + excVal - 0.05))
+          ? Number(l.total_linea)
+          : (abonoBaseVal + excVal);
+        const totalLineaStr = `$ ${totalLineaVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+
         return `<tr>
-          <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; font-weight: 600; color: #333;">${lineLabel}</td>
-          <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; color: #555;">${prov}</td>
-          <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; text-align: center; color: #555;">${planGb}</td>
-          <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; text-align: right; color: #555; font-weight: 600;">${abonoStr}</td>
-          <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; text-align: right; ${excStyle}">${excStr}</td>
+          <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; font-weight: 600; color: #333; white-space: nowrap;">${lineLabel}</td>
+          <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; color: #555; white-space: nowrap;">${prov}</td>
+          <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; text-align: center; color: #555; white-space: nowrap;">${planGb}</td>
+          <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; text-align: right; color: #555; font-weight: 600; white-space: nowrap;">${abonoStr}</td>
+          <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; text-align: right; ${excStyle} white-space: nowrap;">${excStr}</td>
+          <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; text-align: right; color: #1e293b; font-weight: 700; white-space: nowrap;">${totalLineaStr}</td>
         </tr>`;
       }).join('');
     } else {
       tableRows = `<tr>
-        <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; font-weight: 600; color: #333;">${lineasStr}</td>
-        <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; color: #555;">Mutual Aunar</td>
-        <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; text-align: center; color: #555;">-</td>
-        <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; text-align: right; color: #555; font-weight: 600;">$ ${montoStr}</td>
-        <td style="border-bottom: 1px solid #eee; padding: 8px; font-size: 13px; text-align: right; color: #777;">$ 0,00</td>
+        <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; font-weight: 600; color: #333; white-space: nowrap;">${lineasStr}</td>
+        <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; color: #555; white-space: nowrap;">Mutual Aunar</td>
+        <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; text-align: center; color: #555; white-space: nowrap;">-</td>
+        <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; text-align: right; color: #555; font-weight: 600; white-space: nowrap;">$ ${montoStr}</td>
+        <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; text-align: right; color: #777; white-space: nowrap;">$ 0,00</td>
+        <td style="border-bottom: 1px solid #eee; padding: 8px 6px; font-size: 13px; text-align: right; color: #1e293b; font-weight: 700; white-space: nowrap;">$ ${montoStr}</td>
       </tr>`;
     }
 
     // Asegurar que si el cuerpo trae el encabezado de 3 columnas (Línea / Empresa / Abono), se transforme a 4 columnas con GB
     body = body.replace(
       /<th([^>]*)>(?:Empresa|Compañía)<\/th>\s*<th([^>]*)>Abono<\/th>/gi,
-      `<th$1>Compañía</th><th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: center; color: #555;">GB Contratados</th><th$2>Abono</th>`
+      `<th$1 style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: left; color: #555; white-space: nowrap;">Compañía</th><th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: center; color: #555; white-space: nowrap;">GB Contratados</th><th$2>Abono</th>`
     );
 
     // Asegurar que si el cuerpo trae encabezado sin columna de Excedentes, se agregue automáticamente
     if (!/<th[^>]*>Excedentes<\/th>/i.test(body)) {
       body = body.replace(
         /<th([^>]*)>Abono<\/th>/gi,
-        `<th$1>Abono</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: right; color: #555;">Excedentes</th>`
+        `<th$1 style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Abono</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Excedentes</th>`
       );
       body = body.replace(/colspan=["']4["']/gi, 'colspan="5"');
     }
 
-    // Reemplazar marcador de tabla de líneas o {{detalle_lineas_html}}
+    // Asegurar que si el cuerpo trae encabezado sin columna de Total por Línea, se agregue automáticamente
+    if (!/<th[^>]*>Total\s+(?:por\s+)?Línea<\/th>/i.test(body)) {
+      if (/<th[^>]*>Excedentes<\/th>/i.test(body)) {
+        body = body.replace(
+          /<th([^>]*)>Excedentes<\/th>/gi,
+          `<th$1 style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Excedentes</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Total por Línea</th>`
+        );
+      } else if (/<th[^>]*>Abono<\/th>/i.test(body)) {
+        body = body.replace(
+          /<th([^>]*)>Abono<\/th>/gi,
+          `<th$1 style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Abono</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Excedentes</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Total por Línea</th>`
+        );
+      }
+      body = body.replace(/colspan=["'][345]["']/gi, 'colspan="6"');
+    }
+
+    // Asegurar que no se rompan las palabras ni signos en los encabezados
+    body = body.replace(/<th([^>]*)>(Línea|Compañía|Empresa|GB Contratados|Abono|Excedentes|Total por Línea)<\/th>/gi, (match, attrs, text) => {
+      if (!attrs.includes('white-space')) {
+        const align = (text === 'Línea' || text === 'Compañía' || text === 'Empresa') ? 'left' : (text === 'GB Contratados' ? 'center' : 'right');
+        return `<th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: ${align}; color: #555; white-space: nowrap;">${text}</th>`;
+      }
+      return match;
+    });
+
     const placeholderRowRegex = /<tr[^>]*data-lineas-placeholder[^>]*>[\s\S]*?<\/tr>/gi;
     if (placeholderRowRegex.test(body)) {
       body = body.replace(placeholderRowRegex, tableRows);
@@ -2397,21 +2429,22 @@ export default function Campanas() {
   <p style="font-size: 13px; color: #666; margin-bottom: 15px;">Grupo: #{{grupo}} · Período: {{periodo}}</p>
 
   <!-- Tabla de líneas -->
-  <div style="background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #e0e0e0;">
+  <div style="background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #e0e0e0; overflow-x: auto;">
     <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 15px;">
       <thead>
         <tr>
-          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: left; color: #555;">Línea</th>
-          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: left; color: #555;">Compañía</th>
-          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: center; color: #555;">GB Contratados</th>
-          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: right; color: #555;">Abono</th>
-          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: right; color: #555;">Excedentes</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: left; color: #555; white-space: nowrap;">Línea</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: left; color: #555; white-space: nowrap;">Compañía</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: center; color: #555; white-space: nowrap;">GB Contratados</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Abono</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Excedentes</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Total por Línea</th>
         </tr>
       </thead>
       <tbody>
         <!-- DETALLE_LINEAS_START -->
         <tr data-lineas-placeholder="true">
-          <td colspan="5" style="padding: 12px; text-align: center; color: #999; font-size: 13px; font-style: italic;">
+          <td colspan="6" style="padding: 12px; text-align: center; color: #999; font-size: 13px; font-style: italic;">
             (El detalle de líneas se insertará automáticamente aquí)
           </td>
         </tr>
@@ -2493,9 +2526,22 @@ export default function Campanas() {
         if (customBody && !/<th[^>]*>Excedentes<\/th>/i.test(customBody) && /<th[^>]*>Abono<\/th>/i.test(customBody)) {
           customBody = customBody.replace(
             /<th([^>]*)>Abono<\/th>/gi,
-            `<th$1>Abono</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: right; color: #555;">Excedentes</th>`
+            `<th$1 style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Abono</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Excedentes</th>`
           );
-          customBody = customBody.replace(/colspan=["']4["']/gi, 'colspan="5"');
+        }
+        if (customBody && !/<th[^>]*>Total\s+(?:por\s+)?Línea<\/th>/i.test(customBody)) {
+          if (/<th[^>]*>Excedentes<\/th>/i.test(customBody)) {
+            customBody = customBody.replace(
+              /<th([^>]*)>Excedentes<\/th>/gi,
+              `<th$1 style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Excedentes</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Total por Línea</th>`
+            );
+          } else if (/<th[^>]*>Abono<\/th>/i.test(customBody)) {
+            customBody = customBody.replace(
+              /<th([^>]*)>Abono<\/th>/gi,
+              `<th$1 style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Abono</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Excedentes</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Total por Línea</th>`
+            );
+          }
+          customBody = customBody.replace(/colspan=["'][345]["']/gi, 'colspan="6"');
         }
         setCampaignName(t.nombre);
         setSubject(t.asunto || '');
@@ -2529,21 +2575,22 @@ export default function Campanas() {
   <p style="font-size: 13px; color: #666; margin-bottom: 15px;">Grupo: #{{grupo}} · Período: {{periodo}}</p>
 
   <!-- Tabla de líneas -->
-  <div style="background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #e0e0e0;">
+  <div style="background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #e0e0e0; overflow-x: auto;">
     <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 15px;">
       <thead>
         <tr>
-          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: left; color: #555;">Línea</th>
-          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: left; color: #555;">Compañía</th>
-          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: center; color: #555;">GB Contratados</th>
-          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: right; color: #555;">Abono</th>
-          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: right; color: #555;">Excedentes</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: left; color: #555; white-space: nowrap;">Línea</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: left; color: #555; white-space: nowrap;">Compañía</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: center; color: #555; white-space: nowrap;">GB Contratados</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Abono</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Excedentes</th>
+          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Total por Línea</th>
         </tr>
       </thead>
       <tbody>
         <!-- DETALLE_LINEAS_START -->
         <tr data-lineas-placeholder="true">
-          <td colspan="5" style="padding: 12px; text-align: center; color: #999; font-size: 13px; font-style: italic;">
+          <td colspan="6" style="padding: 12px; text-align: center; color: #999; font-size: 13px; font-style: italic;">
             (El detalle de líneas se insertará automáticamente aquí)
           </td>
         </tr>
@@ -2648,12 +2695,33 @@ export default function Campanas() {
         handleLoadTemplate('aunar');
       } else {
         let upgraded = bodyHtml;
+        let changed = false;
         if (!/<th[^>]*>Excedentes<\/th>/i.test(upgraded) && /<th[^>]*>Abono<\/th>/i.test(upgraded)) {
           upgraded = upgraded.replace(
             /<th([^>]*)>Abono<\/th>/gi,
-            `<th$1>Abono</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px; text-align: right; color: #555;">Excedentes</th>`
+            `<th$1 style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Abono</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Excedentes</th>`
           );
           upgraded = upgraded.replace(/colspan=["']4["']/gi, 'colspan="5"');
+          changed = true;
+        }
+        if (!/<th[^>]*>Total\s+(?:por\s+)?Línea<\/th>/i.test(upgraded)) {
+          if (/<th[^>]*>Excedentes<\/th>/i.test(upgraded)) {
+            upgraded = upgraded.replace(
+              /<th([^>]*)>Excedentes<\/th>/gi,
+              `<th$1 style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Excedentes</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Total por Línea</th>`
+            );
+            changed = true;
+          } else if (/<th[^>]*>Abono<\/th>/i.test(upgraded)) {
+            upgraded = upgraded.replace(
+              /<th([^>]*)>Abono<\/th>/gi,
+              `<th$1 style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Abono</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Excedentes</th>\n          <th style="border-bottom: 2px solid #ccc; padding: 8px 6px; text-align: right; color: #555; white-space: nowrap;">Total por Línea</th>`
+            );
+            changed = true;
+          }
+          upgraded = upgraded.replace(/colspan=["'][345]["']/gi, 'colspan="6"');
+          changed = true;
+        }
+        if (changed) {
           setBodyHtml(upgraded);
         }
         if (editorRef.current && editorRef.current.innerHTML !== upgraded) {
