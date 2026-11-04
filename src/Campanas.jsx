@@ -2284,6 +2284,12 @@ export default function Campanas() {
     // Asegurar colspan='5' para la tabla unificada de 5 columnas
     body = body.replace(/colspan=["'][346]["']/gi, 'colspan="5"');
 
+    // Centralizar y agrandar Total a abonar y Vencimiento debajo del recuadro si vienen con el estilo viejo
+    body = body.replace(
+      /(?:<\/table>\s*)<div[^>]*color:\s*#d9534f[^>]*>Total a abonar:\s*\$\s*\{\{monto_adeudado\}\}<\/div>\s*<div[^>]*>Vencimiento:\s*\{\{vencimiento\}\}<\/div>\s*<\/div>/gi,
+      `</table>\n  </div>\n  <div style="text-align: center; margin-top: 15px; margin-bottom: 22px;">\n    <div style="font-size: 20px; font-weight: bold; color: #d9534f; margin-bottom: 6px;">Total a abonar: $ {{monto_adeudado}}</div>\n    <div style="font-size: 15px; color: #555; font-weight: bold;">Vencimiento: {{vencimiento}}</div>\n  </div>`
+    );
+
     // Asegurar que no se rompan las palabras ni signos en los encabezados
     body = body.replace(/<th([^>]*)>(Línea|Compañía\s*\/\s*Plan|Compañía|Empresa|GB Contratados|Abono|Excedentes|Total por Línea)<\/th>/gi, (match, attrs, text) => {
       if (!attrs.includes('white-space')) {
@@ -2454,8 +2460,10 @@ export default function Campanas() {
         <!-- DETALLE_LINEAS_END -->
       </tbody>
     </table>
-    <div style="font-size: 16px; font-weight: bold; color: #d9534f; text-align: right; margin-bottom: 5px;">Total a abonar: $ {{monto_adeudado}}</div>
-    <div style="font-size: 14px; text-align: right; color: #555; font-weight: bold;">Vencimiento: {{vencimiento}}</div>
+  </div>
+  <div style="text-align: center; margin-top: 15px; margin-bottom: 22px;">
+    <div style="font-size: 20px; font-weight: bold; color: #d9534f; margin-bottom: 6px;">Total a abonar: $ {{monto_adeudado}}</div>
+    <div style="font-size: 15px; color: #555; font-weight: bold;">Vencimiento: {{vencimiento}}</div>
   </div>
 
   ${editableTextHtml || `<!-- Sección informativa -->
@@ -2551,6 +2559,12 @@ export default function Campanas() {
             );
           }
         }
+        if (/text-align:\s*right;[^"]*">Total a abonar/i.test(customBody)) {
+          customBody = customBody.replace(
+            /(?:<\/table>\s*)<div[^>]*color:\s*#d9534f[^>]*>Total a abonar:\s*\$\s*\{\{monto_adeudado\}\}<\/div>\s*<div[^>]*>Vencimiento:\s*\{\{vencimiento\}\}<\/div>\s*<\/div>/gi,
+            `</table>\n  </div>\n  <div style="text-align: center; margin-top: 15px; margin-bottom: 22px;">\n    <div style="font-size: 20px; font-weight: bold; color: #d9534f; margin-bottom: 6px;">Total a abonar: $ {{monto_adeudado}}</div>\n    <div style="font-size: 15px; color: #555; font-weight: bold;">Vencimiento: {{vencimiento}}</div>\n  </div>`
+          );
+        }
         customBody = customBody.replace(/colspan=["'][346]["']/gi, 'colspan="5"');
         setCampaignName(t.nombre);
         setSubject(t.asunto || '');
@@ -2605,8 +2619,10 @@ export default function Campanas() {
         <!-- DETALLE_LINEAS_END -->
       </tbody>
     </table>
-    <div style="font-size: 16px; font-weight: bold; color: #d9534f; text-align: right; margin-bottom: 5px;">Total a abonar: $ {{monto_adeudado}}</div>
-    <div style="font-size: 14px; text-align: right; color: #555; font-weight: bold;">Vencimiento: {{vencimiento}}</div>
+  </div>
+  <div style="text-align: center; margin-top: 15px; margin-bottom: 22px;">
+    <div style="font-size: 20px; font-weight: bold; color: #d9534f; margin-bottom: 6px;">Total a abonar: $ {{monto_adeudado}}</div>
+    <div style="font-size: 15px; color: #555; font-weight: bold;">Vencimiento: {{vencimiento}}</div>
   </div>
 
   <!-- Sección informativa -->
@@ -2732,6 +2748,13 @@ export default function Campanas() {
             );
             changed = true;
           }
+        }
+        if (/text-align:\s*right;[^"]*">Total a abonar/i.test(upgraded)) {
+          upgraded = upgraded.replace(
+            /(?:<\/table>\s*)<div[^>]*color:\s*#d9534f[^>]*>Total a abonar:\s*\$\s*\{\{monto_adeudado\}\}<\/div>\s*<div[^>]*>Vencimiento:\s*\{\{vencimiento\}\}<\/div>\s*<\/div>/gi,
+            `</table>\n  </div>\n  <div style="text-align: center; margin-top: 15px; margin-bottom: 22px;">\n    <div style="font-size: 20px; font-weight: bold; color: #d9534f; margin-bottom: 6px;">Total a abonar: $ {{monto_adeudado}}</div>\n    <div style="font-size: 15px; color: #555; font-weight: bold;">Vencimiento: {{vencimiento}}</div>\n  </div>`
+          );
+          changed = true;
         }
         if (/colspan=["'][346]["']/i.test(upgraded)) {
           upgraded = upgraded.replace(/colspan=["'][346]["']/gi, 'colspan="5"');
