@@ -447,7 +447,25 @@ export default function NuevaConciliacionTab({
     const isLoading = loadingDeudaAnterior && infos.length < groups.length;
 
     if (infos.length === 0) {
-      return isLoading ? { groups, isLoading: true, hasInfo: false } : null;
+      return isLoading ? {
+        groups,
+        isLoading: true,
+        hasInfo: false,
+        periodoAnterior: '',
+        pagoMesAnterior: null,
+        estadoMesAnterior: 'SIN_FACTURA',
+        montoMesAnteriorPendiente: 0,
+        tieneDeudaAnterior: false,
+        montoTotalDeudaAnterior: 0,
+        saldoCapitalContaduria: 0,
+        interesMoraContaduria: 0,
+        saldoTotalContaduria: 0,
+        mesesImpagosContaduria: [],
+        liquidacionesAnterioresPendientes: [],
+        ultimoPagoFecha: null,
+        ultimoPagoMonto: 0,
+        ultimoPagoMedio: null
+      } : null;
     }
 
     const periodoAnterior = infos[0].periodoAnterior;
@@ -2502,7 +2520,7 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                           <td>
                             {row.netoReal > 0 ? (
                               <span style={{ fontWeight: 900, color: '#10b981', fontSize: '13px' }}>
-                                +${row.netoReal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                +${Number(row.netoReal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                               </span>
                             ) : (
                               <span style={{ color: 'var(--text-secondary)', opacity: 0.3 }}>-</span>
@@ -2913,8 +2931,8 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                       >
                                         <AlertTriangle size={10} />
                                         {(deudaContaduria.estadoMesAnterior === 'IMPAGO' || deudaContaduria.estadoMesAnterior === 'PARCIAL')
-                                          ? `Contaduría: debe ${deudaContaduria.periodoAnterior} ($${Math.round(deudaContaduria.montoMesAnteriorPendiente).toLocaleString('es-AR')})${deudaContaduria.mesesImpagosContaduria.length > 1 ? ` (+${deudaContaduria.mesesImpagosContaduria.length - 1} ant.)` : ''}`
-                                          : `Contaduría: debe ${deudaContaduria.mesesImpagosContaduria.length || prevLiqs.length} período(s) ant. ($${Math.round(deudaContaduria.montoTotalDeudaAnterior).toLocaleString('es-AR')})`}
+                                          ? `Contaduría: debe ${deudaContaduria.periodoAnterior || ''} ($${Math.round(Number(deudaContaduria.montoMesAnteriorPendiente || 0)).toLocaleString('es-AR')})${(deudaContaduria.mesesImpagosContaduria || []).length > 1 ? ` (+${deudaContaduria.mesesImpagosContaduria.length - 1} ant.)` : ''}`
+                                          : `Contaduría: debe ${(deudaContaduria.mesesImpagosContaduria || []).length || prevLiqs.length} período(s) ant. ($${Math.round(Number(deudaContaduria.montoTotalDeudaAnterior || 0)).toLocaleString('es-AR')})`}
                                       </button>
                                     )}
                                     {!deudaContaduria?.isLoading && !deudaContaduria?.tieneDeudaAnterior && deudaContaduria?.pagoMesAnterior === true && (
@@ -3048,46 +3066,53 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                         </div>
 
                                         {/* Resumen del libro mayor de Contaduría */}
-                                        <div style={{
-                                          background: 'rgba(245, 158, 11, 0.08)',
-                                          border: '1px solid rgba(245, 158, 11, 0.22)',
-                                          borderRadius: '8px',
-                                          padding: '7px 9px',
-                                          fontSize: '10.5px',
-                                          display: 'flex',
-                                          flexDirection: 'column',
-                                          gap: '3px'
-                                        }}>
-                                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <span style={{ color: 'var(--text-secondary)' }}>Mes anterior ({deudaContaduria.periodoAnterior}):</span>
-                                            <strong style={{ color: deudaContaduria.pagoMesAnterior ? '#10b981' : '#dc2626' }}>
-                                              {deudaContaduria.estadoMesAnterior === 'PAGADO'
-                                                ? 'Pagado ✓'
-                                                : (deudaContaduria.estadoMesAnterior === 'SIN_FACTURA'
-                                                  ? 'Sin factura'
-                                                  : `${deudaContaduria.estadoMesAnterior} ($${deudaContaduria.montoMesAnteriorPendiente.toLocaleString('es-AR', { minimumFractionDigits: 2 })})`)}
-                                            </strong>
+                                        {!deudaContaduria.hasInfo ? (
+                                          <div style={{ padding: '10px', fontSize: '11px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <Loader2 size={13} className="animate-spin" />
+                                            Consultando estado en Contaduría...
                                           </div>
-                                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <span style={{ color: 'var(--text-secondary)' }}>Saldo capital Contaduría:</span>
-                                            <strong style={{ color: 'var(--text-primary)' }}>
-                                              ${deudaContaduria.saldoCapitalContaduria.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                            </strong>
-                                          </div>
-                                          {deudaContaduria.interesMoraContaduria > 0 && (
+                                        ) : (
+                                          <div style={{
+                                            background: 'rgba(245, 158, 11, 0.08)',
+                                            border: '1px solid rgba(245, 158, 11, 0.22)',
+                                            borderRadius: '8px',
+                                            padding: '7px 9px',
+                                            fontSize: '10.5px',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            gap: '3px'
+                                          }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                              <span style={{ color: 'var(--text-secondary)' }}>Interés por mora:</span>
-                                              <strong style={{ color: '#d97706' }}>
-                                                ${deudaContaduria.interesMoraContaduria.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                              <span style={{ color: 'var(--text-secondary)' }}>Mes anterior ({deudaContaduria.periodoAnterior || '—'}):</span>
+                                              <strong style={{ color: deudaContaduria.pagoMesAnterior ? '#10b981' : '#dc2626' }}>
+                                                {deudaContaduria.estadoMesAnterior === 'PAGADO'
+                                                  ? 'Pagado ✓'
+                                                  : (deudaContaduria.estadoMesAnterior === 'SIN_FACTURA'
+                                                    ? 'Sin factura'
+                                                    : `${deudaContaduria.estadoMesAnterior || 'IMPAGO'} ($${Number(deudaContaduria.montoMesAnteriorPendiente || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })})`)}
                                               </strong>
                                             </div>
-                                          )}
-                                          {deudaContaduria.ultimoPagoFecha && (
-                                            <div style={{ fontSize: '9.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                                              Último pago: {deudaContaduria.ultimoPagoFecha} por ${deudaContaduria.ultimoPagoMonto.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                              <span style={{ color: 'var(--text-secondary)' }}>Saldo capital Contaduría:</span>
+                                              <strong style={{ color: 'var(--text-primary)' }}>
+                                                ${Number(deudaContaduria.saldoCapitalContaduria || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                              </strong>
                                             </div>
-                                          )}
-                                        </div>
+                                            {Number(deudaContaduria.interesMoraContaduria || 0) > 0 && (
+                                              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: 'var(--text-secondary)' }}>Interés por mora:</span>
+                                                <strong style={{ color: '#d97706' }}>
+                                                  ${Number(deudaContaduria.interesMoraContaduria || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                                </strong>
+                                              </div>
+                                            )}
+                                            {deudaContaduria.ultimoPagoFecha && (
+                                              <div style={{ fontSize: '9.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                                Último pago: {deudaContaduria.ultimoPagoFecha} por ${Number(deudaContaduria.ultimoPagoMonto || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
 
                                         {/* Facturas anteriores impagas para seleccionar */}
                                         {prevLiqs.length > 0 ? (
