@@ -3093,7 +3093,7 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                         {prevLiqs.length > 0 ? (
                                           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                             <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                                              Seleccionar factura(s) anterior(es) a conciliar:
+                                              Seleccionar factura(s) de los últimos 2 períodos:
                                             </span>
                                             {prevLiqs.map(liq => {
                                               const isChecked = selectedIds.includes(String(liq.liquidacion_id));

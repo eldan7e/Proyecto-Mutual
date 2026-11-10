@@ -1141,6 +1141,8 @@ export async function fetchDeudaAnteriorPorGrupos(gruposNumeros = [], periodoAct
 
   const targetPeriod = periodoActual || new Date().toISOString().slice(0, 7);
   const periodoAnterior = getPreviousPeriod(targetPeriod);
+  const periodoAnterior2 = getPreviousPeriod(periodoAnterior);
+  const minPeriodoAnterior = periodoAnterior2 || periodoAnterior;
 
   let tna = DEFAULT_TNA;
   try {
@@ -1157,6 +1159,27 @@ export async function fetchDeudaAnteriorPorGrupos(gruposNumeros = [], periodoAct
   for (let i = 0; i < uniqueGroups.length; i += chunkSize) {
     const chunk = uniqueGroups.slice(i, i + chunkSize);
 
+    let liqQuery = supabase
+      .from('liquidaciones_grupos')
+      .select(`
+        liquidacion_id,
+        numero_grupo,
+        periodo,
+        monto_total_facturado,
+        monto_abonado,
+        estado_pago,
+        proveedor_id,
+        socio_id,
+        socios!socio_id(fpago),
+        proveedores!proveedor_id(nombre)
+      `)
+      .in('numero_grupo', chunk)
+      .lt('periodo', targetPeriod);
+
+    if (minPeriodoAnterior) {
+      liqQuery = liqQuery.gte('periodo', minPeriodoAnterior);
+    }
+
     const [movRes, liqRes] = await Promise.all([
       supabase
         .from('movimientos_cuenta')
@@ -1165,22 +1188,7 @@ export async function fetchDeudaAnteriorPorGrupos(gruposNumeros = [], periodoAct
         .order('fecha', { ascending: true })
         .order('id', { ascending: true })
         .range(0, 4999),
-      supabase
-        .from('liquidaciones_grupos')
-        .select(`
-          liquidacion_id,
-          numero_grupo,
-          periodo,
-          monto_total_facturado,
-          monto_abonado,
-          estado_pago,
-          proveedor_id,
-          socio_id,
-          socios!socio_id(fpago),
-          proveedores!proveedor_id(nombre)
-        `)
-        .in('numero_grupo', chunk)
-        .lt('periodo', targetPeriod)
+      liqQuery
         .order('periodo', { ascending: false })
         .range(0, 4999)
     ]);
@@ -1238,15 +1246,20 @@ export async function fetchDeudaAnteriorPorGrupos(gruposNumeros = [], periodoAct
       fechaCalculo: hoy
     });
 
-    // Filtrar solo períodos anteriores al período actual de conciliación
+    // Filtrar únicamente deuda de los últimos 2 períodos anteriores al período actual de conciliación
     const mesesImpagosAnteriores = (mesesDeudaAll || []).filter(m =>
-      m.periodo && m.periodo !== 'S/P' && m.periodo < targetPeriod && Number(m.saldoImpago || 0) > 2
+      m.periodo &&
+      m.periodo !== 'S/P' &&
+      m.periodo < targetPeriod &&
+      (!minPeriodoAnterior || m.periodo >= minPeriodoAnterior) &&
+      Number(m.saldoImpago || 0) > 2
     );
 
-    // Liquidaciones de períodos anteriores con saldo pendiente en liquidaciones_grupos
+    // Liquidaciones de los últimos 2 períodos anteriores con saldo pendiente en liquidaciones_grupos
     const liquidacionesPendientesRaw = rawLiqs
       .filter(l => {
         if (!l.periodo || l.periodo >= targetPeriod) return false;
+        if (minPeriodoAnterior && l.periodo < minPeriodoAnterior) return false;
         const fact = Number(l.monto_total_facturado || 0);
         const ab = Number(l.monto_abonado || 0);
         return l.estado_pago !== 'ABONADO' && (fact - ab) > 2.00;
