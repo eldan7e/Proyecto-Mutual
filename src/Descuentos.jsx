@@ -12,6 +12,7 @@ import {
   getOpenMutualDiscountTickets 
 } from './services/ticketService';
 import { useToast } from './components/ui/ToastProvider';
+import { matchesSearchTokens } from './utils/searchUtils';
 
 const TIPOS = { DESCUENTO: 'DESCUENTO', CARGO: 'CARGO', CARGO_PCT: 'CARGO_PCT' };
 
@@ -1102,8 +1103,7 @@ export default function Descuentos() {
                     )}
                     {/* Dropdown list */}
                     {socioSearch && !form.socio_id && (() => {
-                      const term = socioSearch.toLowerCase();
-                      const filtered = socios.filter(s => s.nombre_completo.toLowerCase().includes(term)).slice(0, 10);
+                      const filtered = socios.filter(s => matchesSearchTokens(`${s.nombre_completo || ''} ${s.nro_socio || ''}`, socioSearch)).slice(0, 10);
                       if (!filtered.length) return null;
                       return (
                         <div style={{ position: 'absolute', zIndex: 200, left: 0, right: 0, top: 'calc(100% + 4px)', background: 'var(--surface)', border: '1px solid var(--border-light)', borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', maxHeight: '220px', overflowY: 'auto' }}>

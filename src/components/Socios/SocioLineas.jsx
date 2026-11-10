@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { fetchAuxDataForLineas, deleteSocioLinea, upsertSocioLinea, fetchAllLinesForAssociation, updateLineaEstado, updateSocioNotas } from '../../services/socioService';
 import { supabase } from '../../supabaseClient';
+import { applySociosSearchFilter } from '../../utils/searchUtils';
 import { Plus, Edit2, Trash2, Smartphone, Loader2, Save, Link2, ArrowRightLeft, Search, UserCheck, PauseCircle, PlayCircle, ShieldAlert, CheckCircle, AlertTriangle } from 'lucide-react';
 import { globalToast } from '../ui/ToastProvider';
 import { globalConfirm } from '../ui/ConfirmProvider';
@@ -269,13 +270,12 @@ export default function SocioLineas({ socio, onUpdate }) {
       return;
     }
     try {
-      const term = val.trim().toLowerCase();
-      const { data, error } = await supabase
+      let query = supabase
         .from('v_socios_busqueda')
         .select('socio_id, nombre_completo, nro_socio, dni, grupo_socio')
-        .ilike('search_text', `%${term}%`)
-        .neq('socio_id', socio.socio_id)
-        .limit(8);
+        .neq('socio_id', socio.socio_id);
+      query = applySociosSearchFilter(query, val);
+      const { data, error } = await query.limit(8);
       if (error) throw error;
       setTransferSuggestions(data || []);
       setShowTransferSuggestions(true);

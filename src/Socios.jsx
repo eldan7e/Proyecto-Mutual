@@ -8,6 +8,7 @@ import {
   Phone, Activity, X, Copy, Check, ExternalLink, CheckCircle, ShieldAlert, PauseCircle, StickyNote
 } from 'lucide-react';
 import { fetchSocioConsumosData, fetchSocioIncidentsData } from './services/socioService';
+import { applySociosSearchFilter } from './utils/searchUtils';
 import { useNavigate } from 'react-router-dom';
 import SocioFicha from './components/Socios/SocioFicha';
 import Modal from './components/Modal';
@@ -275,44 +276,8 @@ export default function Socios({ hideHeader = false }) {
 
       // Apply Smart Search Filter
       if (term) {
-        const cleanDigits = term.replace(/\D/g, '');
-        const isNumeric = /^\d+$/.test(term);
-
-        if (isNumeric) {
-          const orConditions = [
-            `dni.ilike.%${term}%`,
-            `cuit.ilike.%${term}%`,
-            `nombre_completo.ilike.%${term}%`,
-            `codigo_lex.ilike.%${term}%`
-          ];
-
-          // Búsqueda por número de grupo exacto (solo números cortos de hasta 5 dígitos)
-          if (term.length <= 5) {
-            orConditions.push(`grupo_codigo_str.imatch.\\y${term}\\y`);
-          }
-
-          // Solo buscar por nro_socio si es un número válido y menor a 2.147.483.647 (para no desbordar INTEGER en Postgres)
-          const parsedNum = parseInt(term, 10);
-          if (!isNaN(parsedNum) && parsedNum > 0 && parsedNum <= 2147483647 && term.length <= 6) {
-            orConditions.push(`nro_socio.eq.${parsedNum}`);
-          }
-
-          // Para números de 6+ dígitos (líneas telefónicas, celulares, DNIs largos) buscar dentro de search_text
-          if (term.length >= 6) {
-            orConditions.push(`search_text.ilike.%${term}%`);
-          }
-
-          query = query.or(orConditions.join(','));
-        } else {
-          // Búsqueda por texto (nombres, email, código lex, search_text)
-          // Si incluye dígitos mezclados (ej. teléfono con guiones o espacios), también buscar los dígitos en search_text
-          let textOr = `nombre_completo.ilike.%${term}%,email.ilike.%${term}%,codigo_lex.ilike.%${term}%,search_text.ilike.%${term}%`;
-          if (cleanDigits.length >= 6 && cleanDigits !== term) {
-            textOr += `,search_text.ilike.%${cleanDigits}%`;
-          }
-          query = query.or(textOr);
+        query = applySociosSearchFilter(query, term);
         }
-      }
 
       // Apply Specific Group Number Filter
       if (filterGrupoNumero) {

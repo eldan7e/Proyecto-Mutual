@@ -3,6 +3,7 @@ import {
   Search, AlertTriangle, TrendingUp, Hash, Info, Percent, RefreshCw, Loader2, Tag, Zap, Ticket, Clock, Check
 } from 'lucide-react';
 import DescuentoModal from './CargaManual/DescuentoModal';
+import { matchesSearchTokens } from '../utils/searchUtils';
 
 const isFixedOrInternet = (p) => {
   if (!p) return false;
@@ -46,8 +47,8 @@ function SearchableSocioSelect({ allSocios, onSelect }) {
   
   const filteredSocios = React.useMemo(() => {
     if (!searchTerm) return allSocios.slice(0, 100);
-    return allSocios.filter(s => 
-      s.nombre_completo?.toLowerCase().includes(searchTerm.toLowerCase())
+    return allSocios.filter(s =>
+      matchesSearchTokens(s.nombre_completo, searchTerm)
     ).slice(0, 100);
   }, [allSocios, searchTerm]);
 

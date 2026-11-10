@@ -1,5 +1,6 @@
 import { supabase } from '../supabaseClient';
 import { registrarAuditoria } from '../utils/auditLogger';
+import { applySociosSearchFilter } from '../utils/searchUtils';
 
 /* ─────────────────────────────────────────────
    Grupos — full CRUD + proveedores lookup
@@ -238,10 +239,13 @@ export async function setGrupoTitular(numeroGrupo, socioId) {
  * @param {number} [limit=8]
  */
 export async function searchSocios(q, limit = 8) {
-  const { data, error } = await supabase
-    .from('socios')
-    .select('socio_id, nombre_completo, nro_socio, dni, email')
-    .or(`nombre_completo.ilike.%${q}%,dni.ilike.%${q}%,nro_socio.ilike.%${q}%`)
+  let query = supabase
+    .from('v_socios_busqueda')
+    .select('socio_id, nombre_completo, nro_socio, dni, email');
+
+  query = applySociosSearchFilter(query, q);
+
+  const { data, error } = await query
     .order('nombre_completo')
     .limit(limit);
   if (error) throw error;

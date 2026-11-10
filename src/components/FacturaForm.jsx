@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
+import { applySociosSearchFilter } from '../utils/searchUtils';
 import { Plus, Trash2, Search, Save, X, FileCheck } from 'lucide-react';
 
 export default function FacturaForm({ onSave, onClose }) {
@@ -23,7 +24,10 @@ export default function FacturaForm({ onSave, onClose }) {
     if (targetType === 'grupo') {
       query = supabase.from('grupos').select('numero_grupo, alias_grupo, email_facturacion').ilike('alias_grupo', `%${searchTerm}%`);
     } else {
-      query = supabase.from('socios').select('socio_id, nombre_completo, dni').ilike('nombre_completo', `%${searchTerm}%`);
+      query = applySociosSearchFilter(
+        supabase.from('v_socios_busqueda').select('socio_id, nombre_completo, dni'),
+        searchTerm
+      );
     }
     const { data } = await query.limit(5);
     setSearchResults(data || []);
