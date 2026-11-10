@@ -1,5 +1,6 @@
 import { supabase } from '../supabaseClient';
-import { recalcularSaldosGrupo, sortMovimientosCuenta, DEFAULT_TNA } from '../utils/cuentaCorrienteEngine';
+import { recalcularSaldosGrupo, sortMovimientosCuenta, obtenerMesesDeudaGrupo, DEFAULT_TNA } from '../utils/cuentaCorrienteEngine';
+import { getPreviousPeriod } from '../utils/debitInvoicePeriod';
 
 /**
  * Obtiene la configuración de parámetros de la cuenta corriente (TNA, día tope, etc)
@@ -1119,5 +1120,230 @@ export async function eliminarCobroCuenta(movimientoId) {
 
   return { success: true, numero_grupo: gNum, monto };
 }
+
+/**
+ * Consulta directamente el estado contable (movimientos_cuenta + liquidaciones_grupos)
+ * para saber si los grupos pagaron el mes anterior o qué facturas/saldos aparecen
+ * pendientes en el módulo de Contaduría.
+ *
+ * @param {Array<number|string>} gruposNumeros
+ * @param {string} periodoActual - Período de la conciliación en curso (YYYY-MM)
+ * @returns {Promise<Object>} Mapa { [numero_grupo]: EstadoDeudaAnterior }
+ */
+export async function fetchDeudaAnteriorPorGrupos(gruposNumeros = [], periodoActual = '') {
+  const uniqueGroups = [...new Set(
+    (gruposNumeros || [])
+      .map(g => parseInt(g, 10))
+      .filter(g => !isNaN(g) && g > 0)
+  )];
+
+  if (uniqueGroups.length === 0) return {};
+
+  const targetPeriod = periodoActual || new Date().toISOString().slice(0, 7);
+  const periodoAnterior = getPreviousPeriod(targetPeriod);
+
+  let tna = DEFAULT_TNA;
+  try {
+    const params = await getParametrosCuenta();
+    if (params && params.tasa_anual !== undefined && params.tasa_anual !== null) {
+      tna = Number(params.tasa_anual);
+    }
+  } catch { /* usar default */ }
+
+  const chunkSize = 60;
+  const allMovs = [];
+  const allLiqs = [];
+
+  for (let i = 0; i < uniqueGroups.length; i += chunkSize) {
+    const chunk = uniqueGroups.slice(i, i + chunkSize);
+
+    const [movRes, liqRes] = await Promise.all([
+      supabase
+        .from('movimientos_cuenta')
+        .select('id, numero_grupo, nombre, empresa, fecha, importe, tipo, medio_pago, periodo, observaciones, liquidacion_id')
+        .in('numero_grupo', chunk)
+        .order('fecha', { ascending: true })
+        .order('id', { ascending: true })
+        .range(0, 4999),
+      supabase
+        .from('liquidaciones_grupos')
+        .select(`
+          liquidacion_id,
+          numero_grupo,
+          periodo,
+          monto_total_facturado,
+          monto_abonado,
+          estado_pago,
+          proveedor_id,
+          socio_id,
+          socios!socio_id(fpago),
+          proveedores!proveedor_id(nombre)
+        `)
+        .in('numero_grupo', chunk)
+        .lt('periodo', targetPeriod)
+        .order('periodo', { ascending: false })
+        .range(0, 4999)
+    ]);
+
+    if (movRes.error) {
+      console.warn('[Contaduría] Error al consultar movimientos_cuenta por grupos:', movRes.error);
+    } else if (movRes.data) {
+      allMovs.push(...movRes.data);
+    }
+
+    if (liqRes.error) {
+      console.warn('[Contaduría] Error al consultar liquidaciones_grupos anteriores:', liqRes.error);
+    } else if (liqRes.data) {
+      allLiqs.push(...liqRes.data);
+    }
+  }
+
+  const movsByGroup = {};
+  allMovs.forEach(m => {
+    if (isTransferenciaInterna(m)) return;
+    const g = Number(m.numero_grupo);
+    if (!movsByGroup[g]) movsByGroup[g] = [];
+    movsByGroup[g].push(m);
+  });
+
+  const liqsByGroup = {};
+  allLiqs.forEach(l => {
+    const g = Number(l.numero_grupo);
+    if (!liqsByGroup[g]) liqsByGroup[g] = [];
+    liqsByGroup[g].push(l);
+  });
+
+  const resultado = {};
+  const hoy = new Date();
+
+  uniqueGroups.forEach(g => {
+    const rawMovs = movsByGroup[g] || [];
+    const rawLiqs = liqsByGroup[g] || [];
+
+    const movsProcesados = rawMovs.length > 0
+      ? recalcularSaldosGrupo(rawMovs, tna, hoy)
+      : [];
+
+    const ultimoMov = movsProcesados.length > 0 ? movsProcesados[movsProcesados.length - 1] : null;
+    const saldoCapitalTotal = ultimoMov ? Number(ultimoMov.saldo_capital || 0) : 0;
+    const interesMoraTotal = ultimoMov ? Number(ultimoMov.interes_pend_final || 0) : 0;
+    const saldoTotalContaduria = ultimoMov ? Number(ultimoMov.saldo_final || 0) : 0;
+
+    // Meses impagos reales calculados por el motor de Contaduría
+    const mesesDeudaAll = obtenerMesesDeudaGrupo({
+      liquidacionesGrupo: rawLiqs,
+      movimientos: movsProcesados,
+      tna,
+      periodoFiltro: 'TODOS',
+      fechaCalculo: hoy
+    });
+
+    // Filtrar solo períodos anteriores al período actual de conciliación
+    const mesesImpagosAnteriores = (mesesDeudaAll || []).filter(m =>
+      m.periodo && m.periodo !== 'S/P' && m.periodo < targetPeriod && Number(m.saldoImpago || 0) > 2
+    );
+
+    // Liquidaciones de períodos anteriores con saldo pendiente en liquidaciones_grupos
+    const liquidacionesPendientesRaw = rawLiqs
+      .filter(l => {
+        if (!l.periodo || l.periodo >= targetPeriod) return false;
+        const fact = Number(l.monto_total_facturado || 0);
+        const ab = Number(l.monto_abonado || 0);
+        return l.estado_pago !== 'ABONADO' && (fact - ab) > 2.00;
+      })
+      .map(l => ({
+        ...l,
+        saldo_pendiente: Math.round((Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)) * 100) / 100
+      }));
+
+    // Coherencia Contaduría vs liquidaciones_grupos:
+    // Si en Contaduría (movimientos_cuenta) el grupo ya cubrió su deuda (saldoCapital <= 2),
+    // informar que Contaduría lo tiene al día, salvo que no tenga movimientos en Contaduría aún.
+    const tieneMovsContaduria = movsProcesados.length > 0;
+    const contaduriaAlDia = tieneMovsContaduria && saldoCapitalTotal <= 2;
+
+    const deudaMesAntContaduria = mesesImpagosAnteriores.filter(m => m.periodo === periodoAnterior);
+    const liqsMesAnteriorAll = rawLiqs.filter(l => l.periodo === periodoAnterior);
+    const liqsMesAnteriorPend = liquidacionesPendientesRaw.filter(l => l.periodo === periodoAnterior);
+    const movsFacturaMesAnt = movsProcesados.filter(m => m.tipo === 'FACTURA' && m.periodo === periodoAnterior);
+    const tuvoFacturaMesAnterior = liqsMesAnteriorAll.length > 0 || movsFacturaMesAnt.length > 0;
+
+    let montoMesAnteriorPendiente = 0;
+    if (deudaMesAntContaduria.length > 0) {
+      montoMesAnteriorPendiente = deudaMesAntContaduria.reduce((s, m) => s + Number(m.saldoImpago || 0), 0);
+    } else if (!contaduriaAlDia && liqsMesAnteriorPend.length > 0) {
+      montoMesAnteriorPendiente = liqsMesAnteriorPend.reduce((s, l) => s + Number(l.saldo_pendiente || 0), 0);
+    }
+    montoMesAnteriorPendiente = Math.round(montoMesAnteriorPendiente * 100) / 100;
+
+    let estadoMesAnterior = 'SIN_FACTURA';
+    let pagoMesAnterior = null;
+    if (tuvoFacturaMesAnterior || montoMesAnteriorPendiente > 2) {
+      if (montoMesAnteriorPendiente > 2) {
+        const esParcial = deudaMesAntContaduria.some(m => m.estado === 'PARCIAL') ||
+          liqsMesAnteriorPend.some(l => Number(l.monto_abonado || 0) > 0);
+        estadoMesAnterior = esParcial ? 'PARCIAL' : 'IMPAGO';
+        pagoMesAnterior = false;
+      } else {
+        estadoMesAnterior = 'PAGADO';
+        pagoMesAnterior = true;
+      }
+    }
+
+    // Último pago registrado en Contaduría (movimientos_cuenta)
+    const pagosMovs = movsProcesados.filter(m => m.tipo === 'PAGO');
+    const ultimoPago = pagosMovs.length > 0 ? pagosMovs[pagosMovs.length - 1] : null;
+
+    // Monto total de deuda anterior pendiente (si Contaduría está al día, priorizar 0)
+    const montoTotalDeudaAnterior = contaduriaAlDia
+      ? 0
+      : Math.round(
+          (mesesImpagosAnteriores.length > 0
+            ? mesesImpagosAnteriores.reduce((s, m) => s + Number(m.saldoImpago || 0), 0)
+            : liquidacionesPendientesRaw.reduce((s, l) => s + Number(l.saldo_pendiente || 0), 0)
+          ) * 100
+        ) / 100;
+
+    const tieneDeudaAnterior = !contaduriaAlDia && (
+      mesesImpagosAnteriores.length > 0 ||
+      liquidacionesPendientesRaw.length > 0
+    );
+
+    resultado[g] = {
+      numero_grupo: g,
+      periodoActual: targetPeriod,
+      periodoAnterior,
+      pagoMesAnterior,
+      estadoMesAnterior,
+      montoMesAnteriorPendiente,
+      tieneDeudaAnterior,
+      montoTotalDeudaAnterior,
+      contaduriaAlDia,
+      tieneMovsContaduria,
+      saldoCapitalContaduria: Math.round(saldoCapitalTotal * 100) / 100,
+      interesMoraContaduria: Math.round(interesMoraTotal * 100) / 100,
+      saldoTotalContaduria: Math.round(saldoTotalContaduria * 100) / 100,
+      mesesImpagosContaduria: mesesImpagosAnteriores,
+      liquidacionesAnterioresPendientes: contaduriaAlDia ? [] : liquidacionesPendientesRaw,
+      liquidacionesAnterioresSinSync: contaduriaAlDia ? liquidacionesPendientesRaw : [],
+      ultimoPagoFecha: ultimoPago?.fecha || null,
+      ultimoPagoMonto: ultimoPago ? Math.abs(Number(ultimoPago.importe || 0)) : 0,
+      ultimoPagoMedio: ultimoPago?.medio_pago || null
+    };
+  });
+
+  return resultado;
+}
+
+/**
+ * Consulta el estado de deuda anterior en Contaduría para un único grupo.
+ */
+export async function fetchEstadoDeudaAnteriorGrupo(numeroGrupo, periodoActual = '') {
+  const g = parseInt(numeroGrupo, 10);
+  if (isNaN(g) || g <= 0) return null;
+  const map = await fetchDeudaAnteriorPorGrupos([g], periodoActual);
+  return map[g] || null;
+}
+
 
 

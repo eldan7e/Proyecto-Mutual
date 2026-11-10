@@ -147,7 +147,7 @@ export default function Campanas() {
   const [subject, setSubject] = useState('');
   const [bodyHtml, setBodyHtml] = useState('');
   const [n8nWebhookUrl, setN8nWebhookUrl] = useState(
-    localStorage.getItem('n8n_webhook_campaign_url') || 'http://34.176.65.52:5678/webhook/envio-campana'
+    localStorage.getItem('n8n_webhook_campaign_url') || 'http://3.94.194.32:5678/webhook/envio-campana'
   );
 
   // Plantillas Personalizadas
@@ -163,7 +163,7 @@ export default function Campanas() {
   const [botResult, setBotResult] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [n8nBotWebhookUrl, setN8nBotWebhookUrl] = useState(
-    localStorage.getItem('n8n_webhook_bot_url') || 'http://34.176.65.52:5678/webhook/actualizar-bot-respuestas'
+    localStorage.getItem('n8n_webhook_bot_url') || 'http://3.94.194.32:5678/webhook/actualizar-bot-respuestas'
   );
 
   // Bot WhatsApp - Pantalla Informativa y Simulador
@@ -817,7 +817,7 @@ export default function Campanas() {
         formData.append('vencimiento', vtoToUse);
       }
 
-      const targetUrl = n8nBotWebhookUrl || 'http://34.176.65.52:5678/webhook/actualizar-bot-respuestas';
+      const targetUrl = n8nBotWebhookUrl || 'http://3.94.194.32:5678/webhook/actualizar-bot-respuestas';
       const proxyUrl = 'https://zwncyaviinmfzvminytv.supabase.co/functions/v1/n8n-proxy';
 
       // En entornos HTTPS (Vercel / producción), enrutar mediante el proxy seguro de Supabase

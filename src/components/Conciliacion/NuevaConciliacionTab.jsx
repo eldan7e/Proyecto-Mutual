@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Landmark, Loader2, ArrowRightLeft, Search, HelpCircle, Save, CheckCircle2, AlertCircle, Check, Settings, Sparkles, FileSpreadsheet, Upload, CheckCircle, XCircle, Download, Copy, ExternalLink, Filter, X, ArrowUpRight, FileText, AlertTriangle, CreditCard } from 'lucide-react';
+import { Landmark, Loader2, ArrowRightLeft, Search, HelpCircle, Save, CheckCircle2, AlertCircle, Check, Settings, Sparkles, FileSpreadsheet, Upload, CheckCircle, XCircle, Download, Copy, ExternalLink, Filter, X, ArrowUpRight, FileText, AlertTriangle, CreditCard, History, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../supabaseClient';
 import { registrarCobroCuenta } from '../../services/cuentaCorrienteService';
@@ -42,7 +42,12 @@ export default function NuevaConciliacionTab({
   fetchDbMovementsForPeriod,
   setActiveTab,
   conciliacionHistorica = [],
-  handleOlvidarAprendizaje
+  handleOlvidarAprendizaje,
+  deudaAnteriorByGrupo = {},
+  loadingDeudaAnterior = false,
+  getGroupsForRow,
+  getRowAllLiquidations,
+  refreshDeudaAnteriorGrupo
 }) {
   // Local states to isolate typing and filter re-renders from parent
   const confirm = useConfirm();
@@ -53,6 +58,8 @@ export default function NuevaConciliacionTab({
   const [searchNueva, setSearchNueva] = useState('');
   const [currentPageNueva, setCurrentPageNueva] = useState(1);
   const [openDropdownRowId, setOpenDropdownRowId] = useState(null);
+  const [openDeudaAnteriorRowId, setOpenDeudaAnteriorRowId] = useState(null);
+  const [refreshingDeudaRowId, setRefreshingDeudaRowId] = useState(null);
   const [addingGroupToRowId, setAddingGroupToRowId] = useState(null);
   const [newGroupValue, setNewGroupValue] = useState('');
   const itemsPerPage = 100;
@@ -406,14 +413,22 @@ export default function NuevaConciliacionTab({
 
   // Close dropdown when clicking outside
   useEffect(() => {
-    if (openDropdownRowId === null) return;
+    if (openDropdownRowId === null && openDeudaAnteriorRowId === null) return;
 
     const handleClickOutside = (event) => {
-      const container = document.getElementById(`dropdown-container-${openDropdownRowId}`);
-      if (container && !container.contains(event.target)) {
-        setOpenDropdownRowId(null);
-        setAddingGroupToRowId(null);
-        setNewGroupValue('');
+      if (openDropdownRowId !== null) {
+        const container = document.getElementById(`dropdown-container-${openDropdownRowId}`);
+        if (container && !container.contains(event.target)) {
+          setOpenDropdownRowId(null);
+          setAddingGroupToRowId(null);
+          setNewGroupValue('');
+        }
+      }
+      if (openDeudaAnteriorRowId !== null) {
+        const rowContainer = document.getElementById(`dropdown-container-${openDeudaAnteriorRowId}`);
+        if (rowContainer && !rowContainer.contains(event.target)) {
+          setOpenDeudaAnteriorRowId(null);
+        }
       }
     };
 
@@ -421,7 +436,87 @@ export default function NuevaConciliacionTab({
     return () => {
       document.removeEventListener('click', handleClickOutside);
     };
-  }, [openDropdownRowId]);
+  }, [openDropdownRowId, openDeudaAnteriorRowId]);
+
+  // Helper para consolidar el estado contable del mes anterior desde Contaduría
+  const getRowDeudaContaduria = (row) => {
+    const groups = getGroupsForRow ? getGroupsForRow(row) : [];
+    if (groups.length === 0) return null;
+
+    const infos = groups.map(g => deudaAnteriorByGrupo[g]).filter(Boolean);
+    const isLoading = loadingDeudaAnterior && infos.length < groups.length;
+
+    if (infos.length === 0) {
+      return isLoading ? { groups, isLoading: true, hasInfo: false } : null;
+    }
+
+    const periodoAnterior = infos[0].periodoAnterior;
+    const tieneDeudaAnterior = infos.some(i => i.tieneDeudaAnterior);
+    const anyImpagoMesAnt = infos.some(i => i.estadoMesAnterior === 'IMPAGO' || i.estadoMesAnterior === 'PARCIAL');
+    const anyPagadoMesAnt = infos.some(i => i.pagoMesAnterior === true);
+    const pagoMesAnterior = anyImpagoMesAnt ? false : (anyPagadoMesAnt ? true : null);
+    const estadoMesAnterior = anyImpagoMesAnt
+      ? (infos.some(i => i.estadoMesAnterior === 'IMPAGO') ? 'IMPAGO' : 'PARCIAL')
+      : (anyPagadoMesAnt ? 'PAGADO' : 'SIN_FACTURA');
+
+    const montoMesAnteriorPendiente = Math.round(infos.reduce((s, i) => s + Number(i.montoMesAnteriorPendiente || 0), 0) * 100) / 100;
+    const montoTotalDeudaAnterior = Math.round(infos.reduce((s, i) => s + Number(i.montoTotalDeudaAnterior || 0), 0) * 100) / 100;
+    const saldoCapitalContaduria = Math.round(infos.reduce((s, i) => s + Number(i.saldoCapitalContaduria || 0), 0) * 100) / 100;
+    const interesMoraContaduria = Math.round(infos.reduce((s, i) => s + Number(i.interesMoraContaduria || 0), 0) * 100) / 100;
+    const saldoTotalContaduria = Math.round(infos.reduce((s, i) => s + Number(i.saldoTotalContaduria || 0), 0) * 100) / 100;
+
+    const mesesImpagosContaduria = infos
+      .flatMap(i => (i.mesesImpagosContaduria || []).map(m => ({ ...m, numero_grupo: i.numero_grupo })))
+      .sort((a, b) => String(b.periodo || '').localeCompare(String(a.periodo || '')));
+
+    const liqMap = new Map();
+    infos.forEach(i => {
+      (i.liquidacionesAnterioresPendientes || []).forEach(l => {
+        if (l?.liquidacion_id && !liqMap.has(String(l.liquidacion_id))) {
+          liqMap.set(String(l.liquidacion_id), l);
+        }
+      });
+    });
+    const liquidacionesAnterioresPendientes = Array.from(liqMap.values())
+      .sort((a, b) => String(b.periodo || '').localeCompare(String(a.periodo || '')));
+
+    const pagosRecientes = infos
+      .filter(i => i.ultimoPagoFecha)
+      .sort((a, b) => String(b.ultimoPagoFecha || '').localeCompare(String(a.ultimoPagoFecha || '')));
+    const ultimoPago = pagosRecientes[0] || null;
+
+    return {
+      groups,
+      isLoading,
+      hasInfo: true,
+      periodoAnterior,
+      pagoMesAnterior,
+      estadoMesAnterior,
+      montoMesAnteriorPendiente,
+      tieneDeudaAnterior,
+      montoTotalDeudaAnterior,
+      saldoCapitalContaduria,
+      interesMoraContaduria,
+      saldoTotalContaduria,
+      mesesImpagosContaduria,
+      liquidacionesAnterioresPendientes,
+      ultimoPagoFecha: ultimoPago?.ultimoPagoFecha || null,
+      ultimoPagoMonto: ultimoPago?.ultimoPagoMonto || 0,
+      ultimoPagoMedio: ultimoPago?.ultimoPagoMedio || null
+    };
+  };
+
+  const handleRefreshRowDeuda = async (row) => {
+    if (!refreshDeudaAnteriorGrupo) return;
+    const groups = getGroupsForRow ? getGroupsForRow(row) : [];
+    if (groups.length === 0) return;
+    setRefreshingDeudaRowId(row.id);
+    try {
+      await refreshDeudaAnteriorGrupo(groups);
+    } finally {
+      setRefreshingDeudaRowId(null);
+    }
+  };
 
   // Auto-scroll dropdown panel into view when opened
   useEffect(() => {
@@ -2536,7 +2631,8 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                         if (dbLiq) {
                                           return `Vinculado a: Periodo ${dbLiq.periodo || ''} (Gpo ${dbLiq.numero_grupo || ''})`;
                                         }
-                                        const localLiq = row.pendingList?.find(l => String(l.liquidacion_id) === String((row.selectedLiquidations || [])[0]));
+                                        const allLiqsForLabel = getRowAllLiquidations ? getRowAllLiquidations(row) : (row.pendingList || []);
+                                        const localLiq = allLiqsForLabel.find(l => String(l.liquidacion_id) === String((row.selectedLiquidations || [])[0]));
                                         if (localLiq) {
                                           return `Vinculado a: Periodo ${localLiq.periodo} (Gpo ${localLiq.numero_grupo})`;
                                         }
@@ -2571,6 +2667,7 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                 )
                               ) : !isTaxOrFee && (() => {
                                 const isDropdownOpen = openDropdownRowId === row.id;
+                                const isDeudaOpen = openDeudaAnteriorRowId === row.id;
                                 const socioId = row.selectedSocioId;
 
                                 if (!socioId) {
@@ -2581,10 +2678,13 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                   );
                                 }
 
+                                const deudaContaduria = getRowDeudaContaduria(row);
+                                const prevLiqs = deudaContaduria?.liquidacionesAnterioresPendientes || [];
                                 const hasPendingInvoices = Array.isArray(row.pendingList) && row.pendingList.length > 0;
+                                const hasPrevDebtOption = Boolean(deudaContaduria?.tieneDeudaAnterior || prevLiqs.length > 0);
 
-                                // CASO 1: El socio NO tiene factura emitida en el mes en curso (ej: Baldomar)
-                                if (!hasPendingInvoices) {
+                                // CASO 1: Sin factura en el mes en curso Y sin deuda anterior detectada en Contaduría
+                                if (!hasPendingInvoices && !hasPrevDebtOption) {
                                   return (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                                       <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
@@ -2605,68 +2705,131 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                         </span>
                                       </div>
                                       <span style={{ fontSize: '10px', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
-                                        Sin factura en {selectedPeriod || 'el mes'} • Amortiza deuda acumulada
+                                        Sin factura en {selectedPeriod || 'el mes'}
+                                        {deudaContaduria?.isLoading
+                                          ? ' • Consultando Contaduría...'
+                                          : (deudaContaduria?.pagoMesAnterior === true
+                                            ? ` • ✓ ${deudaContaduria.periodoAnterior} pago en Contaduría`
+                                            : ' • Amortiza deuda acumulada')}
                                       </span>
                                     </div>
                                   );
                                 }
 
-                                // CASO 2: El socio TIENE factura en curso en este período (ej: Graciela)
-                                const currentLiq = row.pendingList[0];
-                                const hasMultipleLiqs = row.pendingList.length > 1;
-                                const isCtaCteSelected = (row.selectedLiquidations || []).length === 0;
-                                const isFacturaSelected = !isCtaCteSelected;
-                                const pendingAmount = Number(currentLiq?.monto_total_facturado || 0) - Number(currentLiq?.monto_abonado || 0);
-                                const isPaid = pendingAmount <= 2.00 || currentLiq?.estado_pago === 'ABONADO';
+                                // CASO 2: Tiene factura en curso y/o deuda anterior pendiente en Contaduría
+                                const currentLiq = hasPendingInvoices ? row.pendingList[0] : null;
+                                const hasMultipleLiqs = hasPendingInvoices && row.pendingList.length > 1;
+                                const allRowLiqs = getRowAllLiquidations ? getRowAllLiquidations(row) : [...(row.pendingList || []), ...prevLiqs];
+
+                                const selectedIds = (row.selectedLiquidations || []).map(String);
+                                const currLiqIds = new Set((row.pendingList || []).map(l => String(l.liquidacion_id)));
+                                const prevLiqIds = new Set(prevLiqs.map(l => String(l.liquidacion_id)));
+
+                                const isCtaCteSelected = selectedIds.length === 0;
+                                const isFacturaSelected = selectedIds.some(id => currLiqIds.has(id));
+                                const isDeudaAnteriorSelected = selectedIds.some(id => prevLiqIds.has(id));
+
+                                const selectedLiqObjects = allRowLiqs.filter(l => selectedIds.includes(String(l.liquidacion_id)));
+                                const singleSelectedLiq = selectedLiqObjects.length === 1 ? selectedLiqObjects[0] : null;
+
+                                const pendingAmount = currentLiq
+                                  ? Number(currentLiq.monto_total_facturado || 0) - Number(currentLiq.monto_abonado || 0)
+                                  : 0;
+                                const isPaid = currentLiq && (pendingAmount <= 2.00 || currentLiq.estado_pago === 'ABONADO');
 
                                 return (
                                   <div 
                                     id={`dropdown-container-${row.id}`}
                                     style={{ display: 'flex', flexDirection: 'column', gap: '4px', position: 'relative' }}
                                   >
-                                    <div style={{ display: 'flex', gap: '6px', width: '100%', alignItems: 'center' }}>
+                                    <div style={{ display: 'flex', gap: '5px', width: '100%', alignItems: 'center', flexWrap: 'wrap' }}>
                                       {/* Botón 1: Pagar factura en curso */}
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          if (hasMultipleLiqs) {
-                                            setOpenDropdownRowId(isDropdownOpen ? null : row.id);
-                                          } else {
-                                            handleToggleLiquidation(row.id, currentLiq.liquidacion_id.toString(), true);
-                                          }
-                                        }}
-                                        disabled={row.estado === 'PROCESANDO'}
-                                        style={{
-                                          flex: 1,
-                                          padding: '5px 8px',
-                                          fontSize: '11px',
-                                          fontWeight: isFacturaSelected ? 700 : 500,
-                                          borderRadius: '7px',
-                                          background: isFacturaSelected ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.05)',
-                                          color: isFacturaSelected ? '#10b981' : 'var(--text-secondary)',
-                                          border: '1px solid ' + (isFacturaSelected ? '#10b981' : 'var(--border-light)'),
-                                          cursor: row.estado === 'PROCESANDO' ? 'not-allowed' : 'pointer',
-                                          display: 'inline-flex',
-                                          alignItems: 'center',
-                                          justifyContent: 'center',
-                                          gap: '4px',
-                                          transition: 'all 0.15s ease'
-                                        }}
-                                        title={hasMultipleLiqs ? 'Seleccionar entre facturas del mes' : `Factura ${currentLiq.periodo} - Gpo ${currentLiq.numero_grupo} ($${Number(currentLiq.monto_total_facturado).toLocaleString('es-AR')})`}
-                                      >
-                                        📄 Factura en curso {hasMultipleLiqs && `(${row.pendingList.length}) ▼`}
-                                      </button>
+                                      {hasPendingInvoices && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setOpenDeudaAnteriorRowId(null);
+                                            if (hasMultipleLiqs) {
+                                              setOpenDropdownRowId(isDropdownOpen ? null : row.id);
+                                            } else {
+                                              handleToggleLiquidation(row.id, currentLiq.liquidacion_id.toString(), true);
+                                            }
+                                          }}
+                                          disabled={row.estado === 'PROCESANDO'}
+                                          style={{
+                                            flex: 1,
+                                            padding: '5px 7px',
+                                            fontSize: '11px',
+                                            fontWeight: isFacturaSelected ? 700 : 500,
+                                            borderRadius: '7px',
+                                            background: isFacturaSelected ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+                                            color: isFacturaSelected ? '#10b981' : 'var(--text-secondary)',
+                                            border: '1px solid ' + (isFacturaSelected ? '#10b981' : 'var(--border-light)'),
+                                            cursor: row.estado === 'PROCESANDO' ? 'not-allowed' : 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '4px',
+                                            whiteSpace: 'nowrap',
+                                            transition: 'all 0.15s ease'
+                                          }}
+                                          title={hasMultipleLiqs ? 'Seleccionar entre facturas del mes' : `Factura ${currentLiq.periodo} - Gpo ${currentLiq.numero_grupo} ($${Number(currentLiq.monto_total_facturado).toLocaleString('es-AR')})`}
+                                        >
+                                          📄 Factura en curso {hasMultipleLiqs && `(${row.pendingList.length}) ▼`}
+                                        </button>
+                                      )}
 
-                                      {/* Botón 2: Pagar Deuda en Cuenta Corriente */}
+                                      {/* Botón 2 (NUEVO): Conciliar Deuda Anterior consultada a Contaduría */}
+                                      {hasPrevDebtOption && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setOpenDropdownRowId(null);
+                                            if (prevLiqs.length === 1 && !isDeudaAnteriorSelected && !isDeudaOpen) {
+                                              handleToggleLiquidation(row.id, String(prevLiqs[0].liquidacion_id), true);
+                                            } else {
+                                              setOpenDeudaAnteriorRowId(isDeudaOpen ? null : row.id);
+                                            }
+                                          }}
+                                          disabled={row.estado === 'PROCESANDO'}
+                                          style={{
+                                            flex: 1,
+                                            padding: '5px 7px',
+                                            fontSize: '11px',
+                                            fontWeight: (isDeudaAnteriorSelected || isDeudaOpen) ? 700 : 600,
+                                            borderRadius: '7px',
+                                            background: isDeudaAnteriorSelected
+                                              ? 'rgba(245, 158, 11, 0.18)'
+                                              : 'rgba(245, 158, 11, 0.08)',
+                                            color: isDeudaAnteriorSelected ? '#d97706' : '#b45309',
+                                            border: '1px solid ' + (isDeudaAnteriorSelected ? '#f59e0b' : 'rgba(245, 158, 11, 0.35)'),
+                                            cursor: row.estado === 'PROCESANDO' ? 'not-allowed' : 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '4px',
+                                            whiteSpace: 'nowrap',
+                                            transition: 'all 0.15s ease'
+                                          }}
+                                          title="Ver y conciliar facturas anteriores impagas según Contaduría"
+                                        >
+                                          <History size={12} />
+                                          Deuda Ant.{prevLiqs.length > 1 ? ` (${prevLiqs.length}) ▼` : (isDeudaAnteriorSelected ? ' ▼' : '')}
+                                        </button>
+                                      )}
+
+                                      {/* Botón 3: Pagar Deuda en Cuenta Corriente */}
                                       <button
                                         type="button"
                                         onClick={() => {
+                                          setOpenDropdownRowId(null);
+                                          setOpenDeudaAnteriorRowId(null);
                                           handleToggleLiquidation(row.id, 'CLEAR');
                                         }}
                                         disabled={row.estado === 'PROCESANDO'}
                                         style={{
                                           flex: 1,
-                                          padding: '5px 8px',
+                                          padding: '5px 7px',
                                           fontSize: '11px',
                                           fontWeight: isCtaCteSelected ? 700 : 500,
                                           borderRadius: '7px',
@@ -2678,19 +2841,20 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                           alignItems: 'center',
                                           justifyContent: 'center',
                                           gap: '4px',
+                                          whiteSpace: 'nowrap',
                                           transition: 'all 0.15s ease'
                                         }}
-                                        title="Imputar pago a deuda general en Cuenta Corriente (amortiza deudas acumuladas)"
+                                        title="Imputar pago a deuda general en Cuenta Corriente (amortiza deudas acumuladas FIFO)"
                                       >
                                         <CreditCard size={12} />
                                         Deuda Cta Cte
                                       </button>
 
-                                      {/* Botón desglose */}
-                                      {isFacturaSelected && currentLiq && (
+                                      {/* Botón desglose (para factura actual o factura anterior seleccionada) */}
+                                      {singleSelectedLiq && (
                                         <button
                                           type="button"
-                                          onClick={() => openBreakdownModal(currentLiq.liquidacion_id, row)}
+                                          onClick={() => openBreakdownModal(singleSelectedLiq.liquidacion_id, row)}
                                           style={{
                                             width: '26px',
                                             height: '26px',
@@ -2711,23 +2875,83 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                       )}
                                     </div>
 
-                                    {/* Subtexto aclaratorio */}
+                                    {/* Indicador directo del módulo de Contaduría respecto al mes anterior */}
+                                    {deudaContaduria?.isLoading && (
+                                      <div style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <Loader2 size={10} className="animate-spin" />
+                                        Consultando Contaduría...
+                                      </div>
+                                    )}
+                                    {!deudaContaduria?.isLoading && deudaContaduria?.tieneDeudaAnterior && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setOpenDropdownRowId(null);
+                                          setOpenDeudaAnteriorRowId(isDeudaOpen ? null : row.id);
+                                        }}
+                                        style={{
+                                          alignSelf: 'flex-start',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '4px',
+                                          padding: '2px 7px',
+                                          borderRadius: '5px',
+                                          fontSize: '10px',
+                                          fontWeight: 700,
+                                          background: (deudaContaduria.estadoMesAnterior === 'IMPAGO' || deudaContaduria.estadoMesAnterior === 'PARCIAL')
+                                            ? 'rgba(239, 68, 68, 0.1)'
+                                            : 'rgba(245, 158, 11, 0.12)',
+                                          color: (deudaContaduria.estadoMesAnterior === 'IMPAGO' || deudaContaduria.estadoMesAnterior === 'PARCIAL')
+                                            ? '#dc2626'
+                                            : '#b45309',
+                                          border: '1px solid ' + ((deudaContaduria.estadoMesAnterior === 'IMPAGO' || deudaContaduria.estadoMesAnterior === 'PARCIAL')
+                                            ? 'rgba(239, 68, 68, 0.28)'
+                                            : 'rgba(245, 158, 11, 0.35)'),
+                                          cursor: 'pointer'
+                                        }}
+                                        title="Clic para ver el detalle de deuda pendiente en Contaduría"
+                                      >
+                                        <AlertTriangle size={10} />
+                                        {(deudaContaduria.estadoMesAnterior === 'IMPAGO' || deudaContaduria.estadoMesAnterior === 'PARCIAL')
+                                          ? `Contaduría: debe ${deudaContaduria.periodoAnterior} ($${Math.round(deudaContaduria.montoMesAnteriorPendiente).toLocaleString('es-AR')})${deudaContaduria.mesesImpagosContaduria.length > 1 ? ` (+${deudaContaduria.mesesImpagosContaduria.length - 1} ant.)` : ''}`
+                                          : `Contaduría: debe ${deudaContaduria.mesesImpagosContaduria.length || prevLiqs.length} período(s) ant. ($${Math.round(deudaContaduria.montoTotalDeudaAnterior).toLocaleString('es-AR')})`}
+                                      </button>
+                                    )}
+                                    {!deudaContaduria?.isLoading && !deudaContaduria?.tieneDeudaAnterior && deudaContaduria?.pagoMesAnterior === true && (
+                                      <div style={{ fontSize: '9.5px', color: '#059669', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                        <CheckCircle2 size={10} />
+                                        Contaduría: {deudaContaduria.periodoAnterior} pago
+                                      </div>
+                                    )}
+
+                                    {/* Subtexto aclaratorio de lo seleccionado actualmente */}
                                     <div style={{ fontSize: '10px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                      {isFacturaSelected ? (
+                                      {isCtaCteSelected ? (
+                                        <span style={{ color: '#3b82f6', fontWeight: 500 }}>
+                                          Imputa a Cta Cte / Contaduría (amortiza deuda acumulada FIFO)
+                                        </span>
+                                      ) : selectedLiqObjects.length === 1 && singleSelectedLiq ? (
+                                        <span style={{ color: isDeudaAnteriorSelected ? '#b45309' : undefined, fontWeight: isDeudaAnteriorSelected ? 600 : undefined }}>
+                                          {singleSelectedLiq.periodo} • Gpo {singleSelectedLiq.numero_grupo} ({singleSelectedLiq.proveedores?.nombre || 'S/P'}): ${Number(singleSelectedLiq.monto_total_facturado).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                                          {isDeudaAnteriorSelected
+                                            ? ` (Deuda ant. • Pend: $${Math.max(0, Number(singleSelectedLiq.monto_total_facturado || 0) - Number(singleSelectedLiq.monto_abonado || 0)).toLocaleString('es-AR', { maximumFractionDigits: 0 })})`
+                                            : (isPaid ? ' (Ya saldado)' : '')}
+                                        </span>
+                                      ) : selectedLiqObjects.length > 1 ? (
+                                        <span style={{ color: isDeudaAnteriorSelected ? '#b45309' : '#10b981', fontWeight: 600 }}>
+                                          {selectedLiqObjects.length} facturas ({selectedLiqObjects.map(l => l.periodo).join(' + ')}): ${selectedLiqObjects.reduce((s, l) => s + Math.max(0, Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)), 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })} pend.
+                                        </span>
+                                      ) : currentLiq ? (
                                         <span>
                                           {currentLiq.periodo} • Gpo {currentLiq.numero_grupo} ({currentLiq.proveedores?.nombre || 'S/P'}): ${Number(currentLiq.monto_total_facturado).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                                           {isPaid ? ' (Ya saldado)' : ''}
                                         </span>
-                                      ) : (
-                                        <span style={{ color: '#3b82f6', fontWeight: 500 }}>
-                                          Imputa a Cta Cte (amortiza deuda acumulada)
-                                        </span>
-                                      )}
+                                      ) : null}
                                     </div>
 
                                     {/* Si hay múltiples facturas en el mismo mes y se despliega */}
                                     {hasMultipleLiqs && isDropdownOpen && (
-                                      <div style={{
+                                      <div id={`dropdown-panel-${row.id}`} style={{
                                         position: 'absolute',
                                         top: '36px',
                                         left: 0,
@@ -2765,6 +2989,231 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                                             <span>Gpo {liq.numero_grupo} ({liq.proveedores?.nombre}): ${Number(liq.monto_total_facturado).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
                                           </label>
                                         ))}
+                                      </div>
+                                    )}
+
+                                    {/* Panel de Detalle y Selección Directa de Deuda Anterior (Contaduría) */}
+                                    {isDeudaOpen && deudaContaduria && (
+                                      <div style={{
+                                        position: 'absolute',
+                                        top: '38px',
+                                        left: 0,
+                                        background: 'var(--modal-bg)',
+                                        border: '1px solid rgba(245, 158, 11, 0.45)',
+                                        borderRadius: '12px',
+                                        boxShadow: '0 14px 28px -5px rgba(0,0,0,0.22)',
+                                        zIndex: 1000,
+                                        padding: '12px',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: '8px',
+                                        minWidth: '310px',
+                                        maxWidth: '370px'
+                                      }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--border-light)', paddingBottom: '6px' }}>
+                                          <span style={{ fontSize: '11.5px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                            <History size={13} color="#d97706" />
+                                            Contaduría • Gpo {deudaContaduria.groups.join(', ')}
+                                          </span>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleRefreshRowDeuda(row)}
+                                              disabled={refreshingDeudaRowId === row.id}
+                                              title="Re-consultar estado en Contaduría"
+                                              style={{
+                                                background: 'transparent',
+                                                border: '1px solid var(--border-light)',
+                                                borderRadius: '6px',
+                                                padding: '2px 6px',
+                                                fontSize: '10px',
+                                                color: 'var(--text-secondary)',
+                                                cursor: 'pointer',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '3px'
+                                              }}
+                                            >
+                                              <RefreshCw size={10} className={refreshingDeudaRowId === row.id ? 'animate-spin' : ''} />
+                                              Actualizar
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => setOpenDeudaAnteriorRowId(null)}
+                                              style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '2px' }}
+                                            >
+                                              <X size={13} />
+                                            </button>
+                                          </div>
+                                        </div>
+
+                                        {/* Resumen del libro mayor de Contaduría */}
+                                        <div style={{
+                                          background: 'rgba(245, 158, 11, 0.08)',
+                                          border: '1px solid rgba(245, 158, 11, 0.22)',
+                                          borderRadius: '8px',
+                                          padding: '7px 9px',
+                                          fontSize: '10.5px',
+                                          display: 'flex',
+                                          flexDirection: 'column',
+                                          gap: '3px'
+                                        }}>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <span style={{ color: 'var(--text-secondary)' }}>Mes anterior ({deudaContaduria.periodoAnterior}):</span>
+                                            <strong style={{ color: deudaContaduria.pagoMesAnterior ? '#10b981' : '#dc2626' }}>
+                                              {deudaContaduria.estadoMesAnterior === 'PAGADO'
+                                                ? 'Pagado ✓'
+                                                : (deudaContaduria.estadoMesAnterior === 'SIN_FACTURA'
+                                                  ? 'Sin factura'
+                                                  : `${deudaContaduria.estadoMesAnterior} ($${deudaContaduria.montoMesAnteriorPendiente.toLocaleString('es-AR', { minimumFractionDigits: 2 })})`)}
+                                            </strong>
+                                          </div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <span style={{ color: 'var(--text-secondary)' }}>Saldo capital Contaduría:</span>
+                                            <strong style={{ color: 'var(--text-primary)' }}>
+                                              ${deudaContaduria.saldoCapitalContaduria.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                            </strong>
+                                          </div>
+                                          {deudaContaduria.interesMoraContaduria > 0 && (
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                              <span style={{ color: 'var(--text-secondary)' }}>Interés por mora:</span>
+                                              <strong style={{ color: '#d97706' }}>
+                                                ${deudaContaduria.interesMoraContaduria.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                              </strong>
+                                            </div>
+                                          )}
+                                          {deudaContaduria.ultimoPagoFecha && (
+                                            <div style={{ fontSize: '9.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                              Último pago: {deudaContaduria.ultimoPagoFecha} por ${deudaContaduria.ultimoPagoMonto.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        {/* Facturas anteriores impagas para seleccionar */}
+                                        {prevLiqs.length > 0 ? (
+                                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                            <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                                              Seleccionar factura(s) anterior(es) a conciliar:
+                                            </span>
+                                            {prevLiqs.map(liq => {
+                                              const isChecked = selectedIds.includes(String(liq.liquidacion_id));
+                                              const pend = Math.max(0, Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0));
+                                              return (
+                                                <label
+                                                  key={liq.liquidacion_id}
+                                                  style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'space-between',
+                                                    gap: '6px',
+                                                    padding: '5px 7px',
+                                                    borderRadius: '7px',
+                                                    cursor: 'pointer',
+                                                    fontSize: '11px',
+                                                    background: isChecked ? 'rgba(245, 158, 11, 0.14)' : 'var(--surface)',
+                                                    border: '1px solid ' + (isChecked ? '#f59e0b' : 'var(--border-light)')
+                                                  }}
+                                                >
+                                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                    <input
+                                                      type="checkbox"
+                                                      checked={isChecked}
+                                                      onChange={() => handleToggleLiquidation(row.id, String(liq.liquidacion_id))}
+                                                      style={{ accentColor: '#d97706' }}
+                                                    />
+                                                    <span>
+                                                      <strong>{liq.periodo}</strong> • {liq.proveedores?.nombre || 'S/P'}
+                                                    </span>
+                                                  </div>
+                                                  <span style={{ fontWeight: 700, color: '#dc2626' }}>
+                                                    ${pend.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                                                  </span>
+                                                </label>
+                                              );
+                                            })}
+
+                                            {/* Acciones rápidas */}
+                                            <div style={{ display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  handleToggleLiquidation(row.id, prevLiqs.map(l => String(l.liquidacion_id)), true);
+                                                  setOpenDeudaAnteriorRowId(null);
+                                                }}
+                                                style={{
+                                                  flex: 1,
+                                                  padding: '5px 8px',
+                                                  borderRadius: '6px',
+                                                  fontSize: '10.5px',
+                                                  fontWeight: 700,
+                                                  background: 'rgba(245, 158, 11, 0.16)',
+                                                  color: '#b45309',
+                                                  border: '1px solid rgba(245, 158, 11, 0.4)',
+                                                  cursor: 'pointer'
+                                                }}
+                                              >
+                                                Solo deuda anterior
+                                              </button>
+                                              {hasPendingInvoices && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    const allIds = [
+                                                      ...prevLiqs.map(l => String(l.liquidacion_id)),
+                                                      ...row.pendingList.map(l => String(l.liquidacion_id))
+                                                    ];
+                                                    handleToggleLiquidation(row.id, [...new Set(allIds)], true);
+                                                    setOpenDeudaAnteriorRowId(null);
+                                                  }}
+                                                  style={{
+                                                    flex: 1,
+                                                    padding: '5px 8px',
+                                                    borderRadius: '6px',
+                                                    fontSize: '10.5px',
+                                                    fontWeight: 700,
+                                                    background: 'rgba(16, 185, 129, 0.14)',
+                                                    color: '#059669',
+                                                    border: '1px solid rgba(16, 185, 129, 0.35)',
+                                                    cursor: 'pointer'
+                                                  }}
+                                                >
+                                                  Anterior + Actual
+                                                </button>
+                                              )}
+                                            </div>
+                                          </div>
+                                        ) : (
+                                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                            <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                                              Períodos pendientes según Contaduría:
+                                            </span>
+                                            {(deudaContaduria.mesesImpagosContaduria || []).map((m, idx) => (
+                                              <div key={`cm-${idx}`} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10.5px', padding: '4px 6px', background: 'var(--surface)', borderRadius: '6px' }}>
+                                                <span>{m.periodo} ({m.operadora})</span>
+                                                <strong style={{ color: '#dc2626' }}>${Number(m.saldoImpago || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</strong>
+                                              </div>
+                                            ))}
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                handleToggleLiquidation(row.id, 'CLEAR');
+                                                setOpenDeudaAnteriorRowId(null);
+                                              }}
+                                              style={{
+                                                padding: '6px 8px',
+                                                borderRadius: '6px',
+                                                fontSize: '10.5px',
+                                                fontWeight: 700,
+                                                background: 'rgba(59, 130, 246, 0.15)',
+                                                color: '#2563eb',
+                                                border: '1px solid rgba(59, 130, 246, 0.35)',
+                                                cursor: 'pointer'
+                                              }}
+                                            >
+                                              Imputar a Contaduría (FIFO)
+                                            </button>
+                                          </div>
+                                        )}
                                       </div>
                                     )}
                                   </div>
@@ -2846,18 +3295,19 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
                               (() => {
                                 const isCtaCteMode = Boolean(row.selectedSocioId) && (!row.selectedLiquidations || row.selectedLiquidations.length === 0);
 
+                                const allRowLiqsForAction = getRowAllLiquidations ? getRowAllLiquidations(row) : (row.pendingList || []);
                                 let isAlreadySaldada = false;
                                 if (isCtaCteMode) {
                                   isAlreadySaldada = false;
                                 } else if (row.selectedLiquidations && row.selectedLiquidations.length > 0) {
                                   isAlreadySaldada = row.selectedLiquidations.every(liqId => {
-                                    const liq = row.pendingList?.find(l => String(l.liquidacion_id) === String(liqId));
+                                    const liq = allRowLiqsForAction.find(l => String(l.liquidacion_id) === String(liqId));
                                     if (!liq) return false;
                                     const pending = Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0);
                                     return pending <= 2.00 || liq.estado_pago === 'ABONADO';
                                   });
                                 } else if (row.selectedLiquidationId && row.selectedLiquidationId !== 'SALDAR_TODO') {
-                                  const liq = row.pendingList?.find(l => String(l.liquidacion_id) === String(row.selectedLiquidationId));
+                                  const liq = allRowLiqsForAction.find(l => String(l.liquidacion_id) === String(row.selectedLiquidationId));
                                   if (liq) {
                                     const pending = Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0);
                                     if (pending <= 2.00 || liq.estado_pago === 'ABONADO') isAlreadySaldada = true;

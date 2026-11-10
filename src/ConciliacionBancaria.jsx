@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from './supabaseClient';
 import { Calendar, Loader2, FileText } from 'lucide-react';
@@ -20,7 +20,7 @@ import HistorialMovimientosTab from './components/Conciliacion/HistorialMovimien
 import DebitosAutomaticosTab from './components/Conciliacion/DebitosAutomaticosTab';
 import NuevaConciliacionTab from './components/Conciliacion/NuevaConciliacionTab';
 import SaldosGruposTab from './components/Conciliacion/SaldosGruposTab';
-import { registrarCobroCuenta, sincronizarSaldosPersistidosGrupo, invalidateSaldosCache } from './services/cuentaCorrienteService';
+import { registrarCobroCuenta, sincronizarSaldosPersistidosGrupo, invalidateSaldosCache, fetchDeudaAnteriorPorGrupos } from './services/cuentaCorrienteService';
 
 const parseDateToISODate = (dateStr) => {
   if (!dateStr) return new Date().toISOString().split('T')[0];
@@ -265,6 +265,11 @@ export default function ConciliacionBancaria() {
   const [conciliacionHistorica, setConciliacionHistorica] = useState([]);
   const [loadingMaster, setLoadingMaster] = useState(false);
 
+  // Deuda de períodos anteriores consultada directamente al módulo de Contaduría
+  const [deudaAnteriorByGrupo, setDeudaAnteriorByGrupo] = useState({});
+  const [loadingDeudaAnterior, setLoadingDeudaAnterior] = useState(false);
+  const fetchedDeudaKeyRef = useRef('');
+
   // Desglose de liquidaciones del grupo
   const [breakdownModal, setBreakdownModal] = useState({
     isOpen: false,
@@ -439,6 +444,8 @@ export default function ConciliacionBancaria() {
         )).flat();
       }
       setPeriodConsumos(consumosList);
+      fetchedDeudaKeyRef.current = '';
+      setDeudaAnteriorByGrupo({});
       fetchDbMovementsForPeriod(selectedPeriod);
       setLoadingMaster(false);
     } catch (err) {
@@ -447,6 +454,96 @@ export default function ConciliacionBancaria() {
       setLoadingMaster(false);
     }
   };
+
+  // Resuelve los números de grupo asociados a una fila de conciliación
+  const getGroupsForRow = useCallback((row) => {
+    const groups = new Set();
+    if (row?.grupo) groups.add(Number(row.grupo));
+    (row?.pendingList || []).forEach(l => {
+      if (l?.numero_grupo) groups.add(Number(l.numero_grupo));
+    });
+    if (row?.suggestedSocio?.learnedGroup) {
+      groups.add(Number(row.suggestedSocio.learnedGroup));
+    }
+    if (row?.selectedSocioId) {
+      const socioObj = socios.find(s => Number(s.socio_id) === Number(row.selectedSocioId));
+      (socioObj?.grupo_socio || []).forEach(gs => {
+        if (gs?.numero_grupo) groups.add(Number(gs.numero_grupo));
+      });
+    }
+    return Array.from(groups).filter(g => !isNaN(g) && g > 0);
+  }, [socios]);
+
+  // Combina las liquidaciones del período actual con las liquidaciones anteriores pendientes de Contaduría
+  const getRowAllLiquidations = (row) => {
+    const map = new Map();
+    (row?.pendingList || []).forEach(l => {
+      if (l?.liquidacion_id) map.set(String(l.liquidacion_id), l);
+    });
+    getGroupsForRow(row).forEach(g => {
+      const info = deudaAnteriorByGrupo[g];
+      (info?.liquidacionesAnterioresPendientes || []).forEach(l => {
+        if (l?.liquidacion_id && !map.has(String(l.liquidacion_id))) {
+          map.set(String(l.liquidacion_id), l);
+        }
+      });
+    });
+    return Array.from(map.values());
+  };
+
+  // Refresca bajo demanda el estado en Contaduría de uno o más grupos
+  const refreshDeudaAnteriorGrupo = async (groupNums, targetPeriod = selectedPeriod) => {
+    const list = Array.isArray(groupNums) ? groupNums : [groupNums];
+    const valid = list.map(g => parseInt(g, 10)).filter(g => !isNaN(g) && g > 0);
+    if (valid.length === 0) return null;
+    fetchedDeudaKeyRef.current = '';
+    try {
+      const resMap = await fetchDeudaAnteriorPorGrupos(valid, targetPeriod);
+      setDeudaAnteriorByGrupo(prev => ({ ...prev, ...resMap }));
+      return resMap;
+    } catch (err) {
+      console.warn('Error refrescando deuda anterior de Contaduría:', err);
+      return null;
+    }
+  };
+
+  // Consultar automáticamente al módulo de Contaduría el estado de pago del mes anterior / deuda acumulada
+  useEffect(() => {
+    if (!selectedPeriod || parsedMovements.length === 0 || socios.length === 0) return;
+
+    const groupsNeeded = new Set();
+    parsedMovements.forEach(m => {
+      if (!m.selectedSocioId || m.isDbDuplicate || m.reconciledInSession || m.estado === 'CONCILIADO') return;
+      getGroupsForRow(m).forEach(g => groupsNeeded.add(g));
+    });
+
+    const missingGroups = Array.from(groupsNeeded).filter(g => {
+      const existing = deudaAnteriorByGrupo[g];
+      return !existing || existing.periodoActual !== selectedPeriod;
+    });
+
+    if (missingGroups.length === 0) return;
+
+    const queryKey = `${selectedPeriod}|${missingGroups.sort((a, b) => a - b).join(',')}`;
+    if (fetchedDeudaKeyRef.current === queryKey) return;
+    fetchedDeudaKeyRef.current = queryKey;
+
+    let cancelled = false;
+    setLoadingDeudaAnterior(true);
+    fetchDeudaAnteriorPorGrupos(missingGroups, selectedPeriod)
+      .then(resMap => {
+        if (cancelled || !resMap) return;
+        setDeudaAnteriorByGrupo(prev => ({ ...prev, ...resMap }));
+      })
+      .catch(err => {
+        console.warn('Error al consultar deuda anterior en Contaduría:', err);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDeudaAnterior(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [parsedMovements, socios, selectedPeriod, deudaAnteriorByGrupo, getGroupsForRow]);
 
   const fetchHistorial = async () => {
     setLoadingHistorial(true);
@@ -1008,11 +1105,12 @@ export default function ConciliacionBancaria() {
       if (m.id !== rowId) return m;
 
       // Si se pasa vacío, null o 'CLEAR': desmarcar todas las liquidaciones y líneas
-      if (!liqId || liqId === 'CLEAR') {
+      if (!liqId || liqId === 'CLEAR' || (Array.isArray(liqId) && liqId.length === 0)) {
         return {
           ...m,
           selectedLiquidations: [],
           selectedLiquidationId: null,
+          matchedLiquidationIds: null,
           selectedLines: [],
           estado: m.isDbDuplicate ? 'CONCILIADO' : 'PENDIENTE',
           isAlreadyPaidMatch: m.isDbDuplicate || false,
@@ -1021,18 +1119,25 @@ export default function ConciliacionBancaria() {
       }
 
       const currentList = m.selectedLiquidations || [];
-      const isSelected = currentList.includes(String(liqId));
       let newList;
-      if (forceSelect) {
-        newList = [String(liqId)];
-      } else if (isSelected) {
-        newList = currentList.filter(id => id !== String(liqId));
+      if (Array.isArray(liqId)) {
+        const strIds = liqId.map(String);
+        newList = forceSelect ? strIds : [...new Set([...currentList, ...strIds])];
       } else {
-        newList = [...currentList, String(liqId)];
+        const strId = String(liqId);
+        const isSelected = currentList.includes(strId);
+        if (forceSelect) {
+          newList = [strId];
+        } else if (isSelected) {
+          newList = currentList.filter(id => id !== strId);
+        } else {
+          newList = [...currentList, strId];
+        }
       }
 
+      const allRowLiqs = getRowAllLiquidations(m);
       const allSelectedPaid = newList.length > 0 && newList.every(id => {
-        const liq = (m.pendingList || []).find(l => String(l.liquidacion_id) === String(id));
+        const liq = allRowLiqs.find(l => String(l.liquidacion_id) === String(id));
         if (!liq) return false;
         return (Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0)) <= 2.00 || liq.estado_pago === 'ABONADO';
       });
@@ -1048,6 +1153,7 @@ export default function ConciliacionBancaria() {
         ...m,
         selectedLiquidations: newList,
         selectedLiquidationId: nextSingleLiqId,
+        matchedLiquidationIds: null,
         estado: nextEstado,
         isAlreadyPaidMatch,
         isAlreadySaldada: allSelectedPaid
@@ -2355,18 +2461,20 @@ export default function ConciliacionBancaria() {
     try {
       setParsedMovements(prev => prev.map(m => m.id === rowId ? { ...m, estado: 'PROCESANDO' } : m));
 
+      const allRowLiquidations = getRowAllLiquidations(row);
+
       // EVITAR SOBRE-FACTURACIÓN: Verificar si la liquidación seleccionada YA está saldada
       let skipLiquidationUpdate = false;
       if (row.selectedLiquidations && row.selectedLiquidations.length > 0) {
         const allSelectedPaid = row.selectedLiquidations.every(liqId => {
-          const liq = row.pendingList?.find(l => String(l.liquidacion_id) === String(liqId));
+          const liq = allRowLiquidations.find(l => String(l.liquidacion_id) === String(liqId));
           if (!liq) return false;
           const pending = Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0);
           return pending <= 0.05 || liq.estado_pago === 'ABONADO';
         });
         if (allSelectedPaid) skipLiquidationUpdate = true;
       } else if (row.selectedLiquidationId && row.selectedLiquidationId !== 'SALDAR_TODO') {
-        const liq = row.pendingList?.find(l => String(l.liquidacion_id) === String(row.selectedLiquidationId));
+        const liq = allRowLiquidations.find(l => String(l.liquidacion_id) === String(row.selectedLiquidationId));
         if (liq) {
           const pending = Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0);
           if (pending <= 0.05 || liq.estado_pago === 'ABONADO') skipLiquidationUpdate = true;
@@ -2407,18 +2515,20 @@ export default function ConciliacionBancaria() {
       const socioObj = row.selectedSocioId ? socios.find(s => s.socio_id === parseInt(row.selectedSocioId, 10)) : null;
       let groupNum = row.grupo 
         ? parseInt(row.grupo, 10) 
-        : (row.pendingList?.[0]?.numero_grupo 
-            ? parseInt(row.pendingList[0].numero_grupo, 10) 
+        : (allRowLiquidations?.[0]?.numero_grupo 
+            ? parseInt(allRowLiquidations[0].numero_grupo, 10) 
             : (socioObj?.grupo_socio?.[0]?.numero_grupo || (row.suggestedSocio?.learnedGroup ? parseInt(row.suggestedSocio.learnedGroup, 10) : null)));
       const socioLabel = row.selectedSocioLabel || (groupNum ? `Grupo ${groupNum}` : null);
 
       if (row.selectedLiquidations && row.selectedLiquidations.length > 1) {
-        // 1. Distribute payment amount (row.netoReal) across all selected liquidations
+        // 1. Distribute payment amount (row.netoReal) across all selected liquidations (FIFO por período)
         let remaining = row.netoReal;
         const indivMovs = [];
         const aggPayments = {};
         
-        const listToPay = row.pendingList.filter(liq => row.selectedLiquidations.includes(String(liq.liquidacion_id)));
+        const listToPay = allRowLiquidations
+          .filter(liq => row.selectedLiquidations.includes(String(liq.liquidacion_id)))
+          .sort((a, b) => String(a.periodo || '').localeCompare(String(b.periodo || '')));
         
         listToPay.forEach((liq, lIdx) => {
           const pendingAmount = Math.max(0, Math.round((Number(liq.monto_total_facturado) - Number(liq.monto_abonado || 0)) * 100) / 100);
@@ -2486,7 +2596,7 @@ export default function ConciliacionBancaria() {
         for (const liqIdStr of Object.keys(aggPayments)) {
           const liqId = parseInt(liqIdStr, 10);
           const extraPaid = aggPayments[liqId];
-          const liqObj = row.pendingList.find(l => l.liquidacion_id === liqId);
+          const liqObj = allRowLiquidations.find(l => l.liquidacion_id === liqId);
           
           if (liqObj) {
             if (!groupNum && liqObj.numero_grupo) {
@@ -2554,7 +2664,7 @@ export default function ConciliacionBancaria() {
           ? row.selectedLiquidations[0] 
           : (row.selectedLiquidationId ? row.selectedLiquidationId : null);
 
-        const matchedLiq = row.pendingList?.find(l => String(l.liquidacion_id) === String(singleLiqId));
+        const matchedLiq = allRowLiquidations.find(l => String(l.liquidacion_id) === String(singleLiqId));
 
         // El período asignado SIEMPRE coincide con Facturación y Contaduría
         const resolvedPeriod = matchedLiq?.periodo || activePeriod;
@@ -2588,7 +2698,7 @@ export default function ConciliacionBancaria() {
 
         // If vinculated to bill, update liquidaciones_grupos (solo si no estaba ya saldada)
         if (singleLiqId && !skipLiquidationUpdate) {
-          const liqObj = row.pendingList?.find(l => String(l.liquidacion_id) === String(singleLiqId));
+          const liqObj = allRowLiquidations.find(l => String(l.liquidacion_id) === String(singleLiqId));
           if (liqObj) {
             groupNum = liqObj.numero_grupo;
             // Leer monto_abonado FRESCO de la DB para evitar race conditions y doble contabilización
@@ -2619,11 +2729,13 @@ export default function ConciliacionBancaria() {
             // Si el pago excede el total facturado de esta liquidación, amortizar en cascada otras liquidaciones pendientes del grupo (ej: múltiples operadoras)
             let remanenteCobro = Math.round((Number(row.netoReal) - abonoAplicado) * 100) / 100;
             if (remanenteCobro > 0 && groupNum) {
-              const otherPendingLiqs = (row.pendingList || []).filter(l =>
-                String(l.liquidacion_id) !== String(singleLiqId) &&
-                (l.numero_grupo === groupNum || String(l.numero_grupo) === String(groupNum)) &&
-                (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)) > 0.05
-              );
+              const otherPendingLiqs = allRowLiquidations
+                .filter(l =>
+                  String(l.liquidacion_id) !== String(singleLiqId) &&
+                  (l.numero_grupo === groupNum || String(l.numero_grupo) === String(groupNum)) &&
+                  (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)) > 0.05
+                )
+                .sort((a, b) => String(a.periodo || '').localeCompare(String(b.periodo || '')));
               for (const oLiq of otherPendingLiqs) {
                 if (remanenteCobro <= 0) break;
                 const { data: freshOLiq } = await supabase
@@ -2655,7 +2767,7 @@ export default function ConciliacionBancaria() {
             }
           }
         } else if (singleLiqId && skipLiquidationUpdate) {
-          const liqObj = row.pendingList?.find(l => String(l.liquidacion_id) === String(singleLiqId));
+          const liqObj = allRowLiquidations.find(l => String(l.liquidacion_id) === String(singleLiqId));
           if (liqObj) groupNum = liqObj.numero_grupo;
         }
 
@@ -2814,25 +2926,25 @@ export default function ConciliacionBancaria() {
     if (!m.selectedSocioId) return false;
     if (m.estado === 'CONCILIADO' || m.isAlreadyPaidMatch || m.isDbDuplicate) return false;
 
+    const allRowLiqs = getRowAllLiquidations(m);
+
     const liqs = m.selectedLiquidations && m.selectedLiquidations.length > 0
       ? m.selectedLiquidations
       : (m.selectedLiquidationId && m.selectedLiquidationId !== 'SALDAR_TODO' ? [m.selectedLiquidationId] : []);
 
-    if (m.selectedLiquidationId === 'SALDAR_TODO') {
-      if (m.matchedLiquidationIds && m.matchedLiquidationIds.length > 0) {
-        const activeLiqs = (m.pendingList || []).filter(l => 
-          m.matchedLiquidationIds.includes(l.liquidacion_id) && 
-          (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)) > 2.00
-        );
-        if (activeLiqs.length === 0) return false;
-      }
+    if (m.selectedLiquidationId === 'SALDAR_TODO' && m.matchedLiquidationIds && m.matchedLiquidationIds.length > 0) {
+      const activeLiqs = allRowLiqs.filter(l => 
+        m.matchedLiquidationIds.includes(l.liquidacion_id) && 
+        (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)) > 2.00
+      );
+      if (activeLiqs.length === 0) return false;
       return true;
     }
     if (liqs.length === 0) return false;
 
     // Si todas las liquidaciones seleccionadas ya están saldadas, no debe considerarse listo para conciliar
     const areAllPaid = liqs.every(liqId => {
-      const liq = (m.pendingList || []).find(l => String(l.liquidacion_id) === String(liqId));
+      const liq = allRowLiqs.find(l => String(l.liquidacion_id) === String(liqId));
       if (!liq) return false;
       return (Number(liq.monto_total_facturado || 0) - Number(liq.monto_abonado || 0)) <= 2.00 || liq.estado_pago === 'ABONADO';
     });
@@ -2840,7 +2952,7 @@ export default function ConciliacionBancaria() {
 
     if (liqs.length === 1) {
       const singleLiqId = liqs[0];
-      const selectedLiq = m.pendingList?.find(l => String(l.liquidacion_id) === String(singleLiqId));
+      const selectedLiq = allRowLiqs.find(l => String(l.liquidacion_id) === String(singleLiqId));
       if (!selectedLiq) return false;
 
       if (m.selectedLines && m.selectedLines.length > 0) {
@@ -2858,7 +2970,7 @@ export default function ConciliacionBancaria() {
         return Math.abs(pendingAmount - Math.abs(m.netoReal)) < 2.00;
       }
     } else {
-      const sumPending = (m.pendingList || [])
+      const sumPending = allRowLiqs
         .filter(l => liqs.includes(String(l.liquidacion_id)))
         .reduce((sum, l) => sum + (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)), 0);
       return Math.abs(sumPending - Math.abs(m.netoReal)) < 2.00;
@@ -4152,6 +4264,11 @@ export default function ConciliacionBancaria() {
           setActiveTab={setActiveTab}
           conciliacionHistorica={conciliacionHistorica}
           handleOlvidarAprendizaje={handleOlvidarAprendizaje}
+          deudaAnteriorByGrupo={deudaAnteriorByGrupo}
+          loadingDeudaAnterior={loadingDeudaAnterior}
+          getGroupsForRow={getGroupsForRow}
+          getRowAllLiquidations={getRowAllLiquidations}
+          refreshDeudaAnteriorGrupo={refreshDeudaAnteriorGrupo}
         />
       )}
 
