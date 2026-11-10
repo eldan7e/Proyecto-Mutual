@@ -268,7 +268,8 @@ export default function ConciliacionBancaria() {
   // Deuda de períodos anteriores consultada directamente al módulo de Contaduría
   const [deudaAnteriorByGrupo, setDeudaAnteriorByGrupo] = useState({});
   const [loadingDeudaAnterior, setLoadingDeudaAnterior] = useState(false);
-  const fetchedDeudaKeyRef = useRef('');
+  const deudaAnteriorPeriodRef = useRef('');
+  const inFlightDeudaGroupsRef = useRef(new Set());
 
   // Desglose de liquidaciones del grupo
   const [breakdownModal, setBreakdownModal] = useState({
@@ -444,7 +445,7 @@ export default function ConciliacionBancaria() {
         )).flat();
       }
       setPeriodConsumos(consumosList);
-      fetchedDeudaKeyRef.current = '';
+      inFlightDeudaGroupsRef.current.clear();
       setDeudaAnteriorByGrupo({});
       fetchDbMovementsForPeriod(selectedPeriod);
       setLoadingMaster(false);
@@ -496,7 +497,7 @@ export default function ConciliacionBancaria() {
     const list = Array.isArray(groupNums) ? groupNums : [groupNums];
     const valid = list.map(g => parseInt(g, 10)).filter(g => !isNaN(g) && g > 0);
     if (valid.length === 0) return null;
-    fetchedDeudaKeyRef.current = '';
+    valid.forEach(g => inFlightDeudaGroupsRef.current.delete(g));
     try {
       const resMap = await fetchDeudaAnteriorPorGrupos(valid, targetPeriod);
       setDeudaAnteriorByGrupo(prev => ({ ...prev, ...resMap }));
@@ -511,6 +512,11 @@ export default function ConciliacionBancaria() {
   useEffect(() => {
     if (!selectedPeriod || parsedMovements.length === 0 || socios.length === 0) return;
 
+    if (deudaAnteriorPeriodRef.current !== selectedPeriod) {
+      deudaAnteriorPeriodRef.current = selectedPeriod;
+      inFlightDeudaGroupsRef.current.clear();
+    }
+
     const groupsNeeded = new Set();
     parsedMovements.forEach(m => {
       if (!m.selectedSocioId || m.isDbDuplicate || m.reconciledInSession || m.estado === 'CONCILIADO') return;
@@ -518,31 +524,43 @@ export default function ConciliacionBancaria() {
     });
 
     const missingGroups = Array.from(groupsNeeded).filter(g => {
+      if (inFlightDeudaGroupsRef.current.has(g)) return false;
       const existing = deudaAnteriorByGrupo[g];
       return !existing || existing.periodoActual !== selectedPeriod;
     });
 
     if (missingGroups.length === 0) return;
 
-    const queryKey = `${selectedPeriod}|${missingGroups.sort((a, b) => a - b).join(',')}`;
-    if (fetchedDeudaKeyRef.current === queryKey) return;
-    fetchedDeudaKeyRef.current = queryKey;
-
-    let cancelled = false;
+    missingGroups.forEach(g => inFlightDeudaGroupsRef.current.add(g));
+    const requestPeriod = selectedPeriod;
     setLoadingDeudaAnterior(true);
-    fetchDeudaAnteriorPorGrupos(missingGroups, selectedPeriod)
+
+    fetchDeudaAnteriorPorGrupos(missingGroups, requestPeriod)
       .then(resMap => {
-        if (cancelled || !resMap) return;
-        setDeudaAnteriorByGrupo(prev => ({ ...prev, ...resMap }));
+        if (deudaAnteriorPeriodRef.current !== requestPeriod) return;
+        const safeMap = resMap ? { ...resMap } : {};
+        missingGroups.forEach(g => {
+          if (!safeMap[g]) {
+            safeMap[g] = { numero_grupo: g, periodoActual: requestPeriod, tieneDeudaAnterior: false };
+          }
+        });
+        setDeudaAnteriorByGrupo(prev => ({ ...prev, ...safeMap }));
       })
       .catch(err => {
         console.warn('Error al consultar deuda anterior en Contaduría:', err);
+        if (deudaAnteriorPeriodRef.current !== requestPeriod) return;
+        const fallbackMap = {};
+        missingGroups.forEach(g => {
+          fallbackMap[g] = { numero_grupo: g, periodoActual: requestPeriod, tieneDeudaAnterior: false };
+        });
+        setDeudaAnteriorByGrupo(prev => ({ ...prev, ...fallbackMap }));
       })
       .finally(() => {
-        if (!cancelled) setLoadingDeudaAnterior(false);
+        missingGroups.forEach(g => inFlightDeudaGroupsRef.current.delete(g));
+        if (inFlightDeudaGroupsRef.current.size === 0) {
+          setLoadingDeudaAnterior(false);
+        }
       });
-
-    return () => { cancelled = true; };
   }, [parsedMovements, socios, selectedPeriod, deudaAnteriorByGrupo, getGroupsForRow]);
 
   const fetchHistorial = async () => {
