@@ -1653,7 +1653,7 @@ ${detailedReport.collectiveDebits?.length > 0 ? `💳 Débito Colectivo: ${detai
 
       return checkIsAmountMatch(m, periodConsumos);
     }).length;
-  }, [parsedMovements, periodConsumos, selectedPeriod]);
+  }, [parsedMovements, periodConsumos, checkIsAmountMatch]);
 
   // Group movements by selected or suggested socio ID to count transfers in this batch
   const socioTransfersInfo = useMemo(() => {

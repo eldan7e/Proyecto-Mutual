@@ -3,12 +3,13 @@ import { Outlet, Link, useLocation } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
 import { supabase } from './supabaseClient';
 import { 
-  LayoutDashboard, FileText, LogOut, User as UserIcon, Sun, Moon, Landmark, Calculator, Users, ClipboardList, UserPlus, Loader2, Activity, Mail, Bell, History
+  LayoutDashboard, FileText, LogOut, User as UserIcon, Sun, Moon, Landmark, Calculator, Users, ClipboardList, UserPlus, Loader2, Activity, Mail, Bell, History, HelpCircle
 } from 'lucide-react';
 import ErrorBoundary from './components/ui/ErrorBoundary';
 import Modal from './components/Modal';
 import { useToast } from './components/ui/ToastProvider';
 import AuditLogModal from './components/Admin/AuditLogModal';
+import HelpModal from './components/Help/HelpModal';
 import { registrarAuditoria } from './utils/auditLogger';
 
 export default function Layout({ session, theme, toggleTheme }) {
@@ -17,7 +18,38 @@ export default function Layout({ session, theme, toggleTheme }) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [isAuditLogModalOpen, setIsAuditLogModalOpen] = useState(false);
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+  const [helpInitialCategory, setHelpInitialCategory] = useState('carga_datos');
   const profileRef = useRef(null);
+
+  // Categoría contextual según la ruta actual
+  const getContextualHelpCategory = () => {
+    const path = location.pathname.toLowerCase();
+    if (path.includes('carga-manual')) return 'carga_datos';
+    if (path.includes('facturacion')) return 'facturacion';
+    if (path.includes('contaduria') || path.includes('conciliacion') || path.includes('caja-efectivo') || path.includes('movimientos')) return 'conciliacion';
+    if (path.includes('campanas')) return 'campanas';
+    if (path.includes('comunidad') || path.includes('socios') || path.includes('grupos') || path.includes('planes') || path.includes('descuentos')) return 'comunidad';
+    return 'dashboard';
+  };
+
+  const handleOpenHelp = (category) => {
+    setHelpInitialCategory(category || getContextualHelpCategory());
+    setIsHelpModalOpen(true);
+  };
+
+  // Atajo F1 para abrir instructivos
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'F1') {
+        e.preventDefault();
+        setHelpInitialCategory(getContextualHelpCategory());
+        setIsHelpModalOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [location.pathname]);
 
   // Notification states
   const [notifications, setNotifications] = useState(() => {
@@ -264,6 +296,7 @@ export default function Layout({ session, theme, toggleTheme }) {
     { path: '/facturacion', icon: FileText, label: 'Facturación' },
     { path: '/contaduria', icon: Calculator, label: 'Contaduría' },
     { path: '/campanas', icon: Mail, label: 'Comunicación' },
+    { path: '/instructivos', icon: HelpCircle, label: 'Instructivos' },
   ];
 
   const APP_CATEGORIES = [
@@ -272,6 +305,7 @@ export default function Layout({ session, theme, toggleTheme }) {
     { id: 'facturacion', paths: ['/facturacion', '/comprobantes-afip', '/gestion-pagos', '/carga-manual'] },
     { id: 'bancos', paths: ['/contaduria', '/caja-efectivo', '/conciliacion-bancaria', '/movimientos-bancarios'] },
     { id: 'comunicacion', paths: ['/campanas'] },
+    { id: 'ayuda', paths: ['/instructivos'] },
   ];
 
   const pageNames = {
@@ -295,7 +329,8 @@ export default function Layout({ session, theme, toggleTheme }) {
     '/conciliacion-bancaria': 'Conciliación Bancaria',
     '/movimientos-bancarios': 'Historial de Movimientos',
     '/grupos': 'Gestión de Grupos',
-    '/campanas': 'Comunicación'
+    '/campanas': 'Comunicación',
+    '/instructivos': 'Instructivos de Componentes'
   };
 
   const activeCategory = APP_CATEGORIES.find(cat => {
@@ -312,7 +347,8 @@ export default function Layout({ session, theme, toggleTheme }) {
     'facturacion': 'GESTIÓN FACTURACIÓN',
     'bancos': 'GESTIÓN BANCARIA',
     'comunicacion': 'COMUNICACIÓN',
-    'admin': 'CONFIGURACIÓN SISTEMA'
+    'admin': 'CONFIGURACIÓN SISTEMA',
+    'ayuda': 'GUÍAS & INSTRUCTIVOS'
   };
 
   return (
@@ -347,6 +383,8 @@ export default function Layout({ session, theme, toggleTheme }) {
                   ? ['/facturacion', '/comprobantes-afip', '/gestion-pagos', '/descuentos', '/carga-manual'].includes(location.pathname)
                   : (item.path === '/contaduria' || item.path === '/cuenta-corriente')
                     ? ['/contaduria', '/caja-efectivo', '/conciliacion-bancaria', '/cuenta-corriente', '/informe-saldos', '/movimientos-bancarios'].includes(location.pathname)
+                    : item.path === '/instructivos'
+                      ? location.pathname === '/instructivos'
                     : item.path.includes('?') 
                       ? currentFullPath === item.path 
                       : location.pathname === item.path;
@@ -410,6 +448,32 @@ export default function Layout({ session, theme, toggleTheme }) {
           </div>
 
           <div className="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {/* Botón de Instructivos & Ayuda */}
+            <button 
+              onClick={() => handleOpenHelp()}
+              title="Centro de Instructivos y Ayuda (F1)"
+              className="hover-lift"
+              style={{ 
+                background: 'var(--surface)', 
+                cursor: 'pointer', 
+                height: '44px', 
+                borderRadius: '14px', 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '8px',
+                padding: '0 16px',
+                color: 'var(--accent)', 
+                fontWeight: 800,
+                fontSize: '13px',
+                transition: 'all 0.2s',
+                border: '1px solid var(--border-light)',
+                boxShadow: 'var(--shadow-soft)'
+              }}
+            >
+              <HelpCircle size={18} />
+              <span>Instructivos</span>
+            </button>
+
             <button 
               onClick={toggleTheme} 
               style={{ 
@@ -608,6 +672,13 @@ export default function Layout({ session, theme, toggleTheme }) {
       <AuditLogModal 
         isOpen={isAuditLogModalOpen} 
         onClose={() => setIsAuditLogModalOpen(false)} 
+      />
+
+      {/* Help & Instructivos Modal */}
+      <HelpModal 
+        isOpen={isHelpModalOpen} 
+        onClose={() => setIsHelpModalOpen(false)} 
+        initialCategory={helpInitialCategory}
       />
 
       {/* Account Management Modal */}

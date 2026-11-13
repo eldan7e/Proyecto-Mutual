@@ -476,7 +476,7 @@ export default function ConciliacionBancaria() {
   }, [socios]);
 
   // Combina las liquidaciones del período actual con las liquidaciones anteriores pendientes de Contaduría
-  const getRowAllLiquidations = (row) => {
+  const getRowAllLiquidations = useCallback((row) => {
     const map = new Map();
     (row?.pendingList || []).forEach(l => {
       if (l?.liquidacion_id) map.set(String(l.liquidacion_id), l);
@@ -490,7 +490,7 @@ export default function ConciliacionBancaria() {
       });
     });
     return Array.from(map.values());
-  };
+  }, [getGroupsForRow, deudaAnteriorByGrupo]);
 
   // Refresca bajo demanda el estado en Contaduría de uno o más grupos
   const refreshDeudaAnteriorGrupo = async (groupNums, targetPeriod = selectedPeriod) => {
@@ -556,6 +556,7 @@ export default function ConciliacionBancaria() {
         setDeudaAnteriorByGrupo(prev => ({ ...prev, ...fallbackMap }));
       })
       .finally(() => {
+        if (deudaAnteriorPeriodRef.current !== requestPeriod) return;
         missingGroups.forEach(g => inFlightDeudaGroupsRef.current.delete(g));
         if (inFlightDeudaGroupsRef.current.size === 0) {
           setLoadingDeudaAnterior(false);
@@ -2611,36 +2612,38 @@ export default function ConciliacionBancaria() {
         }
 
         // Update liquidaciones_grupos
-        for (const liqIdStr of Object.keys(aggPayments)) {
-          const liqId = parseInt(liqIdStr, 10);
-          const extraPaid = aggPayments[liqId];
-          const liqObj = allRowLiquidations.find(l => l.liquidacion_id === liqId);
-          
-          if (liqObj) {
-            if (!groupNum && liqObj.numero_grupo) {
-              groupNum = liqObj.numero_grupo;
-            }
-            // Leer monto_abonado FRESCO de la DB para evitar race conditions y doble contabilización
-            const { data: freshLiq } = await supabase
-              .from('liquidaciones_grupos')
-              .select('monto_abonado, monto_total_facturado')
-              .eq('liquidacion_id', liqId)
-              .single();
-            const currentAbonado = Number(freshLiq?.monto_abonado || liqObj.monto_abonado || 0);
-            const currentFacturado = Number(freshLiq?.monto_total_facturado || liqObj.monto_total_facturado);
-            const projectedAbonado = Math.round((currentAbonado + extraPaid) * 100) / 100;
-            const isFullyPaid = projectedAbonado >= currentFacturado - 0.05;
-            const newMontoAbonado = isFullyPaid ? currentFacturado : projectedAbonado;
+        if (!skipLiquidationUpdate) {
+          for (const liqIdStr of Object.keys(aggPayments)) {
+            const liqId = parseInt(liqIdStr, 10);
+            const extraPaid = aggPayments[liqId];
+            const liqObj = allRowLiquidations.find(l => l.liquidacion_id === liqId);
             
-            const { error: liqError } = await supabase
-              .from('liquidaciones_grupos')
-              .update({
-                monto_abonado: newMontoAbonado,
-                estado_pago: isFullyPaid ? 'ABONADO' : (newMontoAbonado > 0 ? 'PARCIAL' : 'PENDIENTE'),
-                updated_at: new Date().toISOString()
-              })
-              .eq('liquidacion_id', liqId);
-            if (liqError) throw liqError;
+            if (liqObj) {
+              if (!groupNum && liqObj.numero_grupo) {
+                groupNum = liqObj.numero_grupo;
+              }
+              // Leer monto_abonado FRESCO de la DB para evitar race conditions y doble contabilización
+              const { data: freshLiq } = await supabase
+                .from('liquidaciones_grupos')
+                .select('monto_abonado, monto_total_facturado')
+                .eq('liquidacion_id', liqId)
+                .single();
+              const currentAbonado = Number(freshLiq?.monto_abonado || liqObj.monto_abonado || 0);
+              const currentFacturado = Number(freshLiq?.monto_total_facturado || liqObj.monto_total_facturado);
+              const projectedAbonado = Math.round((currentAbonado + extraPaid) * 100) / 100;
+              const isFullyPaid = projectedAbonado >= currentFacturado - 0.05;
+              const newMontoAbonado = isFullyPaid ? currentFacturado : projectedAbonado;
+              
+              const { error: liqError } = await supabase
+                .from('liquidaciones_grupos')
+                .update({
+                  monto_abonado: newMontoAbonado,
+                  estado_pago: isFullyPaid ? 'ABONADO' : (newMontoAbonado > 0 ? 'PARCIAL' : 'PENDIENTE'),
+                  updated_at: new Date().toISOString()
+                })
+                .eq('liquidacion_id', liqId);
+              if (liqError) throw liqError;
+            }
           }
         }
 
@@ -2680,9 +2683,11 @@ export default function ConciliacionBancaria() {
 
         const singleLiqId = row.selectedLiquidations && row.selectedLiquidations.length === 1 
           ? row.selectedLiquidations[0] 
-          : (row.selectedLiquidationId ? row.selectedLiquidationId : null);
+          : (row.selectedLiquidationId && row.selectedLiquidationId !== 'SALDAR_TODO' ? row.selectedLiquidationId : null);
 
-        const matchedLiq = allRowLiquidations.find(l => String(l.liquidacion_id) === String(singleLiqId));
+        const matchedLiq = singleLiqId
+          ? allRowLiquidations.find(l => String(l.liquidacion_id) === String(singleLiqId))
+          : null;
 
         // El período asignado SIEMPRE coincide con Facturación y Contaduría
         const resolvedPeriod = matchedLiq?.periodo || activePeriod;
@@ -2911,11 +2916,21 @@ export default function ConciliacionBancaria() {
       }
 
       // Actualizar el estado visual INMEDIATAMENTE para evitar demoras/parpadeos en la tabla
+      const reconciledSingleLiqId = row.selectedLiquidations && row.selectedLiquidations.length === 1
+        ? row.selectedLiquidations[0]
+        : (row.selectedLiquidationId && row.selectedLiquidationId !== 'SALDAR_TODO' ? row.selectedLiquidationId : null);
+      const reconciledLiqInfo = reconciledSingleLiqId
+        ? allRowLiquidations.find(l => String(l.liquidacion_id) === String(reconciledSingleLiqId))
+        : null;
+
       setParsedMovements(prev => prev.map(m => m.id === rowId ? { 
         ...m, 
         estado: 'CONCILIADO', 
         reconciledInSession: true,
-        movimiento_id: insertedId
+        movimiento_id: insertedId,
+        dbLiquidationInfo: reconciledLiqInfo
+          ? { periodo: reconciledLiqInfo.periodo, numero_grupo: reconciledLiqInfo.numero_grupo }
+          : m.dbLiquidationInfo
       } : m));
 
       // Refrescar DB asíncronamente solo si no es un proceso masivo
@@ -2938,7 +2953,7 @@ export default function ConciliacionBancaria() {
     }
   };
 
-  const checkIsAmountMatch = (m, allConsumos = periodConsumos) => {
+  const checkIsAmountMatch = useCallback((m, allConsumos = periodConsumos) => {
     const isTaxOrFee = ['IMPUESTO', 'COMISION', 'SUSCRIPCION', 'PAGO_VEP', 'PAGO_SERVICIO', 'PAGO_ARCA', 'TRANSFERENCIA_ENVIADA'].includes(m.tipo_movimiento);
     if (isTaxOrFee) return false;
     if (!m.selectedSocioId) return false;
@@ -2993,7 +3008,7 @@ export default function ConciliacionBancaria() {
         .reduce((sum, l) => sum + (Number(l.monto_total_facturado || 0) - Number(l.monto_abonado || 0)), 0);
       return Math.abs(sumPending - Math.abs(m.netoReal)) < 2.00;
     }
-  };
+  }, [getRowAllLiquidations, periodConsumos]);
 
   const handleConciliarTodos = async () => {
     const readyRows = parsedMovements.filter(m => {

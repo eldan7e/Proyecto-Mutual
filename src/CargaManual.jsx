@@ -5,7 +5,7 @@ import {
   AlertCircle, Save, Smartphone, Receipt, Search,
   ArrowRight, RefreshCw, Info, PieChart, TrendingUp, TrendingDown,
   FileText, Loader2, Calendar, Sparkles, Database, Zap,
-  Flag, MessageSquare, AlertTriangle, CheckSquare, CreditCard, Download, Copy, Check, Ticket
+  Flag, MessageSquare, AlertTriangle, CheckSquare, CreditCard, Download, Copy, Check, Ticket, HelpCircle
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import { normalizePhone, getParserByProvider } from './utils/invoiceParsers';
@@ -19,6 +19,7 @@ import {
   crearTicketSeguimientoDescuentoMutual
 } from './services/ticketService';
 import Modal from './components/Modal';
+import HelpModal from './components/Help/HelpModal';
 import { PaginatedEditableGrid as EditableGrid, arePlansEquivalent } from './components/PaginatedEditableGrid';
 import Step3SuccessScreen from './components/CargaManual/Step3SuccessScreen';
 import { useToast } from './components/ui/ToastProvider';
@@ -29,6 +30,7 @@ export default function CargaManual() {
   const confirm = useConfirm();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('procesamiento');
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [rawData, setRawData] = useState('');
   const [copiado, setCopiado] = useState(false);
 
@@ -1409,6 +1411,27 @@ export default function CargaManual() {
         </div>
 
         <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setIsHelpOpen(true)}
+            className="hover-lift"
+            style={{ 
+              height: '44px', 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '8px', 
+              padding: '0 16px', 
+              borderRadius: '12px', 
+              border: '1px solid var(--accent)', 
+              background: 'var(--accent-light)',
+              color: 'var(--accent)', 
+              fontWeight: 800,
+              fontSize: '13px',
+              cursor: 'pointer'
+            }}
+          >
+            <HelpCircle size={16} /> Instructivo de Carga
+          </button>
+
           {step === 2 && (
             <>
               <button
@@ -2242,6 +2265,13 @@ export default function CargaManual() {
           </div>
         </div>
       )}
+
+      {/* Modal de Instructivo y Ayuda */}
+      <HelpModal 
+        isOpen={isHelpOpen} 
+        onClose={() => setIsHelpOpen(false)} 
+        initialCategory="carga_datos"
+      />
 
     </div>
   );

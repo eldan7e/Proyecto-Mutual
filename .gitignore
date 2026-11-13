@@ -41,6 +41,7 @@ logs/
 *.xlsx
 *.xls
 *.pdf
+!public/instructivos/*.pdf
 *.txt
 
 # Ignore JSON files by default, keeping package configs

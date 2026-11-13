@@ -401,30 +401,6 @@ export default function Descuentos() {
     setIsModalOpen(true);
   }
 
-  function openEdit(a) {
-    const startStr = a.created_at ? a.created_at.substring(0, 7) : getCurrentPeriodYMD();
-    const socioData = a.socios || a.lineas?.socios;
-    setForm({
-      tipo: a.tipo,
-      descripcion: a.descripcion || '',
-      valor: a.valor,
-      cta_numero: a.cta_numero,
-      total_cuotas: a.total_cuotas,
-      socio_id: socioData?.socio_id || '',
-      numero_linea: a.lineas?.numero_linea || '',
-      periodo_inicio: startStr,
-      alcance: 'socio',
-    });
-    setSocioSearch(socioData?.nombre_completo || '');
-    setEditId(a.id);
-    setCrearTicketEnModal(false);
-    fetchSocios();
-    const sid = socioData?.socio_id;
-    if (sid) { fetchLineas(sid); fetchGrupoLineas(sid); }
-    setGrupoLineas([]);
-    setIsModalOpen(true);
-  }
-
   const hasActiveTicket = useCallback((a) => {
     if (!a) return false;
     const cleanLinea = a.numero_linea ? String(a.numero_linea).replace(/\D/g, '') : null;

@@ -5,7 +5,7 @@ import {
   Database, Zap, CheckCircle2, AlertCircle, 
   Trash2, Edit2, ArrowRight, Calendar, ArrowRightLeft, ChevronRight, X,
   Filter, MoreHorizontal, LayoutGrid, List, BarChart3, Download,
-  Loader2, Users, ArrowUpDown, AlertTriangle, Clock
+  Loader2, Users, ArrowUpDown, AlertTriangle, Clock, HelpCircle
 } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -22,6 +22,7 @@ import useTableFilters from './hooks/useTableFilters';
 import HistorialLotes from './components/Facturacion/HistorialLotes';
 import LiquidacionesSocio from './components/Facturacion/LiquidacionesSocio';
 import ResumenGrupos from './components/Facturacion/ResumenGrupos';
+import HelpModal from './components/Help/HelpModal';
 
 const PROV_IDS = { 'CLARO': 1, 'MOVISTAR': 2, 'PERSONAL': 3 };
 
@@ -54,6 +55,7 @@ export default function Facturacion() {
   );
   const [filterProv, setFilterProv] = useState('');
   const [expandedGroups, setExpandedGroups] = useState({});
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
 
   const updateParams = (updates) => {
     setSearchParams(prev => {
@@ -249,6 +251,27 @@ export default function Facturacion() {
             <option value="MOVISTAR">Movistar</option>
             <option value="PERSONAL">Personal</option>
           </select>
+          <button
+            onClick={() => setIsHelpOpen(true)}
+            className="hover-lift"
+            style={{
+              height: '42px',
+              padding: '0 16px',
+              borderRadius: '12px',
+              border: '1px solid var(--accent)',
+              background: 'var(--accent-light)',
+              color: 'var(--accent)',
+              fontSize: '13px',
+              fontWeight: 800,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            <HelpCircle size={16} /> Instructivo Oficial
+          </button>
         </div>
       </div>
 
@@ -384,6 +407,13 @@ export default function Facturacion() {
           </>
         )}
       </div>
+
+      {/* Modal de Instructivo y Ayuda */}
+      <HelpModal 
+        isOpen={isHelpOpen} 
+        onClose={() => setIsHelpOpen(false)} 
+        initialCategory="facturacion"
+      />
     </div>
   );
 }

@@ -1270,10 +1270,15 @@ export async function fetchDeudaAnteriorPorGrupos(gruposNumeros = [], periodoAct
       }));
 
     // Coherencia Contaduría vs liquidaciones_grupos:
-    // Si en Contaduría (movimientos_cuenta) el grupo ya cubrió su deuda (saldoCapital <= 2),
+    // Si en Contaduría (movimientos_cuenta) el grupo ya cubrió su deuda de períodos anteriores
+    // (descontando lo facturado neto del período actual si aún no venció/cobró),
     // informar que Contaduría lo tiene al día, salvo que no tenga movimientos en Contaduría aún.
     const tieneMovsContaduria = movsProcesados.length > 0;
-    const contaduriaAlDia = tieneMovsContaduria && saldoCapitalTotal <= 2;
+    const netTargetPeriod = movsProcesados
+      .filter(m => m.periodo && m.periodo >= targetPeriod)
+      .reduce((s, m) => s + Number(m.importe || 0), 0);
+    const saldoCapitalPrior = saldoCapitalTotal - Math.max(0, netTargetPeriod);
+    const contaduriaAlDia = tieneMovsContaduria && (saldoCapitalTotal <= 2 || saldoCapitalPrior <= 2);
 
     const deudaMesAntContaduria = mesesImpagosAnteriores.filter(m => m.periodo === periodoAnterior);
     const liqsMesAnteriorAll = rawLiqs.filter(l => l.periodo === periodoAnterior);
