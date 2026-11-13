@@ -17,56 +17,100 @@ export default function Instructivos() {
   const componentGuides = useMemo(() => [
     {
       id: 'carga_datos',
-      title: 'Carga de Facturación & Operadoras',
+      title: 'Carga de Facturación, Auditoría & Liquidación',
       componentName: 'CargaManual.jsx',
       route: '/carga-manual',
       icon: UploadCloud,
       color: '#3b82f6',
-      badge: 'Mensual - Operadoras',
+      badge: 'Procedimiento Oficial',
       pdfUrl: null,
-      summary: 'Módulo para importar, parsear y auditar de forma inteligente las facturas mensuales de Claro, Movistar y Personal antes de emitir cobranzas.',
-      explanation: 'Este componente es el punto de inicio del ciclo mensual de facturación. Recibe las planillas o extractos PDF de las compañías telefónicas, analiza cada línea, la compara con el padrón de socios en base de datos, segrega excedentes y detecta discrepancias de precios.',
+      summary: 'Guía paso a paso para importar las facturas de Claro, Movistar y Personal, auditar discrepancias de abonos y líneas huérfanas, y guardar la liquidación definitiva en la base de datos.',
+      explanation: 'Este componente es el motor central de ingreso mensual. Permite volcar los extractos de las 3 compañías telefónicas, cruzar línea por línea contra el padrón de socios de Supabase, segregar consumos excedentes, actualizar tarifas sugeridas de la mutual y generar el lote auditado.',
       sections: [
         {
-          title: '1. Configuración de Período y Selección de Prestadora',
-          desc: 'Al ingresar a la pantalla, se configura la procedencia de la factura a liquidar:',
+          title: 'Fase 1: Preparación y Carga de la Factura (Paso a Paso)',
+          desc: 'Procedimiento para ingresar los consumos mensuales brutos según la compañía telefónica:',
           points: [
-            '• Período de Factura: Seleccioná el año y mes correspondiente (ej: 2026-09). El sistema toma el mes anterior automáticamente como referencia de auditoría.',
-            '• Selección de Prestadora: Seleccioná Movistar (Archivo PDF), Personal (Archivo PDF/Texto) o Claro (Archivo CSV / Copia de tabla).',
-            '• Para Claro (CSV): El archivo debe estar delimitado por punto y coma (;). El parser extrae: Valor Plan (Abono), Bonificaciones, Excedentes (Gigas y cargos extras) y Monto Total de Línea.',
-            '• Para Movistar (PDF Cuadro Resumen): Lee la tabla de consumos separando Cargos Fijos (Abono Base) y Cargos Variables (Excedentes).',
-            '• Para Personal (PDF): Identifica cada bloque de consumo por número celular, calcula el excedente restando el abono pactado y asigna el total.',
-            '• Área de Pegado: Pegá el texto bruto copiado o arrastrá el archivo y presioná "Procesar Datos".'
+            '1. Obtención del Archivo de la Operadora:',
+            '   • Claro: Descargar la factura y planilla CSV oficial de cobros. El archivo debe estar delimitado por punto y coma (;). El parser lee las columnas de Valor Plan (Abono), Bonificaciones, Excedentes (Gigas extras y llamadas) y Total por Línea.',
+            '   • Movistar: Descargar el archivo PDF oficial "Cuadro Resumen" de Telefónica. Abrir el documento, seleccionar y copiar la tabla de consumos donde se desglosan Cargos Fijos (Abono Base) y Cargos Variables (Excedentes).',
+            '   • Personal: Descargar la factura PDF de Telecom. Copiar el bloque de líneas móviles con su desglose de consumos.',
+            '2. Ingreso al Sistema: Acceder a Carga de Facturación (/carga-manual) desde el menú lateral o el enlace superior.',
+            '3. Configurar Período de Factura: Seleccionar el año y mes a liquidar (ej: 2026-09). El sistema pre-cargará automáticamente el historial del período anterior para calcular las variaciones porcentuales.',
+            '4. Seleccionar Prestadora: Hacer clic en el botón de la operadora que vas a procesar: Movistar (PDF), Personal (PDF) o Claro (CSV / Copiado).',
+            '5. Pegado de Datos: Pegar el texto copiado en el cuadro de texto central o arrastrar el archivo directamente.',
+            '6. Validación Antierror: El sistema cuenta con protección cruzada (verificarTextoCruzado). Si detecta que pegaste un archivo de Personal teniendo seleccionada la pestaña de Claro, emitirá una alerta preventiva para evitar errores.',
+            '7. Clic en "Procesar Datos": El sistema iniciará el parseo de líneas e importará los datos a la grilla de auditoría.'
           ],
-          tip: 'El sistema incluye protección cruzada: si intentás procesar datos de Personal teniendo seleccionada la pestaña de Claro, el sistema te avisará con una advertencia en pantalla.',
+          tip: 'Podés usar el botón "+ Copiar Todo" si necesitás copiar rápidamente el texto pegado para llevarlo a un bloc de notas o cotejarlo externamente.',
           image: '/instructivos/images/screenshot_facturacion_historial.png',
           imageCaption: 'Paso 1 • Selección de período, prestadora telefónica y carga del extracto.'
         },
         {
-          title: '2. Grilla Interactiva de Auditoría & Control de Discrepancias',
-          desc: 'Una vez procesado el archivo, se habilita el Paso 2 con la tabla interactiva de auditoría:',
+          title: 'Fase 2: Auditoría Integral en la Grilla Interactiva (Paso a Paso)',
+          desc: 'Cómo revisar, corregir y validar línea por línea antes de asentar los cobros:',
           points: [
-            '• Detección de Socios: Cruza cada línea telefónica con la tabla lineas y socios de Supabase. Si una línea no está registrada o fue dada de baja, se resalta en color naranja.',
-            '• Control de Abonos: Compara el precio cobrado por la prestadora contra el precio oficial en planes_abonos. Si hay aumentos indebidos o desfasajes, se marcan en amarillo.',
-            '• Segregación de Excedentes: Los consumos de datos adicionales o cargos eventuales se apartan en su propia columna para cobrar lo pactado y auditar desvíos.',
-            '• Filtros Rápidos: Podés filtrar por "Discrepancias de Abono", "Líneas Huérfanas" o buscar por número de línea.',
-            '• Edición en Vivo: Hacé doble clic sobre cualquier celda para corregir montos o planes antes de guardar.',
-            '• Acciones Rápidas: Podés aplicar en masa la tarifa sugerida oficial o generar tickets de reclamo directo con el botón "Crear Ticket".'
+            '1. Cruce Automático con Supabase: Al procesar, el motor de auditoría (auditEngine) cruza cada número celular contra la tabla lineas, socios y planes_abonos de la base de datos.',
+            '2. Columnas de Control de la Grilla:',
+            '   • Línea: Número de teléfono normalizado (sin guiones ni espacios).',
+            '   • Socio Asignado: Nombre completo del titular según el padrón oficial.',
+            '   • Plan Oficial vs. Plan Factura: Muestra si la operadora cobró el plan pactado o si hubo un cambio de abono o gigas.',
+            '   • Abono Real vs. Precio Lista: Compara si la empresa aplicó el descuento correspondiente (85% en Claro, 80% en Movistar y Personal).',
+            '   • Excedentes: Consumos por fuera del abono contratado (Gigas extras, roaming, SMS especiales).',
+            '   • Monto Factura: Total cobrado por la operadora.',
+            '   • Monto a Cobrar al Socio: Importe auditado final que se le liquidará al grupo familiar o comercial.',
+            '3. Resolución de Líneas Huérfanas (Sin Socio Asignado):',
+            '   • Si una línea aparece en naranja con la leyenda "Socio no identificado", utilizá el selector "+ Vincular Socio..." directamente dentro de la celda.',
+            '   • Escribí el nombre o DNI del socio en el buscador integrado y seleccionalo para vincular la línea de forma inmediata.',
+            '4. Resolución de Discrepancias de Planes:',
+            '   • Si la operadora actualizó el plan del socio, aparecerá el botón azul "Actualizar Plan" en la fila.',
+            '   • Podés pulsar "Actualizar Plan" individualmente, o utilizar el botón superior "Actualizar Planes en Masa" para sincronizar todos los planes modificados con un solo clic.',
+            '5. Apertura de Reclamos a la Compañía:',
+            '   • Si la operadora cobró de más o incumplió una bonificación, hacé clic en el botón de Ticket para abrir un reclamo con tipo, monto y descripción para que quede auditado.',
+            '6. Filtros de Navegación Rápida: Alterná entre las pestañas "Todas las Líneas", "Con Discrepancias / Anomalías", "Sin Socio" y "Líneas Sueltas" para depurar la grilla de forma ágil.'
           ],
-          alert: 'IMPORTANTE: No avances al Paso 3 hasta resolver o verificar las líneas marcadas con anomalías.',
+          alert: 'REGLA DE ORO: Antes de avanzar a la confirmación, asegurate de que la cantidad de líneas sin socio o sin plan sea CERO o esté debidamente justificada.',
           image: '/instructivos/images/screenshot_facturacion_socios.png',
-          imageCaption: 'Paso 2 • Grilla de auditoría línea por línea con comparación de abonos y consumos.'
+          imageCaption: 'Paso 2 • Grilla de auditoría interactiva con alertas de discrepancia y vinculador de socios.'
         },
         {
-          title: '3. Confirmación, Métricas y Guardado del Lote',
-          desc: 'Paso final para registrar la facturación en la base de datos:',
+          title: 'Fase 3: Ventana de Confirmación de Liquidación & Aumentos',
+          desc: 'Revisión del resumen estadístico previo al guardado:',
           points: [
-            '• Resumen Financiero: Muestra el Total a Cobrar a Socios, el Costo a Operadoras y el Margen Mutual proyectado.',
-            '• Botón "Guardar Lote de Facturación": Al confirmar, el sistema graba los consumos en las tablas consumos_mensuales, lotes_facturacion y genera las liquidaciones preliminares por grupo en liquidaciones_grupos.',
-            '• Impacto Inmediato: El lote queda disponible de inmediato en el módulo de Facturación para ser consultado y en Comunicación para emitir la campaña de cobros.'
+            '1. Presionar "Guardar Lote de Facturación": Al estar conforme con la grilla, hacé clic en el botón verde inferior.',
+            '2. Se abrirá la ventana modal "Confirmar Liquidación", que realiza un control exhaustivo:',
+            '   • Comparativa de Líneas: Líneas Mes Anterior vs. Líneas Mes Actual y la diferencia neta de altas o bajas.',
+            '   • Variación Promedio por Plan: Calcula el incremento porcentual que aplicó la operadora en sus precios de lista respecto al mes previo (ej: Claro +4.2%, Movistar +5.0%).',
+            '   • Chequeo de Bloqueo Preventivo: Muestra el recuento de líneas sin plan, sin socio o sin grupo. Si existen diferencias, el botón de guardado se bloqueará automáticamente para evitar inconsistencias en la base de datos.',
+            '3. Casilla "Forzar Guardado":',
+            '   • Si existen diferencias de líneas respecto al mes anterior pero ya fueron verificadas y aprobadas por administración, tildá la casilla: "[X] He revisado las discrepancias y deseo forzar el guardado del lote". Esto desbloqueará el botón de confirmación.',
+            '4. Actualización de Tarifa Sugerida AUNAR:',
+            '   • El sistema analiza el aumento de la compañía y te sugiere nuevas tarifas para la Mutual (ej: aumento del 3%, 4%, 5% o aumento ponderado).',
+            '   • Si deseás que el sistema actualice los precios de venta a los socios en la base de datos, tildá la opción correspondiente.'
           ],
+          tip: 'La sugerencia de tarifa Aunar redondea inteligentemente los importes a múltiplos de $5 para facilitar los pagos en efectivo y transferencias.',
+          image: '/instructivos/images/screenshot_facturacion_grupos.png',
+          imageCaption: 'Paso 3 • Modal de confirmación con comparativa de líneas y sugerencia de aumentos.'
+        },
+        {
+          title: 'Fase 4: Guardado Definitivo en Base de Datos y Pantalla de Éxito',
+          desc: 'Qué sucede internamente al confirmar el lote y cómo continuar el flujo operativo:',
+          points: [
+            '1. Ejecución del Guardado (saveFacturacion): Al presionar "Confirmar Guardado", el sistema realiza las siguientes operaciones transaccionales en PostgreSQL:',
+            '   • Registra el lote con estado AUDITADO en lotes_facturacion guardando el período, prestadora y costo.',
+            '   • Inserta el detalle de cada línea telefónica con su abono y excedente segregado en consumos_mensuales.',
+            '   • Agrupa y consolida automáticamente los consumos por cuenta comercial en liquidaciones_grupos con su número de grupo y titular.',
+            '   • Si se seleccionó actualización tarifaria, actualiza los valores en planes_abonos.',
+            '2. Pantalla de Éxito (Step3SuccessScreen):',
+            '   • Se exhibe el panel verde de confirmación con el total facturado, total a operadoras y cantidad de líneas asentadas.',
+            '3. Acciones Posteriores Recomendadas:',
+            '   • "Ver en Facturación": Te redirige al Centro de Cobranzas (/facturacion) para auditar el lote y descargar el Resumen por Grupos.',
+            '   • "Ir a Campañas": Te lleva a Comunicación (/campanas) para emitir la campaña de correos electrónicos con la factura adjunta a cada socio.',
+            '   • "Cargar otra prestadora": Limpia los campos y te devuelve al Paso 1 para ingresar la siguiente compañía telefónica.'
+          ],
+          alert: 'Una vez guardado el lote, la información impacta inmediatamente en las cuentas corrientes y en la consulta de saldos del bot de WhatsApp.',
           image: '/instructivos/images/screenshot_facturacion_liquidaciones.png',
-          imageCaption: 'Paso 3 • Resumen consolidado y guardado del lote definitivo en base de datos.'
+          imageCaption: 'Paso 4 • Pantalla de éxito con resumen del lote grabado y enlaces de continuidad.'
         }
       ]
     },
